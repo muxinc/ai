@@ -2,14 +2,23 @@
 
 AI-powered video analysis library for Mux, built in TypeScript.
 
+> **💡 Cost-Effective by Default**: Uses affordable models like `gpt-4o-mini` and `claude-3-5-haiku` to keep analysis costs low while maintaining high quality results.
+
+## Available Tools
+
+| Function | Description | Providers | Default Models | Input | Output |
+|----------|-------------|-----------|----------------|--------|--------|
+| `getSummaryAndTags` | Generate titles, descriptions, and tags from video content | OpenAI, Anthropic | `gpt-4o-mini`, `claude-3-5-haiku-20241022` | Asset ID + options | Title, description, tags, storyboard URL |
+| `getModerationScores` | Analyze video thumbnails for inappropriate content | OpenAI only | `omni-moderation-latest` | Asset ID + thresholds | Sexual/violence scores, flagged status |
+| `translateCaptions` | Translate video captions to different languages | *Coming soon* | *TBD* | Asset ID + target language | Translated captions with timestamps |
+
 ## Features
 
-- **Video Summarization**: Generate titles, descriptions, and tags from video content
-- **Content Moderation**: Analyze video thumbnails for sexual and violent content
 - **Multi-modal Analysis**: Combines storyboard images with video transcripts
-- **Tone Control**: Normal, sassy, or professional analysis styles
-- **Provider Support**: Currently supports OpenAI (Anthropic and others coming soon)
+- **Tone Control**: Normal, sassy, or professional analysis styles (summarization only)
+- **Configurable Thresholds**: Custom sensitivity levels for content moderation
 - **TypeScript**: Fully typed for excellent developer experience
+- **Provider Choice**: Switch between OpenAI and Anthropic for different perspectives
 
 ## Installation
 
@@ -40,7 +49,7 @@ console.log(result.storyboardUrl); // URL to video storyboard
 ```typescript
 import { getModerationScores } from '@mux/ai';
 
-// Analyze video for inappropriate content
+// Analyze video for inappropriate content (OpenAI only)
 const result = await getModerationScores('your-mux-asset-id', {
   thresholds: { sexual: 0.7, violence: 0.8 }
 });
@@ -48,6 +57,22 @@ const result = await getModerationScores('your-mux-asset-id', {
 console.log(result.maxScores);        // Highest scores across all thumbnails
 console.log(result.exceedsThreshold); // true if content should be flagged
 console.log(result.thumbnailScores);  // Individual thumbnail results
+```
+
+### Provider Comparison
+
+```typescript
+// OpenAI (default: gpt-4o-mini)
+const openaiResult = await getSummaryAndTags(assetId, {
+  provider: 'openai',
+  tone: 'professional'
+});
+
+// Anthropic (default: claude-3-5-haiku-20241022)  
+const anthropicResult = await getSummaryAndTags(assetId, {
+  provider: 'anthropic',
+  tone: 'professional'
+});
 ```
 
 ## Configuration
@@ -58,6 +83,7 @@ Set environment variables:
 MUX_TOKEN_ID=your_mux_token_id
 MUX_TOKEN_SECRET=your_mux_token_secret
 OPENAI_API_KEY=your_openai_api_key
+ANTHROPIC_API_KEY=your_anthropic_api_key
 ```
 
 Or pass credentials directly:
