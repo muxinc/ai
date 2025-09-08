@@ -125,8 +125,7 @@ export async function translateCaptions(
     throw new Error(`Failed to fetch VTT content: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 
-  console.log(`Found VTT content for language '${fromLanguageCode}':`);
-  console.log(vttContent.substring(0, 200) + '...'); // Log first 200 chars
+  console.log(`✅ Found VTT content for language '${fromLanguageCode}'`);
 
   // Translate VTT content using Anthropic
   let translatedVtt: string;
@@ -166,8 +165,7 @@ export async function translateCaptions(
   
   // If uploadToMux is false, just return the translation
   if (!uploadToMux) {
-    console.log(`Translated VTT content (${toLanguageCode}):`);
-    console.log(translatedVtt);
+    console.log(`✅ VTT translated to ${toLanguageCode} successfully!`);
     
     return {
       assetId,
