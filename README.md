@@ -8,7 +8,7 @@ AI-powered video analysis library for Mux, built in TypeScript.
 
 | Function | Description | Providers | Default Models | Input | Output |
 |----------|-------------|-----------|----------------|--------|--------|
-| `getSummaryAndTags` | Generate titles, descriptions, and tags from video content | OpenAI, Anthropic | `gpt-4o-mini`, `claude-3-5-haiku-20241022` | Asset ID + options | Title, description, tags, storyboard URL |
+| `getSummaryAndTags` | Generate titles, descriptions, and tags from a Mux video asset | OpenAI, Anthropic | `gpt-4o-mini`, `claude-3-5-haiku-20241022` | Asset ID + options | Title, description, tags, storyboard URL |
 | `getModerationScores` | Analyze video thumbnails for inappropriate content | OpenAI only | `omni-moderation-latest` | Asset ID + thresholds | Sexual/violence scores, flagged status |
 | `translateCaptions` | Translate video captions to different languages | *Coming soon* | *TBD* | Asset ID + target language | Translated captions with timestamps |
 
@@ -41,7 +41,7 @@ const result = await getSummaryAndTags('your-mux-asset-id', {
 console.log(result.title);       // Short, descriptive title
 console.log(result.description); // Detailed description
 console.log(result.tags);        // Array of relevant keywords
-console.log(result.storyboardUrl); // URL to video storyboard
+console.log(result.storyboardUrl); // URL to Mux storyboard
 ```
 
 ### Content Moderation
@@ -49,7 +49,7 @@ console.log(result.storyboardUrl); // URL to video storyboard
 ```typescript
 import { getModerationScores } from '@mux/ai';
 
-// Analyze video for inappropriate content (OpenAI only)
+// Analyze Mux video asset for inappropriate content (OpenAI only)
 const result = await getModerationScores('your-mux-asset-id', {
   thresholds: { sexual: 0.7, violence: 0.8 }
 });
@@ -62,7 +62,9 @@ console.log(result.thumbnailScores);  // Individual thumbnail results
 ### Compare Summarization from Providers
 
 ```typescript
-// Compare different AI providers for the same content
+import { getSummaryAndTags } from '@mux/ai';
+
+// Compare different AI providers analyzing the same Mux video asset
 const assetId = 'your-mux-asset-id';
 
 // OpenAI analysis (default: gpt-4o-mini)
