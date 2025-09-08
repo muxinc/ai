@@ -1,0 +1,56 @@
+WEBVTT
+
+1
+00:00:01.050 --> 00:00:01.850
+¡Ay!
+
+2
+00:00:02.190 --> 00:00:03.630
+Malditos pulgares.
+
+3
+00:00:03.720 --> 00:00:08.160
+Sabes, hay una forma más fácil de obtener miniaturas.
+
+4
+00:00:08.470 --> 00:00:12.660
+Captura rápidamente una imagen fija de cualquier parte de tu video con la API de Mux.
+
+5
+00:00:12.780 --> 00:00:15.390
+Todo lo que necesitas son algunos parámetros de consulta.
+
+6
+00:00:15.560 --> 00:00:16.960
+Miniatura.
+
+7
+00:00:16.980 --> 00:00:18.090
+¿Qué hay de los GIFs?
+
+8
+00:00:18.330 --> 00:00:18.960
+¿Qué?
+
+9
+00:00:19.890 --> 00:00:20.880
+Tú no, Jeff.
+
+10
+00:00:20.910 --> 00:00:20.940
+GIFs.
+
+11
+00:00:22.380 --> 00:00:23.700
+Pensé que era GIFs.
+
+12
+00:00:24.340 --> 00:00:28.805
+GIFs, GIFS, todo es lo mismo para Mux con una simple solicitud get.
+
+13
+00:00:29.105 --> 00:00:32.015
+Porque el video es divertido con Mux.
+
+14
+00:00:32.744 --> 00:00:34.315

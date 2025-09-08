@@ -10,7 +10,7 @@ AI-powered video analysis library for Mux, built in TypeScript.
 |----------|-------------|-----------|----------------|--------|--------|
 | `getSummaryAndTags` | Generate titles, descriptions, and tags from a Mux video asset | OpenAI, Anthropic | `gpt-4o-mini`, `claude-3-5-haiku-20241022` | Asset ID + options | Title, description, tags, storyboard URL |
 | `getModerationScores` | Analyze video thumbnails for inappropriate content | OpenAI only | `omni-moderation-latest` | Asset ID + thresholds | Sexual/violence scores, flagged status |
-| `translateCaptions` | Translate video captions to different languages | *Coming soon* | *TBD* | Asset ID + target language | Translated captions with timestamps |
+| `translateCaptions` | Translate video captions to different languages | Anthropic only | `claude-sonnet-4-20250514` | Asset ID + languages + S3 config | Translated VTT + Mux track ID |
 
 ## Features
 
@@ -59,6 +59,27 @@ console.log(result.exceedsThreshold); // true if content should be flagged
 console.log(result.thumbnailScores);  // Individual thumbnail results
 ```
 
+### Caption Translation
+
+```typescript
+import { translateCaptions } from '@mux/ai';
+
+// Translate existing captions to Spanish and add as new track
+const result = await translateCaptions(
+  'your-mux-asset-id',
+  'en',  // from language
+  'es',  // to language
+  {
+    provider: 'anthropic',
+    model: 'claude-sonnet-4-20250514'
+  }
+);
+
+console.log(result.uploadedTrackId);  // New Mux track ID
+console.log(result.presignedUrl);     // S3 file URL
+console.log(result.translatedVtt);    // Translated VTT content
+```
+
 ### Compare Summarization from Providers
 
 ```typescript
@@ -93,6 +114,13 @@ MUX_TOKEN_ID=your_mux_token_id
 MUX_TOKEN_SECRET=your_mux_token_secret
 OPENAI_API_KEY=your_openai_api_key
 ANTHROPIC_API_KEY=your_anthropic_api_key
+
+# S3-Compatible Storage (required for translation)
+S3_ENDPOINT=https://your-s3-endpoint.com
+S3_REGION=auto
+S3_BUCKET=your-bucket-name
+S3_ACCESS_KEY_ID=your-access-key
+S3_SECRET_ACCESS_KEY=your-secret-key
 ```
 
 Or pass credentials directly:
@@ -172,6 +200,43 @@ Analyzes video thumbnails for inappropriate content using OpenAI's moderation AP
 }
 ```
 
+### `translateCaptions(assetId, fromLanguageCode, toLanguageCode, options?)`
+
+Translates existing captions from one language to another and optionally adds them as a new track to the Mux asset.
+
+**Parameters:**
+- `assetId` (string) - Mux video asset ID
+- `fromLanguageCode` (string) - Source language code (e.g., 'en', 'es', 'fr')
+- `toLanguageCode` (string) - Target language code (e.g., 'es', 'fr', 'de')
+- `options` (optional) - Configuration options
+
+**Options:**
+- `provider?: 'anthropic'` - AI provider (default: 'anthropic')
+- `model?: string` - Model to use (default: 'claude-sonnet-4-20250514')
+- `uploadToMux?: boolean` - Whether to upload translated track to Mux (default: true)
+- `s3Endpoint?: string` - S3-compatible storage endpoint
+- `s3Region?: string` - S3 region (default: 'auto')
+- `s3Bucket?: string` - S3 bucket name
+- `s3AccessKeyId?: string` - S3 access key ID
+- `s3SecretAccessKey?: string` - S3 secret access key
+- `muxTokenId/muxTokenSecret/anthropicApiKey?: string` - API credentials
+
+**Returns:**
+```typescript
+{
+  assetId: string;
+  sourceLanguageCode: string;
+  targetLanguageCode: string;
+  originalVtt: string;         // Original VTT content
+  translatedVtt: string;       // Translated VTT content
+  uploadedTrackId?: string;    // Mux track ID (if uploaded)
+  presignedUrl?: string;       // S3 presigned URL (expires in 1 hour)
+}
+```
+
+**Supported Languages:**
+Spanish (es), French (fr), German (de), Italian (it), Portuguese (pt), Japanese (ja), Korean (ko), Chinese (zh), Russian (ru), Arabic (ar), and others.
+
 ### Custom Prompts
 
 Override the default summarization prompt:
@@ -212,10 +277,48 @@ npm run basic <your-asset-id>
 npm run thresholds <your-asset-id>
 ```
 
+### Translation Examples
+- **Basic Translation**: Translate captions and upload to Mux
+- **Translation Only**: Translate without uploading to Mux
+
+```bash
+cd examples/translation
+npm install
+npm run basic <your-asset-id> en es
+npm run translation-only <your-asset-id> en fr
+```
+
+**Translation Workflow:**
+1. Fetches existing captions from Mux asset
+2. Translates VTT content using Anthropic Claude
+3. Uploads translated VTT to S3-compatible storage
+4. Generates presigned URL (1-hour expiry)
+5. Adds new subtitle track to Mux asset
+6. Track name: "{Language} (auto-translated)"
+
+## S3-Compatible Storage
+
+The translation feature requires S3-compatible storage to temporarily host VTT files for Mux ingestion. Supported providers include:
+
+- **AWS S3** - Amazon's object storage
+- **DigitalOcean Spaces** - S3-compatible with CDN
+- **Cloudflare R2** - Zero egress fees
+- **MinIO** - Self-hosted S3 alternative
+- **Backblaze B2** - Cost-effective storage
+- **Wasabi** - Hot cloud storage
+
+**Why S3 Storage?**
+Mux requires a publicly accessible URL to ingest subtitle tracks. The translation workflow:
+1. Uploads translated VTT to your S3 storage
+2. Generates a presigned URL for secure access
+3. Mux fetches the file using the presigned URL
+4. File remains in your storage for future use
+
 ## Planned Features
 
-- **Translation**: `translateCaptions()` for multilingual support  
-- **Additional Providers**: Anthropic Claude integration
+- **Additional Translation Providers**: OpenAI GPT-4 support
+- **Batch Translation**: Translate multiple assets at once
+- **Custom Translation Prompts**: Override default translation behavior
 
 ## License
 
