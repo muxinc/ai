@@ -59,20 +59,27 @@ console.log(result.exceedsThreshold); // true if content should be flagged
 console.log(result.thumbnailScores);  // Individual thumbnail results
 ```
 
-### Provider Comparison
+### Compare Summarization from Providers
 
 ```typescript
-// OpenAI (default: gpt-4o-mini)
+// Compare different AI providers for the same content
+const assetId = 'your-mux-asset-id';
+
+// OpenAI analysis (default: gpt-4o-mini)
 const openaiResult = await getSummaryAndTags(assetId, {
   provider: 'openai',
   tone: 'professional'
 });
 
-// Anthropic (default: claude-3-5-haiku-20241022)  
+// Anthropic analysis (default: claude-3-5-haiku-20241022)  
 const anthropicResult = await getSummaryAndTags(assetId, {
   provider: 'anthropic',
   tone: 'professional'
 });
+
+// Compare results
+console.log('OpenAI:', openaiResult.title);
+console.log('Anthropic:', anthropicResult.title);
 ```
 
 ## Configuration
