@@ -1,0 +1,42 @@
+{
+  "name": "@mux/ai",
+  "version": "0.1.0",
+  "description": "AI library for Mux",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "jest",
+    "lint": "eslint src/**/*.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "mux",
+    "ai",
+    "typescript"
+  ],
+  "author": "Mux",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/muxinc/mux-ai.git"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@mux/mux-node": "^12.5.0",
+    "dotenv": "^17.2.2",
+    "openai": "^5.13.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.0.0",
+    "jest": "^29.0.0",
+    "typescript": "^5.0.0"
+  }
+}
