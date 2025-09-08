@@ -6,7 +6,9 @@
   "scripts": {
     "basic": "ts-node basic-example.ts",
     "tones": "ts-node tone-variations.ts",
-    "custom": "ts-node custom-prompt-example.ts"
+    "custom": "ts-node custom-prompt-example.ts",
+    "anthropic": "ts-node anthropic-example.ts",
+    "compare": "ts-node provider-comparison.ts"
   },
   "dependencies": {
     "@mux/ai": "file:../..",

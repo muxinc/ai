@@ -2,6 +2,7 @@ export interface MuxAIConfig {
   muxTokenId?: string;
   muxTokenSecret?: string;
   openaiApiKey?: string;
+  anthropicApiKey?: string;
   baseUrl?: string;
 }
 
