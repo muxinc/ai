@@ -32,6 +32,7 @@ export interface ModerationOptions extends MuxAIOptions {
   };
   thumbnailInterval?: number;
   thumbnailWidth?: number;
+  maxConcurrent?: number;
   hiveApiKey?: string;
 }
 
@@ -39,6 +40,24 @@ const DEFAULT_THRESHOLDS = {
   sexual: 0.7,
   violence: 0.8
 };
+
+// Process promises in batches with maximum concurrency limit
+async function processConcurrently<T>(
+  items: any[],
+  processor: (item: any) => Promise<T>,
+  maxConcurrent: number = 5
+): Promise<T[]> {
+  const results: T[] = [];
+  
+  for (let i = 0; i < items.length; i += maxConcurrent) {
+    const batch = items.slice(i, i + maxConcurrent);
+    const batchPromises = batch.map(processor);
+    const batchResults = await Promise.all(batchPromises);
+    results.push(...batchResults);
+  }
+  
+  return results;
+}
 
 // Mapping Hive categories to OpenAI-compatible scores
 const HIVE_SEXUAL_CATEGORIES = [
@@ -101,9 +120,9 @@ function getThumbnailUrls(playbackId: string, duration: number, options: { inter
   );
 }
 
-// Sends thumbnail URLs to OpenAI moderation API concurrently
-async function requestOpenAIModeration(imageUrls: string[], openaiClient: OpenAI, model: string): Promise<ThumbnailModerationScore[]> {
-  const moderationPromises = imageUrls.map(async (url): Promise<ThumbnailModerationScore> => {
+// Sends thumbnail URLs to OpenAI moderation API with concurrency limiting
+async function requestOpenAIModeration(imageUrls: string[], openaiClient: OpenAI, model: string, maxConcurrent: number = 5): Promise<ThumbnailModerationScore[]> {
+  const processor = async (url: string): Promise<ThumbnailModerationScore> => {
     try {
       const moderation = await openaiClient.moderations.create({
         model,
@@ -135,14 +154,14 @@ async function requestOpenAIModeration(imageUrls: string[], openaiClient: OpenAI
         error: true,
       };
     }
-  });
+  };
 
-  return Promise.all(moderationPromises);
+  return processConcurrently(imageUrls, processor, maxConcurrent);
 }
 
-// Sends thumbnail URLs to Hive moderation API concurrently
-async function requestHiveModeration(imageUrls: string[], hiveApiKey: string): Promise<ThumbnailModerationScore[]> {
-  const moderationPromises = imageUrls.map(async (url): Promise<ThumbnailModerationScore> => {
+// Sends thumbnail URLs to Hive moderation API with concurrency limiting
+async function requestHiveModeration(imageUrls: string[], hiveApiKey: string, maxConcurrent: number = 5): Promise<ThumbnailModerationScore[]> {
+  const processor = async (url: string): Promise<ThumbnailModerationScore> => {
     try {
       const response = await fetch('https://api.thehive.ai/api/v2/task/sync', {
         method: 'POST',
@@ -163,7 +182,6 @@ async function requestHiveModeration(imageUrls: string[], hiveApiKey: string): P
       // Hive returns scores in status[0].response.output[0].classes as array of {class, score}
       const classes = hiveResult.status?.[0]?.response?.output?.[0]?.classes || [];
       const scoreMap = Object.fromEntries(classes.map((c: any) => [c.class, c.score]));
-      
       
       const sexualScores = HIVE_SEXUAL_CATEGORIES.map(category => 
         scoreMap[category] || 0
@@ -188,9 +206,9 @@ async function requestHiveModeration(imageUrls: string[], hiveApiKey: string): P
         error: true,
       };
     }
-  });
+  };
 
-  return Promise.all(moderationPromises);
+  return processConcurrently(imageUrls, processor, maxConcurrent);
 }
 
 export async function getModerationScores(
@@ -203,6 +221,7 @@ export async function getModerationScores(
     thresholds = DEFAULT_THRESHOLDS,
     thumbnailInterval = 10,
     thumbnailWidth = 640,
+    maxConcurrent = 5,
     muxTokenId,
     muxTokenSecret,
     openaiApiKey,
@@ -273,9 +292,9 @@ export async function getModerationScores(
   let thumbnailScores: ThumbnailModerationScore[];
   
   if (provider === 'openai') {
-    thumbnailScores = await requestOpenAIModeration(thumbnailUrls, openaiClient!, model);
+    thumbnailScores = await requestOpenAIModeration(thumbnailUrls, openaiClient!, model, maxConcurrent);
   } else if (provider === 'hive') {
-    thumbnailScores = await requestHiveModeration(thumbnailUrls, hiveKey!);
+    thumbnailScores = await requestHiveModeration(thumbnailUrls, hiveKey!, maxConcurrent);
   } else {
     throw new Error('Unsupported provider');
   }

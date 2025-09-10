@@ -206,6 +206,7 @@ Analyzes video thumbnails for inappropriate content using OpenAI's moderation AP
 - `thresholds?: { sexual?: number; violence?: number }` - Custom thresholds (default: {sexual: 0.7, violence: 0.8})
 - `thumbnailInterval?: number` - Seconds between thumbnails for long videos (default: 10)
 - `thumbnailWidth?: number` - Thumbnail width in pixels (default: 640)
+- `maxConcurrent?: number` - Maximum concurrent API requests (default: 5)
 - `muxTokenId/muxTokenSecret/openaiApiKey?: string` - API credentials
 - `hiveApiKey?: string` - Hive API key (required for Hive provider)
 
