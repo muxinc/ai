@@ -4,6 +4,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import { zodTextFormat } from 'openai/helpers/zod';
 import { MuxAIOptions, ToneType } from './types';
+import { ImageDownloadOptions, downloadImageAsBase64, uploadImageToAnthropicFiles } from './utils/image-download';
 
 export interface SummaryAndTagsResult {
   assetId: string;
@@ -21,6 +22,10 @@ export interface SummarizationOptions extends MuxAIOptions {
   customPrompt?: string;
   tone?: ToneType;
   includeTranscript?: boolean;
+  /** Method for submitting storyboard to AI providers (default: 'url') */
+  imageSubmissionMode?: 'url' | 'base64';
+  /** Options for image download when using base64 submission mode */
+  imageDownloadOptions?: ImageDownloadOptions;
 }
 
 const summarySchema = z.object({
@@ -61,6 +66,8 @@ export async function getSummaryAndTags(
     model,
     tone = 'normal',
     includeTranscript = true,
+    imageSubmissionMode = 'url',
+    imageDownloadOptions,
     muxTokenId,
     muxTokenSecret,
     openaiApiKey,
@@ -172,8 +179,13 @@ export async function getSummaryAndTags(
   const maxRetries = 3;
   
   if (provider === 'openai') {
-    while (retryAttempt <= maxRetries) {
+    // Handle base64 vs URL submission modes
+    if (imageSubmissionMode === 'base64') {
+      console.log('Downloading storyboard for base64 submission...');
+      
       try {
+        const downloadResult = await downloadImageAsBase64(imageUrl, imageDownloadOptions);
+        
         const response = await openaiClient!.responses.parse({
           model: finalModel,
           input: [
@@ -190,7 +202,7 @@ export async function getSummaryAndTags(
                 },
                 {
                   type: "input_image",
-                  image_url: imageUrl,
+                  image_url: downloadResult.base64Data, // Use base64 data URI
                   detail: "high",
                 },
               ],
@@ -202,18 +214,55 @@ export async function getSummaryAndTags(
         });
 
         aiAnalysis = response.output_parsed;
-        break; // Success, exit retry loop
         
       } catch (error: unknown) {
-        const isTimeoutError = error instanceof Error && error.message && error.message.includes('Timeout while downloading');
-        
-        if (isTimeoutError && retryAttempt < maxRetries) {
-          await new Promise(resolve => setTimeout(resolve, 5000));
-          retryAttempt++;
-          continue;
+        throw new Error(`Failed to analyze video content with OpenAI in base64 mode: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    } else {
+      // Original URL-based submission with retry logic
+      while (retryAttempt <= maxRetries) {
+        try {
+          const response = await openaiClient!.responses.parse({
+            model: finalModel,
+            input: [
+              {
+                role: "system",
+                content: "You are an image analysis tool. You will be given a storyboard image from a video showing multiple frames/scenes, and be expected to return structured data about the contents across all the frames.",
+              },
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "input_text",
+                    text: contextualPrompt,
+                  },
+                  {
+                    type: "input_image",
+                    image_url: imageUrl,
+                    detail: "high",
+                  },
+                ],
+              },
+            ],
+            text: {
+              format: zodTextFormat(summarySchema, "analysis"),
+            },
+          });
+
+          aiAnalysis = response.output_parsed;
+          break; // Success, exit retry loop
+          
+        } catch (error: unknown) {
+          const isTimeoutError = error instanceof Error && error.message && error.message.includes('Timeout while downloading');
+          
+          if (isTimeoutError && retryAttempt < maxRetries) {
+            await new Promise(resolve => setTimeout(resolve, 5000));
+            retryAttempt++;
+            continue;
+          }
+          
+          throw new Error(`Failed to analyze video content with OpenAI: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
-        
-        throw new Error(`Failed to analyze video content with OpenAI: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
     }
   } else if (provider === 'anthropic') {
@@ -222,8 +271,15 @@ export async function getSummaryAndTags(
 
 ${ANTHROPIC_JSON_PROMPT}`;
     
-    while (retryAttempt <= maxRetries) {
+    // Handle base64 vs URL submission modes
+    if (imageSubmissionMode === 'base64') {
+      console.log('Uploading storyboard to Anthropic Files API...');
+      
       try {
+        // Upload to Files API instead of using base64 inline (no 5MB limit)
+        const fileUploadResult = await uploadImageToAnthropicFiles(imageUrl, anthropicKey!, imageDownloadOptions);
+        
+        
         const response = await anthropicClient!.messages.create({
           model: finalModel,
           max_tokens: 1000,
@@ -234,9 +290,9 @@ ${ANTHROPIC_JSON_PROMPT}`;
                 {
                   type: "image",
                   source: {
-                    type: "url",
-                    url: imageUrl,
-                  } as any, // Type assertion to work around SDK type definitions
+                    type: "file",
+                    file_id: fileUploadResult.fileId,
+                  } as any, // Type assertion for Files API support
                 },
                 {
                   type: "text",
@@ -245,22 +301,18 @@ ${ANTHROPIC_JSON_PROMPT}`;
               ],
             },
           ],
+        }, {
+          headers: {
+            'anthropic-beta': 'files-api-2025-04-14'
+          }
         });
 
         const content = response.content[0];
         if (content.type === 'text') {
-          // Parse JSON from Anthropic response
           const jsonText = content.text.trim();
           try {
             aiAnalysis = JSON.parse(jsonText);
-            break; // Success, exit retry loop
           } catch (parseError) {
-            if (retryAttempt < maxRetries) {
-              console.warn(`Failed to parse JSON from Anthropic (attempt ${retryAttempt + 1}):`, jsonText);
-              retryAttempt++;
-              await new Promise(resolve => setTimeout(resolve, 2000));
-              continue;
-            }
             throw new Error(`Failed to parse JSON response from Anthropic: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
           }
         } else {
@@ -268,13 +320,65 @@ ${ANTHROPIC_JSON_PROMPT}`;
         }
         
       } catch (error: unknown) {
-        if (retryAttempt < maxRetries) {
-          await new Promise(resolve => setTimeout(resolve, 5000));
-          retryAttempt++;
-          continue;
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        throw new Error(`Failed to analyze video content with Anthropic Files API: ${errorMessage}`);
+      }
+    } else {
+      // URL-based submission with retry logic
+      while (retryAttempt <= maxRetries) {
+        try {
+          const response = await anthropicClient!.messages.create({
+            model: finalModel,
+            max_tokens: 1000,
+            messages: [
+              {
+                role: "user",
+                content: [
+                  {
+                    type: "image",
+                    source: {
+                      type: "url",
+                      url: imageUrl,
+                    } as any, // Type assertion to work around SDK type definitions
+                  },
+                  {
+                    type: "text",
+                    text: anthropicPrompt,
+                  },
+                ],
+              },
+            ],
+          });
+
+          const content = response.content[0];
+          if (content.type === 'text') {
+            // Parse JSON from Anthropic response
+            const jsonText = content.text.trim();
+            try {
+              aiAnalysis = JSON.parse(jsonText);
+              break; // Success, exit retry loop
+            } catch (parseError) {
+              if (retryAttempt < maxRetries) {
+                console.warn(`Failed to parse JSON from Anthropic (attempt ${retryAttempt + 1}):`, jsonText);
+                retryAttempt++;
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                continue;
+              }
+              throw new Error(`Failed to parse JSON response from Anthropic: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
+            }
+          } else {
+            throw new Error('Unexpected response type from Anthropic');
+          }
+          
+        } catch (error: unknown) {
+          if (retryAttempt < maxRetries) {
+            await new Promise(resolve => setTimeout(resolve, 5000));
+            retryAttempt++;
+            continue;
+          }
+          
+          throw new Error(`Failed to analyze video content with Anthropic: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
-        
-        throw new Error(`Failed to analyze video content with Anthropic: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
     }
   } else {

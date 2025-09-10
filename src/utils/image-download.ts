@@ -28,6 +28,17 @@ export interface ImageDownloadResult {
   attempts: number;
 }
 
+export interface AnthropicFileUploadResult {
+  /** Anthropic Files API file ID */
+  fileId: string;
+  /** Original image URL */
+  url: string;
+  /** Content type of the uploaded image */
+  contentType: string;
+  /** Size of the uploaded image in bytes */
+  sizeBytes: number;
+}
+
 const DEFAULT_OPTIONS: Required<ImageDownloadOptions> = {
   timeout: 10000,
   retries: 3,
@@ -158,4 +169,60 @@ export async function downloadImagesAsBase64(
   }
   
   return results;
+}
+
+/**
+ * Uploads an image to Anthropic Files API for use in messages
+ * 
+ * @param url - The image URL to download and upload
+ * @param anthropicApiKey - Anthropic API key
+ * @param options - Download configuration options
+ * @returns Promise resolving to AnthropicFileUploadResult with file ID and metadata
+ * @throws Error if download or upload fails
+ */
+export async function uploadImageToAnthropicFiles(
+  url: string,
+  anthropicApiKey: string,
+  options: ImageDownloadOptions = {}
+): Promise<AnthropicFileUploadResult> {
+  // First download the image
+  const downloadResult = await downloadImageAsBase64(url, options);
+  
+  // Create form data for Files API upload
+  const formData = new FormData();
+  
+  // Create a Blob from the buffer for form data
+  const imageBlob = new Blob([downloadResult.buffer], { 
+    type: downloadResult.contentType 
+  });
+  
+  // Get file extension from content type
+  const extension = downloadResult.contentType.split('/')[1] || 'png';
+  formData.append('file', imageBlob, `image.${extension}`);
+
+  // Upload to Anthropic Files API
+  const response = await fetch('https://api.anthropic.com/v1/files', {
+    method: 'POST',
+    headers: {
+      'x-api-key': anthropicApiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-beta': 'files-api-2025-04-14',
+      // Don't set Content-Type header - let fetch set it with boundary for multipart
+    },
+    body: formData
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Anthropic Files API error: ${response.status} ${response.statusText} - ${errorText}`);
+  }
+
+  const fileResult = await response.json() as { id: string };
+  
+  return {
+    fileId: fileResult.id,
+    url: downloadResult.url,
+    contentType: downloadResult.contentType,
+    sizeBytes: downloadResult.sizeBytes,
+  };
 }
