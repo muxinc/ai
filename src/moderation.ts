@@ -24,7 +24,7 @@ export interface ModerationResult {
 }
 
 export interface ModerationOptions extends MuxAIOptions {
-  provider?: 'openai';
+  provider?: 'openai' | 'hive';
   model?: string;
   thresholds?: {
     sexual?: number;
@@ -32,12 +32,51 @@ export interface ModerationOptions extends MuxAIOptions {
   };
   thumbnailInterval?: number;
   thumbnailWidth?: number;
+  hiveApiKey?: string;
 }
 
 const DEFAULT_THRESHOLDS = {
   sexual: 0.7,
   violence: 0.8
 };
+
+// Mapping Hive categories to OpenAI-compatible scores
+const HIVE_SEXUAL_CATEGORIES = [
+  'general_nsfw',
+  'general_suggestive', 
+  'yes_sexual_activity',
+  'female_underwear',
+  'male_underwear',
+  'bra',
+  'panties',
+  'sex_toys',
+  'nudity_female',
+  'nudity_male',
+  'cleavage',
+  'swimwear'
+];
+
+const HIVE_VIOLENCE_CATEGORIES = [
+  'gun_in_hand',
+  'gun_not_in_hand',
+  'animated_gun',
+  'knife_in_hand',
+  'knife_not_in_hand',
+  'culinary_knife_not_in_hand',
+  'culinary_knife_in_hand',
+  'very_bloody',
+  'a_little_bloody',
+  'other_blood',
+  'hanging',
+  'noose',
+  'human_corpse',
+  'animated_corpse',
+  'emaciated_body',
+  'self_harm',
+  'animal_abuse',
+  'fights',
+  'garm_death_injury_or_military_conflict'
+];
 
 // Generates thumbnail URLs at regular intervals based on video duration
 function getThumbnailUrls(playbackId: string, duration: number, options: { interval?: number; width?: number } = {}): string[] {
@@ -63,7 +102,7 @@ function getThumbnailUrls(playbackId: string, duration: number, options: { inter
 }
 
 // Sends thumbnail URLs to OpenAI moderation API concurrently
-async function requestModeration(imageUrls: string[], openaiClient: OpenAI, model: string): Promise<ThumbnailModerationScore[]> {
+async function requestOpenAIModeration(imageUrls: string[], openaiClient: OpenAI, model: string): Promise<ThumbnailModerationScore[]> {
   const moderationPromises = imageUrls.map(async (url): Promise<ThumbnailModerationScore> => {
     try {
       const moderation = await openaiClient.moderations.create({
@@ -101,6 +140,59 @@ async function requestModeration(imageUrls: string[], openaiClient: OpenAI, mode
   return Promise.all(moderationPromises);
 }
 
+// Sends thumbnail URLs to Hive moderation API concurrently
+async function requestHiveModeration(imageUrls: string[], hiveApiKey: string): Promise<ThumbnailModerationScore[]> {
+  const moderationPromises = imageUrls.map(async (url): Promise<ThumbnailModerationScore> => {
+    try {
+      const response = await fetch('https://api.thehive.ai/api/v2/task/sync', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Token ${hiveApiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ url })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Hive API error: ${response.statusText}`);
+      }
+
+      const hiveResult = await response.json() as any;
+      
+      // Extract scores from Hive response and map to OpenAI format
+      // Hive returns scores in status[0].response.output[0].classes as array of {class, score}
+      const classes = hiveResult.status?.[0]?.response?.output?.[0]?.classes || [];
+      const scoreMap = Object.fromEntries(classes.map((c: any) => [c.class, c.score]));
+      
+      
+      const sexualScores = HIVE_SEXUAL_CATEGORIES.map(category => 
+        scoreMap[category] || 0
+      );
+      const violenceScores = HIVE_VIOLENCE_CATEGORIES.map(category => 
+        scoreMap[category] || 0
+      );
+
+      return {
+        url,
+        sexual: Math.max(...sexualScores, 0),
+        violence: Math.max(...violenceScores, 0),
+        error: false
+      };
+
+    } catch (error) {
+      console.error("Failed to moderate image with Hive:", error);
+      return {
+        url,
+        sexual: 0,
+        violence: 0,
+        error: true,
+      };
+    }
+  });
+
+  return Promise.all(moderationPromises);
+}
+
 export async function getModerationScores(
   assetId: string,
   options: ModerationOptions = {}
@@ -117,21 +209,26 @@ export async function getModerationScores(
     ...config
   } = options;
 
-  if (provider !== 'openai') {
-    throw new Error('Only OpenAI provider is currently supported');
+  if (provider !== 'openai' && provider !== 'hive') {
+    throw new Error('Only OpenAI and Hive providers are currently supported');
   }
 
   // Validate required credentials
   const muxId = muxTokenId || process.env.MUX_TOKEN_ID;
   const muxSecret = muxTokenSecret || process.env.MUX_TOKEN_SECRET;
   const openaiKey = openaiApiKey || process.env.OPENAI_API_KEY;
+  const hiveKey = options.hiveApiKey || process.env.HIVE_API_KEY;
 
   if (!muxId || !muxSecret) {
     throw new Error('Mux credentials are required. Provide muxTokenId and muxTokenSecret in options or set MUX_TOKEN_ID and MUX_TOKEN_SECRET environment variables.');
   }
 
-  if (!openaiKey) {
-    throw new Error('OpenAI API key is required. Provide openaiApiKey in options or set OPENAI_API_KEY environment variable.');
+  if (provider === 'openai' && !openaiKey) {
+    throw new Error('OpenAI API key is required for OpenAI provider. Provide openaiApiKey in options or set OPENAI_API_KEY environment variable.');
+  }
+
+  if (provider === 'hive' && !hiveKey) {
+    throw new Error('Hive API key is required for Hive provider. Provide hiveApiKey in options or set HIVE_API_KEY environment variable.');
   }
 
   // Initialize clients
@@ -140,9 +237,12 @@ export async function getModerationScores(
     tokenSecret: muxSecret,
   });
 
-  const openaiClient = new OpenAI({
-    apiKey: openaiKey,
-  });
+  let openaiClient: OpenAI | undefined;
+  if (provider === 'openai') {
+    openaiClient = new OpenAI({
+      apiKey: openaiKey!,
+    });
+  }
 
   // Fetch asset data from Mux
   let assetData;
@@ -170,7 +270,15 @@ export async function getModerationScores(
   });
 
   // Request moderation for all thumbnails
-  const thumbnailScores = await requestModeration(thumbnailUrls, openaiClient, model);
+  let thumbnailScores: ThumbnailModerationScore[];
+  
+  if (provider === 'openai') {
+    thumbnailScores = await requestOpenAIModeration(thumbnailUrls, openaiClient!, model);
+  } else if (provider === 'hive') {
+    thumbnailScores = await requestHiveModeration(thumbnailUrls, hiveKey!);
+  } else {
+    throw new Error('Unsupported provider');
+  }
   
   // Find highest scores across all thumbnails
   const maxSexual = Math.max(...thumbnailScores.map(s => s.sexual));

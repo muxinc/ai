@@ -5,7 +5,9 @@
   "private": true,
   "scripts": {
     "basic": "ts-node basic-example.ts",
-    "thresholds": "ts-node custom-thresholds.ts"
+    "thresholds": "ts-node custom-thresholds.ts",
+    "hive": "ts-node hive-example.ts",
+    "compare": "ts-node provider-comparison.ts"
   },
   "dependencies": {
     "@mux/ai": "file:../..",

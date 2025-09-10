@@ -7,7 +7,7 @@ AI-powered video analysis library for Mux, built in TypeScript.
 | Function | Description | Providers | Default Models | Input | Output |
 |----------|-------------|-----------|----------------|--------|--------|
 | `getSummaryAndTags` | Generate titles, descriptions, and tags from a Mux video asset | OpenAI, Anthropic | `gpt-4o-mini`, `claude-3-5-haiku-20241022` | Asset ID + options | Title, description, tags, storyboard URL |
-| `getModerationScores` | Analyze video thumbnails for inappropriate content | OpenAI only | `omni-moderation-latest` | Asset ID + thresholds | Sexual/violence scores, flagged status |
+| `getModerationScores` | Analyze video thumbnails for inappropriate content | OpenAI, Hive | `omni-moderation-latest`, Hive Visual API | Asset ID + thresholds | Sexual/violence scores, flagged status |
 | `translateCaptions` | Translate video captions to different languages | Anthropic only | `claude-sonnet-4-20250514` | Asset ID + languages + S3 config | Translated VTT + Mux track ID |
 | `translateAudio` | Create AI-dubbed audio tracks in different languages | ElevenLabs only | ElevenLabs Dubbing API | Asset ID + languages + S3 config | Dubbed audio + Mux track ID |
 
@@ -50,7 +50,7 @@ console.log(result.storyboardUrl); // URL to Mux storyboard
 ```typescript
 import { getModerationScores } from '@mux/ai';
 
-// Analyze Mux video asset for inappropriate content (OpenAI only)
+// Analyze Mux video asset for inappropriate content (OpenAI default)
 const result = await getModerationScores('your-mux-asset-id', {
   thresholds: { sexual: 0.7, violence: 0.8 }
 });
@@ -58,6 +58,12 @@ const result = await getModerationScores('your-mux-asset-id', {
 console.log(result.maxScores);        // Highest scores across all thumbnails
 console.log(result.exceedsThreshold); // true if content should be flagged
 console.log(result.thumbnailScores);  // Individual thumbnail results
+
+// Or use Hive for moderation
+const hiveResult = await getModerationScores('your-mux-asset-id', {
+  provider: 'hive',
+  thresholds: { sexual: 0.7, violence: 0.8 }
+});
 ```
 
 ### Caption Translation
@@ -137,6 +143,7 @@ MUX_TOKEN_SECRET=your_mux_token_secret
 OPENAI_API_KEY=your_openai_api_key
 ANTHROPIC_API_KEY=your_anthropic_api_key
 ELEVENLABS_API_KEY=your_elevenlabs_api_key
+HIVE_API_KEY=your_hive_api_key
 
 # S3-Compatible Storage (required for translation & audio dubbing)
 S3_ENDPOINT=https://your-s3-endpoint.com
@@ -187,19 +194,20 @@ Analyzes a Mux video asset and returns AI-generated metadata.
 
 ### `getModerationScores(assetId, options?)`
 
-Analyzes video thumbnails for inappropriate content using OpenAI's moderation API.
+Analyzes video thumbnails for inappropriate content using OpenAI's moderation API or Hive's Visual Moderation API.
 
 **Parameters:**
 - `assetId` (string) - Mux video asset ID
 - `options` (optional) - Configuration options
 
 **Options:**
-- `provider?: 'openai'` - Moderation provider (default: 'openai')
+- `provider?: 'openai' | 'hive'` - Moderation provider (default: 'openai')
 - `model?: string` - OpenAI model to use (default: 'omni-moderation-latest')
 - `thresholds?: { sexual?: number; violence?: number }` - Custom thresholds (default: {sexual: 0.7, violence: 0.8})
 - `thumbnailInterval?: number` - Seconds between thumbnails for long videos (default: 10)
 - `thumbnailWidth?: number` - Thumbnail width in pixels (default: 640)
 - `muxTokenId/muxTokenSecret/openaiApiKey?: string` - API credentials
+- `hiveApiKey?: string` - Hive API key (required for Hive provider)
 
 **Returns:**
 ```typescript
@@ -332,12 +340,16 @@ npm run custom
 ### Moderation Examples
 - **Basic Moderation**: Analyze content with default thresholds
 - **Custom Thresholds**: Compare strict/default/permissive settings
+- **Hive Provider**: Use Hive's Visual Moderation API
+- **Provider Comparison**: Compare OpenAI vs Hive results side-by-side
 
 ```bash
 cd examples/moderation
 npm install
 npm run basic <your-asset-id>
 npm run thresholds <your-asset-id>
+npm run hive <your-asset-id>
+npm run compare <your-asset-id>
 ```
 
 ### Translation Examples
