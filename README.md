@@ -11,6 +11,7 @@ AI-powered video analysis library for Mux, built in TypeScript.
 | `getSummaryAndTags` | Generate titles, descriptions, and tags from a Mux video asset | OpenAI, Anthropic | `gpt-4o-mini`, `claude-3-5-haiku-20241022` | Asset ID + options | Title, description, tags, storyboard URL |
 | `getModerationScores` | Analyze video thumbnails for inappropriate content | OpenAI only | `omni-moderation-latest` | Asset ID + thresholds | Sexual/violence scores, flagged status |
 | `translateCaptions` | Translate video captions to different languages | Anthropic only | `claude-sonnet-4-20250514` | Asset ID + languages + S3 config | Translated VTT + Mux track ID |
+| `translateAudio` | Create AI-dubbed audio tracks in different languages | ElevenLabs only | ElevenLabs Dubbing API | Asset ID + languages + S3 config | Dubbed audio + Mux track ID |
 
 ## Features
 
@@ -19,6 +20,7 @@ AI-powered video analysis library for Mux, built in TypeScript.
 - **Configurable Thresholds**: Custom sensitivity levels for content moderation
 - **TypeScript**: Fully typed for excellent developer experience
 - **Provider Choice**: Switch between OpenAI and Anthropic for different perspectives
+- **Universal Language Support**: Automatic language name detection using `Intl.DisplayNames` for all ISO 639-1 codes
 
 ## Installation
 
@@ -80,6 +82,27 @@ console.log(result.presignedUrl);     // S3 file URL
 console.log(result.translatedVtt);    // Translated VTT content
 ```
 
+### Audio Dubbing
+
+```typescript
+import { translateAudio } from '@mux/ai';
+
+// Create AI-dubbed audio track and add to Mux asset
+const result = await translateAudio(
+  'your-mux-asset-id',
+  'es',  // to language
+  'auto', // from language (optional, defaults to auto-detect)
+  {
+    provider: 'elevenlabs',
+    numSpeakers: 0 // Auto-detect speakers
+  }
+);
+
+console.log(result.dubbingId);        // ElevenLabs dubbing job ID
+console.log(result.uploadedTrackId);  // New Mux audio track ID
+console.log(result.presignedUrl);     // S3 audio file URL
+```
+
 ### Compare Summarization from Providers
 
 ```typescript
@@ -114,8 +137,9 @@ MUX_TOKEN_ID=your_mux_token_id
 MUX_TOKEN_SECRET=your_mux_token_secret
 OPENAI_API_KEY=your_openai_api_key
 ANTHROPIC_API_KEY=your_anthropic_api_key
+ELEVENLABS_API_KEY=your_elevenlabs_api_key
 
-# S3-Compatible Storage (required for translation)
+# S3-Compatible Storage (required for translation & audio dubbing)
 S3_ENDPOINT=https://your-s3-endpoint.com
 S3_REGION=auto
 S3_BUCKET=your-bucket-name
@@ -235,7 +259,49 @@ Translates existing captions from one language to another and optionally adds th
 ```
 
 **Supported Languages:**
-Spanish (es), French (fr), German (de), Italian (it), Portuguese (pt), Japanese (ja), Korean (ko), Chinese (zh), Russian (ru), Arabic (ar), and others.
+All ISO 639-1 language codes are automatically supported using `Intl.DisplayNames`. Examples: Spanish (es), French (fr), German (de), Italian (it), Portuguese (pt), Polish (pl), Japanese (ja), Korean (ko), Chinese (zh), Russian (ru), Arabic (ar), Hindi (hi), Thai (th), Swahili (sw), and many more.
+
+### `translateAudio(assetId, toLanguageCode, fromLanguageCode?, options?)`
+
+Creates AI-dubbed audio tracks from existing video content using ElevenLabs voice cloning and translation.
+
+**Parameters:**
+- `assetId` (string) - Mux video asset ID (must have audio.m4a static rendition)
+- `toLanguageCode` (string) - Target language code (e.g., 'es', 'fr', 'de')
+- `fromLanguageCode` (string, optional) - Source language code (default: 'auto' for auto-detection)
+- `options` (optional) - Configuration options
+
+**Options:**
+- `provider?: 'elevenlabs'` - AI provider (default: 'elevenlabs')
+- `numSpeakers?: number` - Number of speakers (default: 0 for auto-detect)
+- `uploadToMux?: boolean` - Whether to upload dubbed track to Mux (default: true)
+- `s3Endpoint?: string` - S3-compatible storage endpoint
+- `s3Region?: string` - S3 region (default: 'auto')
+- `s3Bucket?: string` - S3 bucket name
+- `s3AccessKeyId?: string` - S3 access key ID
+- `s3SecretAccessKey?: string` - S3 secret access key
+- `elevenLabsApiKey?: string` - ElevenLabs API key
+- `muxTokenId/muxTokenSecret?: string` - API credentials
+
+**Returns:**
+```typescript
+{
+  assetId: string;
+  sourceLanguageCode: string;
+  targetLanguageCode: string;
+  dubbingId: string;           // ElevenLabs dubbing job ID
+  uploadedTrackId?: string;    // Mux audio track ID (if uploaded)
+  presignedUrl?: string;       // S3 presigned URL (expires in 1 hour)
+}
+```
+
+**Requirements:**
+- Asset must have an `audio.m4a` static rendition
+- ElevenLabs API key with Creator plan or higher
+- S3-compatible storage for Mux ingestion
+
+**Supported Languages:**
+ElevenLabs supports 32+ languages with automatic language name detection via `Intl.DisplayNames`. Supported languages include English, Spanish, French, German, Italian, Portuguese, Polish, Japanese, Korean, Chinese, Russian, Arabic, Hindi, Thai, and many more. Track names are automatically generated (e.g., "Polish (auto-dubbed)").
 
 ### Custom Prompts
 
@@ -295,6 +361,28 @@ npm run translation-only <your-asset-id> en fr
 4. Generates presigned URL (1-hour expiry)
 5. Adds new subtitle track to Mux asset
 6. Track name: "{Language} (auto-translated)"
+
+### Audio Dubbing Examples
+- **Basic Dubbing**: Create AI-dubbed audio and upload to Mux
+- **Dubbing Only**: Create dubbed audio without uploading to Mux
+
+```bash
+cd examples/audio-translation
+npm install
+npm run basic <your-asset-id> es
+npm run dubbing-only <your-asset-id> fr auto
+```
+
+**Audio Dubbing Workflow:**
+1. Checks asset has audio.m4a static rendition
+2. Downloads audio file from Mux
+3. Creates ElevenLabs dubbing job
+4. Polls for completion (up to 30 minutes)
+5. Downloads dubbed audio file
+6. Uploads to S3-compatible storage
+7. Generates presigned URL (1-hour expiry)
+8. Adds new audio track to Mux asset
+9. Track name: "{Language} (auto-dubbed)"
 
 ## S3-Compatible Storage
 

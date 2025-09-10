@@ -231,20 +231,7 @@ export async function translateCaptions(
   let uploadedTrackId: string | undefined;
   
   try {
-    const languageNames: Record<string, string> = {
-      'es': 'Spanish',
-      'fr': 'French', 
-      'de': 'German',
-      'it': 'Italian',
-      'pt': 'Portuguese',
-      'ja': 'Japanese',
-      'ko': 'Korean',
-      'zh': 'Chinese',
-      'ru': 'Russian',
-      'ar': 'Arabic'
-    };
-    
-    const languageName = languageNames[toLanguageCode] || toLanguageCode.toUpperCase();
+    const languageName = new Intl.DisplayNames(['en'], { type: 'language' }).of(toLanguageCode) || toLanguageCode.toUpperCase();
     const trackName = `${languageName} (auto-translated)`;
     
     const trackResponse = await mux.video.assets.createTrack(assetId, {
