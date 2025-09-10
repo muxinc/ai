@@ -87,10 +87,10 @@ console.log(result.translatedVtt);    // Translated VTT content
 import { translateAudio } from '@mux/ai';
 
 // Create AI-dubbed audio track and add to Mux asset
+// Uses the default audio track on your asset, language is auto-detected
 const result = await translateAudio(
   'your-mux-asset-id',
-  'es',  // to language
-  'auto', // from language (optional, defaults to auto-detect)
+  'es',  // target language
   {
     provider: 'elevenlabs',
     numSpeakers: 0 // Auto-detect speakers
@@ -260,14 +260,13 @@ Translates existing captions from one language to another and optionally adds th
 **Supported Languages:**
 All ISO 639-1 language codes are automatically supported using `Intl.DisplayNames`. Examples: Spanish (es), French (fr), German (de), Italian (it), Portuguese (pt), Polish (pl), Japanese (ja), Korean (ko), Chinese (zh), Russian (ru), Arabic (ar), Hindi (hi), Thai (th), Swahili (sw), and many more.
 
-### `translateAudio(assetId, toLanguageCode, fromLanguageCode?, options?)`
+### `translateAudio(assetId, toLanguageCode, options?)`
 
-Creates AI-dubbed audio tracks from existing video content using ElevenLabs voice cloning and translation.
+Creates AI-dubbed audio tracks from existing video content using ElevenLabs voice cloning and translation. Uses the default audio track on your asset, language is auto-detected.
 
 **Parameters:**
 - `assetId` (string) - Mux video asset ID (must have audio.m4a static rendition)
 - `toLanguageCode` (string) - Target language code (e.g., 'es', 'fr', 'de')
-- `fromLanguageCode` (string, optional) - Source language code (default: 'auto' for auto-detection)
 - `options` (optional) - Configuration options
 
 **Options:**
@@ -286,7 +285,6 @@ Creates AI-dubbed audio tracks from existing video content using ElevenLabs voic
 ```typescript
 {
   assetId: string;
-  sourceLanguageCode: string;
   targetLanguageCode: string;
   dubbingId: string;           // ElevenLabs dubbing job ID
   uploadedTrackId?: string;    // Mux audio track ID (if uploaded)
@@ -369,13 +367,13 @@ npm run translation-only <your-asset-id> en fr
 cd examples/audio-translation
 npm install
 npm run basic <your-asset-id> es
-npm run dubbing-only <your-asset-id> fr auto
+npm run dubbing-only <your-asset-id> fr
 ```
 
 **Audio Dubbing Workflow:**
 1. Checks asset has audio.m4a static rendition
-2. Downloads audio file from Mux
-3. Creates ElevenLabs dubbing job
+2. Downloads default audio track from Mux
+3. Creates ElevenLabs dubbing job with automatic language detection
 4. Polls for completion (up to 30 minutes)
 5. Downloads dubbed audio file
 6. Uploads to S3-compatible storage

@@ -8,7 +8,6 @@ import { MuxAIOptions } from './types';
 
 export interface AudioTranslationResult {
   assetId: string;
-  sourceLanguageCode: string;
   targetLanguageCode: string;
   dubbingId: string;
   uploadedTrackId?: string;
@@ -30,9 +29,9 @@ export interface AudioTranslationOptions extends MuxAIOptions {
 export async function translateAudio(
   assetId: string,
   toLanguageCode: string,
-  fromLanguageCode: string = 'auto',
   options: AudioTranslationOptions = {}
 ): Promise<AudioTranslationResult> {
+  // Uses the default audio track on your asset, language is auto-detected by ElevenLabs
   const {
     provider = 'elevenlabs',
     numSpeakers = 0, // 0 = auto-detect
@@ -112,7 +111,7 @@ export async function translateAudio(
   console.log(`✅ Found audio rendition: ${audioUrl}`);
 
   // Create dubbing job in ElevenLabs
-  console.log(`🎙️ Creating ElevenLabs dubbing job (${fromLanguageCode} → ${toLanguageCode})`);
+  console.log(`🎙️ Creating ElevenLabs dubbing job (auto-detect → ${toLanguageCode})`);
   
   let dubbingId: string;
   
@@ -131,11 +130,9 @@ export async function translateAudio(
     const formData = new FormData();
     formData.append('file', audioFile);
     formData.append('target_lang', toLanguageCode);
-    if (fromLanguageCode !== 'auto') {
-      formData.append('source_lang', fromLanguageCode);
-    }
+    // Note: source_lang is omitted to enable automatic language detection
     formData.append('num_speakers', numSpeakers.toString());
-    formData.append('name', `Mux Asset ${assetId} - ${fromLanguageCode} to ${toLanguageCode}`);
+    formData.append('name', `Mux Asset ${assetId} - auto to ${toLanguageCode}`);
     
     const dubbingResponse = await fetch('https://api.elevenlabs.io/v1/dubbing', {
       method: 'POST',
@@ -205,7 +202,6 @@ export async function translateAudio(
   if (!uploadToMux) {
     return {
       assetId,
-      sourceLanguageCode: fromLanguageCode,
       targetLanguageCode: toLanguageCode,
       dubbingId
     };
@@ -250,7 +246,7 @@ export async function translateAudio(
   });
   
   // Create unique key for the audio file
-  const audioKey = `audio-translations/${assetId}/${fromLanguageCode}-to-${toLanguageCode}-${Date.now()}.m4a`;
+  const audioKey = `audio-translations/${assetId}/auto-to-${toLanguageCode}-${Date.now()}.m4a`;
   
   let presignedUrl: string;
   
@@ -313,7 +309,6 @@ export async function translateAudio(
 
   return {
     assetId,
-    sourceLanguageCode: fromLanguageCode,
     targetLanguageCode: toLanguageCode,
     dubbingId,
     uploadedTrackId,

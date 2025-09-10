@@ -8,31 +8,29 @@ console.log('Dotenv result:', result.error ? result.error.message : 'SUCCESS');
 async function main() {
   const assetId = process.argv[2];
   const toLang = process.argv[3] || 'es';
-  const fromLang = process.argv[4] || 'auto';
   
   if (!assetId) {
-    console.log('Usage: npm run basic <asset-id> [to-lang] [from-lang]');
+    console.log('Usage: npm run basic <asset-id> [to-lang]');
     console.log('Example: npm run basic your-asset-id es');
-    console.log('Example: npm run basic your-asset-id es en');
+    console.log('Example: npm run basic your-asset-id fr');
     console.log('');
     console.log('Note: Asset must have an audio.m4a static rendition');
-    console.log('Note: Source language defaults to auto-detection');
+    console.log('Note: Uses default audio track, language is auto-detected');
     process.exit(1);
   }
 
   console.log(`Asset ID: ${assetId}`);
-  console.log(`Audio Dubbing: ${fromLang} -> ${toLang}\n`);
+  console.log(`Audio Dubbing: auto-detect -> ${toLang}\n`);
 
   try {
     console.log('🎙️ Starting audio dubbing...\n');
 
-    const result = await translateAudio(assetId, toLang, fromLang, {
+    const result = await translateAudio(assetId, toLang, {
       provider: 'elevenlabs',
       numSpeakers: 0 // Auto-detect speakers
     });
 
     console.log('\n📊 Audio Dubbing Results:');
-    console.log(`Source Language: ${result.sourceLanguageCode}`);
     console.log(`Target Language: ${result.targetLanguageCode}`);
     console.log(`Asset ID: ${result.assetId}`);
     console.log(`ElevenLabs Dubbing ID: ${result.dubbingId}`);
