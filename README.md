@@ -64,6 +64,46 @@ const hiveResult = await getModerationScores('your-mux-asset-id', {
   provider: 'hive',
   thresholds: { sexual: 0.7, violence: 0.8 }
 });
+
+// Use base64 submission for improved reliability (downloads images locally)
+const reliableResult = await getModerationScores('your-mux-asset-id', {
+  provider: 'openai',
+  imageSubmissionMode: 'base64',
+  imageDownloadOptions: {
+    timeout: 15000,
+    retries: 3,
+    retryDelay: 1000
+  }
+});
+```
+
+#### Image Submission Modes
+
+Choose between two methods for submitting images to AI providers:
+
+**URL Mode (Default):**
+- Fast initial response
+- Lower bandwidth usage
+- Relies on AI provider's image downloading
+- May encounter timeouts with slow/unreliable image sources
+
+**Base64 Mode (Recommended for Production):**
+- Downloads images locally with robust retry logic
+- Eliminates AI provider timeout issues
+- Better control over slow TTFB and network issues
+- Slightly higher bandwidth usage but more reliable results
+
+```typescript
+// High reliability mode - recommended for production
+const result = await getModerationScores(assetId, {
+  imageSubmissionMode: 'base64',
+  imageDownloadOptions: {
+    timeout: 15000,      // 15s timeout per image
+    retries: 3,          // Retry failed downloads 3x
+    retryDelay: 1000,    // 1s base delay with exponential backoff
+    exponentialBackoff: true
+  }
+});
 ```
 
 ### Caption Translation
@@ -207,6 +247,11 @@ Analyzes video thumbnails for inappropriate content using OpenAI's moderation AP
 - `thumbnailInterval?: number` - Seconds between thumbnails for long videos (default: 10)
 - `thumbnailWidth?: number` - Thumbnail width in pixels (default: 640)
 - `maxConcurrent?: number` - Maximum concurrent API requests (default: 5)
+- `imageSubmissionMode?: 'url' | 'base64'` - How to submit images to AI providers (default: 'url')
+- `imageDownloadOptions?: object` - Options for image download when using base64 mode
+  - `timeout?: number` - Request timeout in milliseconds (default: 10000)
+  - `retries?: number` - Maximum retry attempts (default: 3)
+  - `retryDelay?: number` - Base delay between retries in milliseconds (default: 1000)
 - `muxTokenId/muxTokenSecret/openaiApiKey?: string` - API credentials
 - `hiveApiKey?: string` - Hive API key (required for Hive provider)
 

@@ -1,6 +1,7 @@
 import Mux from '@mux/mux-node';
 import OpenAI from 'openai';
 import { MuxAIOptions } from './types';
+import { ImageDownloadOptions, downloadImagesAsBase64 } from './utils/image-download';
 
 export interface ThumbnailModerationScore {
   url: string;
@@ -33,6 +34,10 @@ export interface ModerationOptions extends MuxAIOptions {
   thumbnailInterval?: number;
   thumbnailWidth?: number;
   maxConcurrent?: number;
+  /** Method for submitting images to AI providers (default: 'url') */
+  imageSubmissionMode?: 'url' | 'base64';
+  /** Options for image download when using base64 submission mode */
+  imageDownloadOptions?: ImageDownloadOptions;
   hiveApiKey?: string;
 }
 
@@ -121,7 +126,72 @@ function getThumbnailUrls(playbackId: string, duration: number, options: { inter
 }
 
 // Sends thumbnail URLs to OpenAI moderation API with concurrency limiting
-async function requestOpenAIModeration(imageUrls: string[], openaiClient: OpenAI, model: string, maxConcurrent: number = 5): Promise<ThumbnailModerationScore[]> {
+async function requestOpenAIModeration(
+  imageUrls: string[], 
+  openaiClient: OpenAI, 
+  model: string, 
+  maxConcurrent: number = 5,
+  submissionMode: 'url' | 'base64' = 'url',
+  downloadOptions?: ImageDownloadOptions
+): Promise<ThumbnailModerationScore[]> {
+  
+  // If using base64 mode, download all images first
+  if (submissionMode === 'base64') {
+    console.log(`Downloading ${imageUrls.length} images for base64 submission...`);
+    
+    try {
+      const downloadResults = await downloadImagesAsBase64(imageUrls, downloadOptions, maxConcurrent);
+      
+      // Process each downloaded image through OpenAI moderation
+      const processor = async (downloadResult: typeof downloadResults[0]): Promise<ThumbnailModerationScore> => {
+        try {
+          const moderation = await openaiClient.moderations.create({
+            model,
+            input: [
+              {
+                type: "image_url",
+                image_url: {
+                  url: downloadResult.base64Data, // Use base64 data URI
+                },
+              },
+            ],
+          });
+
+          const categoryScores = moderation.results[0].category_scores;
+
+          return {
+            url: downloadResult.url, // Return original URL for tracking
+            sexual: categoryScores.sexual || 0,
+            violence: categoryScores.violence || 0,
+            error: false
+          };
+
+        } catch (error) {
+          console.error(`Failed to moderate downloaded image ${downloadResult.url}:`, error);
+          return {
+            url: downloadResult.url,
+            sexual: 0,
+            violence: 0,
+            error: true,
+          };
+        }
+      };
+
+      return processConcurrently(downloadResults, processor, maxConcurrent);
+      
+    } catch (error) {
+      console.error('Failed to download images for base64 submission:', error);
+      // Return error results for all URLs
+      return imageUrls.map(url => ({
+        url,
+        sexual: 0,
+        violence: 0,
+        error: true,
+      }));
+    }
+  }
+  
+  // Original URL-based submission mode
   const processor = async (url: string): Promise<ThumbnailModerationScore> => {
     try {
       const moderation = await openaiClient.moderations.create({
@@ -222,6 +292,8 @@ export async function getModerationScores(
     thumbnailInterval = 10,
     thumbnailWidth = 640,
     maxConcurrent = 5,
+    imageSubmissionMode = 'url',
+    imageDownloadOptions,
     muxTokenId,
     muxTokenSecret,
     openaiApiKey,
@@ -292,7 +364,14 @@ export async function getModerationScores(
   let thumbnailScores: ThumbnailModerationScore[];
   
   if (provider === 'openai') {
-    thumbnailScores = await requestOpenAIModeration(thumbnailUrls, openaiClient!, model, maxConcurrent);
+    thumbnailScores = await requestOpenAIModeration(
+      thumbnailUrls, 
+      openaiClient!, 
+      model, 
+      maxConcurrent, 
+      imageSubmissionMode, 
+      imageDownloadOptions
+    );
   } else if (provider === 'hive') {
     thumbnailScores = await requestHiveModeration(thumbnailUrls, hiveKey!, maxConcurrent);
   } else {
