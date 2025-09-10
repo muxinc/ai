@@ -43,6 +43,18 @@ console.log(result.title);       // Short, descriptive title
 console.log(result.description); // Detailed description
 console.log(result.tags);        // Array of relevant keywords
 console.log(result.storyboardUrl); // URL to Mux storyboard
+
+// Use base64 mode for improved reliability (works with both OpenAI and Anthropic)
+const reliableResult = await getSummaryAndTags('your-mux-asset-id', {
+  provider: 'anthropic',
+  imageSubmissionMode: 'base64',  // Uses Files API for Anthropic, base64 for OpenAI
+  imageDownloadOptions: {
+    timeout: 15000,
+    retries: 2,
+    retryDelay: 1000
+  },
+  tone: 'professional'
+});
 ```
 
 ### Content Moderation
@@ -105,6 +117,7 @@ Choose between two methods for submitting images to AI providers:
 - Slightly higher bandwidth usage but more reliable results
 - For OpenAI: submits images as base64 data URIs
 - For Hive: uploads images via multipart/form-data (Hive doesn't support base64 data URIs)
+- For Anthropic (summarization): uploads to Files API then references by file_id (no size limit)
 
 ```typescript
 // High reliability mode - recommended for production
@@ -227,12 +240,21 @@ Analyzes a Mux video asset and returns AI-generated metadata.
 - `options` (optional) - Configuration options
 
 **Options:**
+- `provider?: 'openai' | 'anthropic'` - AI provider (default: 'openai')
 - `tone?: 'normal' | 'sassy' | 'professional'` - Analysis tone (default: 'normal')
-- `model?: string` - OpenAI model to use (default: 'gpt-4o-mini')
+- `model?: string` - AI model to use (default: 'gpt-4o-mini' for OpenAI, 'claude-3-5-haiku-20241022' for Anthropic)
 - `includeTranscript?: boolean` - Include video transcript in analysis (default: true)
+- `imageSubmissionMode?: 'url' | 'base64'` - How to submit storyboard to AI providers (default: 'url')
+- `imageDownloadOptions?: object` - Options for image download when using base64 mode
+  - `timeout?: number` - Request timeout in milliseconds (default: 10000)
+  - `retries?: number` - Maximum retry attempts (default: 3)
+  - `retryDelay?: number` - Base delay between retries in milliseconds (default: 1000)
+  - `maxRetryDelay?: number` - Maximum delay between retries in milliseconds (default: 10000)
+  - `exponentialBackoff?: boolean` - Whether to use exponential backoff (default: true)
 - `muxTokenId?: string` - Mux API token ID
 - `muxTokenSecret?: string` - Mux API token secret  
 - `openaiApiKey?: string` - OpenAI API key
+- `anthropicApiKey?: string` - Anthropic API key
 
 **Returns:**
 ```typescript
