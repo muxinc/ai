@@ -230,7 +230,95 @@ async function requestOpenAIModeration(
 }
 
 // Sends thumbnail URLs to Hive moderation API with concurrency limiting
-async function requestHiveModeration(imageUrls: string[], hiveApiKey: string, maxConcurrent: number = 5): Promise<ThumbnailModerationScore[]> {
+async function requestHiveModeration(
+  imageUrls: string[], 
+  hiveApiKey: string, 
+  maxConcurrent: number = 5,
+  submissionMode: 'url' | 'base64' = 'url',
+  downloadOptions?: ImageDownloadOptions
+): Promise<ThumbnailModerationScore[]> {
+  
+  // If using base64 mode, download all images first and upload via multipart/form-data
+  if (submissionMode === 'base64') {
+    console.log(`Downloading ${imageUrls.length} images for Hive multipart upload...`);
+    
+    try {
+      const downloadResults = await downloadImagesAsBase64(imageUrls, downloadOptions, maxConcurrent);
+      
+      // Process each downloaded image through Hive moderation via file upload
+      const processor = async (downloadResult: typeof downloadResults[0]): Promise<ThumbnailModerationScore> => {
+        try {
+          // Create form data with image buffer
+          const formData = new FormData();
+          
+          // Create a Blob from the buffer for form data
+          const imageBlob = new Blob([downloadResult.buffer], { 
+            type: downloadResult.contentType 
+          });
+          
+          // Get file extension from content type
+          const extension = downloadResult.contentType.split('/')[1] || 'png';
+          formData.append('media', imageBlob, `image.${extension}`);
+
+          const response = await fetch('https://api.thehive.ai/api/v2/task/sync', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Token ${hiveApiKey}`,
+              // Don't set Content-Type header - let fetch set it with boundary for multipart
+            },
+            body: formData
+          });
+
+          if (!response.ok) {
+            throw new Error(`Hive API error: ${response.statusText}`);
+          }
+
+          const hiveResult = await response.json() as any;
+          
+          // Extract scores from Hive response and map to OpenAI format
+          const classes = hiveResult.status?.[0]?.response?.output?.[0]?.classes || [];
+          const scoreMap = Object.fromEntries(classes.map((c: any) => [c.class, c.score]));
+          
+          const sexualScores = HIVE_SEXUAL_CATEGORIES.map(category => 
+            scoreMap[category] || 0
+          );
+          const violenceScores = HIVE_VIOLENCE_CATEGORIES.map(category => 
+            scoreMap[category] || 0
+          );
+
+          return {
+            url: downloadResult.url, // Return original URL for tracking
+            sexual: Math.max(...sexualScores, 0),
+            violence: Math.max(...violenceScores, 0),
+            error: false
+          };
+
+        } catch (error) {
+          console.error(`Failed to moderate uploaded image ${downloadResult.url}:`, error);
+          return {
+            url: downloadResult.url,
+            sexual: 0,
+            violence: 0,
+            error: true,
+          };
+        }
+      };
+
+      return processConcurrently(downloadResults, processor, maxConcurrent);
+      
+    } catch (error) {
+      console.error('Failed to download images for Hive multipart upload:', error);
+      // Return error results for all URLs
+      return imageUrls.map(url => ({
+        url,
+        sexual: 0,
+        violence: 0,
+        error: true,
+      }));
+    }
+  }
+  
+  // Original URL-based submission mode
   const processor = async (url: string): Promise<ThumbnailModerationScore> => {
     try {
       const response = await fetch('https://api.thehive.ai/api/v2/task/sync', {
@@ -373,7 +461,13 @@ export async function getModerationScores(
       imageDownloadOptions
     );
   } else if (provider === 'hive') {
-    thumbnailScores = await requestHiveModeration(thumbnailUrls, hiveKey!, maxConcurrent);
+    thumbnailScores = await requestHiveModeration(
+      thumbnailUrls, 
+      hiveKey!, 
+      maxConcurrent, 
+      imageSubmissionMode, 
+      imageDownloadOptions
+    );
   } else {
     throw new Error('Unsupported provider');
   }

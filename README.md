@@ -75,6 +75,17 @@ const reliableResult = await getModerationScores('your-mux-asset-id', {
     retryDelay: 1000
   }
 });
+
+// Hive also supports base64 mode (uses multipart upload)
+const hiveReliableResult = await getModerationScores('your-mux-asset-id', {
+  provider: 'hive',
+  imageSubmissionMode: 'base64',
+  imageDownloadOptions: {
+    timeout: 15000,
+    retries: 2,
+    retryDelay: 1000
+  }
+});
 ```
 
 #### Image Submission Modes
@@ -92,6 +103,8 @@ Choose between two methods for submitting images to AI providers:
 - Eliminates AI provider timeout issues
 - Better control over slow TTFB and network issues
 - Slightly higher bandwidth usage but more reliable results
+- For OpenAI: submits images as base64 data URIs
+- For Hive: uploads images via multipart/form-data (Hive doesn't support base64 data URIs)
 
 ```typescript
 // High reliability mode - recommended for production
@@ -252,6 +265,8 @@ Analyzes video thumbnails for inappropriate content using OpenAI's moderation AP
   - `timeout?: number` - Request timeout in milliseconds (default: 10000)
   - `retries?: number` - Maximum retry attempts (default: 3)
   - `retryDelay?: number` - Base delay between retries in milliseconds (default: 1000)
+  - `maxRetryDelay?: number` - Maximum delay between retries in milliseconds (default: 10000)
+  - `exponentialBackoff?: boolean` - Whether to use exponential backoff (default: true)
 - `muxTokenId/muxTokenSecret/openaiApiKey?: string` - API credentials
 - `hiveApiKey?: string` - Hive API key (required for Hive provider)
 

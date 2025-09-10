@@ -16,6 +16,8 @@ export interface ImageDownloadOptions {
 export interface ImageDownloadResult {
   /** Base64 encoded image data with data URI prefix (e.g., "data:image/png;base64,iVBORw0K...") */
   base64Data: string;
+  /** Raw image buffer for multipart/form-data uploads */
+  buffer: Buffer;
   /** Original image URL */
   url: string;
   /** Content type of the downloaded image */
@@ -91,6 +93,7 @@ export async function downloadImageAsBase64(
 
         return {
           base64Data,
+          buffer,
           url,
           contentType,
           sizeBytes: buffer.length,
