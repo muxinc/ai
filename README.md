@@ -2,8 +2,6 @@
 
 AI-powered video analysis library for Mux, built in TypeScript.
 
-> **💡 Cost-Effective by Default**: Uses affordable models like `gpt-4o-mini` and `claude-3-5-haiku` to keep analysis costs low while maintaining high quality results.
-
 ## Available Tools
 
 | Function | Description | Providers | Default Models | Input | Output |
@@ -15,6 +13,7 @@ AI-powered video analysis library for Mux, built in TypeScript.
 
 ## Features
 
+- **Cost-Effective by Default**: Uses affordable models like `gpt-4o-mini` and `claude-3-5-haiku` to keep analysis costs low while maintaining high quality results
 - **Multi-modal Analysis**: Combines storyboard images with video transcripts
 - **Tone Control**: Normal, sassy, or professional analysis styles (summarization only)
 - **Configurable Thresholds**: Custom sensitivity levels for content moderation
