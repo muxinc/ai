@@ -137,7 +137,6 @@ async function requestOpenAIModeration(
   
   // If using base64 mode, download all images first
   if (submissionMode === 'base64') {
-    console.log(`Downloading ${imageUrls.length} images for base64 submission...`);
     
     try {
       const downloadResults = await downloadImagesAsBase64(imageUrls, downloadOptions, maxConcurrent);
@@ -240,7 +239,6 @@ async function requestHiveModeration(
   
   // If using base64 mode, download all images first and upload via multipart/form-data
   if (submissionMode === 'base64') {
-    console.log(`Downloading ${imageUrls.length} images for Hive multipart upload...`);
     
     try {
       const downloadResults = await downloadImagesAsBase64(imageUrls, downloadOptions, maxConcurrent);

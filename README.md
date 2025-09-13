@@ -244,6 +244,7 @@ Analyzes a Mux video asset and returns AI-generated metadata.
 - `tone?: 'normal' | 'sassy' | 'professional'` - Analysis tone (default: 'normal')
 - `model?: string` - AI model to use (default: 'gpt-4o-mini' for OpenAI, 'claude-3-5-haiku-20241022' for Anthropic)
 - `includeTranscript?: boolean` - Include video transcript in analysis (default: true)
+- `cleanTranscript?: boolean` - Remove VTT timestamps and formatting from transcript (default: true)
 - `imageSubmissionMode?: 'url' | 'base64'` - How to submit storyboard to AI providers (default: 'url')
 - `imageDownloadOptions?: object` - Options for image download when using base64 mode
   - `timeout?: number` - Request timeout in milliseconds (default: 10000)

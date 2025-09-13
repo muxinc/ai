@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { zodTextFormat } from 'openai/helpers/zod';
 import { MuxAIOptions, ToneType } from './types';
 import { ImageDownloadOptions, downloadImageAsBase64, uploadImageToAnthropicFiles } from './utils/image-download';
+import { extractTextFromVTT } from './utils/vtt-parser';
 
 export interface SummaryAndTagsResult {
   assetId: string;
@@ -22,6 +23,8 @@ export interface SummarizationOptions extends MuxAIOptions {
   customPrompt?: string;
   tone?: ToneType;
   includeTranscript?: boolean;
+  /** Whether to clean VTT timestamps and formatting from transcript (default: true) */
+  cleanTranscript?: boolean;
   /** Method for submitting storyboard to AI providers (default: 'url') */
   imageSubmissionMode?: 'url' | 'base64';
   /** Options for image download when using base64 submission mode */
@@ -66,6 +69,7 @@ export async function getSummaryAndTags(
     model,
     tone = 'normal',
     includeTranscript = true,
+    cleanTranscript = true,
     imageSubmissionMode = 'url',
     imageDownloadOptions,
     muxTokenId,
@@ -144,7 +148,11 @@ export async function getSummaryAndTags(
       try {
         const transcriptResponse = await fetch(transcriptUrl);
         if (transcriptResponse.ok) {
-          transcriptText = await transcriptResponse.text();
+          const rawVttContent = await transcriptResponse.text();
+          // Use clean text or raw VTT based on user preference
+          transcriptText = cleanTranscript 
+            ? extractTextFromVTT(rawVttContent)
+            : rawVttContent;
         }
       } catch (error) {
         console.warn('Failed to fetch transcript:', error);
@@ -168,7 +176,8 @@ export async function getSummaryAndTags(
   // Add transcript context to prompt if available
   let contextualPrompt = prompt + toneInstruction;
   if (transcriptText) {
-    contextualPrompt += ` Use the following WebVTT transcript for additional context: "${transcriptText}"`;
+    const transcriptType = cleanTranscript ? 'transcript' : 'WebVTT transcript';
+    contextualPrompt += ` Use the following ${transcriptType} for additional context: "${transcriptText}"`;
   }
 
   // Analyze storyboard with AI provider
@@ -181,7 +190,6 @@ export async function getSummaryAndTags(
   if (provider === 'openai') {
     // Handle base64 vs URL submission modes
     if (imageSubmissionMode === 'base64') {
-      console.log('Downloading storyboard for base64 submission...');
       
       try {
         const downloadResult = await downloadImageAsBase64(imageUrl, imageDownloadOptions);
@@ -273,7 +281,6 @@ ${ANTHROPIC_JSON_PROMPT}`;
     
     // Handle base64 vs URL submission modes
     if (imageSubmissionMode === 'base64') {
-      console.log('Uploading storyboard to Anthropic Files API...');
       
       try {
         // Upload to Files API instead of using base64 inline (no 5MB limit)
