@@ -10,7 +10,8 @@
     "test": "jest",
     "lint": "eslint src/**/*.ts",
     "typecheck": "tsc --noEmit",
-    "chapters:basic": "npx ts-node examples/chapters/basic-example.ts"
+    "chapters:basic": "npx ts-node examples/chapters/basic-example.ts",
+    "burned-in:basic": "npx ts-node examples/burned-in-captions/basic-example.ts"
   },
   "keywords": [
     "mux",
