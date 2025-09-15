@@ -8,6 +8,7 @@ AI-powered video analysis library for Mux, built in TypeScript.
 |----------|-------------|-----------|----------------|--------|--------|
 | `getSummaryAndTags` | Generate titles, descriptions, and tags from a Mux video asset | OpenAI, Anthropic | `gpt-4o-mini`, `claude-3-5-haiku-20241022` | Asset ID + options | Title, description, tags, storyboard URL |
 | `getModerationScores` | Analyze video thumbnails for inappropriate content | OpenAI, Hive | `omni-moderation-latest`, Hive Visual API | Asset ID + thresholds | Sexual/violence scores, flagged status |
+| `generateChapters` | Generate AI-powered chapter markers from video captions | OpenAI, Anthropic | `gpt-4o-mini`, `claude-3-5-haiku-20241022` | Asset ID + language + options | Timestamped chapter list |
 | `translateCaptions` | Translate video captions to different languages | Anthropic only | `claude-sonnet-4-20250514` | Asset ID + languages + S3 config | Translated VTT + Mux track ID |
 | `translateAudio` | Create AI-dubbed audio tracks in different languages | ElevenLabs only | ElevenLabs Dubbing API | Asset ID + languages + S3 config | Dubbed audio + Mux track ID |
 
@@ -151,6 +152,29 @@ const result = await translateCaptions(
 console.log(result.uploadedTrackId);  // New Mux track ID
 console.log(result.presignedUrl);     // S3 file URL
 console.log(result.translatedVtt);    // Translated VTT content
+```
+
+### Video Chapters
+
+```typescript
+import { generateChapters } from '@mux/ai';
+
+// Generate AI-powered chapters from video captions
+const result = await generateChapters('your-mux-asset-id', 'en', {
+  provider: 'openai'
+});
+
+console.log(result.chapters);  // Array of {startTime: number, title: string}
+
+// Use with Mux Player
+const player = document.querySelector('mux-player');
+player.addChapters(result.chapters);
+
+// Compare providers
+const anthropicResult = await generateChapters('your-mux-asset-id', 'en', {
+  provider: 'anthropic',
+  model: 'claude-3-5-haiku-20241022'
+});
 ```
 
 ### Audio Dubbing
@@ -352,6 +376,50 @@ Translates existing captions from one language to another and optionally adds th
 **Supported Languages:**
 All ISO 639-1 language codes are automatically supported using `Intl.DisplayNames`. Examples: Spanish (es), French (fr), German (de), Italian (it), Portuguese (pt), Polish (pl), Japanese (ja), Korean (ko), Chinese (zh), Russian (ru), Arabic (ar), Hindi (hi), Thai (th), Swahili (sw), and many more.
 
+### `generateChapters(assetId, languageCode, options?)`
+
+Generates AI-powered chapter markers by analyzing video captions. Creates logical chapter breaks based on topic changes and content transitions.
+
+**Parameters:**
+- `assetId` (string) - Mux video asset ID
+- `languageCode` (string) - Language code for captions (e.g., 'en', 'es', 'fr')
+- `options` (optional) - Configuration options
+
+**Options:**
+- `provider?: 'openai' | 'anthropic'` - AI provider (default: 'openai')
+- `model?: string` - AI model to use (default: 'gpt-4o-mini' for OpenAI, 'claude-3-5-haiku-20241022' for Anthropic)
+- `muxTokenId?: string` - Mux API token ID
+- `muxTokenSecret?: string` - Mux API token secret
+- `openaiApiKey?: string` - OpenAI API key
+- `anthropicApiKey?: string` - Anthropic API key
+
+**Returns:**
+```typescript
+{
+  assetId: string;
+  languageCode: string;
+  chapters: Array<{
+    startTime: number;    // Chapter start time in seconds
+    title: string;        // Descriptive chapter title
+  }>;
+}
+```
+
+**Requirements:**
+- Asset must have caption track in the specified language
+- Caption track must be in 'ready' status
+- Uses existing auto-generated or uploaded captions
+
+**Example Output:**
+```javascript
+// Perfect format for Mux Player
+player.addChapters([
+  {startTime: 0, title: 'Introduction and Setup'},
+  {startTime: 45, title: 'Main Content Discussion'}, 
+  {startTime: 120, title: 'Conclusion'}
+]);
+```
+
 ### `translateAudio(assetId, toLanguageCode, options?)`
 
 Creates AI-dubbed audio tracks from existing video content using ElevenLabs voice cloning and translation. Uses the default audio track on your asset, language is auto-detected.
@@ -434,6 +502,17 @@ npm run basic <your-asset-id>
 npm run thresholds <your-asset-id>
 npm run hive <your-asset-id>
 npm run compare <your-asset-id>
+```
+
+### Chapter Generation Examples
+- **Basic Chapters**: Generate chapters with different AI providers
+- **Provider Comparison**: Compare OpenAI vs Anthropic chapter generation
+
+```bash
+cd examples/chapters
+npm install  
+npm run chapters:basic <your-asset-id> en openai
+npm run chapters:basic <your-asset-id> en anthropic
 ```
 
 ### Translation Examples

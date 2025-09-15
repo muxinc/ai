@@ -9,7 +9,8 @@
     "dev": "tsc --watch",
     "test": "jest",
     "lint": "eslint src/**/*.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "chapters:basic": "npx ts-node examples/chapters/basic-example.ts"
   },
   "keywords": [
     "mux",
