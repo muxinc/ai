@@ -586,8 +586,8 @@ npm run compare <your-asset-id>
 ```bash
 cd examples/burned-in-captions
 npm install
-npm run burned-in:basic <your-asset-id> openai
-npm run burned-in:basic <your-asset-id> anthropic
+npm run burned-in:basic <your-asset-id> [provider]
+npm run compare <your-asset-id>
 ```
 
 ### Chapter Generation Examples
@@ -596,9 +596,9 @@ npm run burned-in:basic <your-asset-id> anthropic
 
 ```bash
 cd examples/chapters
-npm install  
-npm run chapters:basic <your-asset-id> en openai
-npm run chapters:basic <your-asset-id> en anthropic
+npm install
+npm run chapters:basic <your-asset-id> [language-code] [provider]
+npm run compare <your-asset-id> [language-code]
 ```
 
 ### Translation Examples
