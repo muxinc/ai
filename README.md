@@ -8,6 +8,7 @@ AI-powered video analysis library for Mux, built in TypeScript.
 |----------|-------------|-----------|----------------|--------|--------|
 | `getSummaryAndTags` | Generate titles, descriptions, and tags from a Mux video asset | OpenAI, Anthropic | `gpt-4o-mini`, `claude-3-5-haiku-20241022` | Asset ID + options | Title, description, tags, storyboard URL |
 | `getModerationScores` | Analyze video thumbnails for inappropriate content | OpenAI, Hive | `omni-moderation-latest`, Hive Visual API | Asset ID + thresholds | Sexual/violence scores, flagged status |
+| `hasBurnedInCaptions` | Detect burned-in captions (hardcoded subtitles) in video frames | OpenAI, Anthropic | `gpt-4o-mini`, `claude-3-5-haiku-20241022` | Asset ID + options | Boolean result, confidence, language |
 | `generateChapters` | Generate AI-powered chapter markers from video captions | OpenAI, Anthropic | `gpt-4o-mini`, `claude-3-5-haiku-20241022` | Asset ID + language + options | Timestamped chapter list |
 | `translateCaptions` | Translate video captions to different languages | Anthropic only | `claude-sonnet-4-20250514` | Asset ID + languages + S3 config | Translated VTT + Mux track ID |
 | `translateAudio` | Create AI-dubbed audio tracks in different languages | ElevenLabs only | ElevenLabs Dubbing API | Asset ID + languages + S3 config | Dubbed audio + Mux track ID |
@@ -96,6 +97,39 @@ const hiveReliableResult = await getModerationScores('your-mux-asset-id', {
   imageDownloadOptions: {
     timeout: 15000,
     retries: 2,
+    retryDelay: 1000
+  }
+});
+```
+
+### Burned-in Caption Detection
+
+```typescript
+import { hasBurnedInCaptions } from '@mux/ai';
+
+// Detect burned-in captions (hardcoded subtitles) in video frames
+const result = await hasBurnedInCaptions('your-mux-asset-id', {
+  provider: 'openai'
+});
+
+console.log(result.hasBurnedInCaptions); // true/false
+console.log(result.confidence);         // 0.0-1.0 confidence score
+console.log(result.detectedLanguage);   // Language if captions detected
+console.log(result.storyboardUrl);      // Video storyboard analyzed
+
+// Compare providers
+const anthropicResult = await hasBurnedInCaptions('your-mux-asset-id', {
+  provider: 'anthropic',
+  model: 'claude-3-5-haiku-20241022'
+});
+
+// Use base64 mode for improved reliability
+const reliableResult = await hasBurnedInCaptions('your-mux-asset-id', {
+  provider: 'openai',
+  imageSubmissionMode: 'base64',
+  imageDownloadOptions: {
+    timeout: 15000,
+    retries: 3,
     retryDelay: 1000
   }
 });
@@ -339,6 +373,47 @@ Analyzes video thumbnails for inappropriate content using OpenAI's moderation AP
 }
 ```
 
+### `hasBurnedInCaptions(assetId, options?)`
+
+Analyzes video frames to detect burned-in captions (hardcoded subtitles) that are permanently embedded in the video image.
+
+**Parameters:**
+- `assetId` (string) - Mux video asset ID
+- `options` (optional) - Configuration options
+
+**Options:**
+- `provider?: 'openai' | 'anthropic'` - AI provider (default: 'openai')
+- `model?: string` - AI model to use (default: 'gpt-4o-mini' for OpenAI, 'claude-3-5-haiku-20241022' for Anthropic)
+- `imageSubmissionMode?: 'url' | 'base64'` - How to submit storyboard to AI providers (default: 'url')
+- `imageDownloadOptions?: object` - Options for image download when using base64 mode
+  - `timeout?: number` - Request timeout in milliseconds (default: 10000)
+  - `retries?: number` - Maximum retry attempts (default: 3)
+  - `retryDelay?: number` - Base delay between retries in milliseconds (default: 1000)
+  - `maxRetryDelay?: number` - Maximum delay between retries in milliseconds (default: 10000)
+  - `exponentialBackoff?: boolean` - Whether to use exponential backoff (default: true)
+- `muxTokenId?: string` - Mux API token ID
+- `muxTokenSecret?: string` - Mux API token secret
+- `openaiApiKey?: string` - OpenAI API key
+- `anthropicApiKey?: string` - Anthropic API key
+
+**Returns:**
+```typescript
+{
+  assetId: string;
+  hasBurnedInCaptions: boolean;  // Whether burned-in captions were detected
+  confidence: number;            // Confidence score (0.0-1.0)
+  detectedLanguage: string | null; // Language of detected captions, or null
+  storyboardUrl: string;         // URL to analyzed storyboard
+}
+```
+
+**Detection Logic:**
+- Analyzes video storyboard frames to identify text overlays
+- Distinguishes between actual captions and marketing/end-card text
+- Text appearing only in final 1-2 frames is classified as marketing copy
+- Caption text must appear across multiple frames throughout the timeline
+- Both providers use optimized prompts to minimize false positives
+
 ### `translateCaptions(assetId, fromLanguageCode, toLanguageCode, options?)`
 
 Translates existing captions from one language to another and optionally adds them as a new track to the Mux asset.
@@ -502,6 +577,17 @@ npm run basic <your-asset-id>
 npm run thresholds <your-asset-id>
 npm run hive <your-asset-id>
 npm run compare <your-asset-id>
+```
+
+### Burned-in Caption Examples
+- **Basic Detection**: Detect burned-in captions with different AI providers
+- **Provider Comparison**: Compare OpenAI vs Anthropic detection accuracy
+
+```bash
+cd examples/burned-in-captions
+npm install
+npm run burned-in:basic <your-asset-id> openai
+npm run burned-in:basic <your-asset-id> anthropic
 ```
 
 ### Chapter Generation Examples
