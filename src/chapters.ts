@@ -30,7 +30,7 @@ const chaptersSchema = z.object({
   }))
 });
 
-const DEFAULT_SYSTEM_PROMPT = `Your role is to segment the following captions into chunked chapters, summarising each chapter with a title. 
+const SYSTEM_PROMPT = `Your role is to segment the following captions into chunked chapters, summarising each chapter with a title.
 
 Analyze the transcript and create logical chapter breaks based on topic changes, major transitions, or distinct sections of content. Each chapter should represent a meaningful segment of the video.
 
@@ -51,7 +51,7 @@ Important rules:
 - Do not include any text before or after the JSON
 - The JSON must be valid and parseable`;
 
-const ANTHROPIC_JSON_PROMPT = `You must respond with valid JSON in exactly this format:
+const JSON_FORMAT_PROMPT = `You must respond with valid JSON in exactly this format:
 {
   "chapters": [
     {"startTime": 0, "title": "Chapter title here"},
@@ -195,7 +195,7 @@ export async function generateChapters(
         input: [
           {
             role: "system",
-            content: DEFAULT_SYSTEM_PROMPT,
+            content: SYSTEM_PROMPT,
           },
           {
             role: "user",
@@ -221,9 +221,9 @@ export async function generateChapters(
       throw new Error('Anthropic client not initialized');
     }
 
-    const anthropicPrompt = `${DEFAULT_SYSTEM_PROMPT}
+    const anthropicPrompt = `${SYSTEM_PROMPT}
 
-${ANTHROPIC_JSON_PROMPT}
+${JSON_FORMAT_PROMPT}
 
 Transcript:
 ${timestampedTranscript}`;

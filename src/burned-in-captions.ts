@@ -35,35 +35,56 @@ const burnedInCaptionsSchema = z.object({
   detectedLanguage: z.string().nullable()
 });
 
-const SYSTEM_PROMPT = `You are an expert at analyzing video frames to detect burned-in captions (also called open captions or hardcoded subtitles). These are text overlays permanently embedded in video images, common on social media platforms.
+const SYSTEM_PROMPT = `You are an expert at analyzing video frames to detect burned-in captions (also called open captions or hardcoded subtitles). These are text overlays that are permanently embedded in the video image, common on TikTok, Instagram Reels, and other social media platforms.
 
-Key principles:
-1. Burned-in captions appear across multiple frames throughout the video timeline
-2. End-cards and marketing text appear only in final frames
-3. Captions have consistent positioning and caption-style formatting
-4. Caption text typically changes between frames (dialogue/narration)
+CRITICAL: Burned-in captions must appear consistently across MOST frames in the storyboard. Text appearing in only 1-2 frames at the end is typically marketing copy, taglines, or end-cards - NOT burned-in captions.
 
-Analysis approach:
-- Look for text overlays distributed across different parts of the timeline
-- Distinguish between dialogue captions vs. marketing end-cards
-- Consider text positioning, formatting, and content patterns`;
+Analyze the provided video storyboard by:
+1. COUNT how many frames contain text overlays vs. how many don't
+2. Check if text appears in consistent positions across multiple frames
+3. Verify text changes content between frames (indicating dialogue/narration)
+4. Ensure text has caption-style formatting (contrasting colors, readable fonts)
 
-const USER_PROMPT = `Analyze this storyboard for burned-in captions:
+ONLY classify as burned-in captions if:
+- Text appears in multiple frames (not just 1-2 end frames)
+- Text positioning is consistent across those frames
+- Content suggests dialogue, narration, or subtitles (not marketing)
+- Formatting looks like captions (not graphics/logos)
 
-1. Examine each frame from left to right (timeline order)
-2. Note which frames have text overlays and their positions
-3. Determine the pattern:
-   - Text scattered across timeline = likely captions
-   - Text only in final 1-2 frames = likely end-card/marketing
+DO NOT classify as burned-in captions:
+- Marketing taglines appearing only in final 1-2 frames
+- Single words or phrases that don't change between frames
+- Graphics, logos, watermarks, or UI elements
+- Text that's part of the original scene content
+- End-cards with calls-to-action or brand messaging
 
-Classification rules:
-- If text appears in 3+ frames distributed throughout timeline → burned-in captions
-- If text appears only in final frames → NOT burned-in captions
-- Look for dialogue-style content vs. marketing taglines
+If you detect burned-in captions, try to identify the language of the text.`;
 
-Analyze and classify with confidence level.`;
+const USER_PROMPT = `Analyze this video storyboard for burned-in captions. Follow this systematic approach:
 
-const JSON_PROMPT = `Apply the frame analysis above.
+STEP 1: Count the frames
+- How many total frames are shown in this storyboard?
+- How many frames contain any text overlays?
+- What percentage of frames contain text?
+
+STEP 2: Analyze text consistency
+- If text is present, does it appear in the same position across multiple frames?
+- Does the text content change between frames (suggesting dialogue)?
+- Or is it the same text in just 1-2 frames (suggesting marketing/end-card)?
+
+STEP 3: Classification
+- Are there burned-in captions (text overlaid that appears to be subtitles/captions)?
+- How confident are you (0.0 to 1.0)? Be decisive and accurate:
+  * If clear dialogue/caption text across multiple frames → 0.8+ confidence, TRUE
+  * If ONLY marketing text in final frames → 0.0 confidence, FALSE
+  * If truly uncertain → 0.3-0.5 confidence
+- If captions are present, what language?
+
+REMEMBER: Marketing taglines in final frames = NOT captions (0.0 confidence, FALSE). Dialogue text across timeline = captions (0.8+ confidence, TRUE).
+
+Respond with your analysis.`;
+
+const JSON_FORMAT_PROMPT = `Apply the frame analysis above.
 
 Key rule: Text appearing only in final 2-3 frames = NOT captions. Text distributed throughout timeline = captions.
 
@@ -164,7 +185,7 @@ export async function hasBurnedInCaptions(
 
     const anthropicPrompt = `${USER_PROMPT}
 
-${JSON_PROMPT}`;
+${JSON_FORMAT_PROMPT}`;
 
     const responseParser = (response: any) => {
       const content = response.content[0];

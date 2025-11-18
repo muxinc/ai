@@ -39,7 +39,7 @@ const summarySchema = z.object({
 
 const DEFAULT_PROMPT = "Generate a short title (max 100 characters) and description (max 500 characters) for what happens. Start immediately with the action or subject - never reference that this is a video, content, or storyboard. Example: Title: 'Cooking Pasta Tutorial' Description: 'Someone cooks pasta by boiling water and adding noodles.'";
 
-const ANTHROPIC_JSON_PROMPT = `You must respond with valid JSON in exactly this format:
+const JSON_FORMAT_PROMPT = `You must respond with valid JSON in exactly this format:
 {
   "title": "Your title here (max 100 characters)",
   "description": "Your description here (max 500 characters)",
@@ -202,7 +202,7 @@ export async function getSummaryAndTags(
     // Anthropic doesn't have structured outputs, so we use prompt engineering
     const anthropicPrompt = `${contextualPrompt}
 
-${ANTHROPIC_JSON_PROMPT}`;
+${JSON_FORMAT_PROMPT}`;
 
     const parseAnthropicResponse = (response: any) => {
       const content = response.content[0];
