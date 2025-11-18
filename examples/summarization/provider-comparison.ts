@@ -40,7 +40,7 @@ async function main() {
   const assetId = process.argv[2];
   
   if (!assetId) {
-    console.log('Usage: npm run example:moderation:compare <asset-id>');
+    console.log('Usage: npm run example:summarization:compare <asset-id>');
     process.exit(1);
   }
 
