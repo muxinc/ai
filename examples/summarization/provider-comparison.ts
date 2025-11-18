@@ -2,7 +2,7 @@ import { getSummaryAndTags } from '@mux/ai';
 import { config } from 'dotenv';
 
 // Load environment variables from parent directory
-config({ path: '../../.env', override: true });
+config({ path: '.env', override: true });
 
 async function compareProviders(assetId: string) {
   console.log('🔍 Comparing OpenAI vs Anthropic analysis results...\n');

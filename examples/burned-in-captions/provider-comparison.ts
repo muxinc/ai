@@ -2,7 +2,7 @@ import { hasBurnedInCaptions } from '../../src/burned-in-captions';
 import { config } from 'dotenv';
 
 // Load environment variables from project root
-const result = config({ path: '../../.env', override: true });
+const result = config({ path: '.env', override: true });
 console.log('Dotenv result:', result.error ? result.error.message : 'SUCCESS');
 
 async function main() {

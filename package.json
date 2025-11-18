@@ -10,8 +10,14 @@
     "test": "jest",
     "lint": "eslint src/**/*.ts",
     "typecheck": "tsc --noEmit",
-    "chapters:basic": "npx ts-node examples/chapters/basic-example.ts",
-    "burned-in:basic": "npx ts-node examples/burned-in-captions/basic-example.ts"
+    "example:chapters": "npx ts-node examples/chapters/basic-example.ts",
+    "example:chapters:compare": "npx ts-node examples/chapters/provider-comparison.ts",
+    "example:burned-in": "npx ts-node examples/burned-in-captions/basic-example.ts",
+    "example:burned-in:compare": "npx ts-node examples/burned-in-captions/provider-comparison.ts",
+    "example:summarization": "npx ts-node examples/summarization/basic-example.ts",
+    "example:summarization:compare": "npx ts-node examples/summarization/provider-comparison.ts",
+    "example:moderation": "npx ts-node examples/moderation/basic-example.ts",
+    "example:moderation:compare": "npx ts-node examples/moderation/provider-comparison.ts"
   },
   "keywords": [
     "mux",
