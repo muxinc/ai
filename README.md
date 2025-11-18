@@ -571,6 +571,12 @@ npm run example:summarization:compare <asset-id>
 # Moderation
 npm run example:moderation <asset-id>
 npm run example:moderation:compare <asset-id>
+
+# Translation
+npm run example:translation <asset-id> [from-lang] [to-lang]
+
+# Audio Translation (Dubbing)
+npm run example:audio-translation <asset-id> [to-lang]
 ```
 
 **Examples:**
@@ -586,6 +592,12 @@ npm run example:chapters:compare abc123 en
 
 # Run moderation analysis
 npm run example:moderation abc123
+
+# Translate captions from English to Spanish
+npm run example:translation abc123 en es
+
+# Create AI-dubbed audio in French
+npm run example:audio-translation abc123 fr
 ```
 
 **Prerequisites:**

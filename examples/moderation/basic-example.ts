@@ -9,7 +9,7 @@ async function main() {
   const assetId = process.argv[2];
   
   if (!assetId) {
-    console.log('Usage: npm run basic <asset-id>');
+    console.log('Usage: npm run example:moderation <asset-id>');
     process.exit(1);
   }
 

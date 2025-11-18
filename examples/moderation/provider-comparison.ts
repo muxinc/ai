@@ -9,8 +9,8 @@ async function main() {
   const assetId = process.argv[2];
   
   if (!assetId) {
-    console.log('Usage: npm run compare <asset-id>');
-    console.log('Example: npm run compare your-asset-id');
+    console.log('Usage: npm run example:moderation:compare <asset-id>');
+    console.log('Example: npm run example:moderation:compare your-asset-id');
     console.log('');
     console.log('Note: Asset must have public playback IDs');
     console.log('Note: Requires both OPENAI_API_KEY and HIVE_API_KEY environment variables');

@@ -10,8 +10,8 @@ async function main() {
   const languageCode = process.argv[3] || 'en';
 
   if (!assetId) {
-    console.log('Usage: npm run compare <asset-id> [language-code]');
-    console.log('Example: npm run compare ICwSGuYvLIHR00km1NMX00GH3le7wknGPx en');
+    console.log('Usage: npm run example:moderation:compare <asset-id> [language-code]');
+    console.log('Example: npm run example:moderation:compare ICwSGuYvLIHR00km1NMX00GH3le7wknGPx en');
     process.exit(1);
   }
 

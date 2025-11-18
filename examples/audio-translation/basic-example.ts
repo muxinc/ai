@@ -10,9 +10,9 @@ async function main() {
   const toLang = process.argv[3] || 'es';
   
   if (!assetId) {
-    console.log('Usage: npm run basic <asset-id> [to-lang]');
-    console.log('Example: npm run basic your-asset-id es');
-    console.log('Example: npm run basic your-asset-id fr');
+    console.log('Usage: npm run example:audio-translation <asset-id> [to-lang]');
+    console.log('Example: npm run example:audio-translation your-asset-id es');
+    console.log('Example: npm run example:audio-translation your-asset-id fr');
     console.log('');
     console.log('Note: Asset must have an audio.m4a static rendition');
     console.log('Note: Uses default audio track, language is auto-detected');

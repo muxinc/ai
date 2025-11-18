@@ -17,7 +17,9 @@
     "example:summarization": "npx ts-node examples/summarization/basic-example.ts",
     "example:summarization:compare": "npx ts-node examples/summarization/provider-comparison.ts",
     "example:moderation": "npx ts-node examples/moderation/basic-example.ts",
-    "example:moderation:compare": "npx ts-node examples/moderation/provider-comparison.ts"
+    "example:moderation:compare": "npx ts-node examples/moderation/provider-comparison.ts",
+    "example:translation": "npx ts-node examples/translation/basic-example.ts",
+    "example:audio-translation": "npx ts-node examples/audio-translation/basic-example.ts"
   },
   "keywords": [
     "mux",

@@ -10,8 +10,8 @@ async function main() {
   const provider = process.argv[3] as 'openai' | 'anthropic' || 'openai';
   
   if (!assetId) {
-    console.log('Usage: npm run burned-in:basic <asset-id> [provider]');
-    console.log('Example: npm run burned-in:basic ICwSGuYvLIHR00km1NMX00GH3le7wknGPx openai');
+    console.log('Usage: npm run example:burned-in <asset-id> [provider]');
+    console.log('Example: npm run example:burned-in ICwSGuYvLIHR00km1NMX00GH3le7wknGPx openai');
     process.exit(1);
   }
 

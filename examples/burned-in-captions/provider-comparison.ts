@@ -9,8 +9,8 @@ async function main() {
   const assetId = process.argv[2];
 
   if (!assetId) {
-    console.log('Usage: npm run compare <asset-id>');
-    console.log('Example: npm run compare ICwSGuYvLIHR00km1NMX00GH3le7wknGPx');
+    console.log('Usage: npm run example:moderation:compare <asset-id>');
+    console.log('Example: npm run example:moderation:compare ICwSGuYvLIHR00km1NMX00GH3le7wknGPx');
     process.exit(1);
   }
 

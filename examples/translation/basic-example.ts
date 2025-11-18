@@ -11,8 +11,8 @@ async function main() {
   const toLang = process.argv[4] || 'es';
   
   if (!assetId) {
-    console.log('Usage: npm run basic <asset-id> [from-lang] [to-lang]');
-    console.log('Example: npm run basic your-asset-id en es');
+    console.log('Usage: npm run example:translation <asset-id> [from-lang] [to-lang]');
+    console.log('Example: npm run example:translation your-asset-id en es');
     process.exit(1);
   }
 
