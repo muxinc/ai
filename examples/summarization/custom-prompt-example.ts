@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { getSummaryAndTags } from '@mux/ai';
 
 async function main() {

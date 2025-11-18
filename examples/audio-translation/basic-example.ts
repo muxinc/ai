@@ -1,9 +1,6 @@
+import 'dotenv/config';
 import { translateAudio } from '@mux/ai';
-import { config } from 'dotenv';
 
-// Load environment variables from parent directory - override existing
-const result = config({ path: '.env', override: true });
-console.log('Dotenv result:', result.error ? result.error.message : 'SUCCESS');
 
 async function main() {
   const assetId = process.argv[2];

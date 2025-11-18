@@ -1,8 +1,5 @@
+import 'dotenv/config';
 import { getModerationScores } from '@mux/ai';
-import { config } from 'dotenv';
-
-// Load environment variables from parent directory
-config({ path: '.env', override: true });
 
 async function testDifferentThresholds(assetId: string) {
   console.log('🎯 Testing different moderation thresholds...\n');

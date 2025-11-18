@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { getSummaryAndTags, ToneType } from '@mux/ai';
 
 async function demonstrateToneVariations(assetId: string) {

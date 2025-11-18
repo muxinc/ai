@@ -601,13 +601,15 @@ npm run example:audio-translation abc123 fr
 ```
 
 **Prerequisites:**
-Set up your `.env` file with API credentials:
+Create a `.env` file in the project root with your API credentials:
 ```bash
 MUX_TOKEN_ID=your_token_id
 MUX_TOKEN_SECRET=your_token_secret
 OPENAI_API_KEY=your_openai_key
 ANTHROPIC_API_KEY=your_anthropic_key
 ```
+
+All examples automatically load environment variables using `dotenv`.
 
 ### Summarization Examples
 - **Basic Usage**: Default prompt with different tones

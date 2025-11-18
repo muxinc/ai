@@ -1,9 +1,6 @@
+import 'dotenv/config';
 import { generateChapters } from '../../src/chapters';
-import { config } from 'dotenv';
 
-// Load environment variables from project root
-const result = config({ path: '.env', override: true });
-console.log('Dotenv result:', result.error ? result.error.message : 'SUCCESS');
 
 async function main() {
   const assetId = process.argv[2];
