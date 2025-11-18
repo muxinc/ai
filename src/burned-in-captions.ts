@@ -1,13 +1,16 @@
+import OpenAI from 'openai';
 import { z } from 'zod';
 import { zodTextFormat } from 'openai/helpers/zod';
 import { MuxAIOptions } from './types';
-import { ImageDownloadOptions } from './utils/image-download';
-import { 
-  getAssetInfo, 
-  processStoryboardWithOpenAI, 
+import { ImageDownloadOptions, downloadImageAsBase64 } from './utils/image-download';
+import {
+  getAssetInfo,
+  processStoryboardWithOpenAI,
   processStoryboardWithAnthropic,
-  StoryboardProcessorOptions 
+  StoryboardProcessorOptions
 } from './utils/storyboard-processor';
+import { getDefaultModel, validateProvider } from './lib/provider-models';
+import { withRetry } from './lib/retry';
 
 export interface BurnedInCaptionsResult {
   assetId: string;
@@ -131,35 +134,15 @@ export async function hasBurnedInCaptions(
     model,
     imageSubmissionMode = 'url',
     imageDownloadOptions,
-    muxTokenId,
-    muxTokenSecret,
-    openaiApiKey,
-    anthropicApiKey,
-    ...config
   } = options;
 
-  // Set default models based on provider
-  const defaultModel = provider === 'anthropic' ? 'claude-3-5-haiku-20241022' : 'gpt-4o-mini';
-  const finalModel = model || defaultModel;
-
-  // Validate required credentials
-  const openaiKey = openaiApiKey || process.env.OPENAI_API_KEY;
-  const anthropicKey = anthropicApiKey || process.env.ANTHROPIC_API_KEY;
-
-  if (provider === 'openai' && !openaiKey) {
-    throw new Error('OpenAI API key is required for OpenAI provider. Provide openaiApiKey in options or set OPENAI_API_KEY environment variable.');
-  }
-
-  if (provider === 'anthropic' && !anthropicKey) {
-    throw new Error('Anthropic API key is required for Anthropic provider. Provide anthropicApiKey in options or set ANTHROPIC_API_KEY environment variable.');
-  }
+  // Validate provider and get default model
+  validateProvider(provider);
+  const finalModel = model || getDefaultModel(provider);
 
   // Get asset information
   const storyboardOptions: StoryboardProcessorOptions = {
-    muxTokenId,
-    muxTokenSecret,
-    openaiApiKey,
-    anthropicApiKey,
+    ...options,
     imageSubmissionMode,
     imageDownloadOptions
   };
@@ -169,16 +152,20 @@ export async function hasBurnedInCaptions(
 
   let analysisResult: { hasBurnedInCaptions?: boolean; confidence?: number; detectedLanguage?: string | null } | null = null;
 
+  // Get API keys from options or environment
+  const openaiKey = options.openaiApiKey || process.env.OPENAI_API_KEY;
+  const anthropicKey = options.anthropicApiKey || process.env.ANTHROPIC_API_KEY;
+
   if (provider === 'openai') {
+    if (!openaiKey) {
+      throw new Error('OpenAI API key is required for OpenAI provider. Provide openaiApiKey in options or set OPENAI_API_KEY environment variable.');
+    }
+
     // Handle OpenAI with structured outputs directly
-    const OpenAI = require('openai').default;
     const openaiClient = new OpenAI({ apiKey: openaiKey });
 
-    if (imageSubmissionMode === 'base64') {
-      const { downloadImageAsBase64 } = require('./utils/image-download');
-      const downloadResult = await downloadImageAsBase64(imageUrl, imageDownloadOptions);
-      
-      const response = await openaiClient.responses.parse({
+    const analyzeWithOpenAI = async (imageDataUrl: string) => {
+      return await openaiClient.responses.parse({
         model: finalModel,
         input: [
           {
@@ -194,7 +181,7 @@ export async function hasBurnedInCaptions(
               },
               {
                 type: "input_image",
-                image_url: downloadResult.base64Data,
+                image_url: imageDataUrl,
                 detail: "high",
               },
             ],
@@ -204,59 +191,26 @@ export async function hasBurnedInCaptions(
           format: zodTextFormat(burnedInCaptionsSchema, "analysis"),
         },
       });
+    };
 
-      analysisResult = response.output_parsed;
-    } else {
-      // URL-based submission with retry logic for structured outputs
-      let retryAttempt = 0;
-      const maxRetries = 3;
-
-      while (retryAttempt <= maxRetries) {
-        try {
-          const response = await openaiClient.responses.parse({
-            model: finalModel,
-            input: [
-              {
-                role: "system",
-                content: ANTHROPIC_SYSTEM_PROMPT,
-              },
-              {
-                role: "user",
-                content: [
-                  {
-                    type: "input_text",
-                    text: ANTHROPIC_USER_PROMPT,
-                  },
-                  {
-                    type: "input_image",
-                    image_url: imageUrl,
-                    detail: "high",
-                  },
-                ],
-              },
-            ],
-            text: {
-              format: zodTextFormat(burnedInCaptionsSchema, "analysis"),
-            },
-          });
-
-          analysisResult = response.output_parsed;
-          break;
-          
-        } catch (error: unknown) {
-          const isTimeoutError = error instanceof Error && error.message && error.message.includes('Timeout while downloading');
-          
-          if (isTimeoutError && retryAttempt < maxRetries) {
-            await new Promise(resolve => setTimeout(resolve, 5000));
-            retryAttempt++;
-            continue;
-          }
-          
-          throw new Error(`Failed to analyze storyboard with OpenAI: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        }
+    try {
+      if (imageSubmissionMode === 'base64') {
+        const downloadResult = await downloadImageAsBase64(imageUrl, imageDownloadOptions);
+        const response = await analyzeWithOpenAI(downloadResult.base64Data);
+        analysisResult = response.output_parsed;
+      } else {
+        // URL-based submission with retry logic
+        const response = await withRetry(() => analyzeWithOpenAI(imageUrl));
+        analysisResult = response.output_parsed;
       }
+    } catch (error: unknown) {
+      throw new Error(`Failed to analyze storyboard with OpenAI: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   } else if (provider === 'anthropic') {
+    if (!anthropicKey) {
+      throw new Error('Anthropic API key is required for Anthropic provider. Provide anthropicApiKey in options or set ANTHROPIC_API_KEY environment variable.');
+    }
+
     const anthropicPrompt = `${ANTHROPIC_USER_PROMPT}
 
 ${ANTHROPIC_JSON_PROMPT}`;
@@ -275,19 +229,21 @@ ${ANTHROPIC_JSON_PROMPT}`;
       }
     };
 
-    analysisResult = await processStoryboardWithAnthropic(
-      imageUrl,
-      anthropicPrompt,
-      {
-        apiKey: anthropicKey!,
-        model: finalModel,
-        responseParser,
-        imageSubmissionMode,
-        imageDownloadOptions
-      }
-    );
-  } else {
-    throw new Error(`Unsupported provider: ${provider}`);
+    try {
+      analysisResult = await processStoryboardWithAnthropic(
+        imageUrl,
+        anthropicPrompt,
+        {
+          apiKey: anthropicKey,
+          model: finalModel,
+          responseParser,
+          imageSubmissionMode,
+          imageDownloadOptions
+        }
+      );
+    } catch (error: unknown) {
+      throw new Error(`Failed to analyze storyboard with Anthropic: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 
   if (!analysisResult) {
