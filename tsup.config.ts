@@ -7,7 +7,6 @@ export default defineConfig({
   sourcemap: true,
   clean: true,
   splitting: false,
-  treeshake: true,
   external: [
     '@anthropic-ai/sdk',
     '@aws-sdk/client-s3',
