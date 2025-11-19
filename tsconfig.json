@@ -15,6 +15,12 @@
     "resolveJsonModule": true,
     "moduleResolution": "bundler"
   },
+  "ts-node": {
+    "compilerOptions": {
+      "module": "CommonJS",
+      "moduleResolution": "node"
+    }
+  },
   "include": [
     "src/**/*"
   ],
