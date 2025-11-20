@@ -59,6 +59,9 @@ export function validateCredentials(
  * Creates a Mux client with validated credentials
  */
 export function createMuxClient(credentials: ValidatedCredentials): Mux {
+  if (!credentials.muxTokenId || !credentials.muxTokenSecret) {
+    throw new Error('Mux credentials are required. Provide muxTokenId and muxTokenSecret in options or set MUX_TOKEN_ID and MUX_TOKEN_SECRET environment variables.');
+  }
   return new Mux({
     tokenId: credentials.muxTokenId,
     tokenSecret: credentials.muxTokenSecret,
