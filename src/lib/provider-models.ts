@@ -9,9 +9,9 @@ export interface ProviderModelConfig {
 
 export const PROVIDER_MODELS: Record<string, ProviderModelConfig> = {
   openai: {
-    default: 'gpt-4o-mini',
-    fast: 'gpt-4o-mini',
-    powerful: 'gpt-4o',
+    default: 'gpt-5-mini',
+    fast: 'gpt-5-mini',
+    powerful: 'gpt-5.1',
   },
   anthropic: {
     default: 'claude-3-5-haiku-20241022',
