@@ -551,6 +551,17 @@ const result = await getSummaryAndTags(
 
 See the `examples/` directory for complete working examples.
 
+**Prerequisites:**
+Create a `.env` file in the project root with your API credentials:
+```bash
+MUX_TOKEN_ID=your_token_id
+MUX_TOKEN_SECRET=your_token_secret
+OPENAI_API_KEY=your_openai_key
+ANTHROPIC_API_KEY=your_anthropic_key
+```
+
+All examples automatically load environment variables using `dotenv`.
+
 ### Quick Start (Run from Root)
 
 You can run examples directly from the project root without installing dependencies in each example folder:
@@ -599,17 +610,6 @@ npm run example:translation abc123 en es
 # Create AI-dubbed audio in French
 npm run example:audio-translation abc123 fr
 ```
-
-**Prerequisites:**
-Create a `.env` file in the project root with your API credentials:
-```bash
-MUX_TOKEN_ID=your_token_id
-MUX_TOKEN_SECRET=your_token_secret
-OPENAI_API_KEY=your_openai_key
-ANTHROPIC_API_KEY=your_anthropic_key
-```
-
-All examples automatically load environment variables using `dotenv`.
 
 ### Summarization Examples
 - **Basic Usage**: Default prompt with different tones
