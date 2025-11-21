@@ -1,18 +1,15 @@
+import 'dotenv/config';
 import { translateAudio } from '@mux/ai';
-import { config } from 'dotenv';
 
-// Load environment variables from parent directory - override existing
-const result = config({ path: '../../.env', override: true });
-console.log('Dotenv result:', result.error ? result.error.message : 'SUCCESS');
 
 async function main() {
   const assetId = process.argv[2];
   const toLang = process.argv[3] || 'es';
   
   if (!assetId) {
-    console.log('Usage: npm run basic <asset-id> [to-lang]');
-    console.log('Example: npm run basic your-asset-id es');
-    console.log('Example: npm run basic your-asset-id fr');
+    console.log('Usage: npm run example:audio-translation <asset-id> [to-lang]');
+    console.log('Example: npm run example:audio-translation your-asset-id es');
+    console.log('Example: npm run example:audio-translation your-asset-id fr');
     console.log('');
     console.log('Note: Asset must have an audio.m4a static rendition');
     console.log('Note: Uses default audio track, language is auto-detected');

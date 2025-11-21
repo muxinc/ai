@@ -32,7 +32,7 @@ const burnedInCaptionsSchema = z.object({
   detectedLanguage: z.string().nullable()
 });
 
-const DEFAULT_SYSTEM_PROMPT = `You are an expert at analyzing video frames to detect burned-in captions (also called open captions or hardcoded subtitles). These are text overlays that are permanently embedded in the video image, common on TikTok, Instagram Reels, and other social media platforms.
+const OPENAI_SYSTEM_PROMPT = `You are an expert at analyzing video frames to detect burned-in captions (also called open captions or hardcoded subtitles). These are text overlays that are permanently embedded in the video image, common on TikTok, Instagram Reels, and other social media platforms.
 
 CRITICAL: Burned-in captions must appear consistently across MOST frames in the storyboard. Text appearing in only 1-2 frames at the end is typically marketing copy, taglines, or end-cards - NOT burned-in captions.
 
@@ -70,7 +70,7 @@ Analysis approach:
 - Distinguish between dialogue captions vs. marketing end-cards
 - Consider text positioning, formatting, and content patterns`;
 
-const DEFAULT_USER_PROMPT = `Analyze this video storyboard for burned-in captions. Follow this systematic approach:
+const OPENAI_USER_PROMPT = `Analyze this video storyboard for burned-in captions. Follow this systematic approach:
 
 STEP 1: Count the frames
 - How many total frames are shown in this storyboard?
@@ -183,14 +183,14 @@ export async function hasBurnedInCaptions(
         input: [
           {
             role: "system",
-            content: ANTHROPIC_SYSTEM_PROMPT,
+            content: OPENAI_SYSTEM_PROMPT,
           },
           {
             role: "user",
             content: [
               {
                 type: "input_text",
-                text: ANTHROPIC_USER_PROMPT,
+                text: OPENAI_USER_PROMPT,
               },
               {
                 type: "input_image",

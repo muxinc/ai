@@ -1,9 +1,6 @@
+import 'dotenv/config';
 import { translateCaptions } from '@mux/ai';
-import { config } from 'dotenv';
 
-// Load environment variables from parent directory - override existing
-const result = config({ path: '../../.env', override: true });
-console.log('Dotenv result:', result.error ? result.error.message : 'SUCCESS');
 
 async function main() {
   const assetId = process.argv[2];
@@ -11,8 +8,8 @@ async function main() {
   const toLang = process.argv[4] || 'es';
   
   if (!assetId) {
-    console.log('Usage: npm run basic <asset-id> [from-lang] [to-lang]');
-    console.log('Example: npm run basic your-asset-id en es');
+    console.log('Usage: npm run example:translation <asset-id> [from-lang] [to-lang]');
+    console.log('Example: npm run example:translation your-asset-id en es');
     process.exit(1);
   }
 

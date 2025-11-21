@@ -1,17 +1,14 @@
+import 'dotenv/config';
 import { generateChapters } from '../../src/chapters';
-import { config } from 'dotenv';
 
-// Load environment variables from project root
-const result = config({ path: '../../.env', override: true });
-console.log('Dotenv result:', result.error ? result.error.message : 'SUCCESS');
 
 async function main() {
   const assetId = process.argv[2];
   const languageCode = process.argv[3] || 'en';
 
   if (!assetId) {
-    console.log('Usage: npm run compare <asset-id> [language-code]');
-    console.log('Example: npm run compare ICwSGuYvLIHR00km1NMX00GH3le7wknGPx en');
+    console.log('Usage: npm run example:chapters:compare <asset-id> [language-code]');
+    console.log('Example: npm run example:chapters:compare ICwSGuYvLIHR00km1NMX00GH3le7wknGPx en');
     process.exit(1);
   }
 

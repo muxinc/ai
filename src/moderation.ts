@@ -1,7 +1,7 @@
-import Mux from '@mux/mux-node';
 import OpenAI from 'openai';
 import { MuxAIOptions } from './types';
 import { ImageDownloadOptions, downloadImagesAsBase64 } from './utils/image-download';
+import { createWorkflowClients } from './lib/client-factory';
 
 export interface ThumbnailModerationScore {
   url: string;
@@ -380,51 +380,26 @@ export async function getModerationScores(
     maxConcurrent = 5,
     imageSubmissionMode = 'url',
     imageDownloadOptions,
-    muxTokenId,
-    muxTokenSecret,
-    openaiApiKey,
-    ...config
   } = options;
 
   if (provider !== 'openai' && provider !== 'hive') {
     throw new Error('Only OpenAI and Hive providers are currently supported');
   }
 
-  // Validate required credentials
-  const muxId = muxTokenId || process.env.MUX_TOKEN_ID;
-  const muxSecret = muxTokenSecret || process.env.MUX_TOKEN_SECRET;
-  const openaiKey = openaiApiKey || process.env.OPENAI_API_KEY;
+  // Get Hive API key if using Hive provider
   const hiveKey = options.hiveApiKey || process.env.HIVE_API_KEY;
-
-  if (!muxId || !muxSecret) {
-    throw new Error('Mux credentials are required. Provide muxTokenId and muxTokenSecret in options or set MUX_TOKEN_ID and MUX_TOKEN_SECRET environment variables.');
-  }
-
-  if (provider === 'openai' && !openaiKey) {
-    throw new Error('OpenAI API key is required for OpenAI provider. Provide openaiApiKey in options or set OPENAI_API_KEY environment variable.');
-  }
 
   if (provider === 'hive' && !hiveKey) {
     throw new Error('Hive API key is required for Hive provider. Provide hiveApiKey in options or set HIVE_API_KEY environment variable.');
   }
 
-  // Initialize clients
-  const mux = new Mux({
-    tokenId: muxId,
-    tokenSecret: muxSecret,
-  });
-
-  let openaiClient: OpenAI | undefined;
-  if (provider === 'openai') {
-    openaiClient = new OpenAI({
-      apiKey: openaiKey!,
-    });
-  }
+  // Initialize clients (only validates OpenAI if provider is 'openai')
+  const clients = createWorkflowClients(options, provider === 'openai' ? 'openai' : undefined);
 
   // Fetch asset data from Mux
   let assetData;
   try {
-    const asset = await mux.video.assets.retrieve(assetId);
+    const asset = await clients.mux.video.assets.retrieve(assetId);
     assetData = asset;
   } catch (error) {
     throw new Error(`Failed to fetch asset from Mux: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -448,22 +423,25 @@ export async function getModerationScores(
 
   // Request moderation for all thumbnails
   let thumbnailScores: ThumbnailModerationScore[];
-  
+
   if (provider === 'openai') {
+    if (!clients.openai) {
+      throw new Error('OpenAI client not initialized');
+    }
     thumbnailScores = await requestOpenAIModeration(
-      thumbnailUrls, 
-      openaiClient!, 
-      model, 
-      maxConcurrent, 
-      imageSubmissionMode, 
+      thumbnailUrls,
+      clients.openai,
+      model,
+      maxConcurrent,
+      imageSubmissionMode,
       imageDownloadOptions
     );
   } else if (provider === 'hive') {
     thumbnailScores = await requestHiveModeration(
-      thumbnailUrls, 
-      hiveKey!, 
-      maxConcurrent, 
-      imageSubmissionMode, 
+      thumbnailUrls,
+      hiveKey!,
+      maxConcurrent,
+      imageSubmissionMode,
       imageDownloadOptions
     );
   } else {

@@ -549,7 +549,67 @@ const result = await getSummaryAndTags(
 
 ## Examples
 
-See the `examples/` directory for complete working examples:
+See the `examples/` directory for complete working examples.
+
+**Prerequisites:**
+Create a `.env` file in the project root with your API credentials:
+```bash
+MUX_TOKEN_ID=your_token_id
+MUX_TOKEN_SECRET=your_token_secret
+OPENAI_API_KEY=your_openai_key
+ANTHROPIC_API_KEY=your_anthropic_key
+```
+
+All examples automatically load environment variables using `dotenv`.
+
+### Quick Start (Run from Root)
+
+You can run examples directly from the project root without installing dependencies in each example folder:
+
+```bash
+# Chapters
+npm run example:chapters <asset-id> [language-code] [provider]
+npm run example:chapters:compare <asset-id> [language-code]
+
+# Burned-in Caption Detection
+npm run example:burned-in <asset-id> [provider]
+npm run example:burned-in:compare <asset-id>
+
+# Summarization
+npm run example:summarization <asset-id>
+npm run example:summarization:compare <asset-id>
+
+# Moderation
+npm run example:moderation <asset-id>
+npm run example:moderation:compare <asset-id>
+
+# Translation
+npm run example:translation <asset-id> [from-lang] [to-lang]
+
+# Audio Translation (Dubbing)
+npm run example:audio-translation <asset-id> [to-lang]
+```
+
+**Examples:**
+```bash
+# Generate chapters with OpenAI
+npm run example:chapters abc123 en openai
+
+# Detect burned-in captions with Anthropic
+npm run example:burned-in abc123 anthropic
+
+# Compare OpenAI vs Anthropic chapter generation
+npm run example:chapters:compare abc123 en
+
+# Run moderation analysis
+npm run example:moderation abc123
+
+# Translate captions from English to Spanish
+npm run example:translation abc123 en es
+
+# Create AI-dubbed audio in French
+npm run example:audio-translation abc123 fr
+```
 
 ### Summarization Examples
 - **Basic Usage**: Default prompt with different tones

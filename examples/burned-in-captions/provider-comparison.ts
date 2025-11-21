@@ -1,16 +1,13 @@
+import 'dotenv/config';
 import { hasBurnedInCaptions } from '../../src/burned-in-captions';
-import { config } from 'dotenv';
 
-// Load environment variables from project root
-const result = config({ path: '../../.env', override: true });
-console.log('Dotenv result:', result.error ? result.error.message : 'SUCCESS');
 
 async function main() {
   const assetId = process.argv[2];
 
   if (!assetId) {
-    console.log('Usage: npm run compare <asset-id>');
-    console.log('Example: npm run compare ICwSGuYvLIHR00km1NMX00GH3le7wknGPx');
+    console.log('Usage: npm run example:burned-in:compare <asset-id>');
+    console.log('Example: npm run example:burned-in:compare ICwSGuYvLIHR00km1NMX00GH3le7wknGPx');
     process.exit(1);
   }
 

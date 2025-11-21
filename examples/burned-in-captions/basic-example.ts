@@ -1,17 +1,14 @@
+import 'dotenv/config';
 import { hasBurnedInCaptions } from '../../src/burned-in-captions';
-import { config } from 'dotenv';
 
-// Load environment variables from project root
-const result = config({ path: '.env', override: true });
-console.log('Dotenv result:', result.error ? result.error.message : 'SUCCESS');
 
 async function main() {
   const assetId = process.argv[2];
   const provider = process.argv[3] as 'openai' | 'anthropic' || 'openai';
   
   if (!assetId) {
-    console.log('Usage: npm run burned-in:basic <asset-id> [provider]');
-    console.log('Example: npm run burned-in:basic ICwSGuYvLIHR00km1NMX00GH3le7wknGPx openai');
+    console.log('Usage: npm run example:burned-in <asset-id> [provider]');
+    console.log('Example: npm run example:burned-in ICwSGuYvLIHR00km1NMX00GH3le7wknGPx openai');
     process.exit(1);
   }
 

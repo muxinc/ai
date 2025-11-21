@@ -1,8 +1,5 @@
+import 'dotenv/config';
 import { getSummaryAndTags } from '@mux/ai';
-import { config } from 'dotenv';
-
-// Load environment variables from parent directory
-config({ path: '../../.env', override: true });
 
 async function compareProviders(assetId: string) {
   console.log('🔍 Comparing OpenAI vs Anthropic analysis results...\n');
@@ -43,7 +40,7 @@ async function main() {
   const assetId = process.argv[2];
   
   if (!assetId) {
-    console.log('Usage: npm run compare <asset-id>');
+    console.log('Usage: npm run example:summarization:compare <asset-id>');
     process.exit(1);
   }
 

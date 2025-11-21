@@ -1,9 +1,9 @@
-import Mux from '@mux/mux-node';
-import OpenAI from 'openai';
-import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import { zodTextFormat } from 'openai/helpers/zod';
 import { MuxAIOptions } from './types';
+import { createWorkflowClients, WorkflowClients } from './lib/client-factory';
+import { getDefaultModel, validateProvider } from './lib/provider-models';
+import { withRetry } from './lib/retry';
 
 export interface Chapter {
   /** Start time in seconds */
@@ -30,7 +30,7 @@ const chaptersSchema = z.object({
   }))
 });
 
-const DEFAULT_SYSTEM_PROMPT = `Your role is to segment the following captions into chunked chapters, summarising each chapter with a title. 
+const SYSTEM_PROMPT = `Your role is to segment the following captions into chunked chapters, summarising each chapter with a title.
 
 Analyze the transcript and create logical chapter breaks based on topic changes, major transitions, or distinct sections of content. Each chapter should represent a meaningful segment of the video.
 
@@ -51,7 +51,7 @@ Important rules:
 - Do not include any text before or after the JSON
 - The JSON must be valid and parseable`;
 
-const ANTHROPIC_JSON_PROMPT = `You must respond with valid JSON in exactly this format:
+const JSON_FORMAT_PROMPT = `You must respond with valid JSON in exactly this format:
 {
   "chapters": [
     {"startTime": 0, "title": "Chapter title here"},
@@ -120,61 +120,19 @@ export async function generateChapters(
   languageCode: string,
   options: ChaptersOptions = {}
 ): Promise<ChaptersResult> {
-  const {
-    provider = 'openai',
-    model,
-    muxTokenId,
-    muxTokenSecret,
-    openaiApiKey,
-    anthropicApiKey,
-    ...config
-  } = options;
+  const { provider = 'openai', model } = options;
 
-  // Set default models based on provider
-  const defaultModel = provider === 'anthropic' ? 'claude-3-5-haiku-20241022' : 'gpt-4o-mini';
-  const finalModel = model || defaultModel;
+  // Validate provider and get default model
+  validateProvider(provider);
+  const finalModel = model || getDefaultModel(provider);
 
-  // Validate required credentials
-  const muxId = muxTokenId || process.env.MUX_TOKEN_ID;
-  const muxSecret = muxTokenSecret || process.env.MUX_TOKEN_SECRET;
-  const openaiKey = openaiApiKey || process.env.OPENAI_API_KEY;
-  const anthropicKey = anthropicApiKey || process.env.ANTHROPIC_API_KEY;
-
-  if (!muxId || !muxSecret) {
-    throw new Error('Mux credentials are required. Provide muxTokenId and muxTokenSecret in options or set MUX_TOKEN_ID and MUX_TOKEN_SECRET environment variables.');
-  }
-
-  if (provider === 'openai' && !openaiKey) {
-    throw new Error('OpenAI API key is required for OpenAI provider. Provide openaiApiKey in options or set OPENAI_API_KEY environment variable.');
-  }
-
-  if (provider === 'anthropic' && !anthropicKey) {
-    throw new Error('Anthropic API key is required for Anthropic provider. Provide anthropicApiKey in options or set ANTHROPIC_API_KEY environment variable.');
-  }
-
-  // Initialize clients
-  const mux = new Mux({
-    tokenId: muxId,
-    tokenSecret: muxSecret,
-  });
-
-  let openaiClient: OpenAI | undefined;
-  let anthropicClient: Anthropic | undefined;
-
-  if (provider === 'openai') {
-    openaiClient = new OpenAI({
-      apiKey: openaiKey!,
-    });
-  } else if (provider === 'anthropic') {
-    anthropicClient = new Anthropic({
-      apiKey: anthropicKey!,
-    });
-  }
+  // Initialize clients with validated credentials
+  const clients = createWorkflowClients(options, provider);
 
   // Fetch asset data from Mux
   let assetData;
   try {
-    const asset = await mux.video.assets.retrieve(assetId);
+    const asset = await clients.mux.video.assets.retrieve(assetId);
     assetData = asset;
   } catch (error) {
     throw new Error(`Failed to fetch asset from Mux: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -227,13 +185,17 @@ export async function generateChapters(
   let chaptersData: { chapters: Chapter[] } | null = null;
 
   if (provider === 'openai') {
+    if (!clients.openai) {
+      throw new Error('OpenAI client not initialized');
+    }
+
     try {
-      const response = await openaiClient!.responses.parse({
+      const response = await clients.openai.responses.parse({
         model: finalModel,
         input: [
           {
             role: "system",
-            content: DEFAULT_SYSTEM_PROMPT,
+            content: SYSTEM_PROMPT,
           },
           {
             role: "user",
@@ -255,15 +217,19 @@ export async function generateChapters(
       throw new Error(`Failed to generate chapters with OpenAI: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   } else if (provider === 'anthropic') {
-    const anthropicPrompt = `${DEFAULT_SYSTEM_PROMPT}
+    if (!clients.anthropic) {
+      throw new Error('Anthropic client not initialized');
+    }
 
-${ANTHROPIC_JSON_PROMPT}
+    const anthropicPrompt = `${SYSTEM_PROMPT}
+
+${JSON_FORMAT_PROMPT}
 
 Transcript:
 ${timestampedTranscript}`;
 
     try {
-      const response = await anthropicClient!.messages.create({
+      const response = await clients.anthropic.messages.create({
         model: finalModel,
         max_tokens: 2000,
         messages: [
@@ -288,8 +254,6 @@ ${timestampedTranscript}`;
     } catch (error) {
       throw new Error(`Failed to generate chapters with Anthropic: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  } else {
-    throw new Error(`Unsupported provider: ${provider}`);
   }
 
   if (!chaptersData || !chaptersData.chapters) {

@@ -1,9 +1,5 @@
+import 'dotenv/config';
 import { generateChapters } from '../../src/chapters';
-import { config } from 'dotenv';
-
-// Load environment variables from project root
-const result = config({ path: '.env', override: true });
-console.log('Dotenv result:', result.error ? result.error.message : 'SUCCESS');
 
 async function main() {
   const assetId = process.argv[2];
@@ -11,8 +7,8 @@ async function main() {
   const provider = process.argv[4] as 'openai' | 'anthropic' || 'openai';
   
   if (!assetId) {
-    console.log('Usage: npm run chapters:basic <asset-id> [language-code] [provider]');
-    console.log('Example: npm run chapters:basic ICwSGuYvLIHR00km1NMX00GH3le7wknGPx en openai');
+    console.log('Usage: npm run example:chapters <asset-id> [language-code] [provider]');
+    console.log('Example: npm run example:chapters ICwSGuYvLIHR00km1NMX00GH3le7wknGPx en openai');
     process.exit(1);
   }
 

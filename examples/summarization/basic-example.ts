@@ -1,16 +1,12 @@
+import 'dotenv/config';
 import { getSummaryAndTags } from '@mux/ai';
-import { config } from 'dotenv';
 
-// Load environment variables from parent directory - override existing
-const result = config({ path: '../../.env', override: true });
-console.log('Dotenv result:', result.error ? result.error.message : 'SUCCESS');
-console.log('Loading from:', '../../.env');
 
 async function main() {
   const assetId = process.argv[2];
   
   if (!assetId) {
-    console.log('Usage: npm run basic <asset-id>');
+    console.log('Usage: npm run example:summarization <asset-id>');
     process.exit(1);
   }
 
