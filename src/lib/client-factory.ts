@@ -22,7 +22,7 @@ export interface ValidatedCredentials {
  */
 export function validateCredentials(
   options: ClientCredentials,
-  requiredProviders?: Array<'openai' | 'anthropic'>
+  requiredProvider?: 'openai' | 'anthropic'
 ): ValidatedCredentials {
   const muxTokenId = options.muxTokenId || process.env.MUX_TOKEN_ID;
   const muxTokenSecret = options.muxTokenSecret || process.env.MUX_TOKEN_SECRET;
@@ -35,13 +35,13 @@ export function validateCredentials(
     );
   }
 
-  if (requiredProviders?.includes('openai') && !openaiApiKey) {
+  if (requiredProvider === 'openai' && !openaiApiKey) {
     throw new Error(
       'OpenAI API key is required. Provide openaiApiKey in options or set OPENAI_API_KEY environment variable.'
     );
   }
 
-  if (requiredProviders?.includes('anthropic') && !anthropicApiKey) {
+  if (requiredProvider === 'anthropic' && !anthropicApiKey) {
     throw new Error(
       'Anthropic API key is required. Provide anthropicApiKey in options or set ANTHROPIC_API_KEY environment variable.'
     );
@@ -106,8 +106,7 @@ export function createWorkflowClients(
   options: MuxAIOptions,
   provider?: 'openai' | 'anthropic'
 ): WorkflowClients {
-  const requiredProviders = provider ? [provider] : undefined;
-  const credentials = validateCredentials(options, requiredProviders);
+  const credentials = validateCredentials(options, provider);
 
   const clients: WorkflowClients = {
     mux: createMuxClient(credentials),
