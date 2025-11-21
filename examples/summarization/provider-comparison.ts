@@ -1,19 +1,20 @@
 import 'dotenv/config';
-import { getSummaryAndTags } from '@mux/ai';
+import { getSummaryAndTags } from '@mux/ai/functions';
 
 async function compareProviders(assetId: string) {
   console.log('🔍 Comparing OpenAI vs Anthropic analysis results...\n');
 
   const providers = [
-    { name: 'OpenAI', provider: 'openai' as const, model: 'gpt-4o-mini' },
-    { name: 'Anthropic', provider: 'anthropic' as const, model: 'claude-3-5-haiku-20241022' }
+    { name: 'OpenAI', provider: 'openai' as const, model: 'gpt-5-mini' },
+    { name: 'Anthropic', provider: 'anthropic' as const, model: 'claude-3-5-haiku-20241022' },
+    { name: 'Google', provider: 'google' as const, model: 'gemini-2.5-flash' },
   ];
 
   for (const config of providers) {
     try {
       console.log(`--- ${config.name.toUpperCase()} ANALYSIS ---`);
       console.log(`Model: ${config.model}`);
-      
+
       const startTime = Date.now();
       const result = await getSummaryAndTags(assetId, {
         provider: config.provider,
@@ -38,7 +39,7 @@ async function compareProviders(assetId: string) {
 
 async function main() {
   const assetId = process.argv[2];
-  
+
   if (!assetId) {
     console.log('Usage: npm run example:summarization:compare <asset-id>');
     process.exit(1);

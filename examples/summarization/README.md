@@ -1,6 +1,6 @@
 # Summarization Examples
 
-This directory contains examples demonstrating how to use the `getSummaryAndTags` function from `@mux/ai`.
+This directory contains examples demonstrating how to use the `getSummaryAndTags` helper from `@mux/ai/functions`.
 
 ## Setup
 
@@ -14,6 +14,9 @@ npm install
 MUX_TOKEN_ID=your_mux_token_id
 MUX_TOKEN_SECRET=your_mux_token_secret
 OPENAI_API_KEY=your_openai_api_key
+# Optional additional providers
+ANTHROPIC_API_KEY=your_anthropic_key
+GOOGLE_GENERATIVE_AI_API_KEY=your_google_generative_ai_key
 ```
 
 ## Examples
@@ -57,19 +60,20 @@ Shows how to provide a custom prompt for specialized analysis needs.
 
 ## Configuration Options
 
-The `getSummaryAndTags` function accepts these options:
+Key options for `getSummaryAndTags`:
 
-- `tone`: 'normal' | 'sassy' | 'professional' (default: 'normal')
-- `model`: OpenAI model to use (default: 'gpt-4o-mini')
-- `includeTranscript`: Whether to include video transcript in analysis (default: true)
-- `muxTokenId`: Mux API token ID (or use MUX_TOKEN_ID env var)
-- `muxTokenSecret`: Mux API token secret (or use MUX_TOKEN_SECRET env var)
-- `openaiApiKey`: OpenAI API key (or use OPENAI_API_KEY env var)
+- `provider`: `'openai' | 'anthropic' | 'google'` (default: `'openai'`)
+- `model`: Provider-specific chat model (defaults per provider, e.g. `gpt-5-mini`)
+- `tone`: `'normal' | 'sassy' | 'professional'` (default: `'normal'`)
+- `includeTranscript`: Include the asset transcript when available (default: `true`)
+- `imageSubmissionMode`: `'url' | 'base64'` storyboard transport (default: `'url'`)
+- Credential overrides (all fall back to env vars): `muxTokenId`, `muxTokenSecret`, `openaiApiKey`, `anthropicApiKey`, `googleApiKey`
 
 ## What You'll Get
 
 Each analysis returns:
-- `summary`: AI-generated summary of the video content
-- `tags`: Array of relevant keywords/topics
-- `storyboardUrl`: URL to the video's storyboard image
+- `title`: Short headline for the video content
+- `description`: Rich description (≤500 chars)
+- `tags`: Array of up to 10 keywords/topics
+- `storyboardUrl`: URL to the storyboard image that was analyzed
 - `assetId`: The Mux asset ID that was analyzed

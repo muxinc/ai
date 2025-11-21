@@ -1,6 +1,6 @@
 # Moderation Examples
 
-This directory contains examples demonstrating how to use the `getModerationScores` function from `@mux/ai`.
+This directory contains examples demonstrating how to use the `getModerationScores` helper from `@mux/ai/primitives`.
 
 ## Setup
 
@@ -14,6 +14,9 @@ npm install
 MUX_TOKEN_ID=your_mux_token_id
 MUX_TOKEN_SECRET=your_mux_token_secret
 OPENAI_API_KEY=your_openai_api_key
+# Optional additional providers
+ANTHROPIC_API_KEY=your_anthropic_key
+GOOGLE_GENERATIVE_AI_API_KEY=your_google_generative_ai_key
 ```
 
 ## Examples
@@ -51,7 +54,7 @@ Compares three threshold levels:
    - Short videos (≤50s): 5 evenly spaced thumbnails
    - Long videos: One thumbnail every 10 seconds
 
-2. **Parallel Analysis**: Sends all thumbnails to OpenAI's moderation API concurrently
+2. **Parallel Analysis**: Sends thumbnails to the selected provider (OpenAI endpoint or Anthropic/Google via the AI SDK)
 
 3. **Score Aggregation**: Takes the maximum score across all thumbnails for each category
 
@@ -59,15 +62,14 @@ Compares three threshold levels:
 
 ## Configuration Options
 
-The `getModerationScores` function accepts these options:
+Key options for `getModerationScores`:
 
-- `provider`: 'openai' (default and only supported provider)
-- `model`: OpenAI model to use (default: 'omni-moderation-latest')
+- `provider`: `'openai' | 'anthropic' | 'google'` (default: `'openai'`)
+- `model`: Provider-specific model (`omni-moderation-latest`, `claude-3-5-haiku-20241022`, `gemini-2.5-flash`, etc.)
 - `thresholds`: Custom thresholds for sexual and violence content
 - `thumbnailInterval`: Seconds between thumbnails for long videos (default: 10)
 - `thumbnailWidth`: Thumbnail width in pixels (default: 640)
-- `muxTokenId/muxTokenSecret`: Mux credentials
-- `openaiApiKey`: OpenAI API key
+- Credential overrides: `muxTokenId`, `muxTokenSecret`, `openaiApiKey`, `anthropicApiKey`, `googleApiKey`
 
 ## What You'll Get
 

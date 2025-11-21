@@ -1,12 +1,12 @@
 import 'dotenv/config';
-import { translateCaptions } from '@mux/ai';
+import { translateCaptions } from '@mux/ai/functions';
 
 
 async function main() {
   const assetId = process.argv[2];
   const fromLang = process.argv[3] || 'en';
   const toLang = process.argv[4] || 'es';
-  
+
   if (!assetId) {
     console.log('Usage: npm run translation-only <asset-id> [from-lang] [to-lang]');
     console.log('Example: npm run translation-only your-asset-id en es');
@@ -26,7 +26,7 @@ async function main() {
     console.log(`Source Language: ${result.sourceLanguageCode}`);
     console.log(`Target Language: ${result.targetLanguageCode}`);
     console.log(`Asset ID: ${result.assetId}`);
-    
+
     console.log('\n--- Original VTT (first 500 chars) ---');
     console.log(result.originalVtt.substring(0, 500) + '...');
     console.log('\n--- Translated VTT (first 500 chars) ---');

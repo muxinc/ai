@@ -1,10 +1,10 @@
 import 'dotenv/config';
-import { generateChapters } from '../../src/chapters';
+import { generateChapters } from '@mux/ai/functions';
 
 async function main() {
   const assetId = process.argv[2];
   const languageCode = process.argv[3] || 'en';
-  const provider = process.argv[4] as 'openai' | 'anthropic' || 'openai';
+  const provider = (process.argv[4] as 'openai' | 'anthropic' | 'google') || 'openai';
   
   if (!assetId) {
     console.log('Usage: npm run example:chapters <asset-id> [language-code] [provider]');
@@ -21,11 +21,6 @@ async function main() {
     
     const result = await generateChapters(assetId, languageCode, {
       provider,
-      // Credentials from environment variables
-      muxTokenId: process.env.MUX_TOKEN_ID,
-      muxTokenSecret: process.env.MUX_TOKEN_SECRET,
-      openaiApiKey: process.env.OPENAI_API_KEY,
-      anthropicApiKey: process.env.ANTHROPIC_API_KEY,
     });
 
     const duration = Date.now() - start;

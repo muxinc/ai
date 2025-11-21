@@ -1,10 +1,9 @@
 import 'dotenv/config';
-import { getSummaryAndTags } from '@mux/ai';
-
+import { getSummaryAndTags } from '@mux/ai/functions';
 
 async function main() {
   const assetId = process.argv[2];
-  
+
   if (!assetId) {
     console.log('Usage: npm run anthropic <asset-id>');
     process.exit(1);
@@ -13,7 +12,7 @@ async function main() {
   // Debug: Check if env vars are loaded
   console.log('Debug - Environment variables:');
   console.log('MUX_TOKEN_ID:', process.env.MUX_TOKEN_ID ? `${process.env.MUX_TOKEN_ID.substring(0, 10)}...` : 'NOT SET');
-  console.log('MUX_TOKEN_SECRET:', process.env.MUX_TOKEN_SECRET ? `${process.env.MUX_TOKEN_SECRET.substring(0, 10)}...` : 'NOT SET'); 
+  console.log('MUX_TOKEN_SECRET:', process.env.MUX_TOKEN_SECRET ? `${process.env.MUX_TOKEN_SECRET.substring(0, 10)}...` : 'NOT SET');
   console.log('ANTHROPIC_API_KEY:', process.env.ANTHROPIC_API_KEY ? `${process.env.ANTHROPIC_API_KEY.substring(0, 10)}...` : 'NOT SET');
   console.log('Asset ID:', assetId);
 

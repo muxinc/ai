@@ -49,7 +49,7 @@ const DEFAULT_OPTIONS: Required<ImageDownloadOptions> = {
 
 /**
  * Downloads an image from a URL and converts it to base64 with robust retry logic
- * 
+ *
  * @param url - The image URL to download
  * @param options - Download configuration options
  * @returns Promise resolving to ImageDownloadResult with base64 data and metadata
@@ -65,7 +65,7 @@ export async function downloadImageAsBase64(
   return pRetry(
     async () => {
       attemptCount++;
-      
+
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), opts.timeout);
 
@@ -94,7 +94,7 @@ export async function downloadImageAsBase64(
 
         const arrayBuffer = await response.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
-        
+
         if (buffer.length === 0) {
           throw new AbortError('Downloaded image is empty');
         }
@@ -113,7 +113,7 @@ export async function downloadImageAsBase64(
 
       } catch (error) {
         clearTimeout(timeoutId);
-        
+
         // If it's an AbortError (non-retryable), re-throw it
         if (error instanceof AbortError) {
           throw error;
@@ -126,7 +126,7 @@ export async function downloadImageAsBase64(
           }
           throw new Error(`Download failed: ${error.message}`);
         }
-        
+
         throw new Error('Unknown download error');
       }
     },
@@ -148,9 +148,9 @@ export async function downloadImageAsBase64(
 
 /**
  * Downloads multiple images concurrently with controlled concurrency
- * 
+ *
  * @param urls - Array of image URLs to download
- * @param options - Download configuration options  
+ * @param options - Download configuration options
  * @param maxConcurrent - Maximum concurrent downloads (default: 5)
  * @returns Promise resolving to array of ImageDownloadResult (in same order as input URLs)
  */
@@ -160,20 +160,20 @@ export async function downloadImagesAsBase64(
   maxConcurrent: number = 5
 ): Promise<ImageDownloadResult[]> {
   const results: ImageDownloadResult[] = [];
-  
+
   for (let i = 0; i < urls.length; i += maxConcurrent) {
     const batch = urls.slice(i, i + maxConcurrent);
     const batchPromises = batch.map(url => downloadImageAsBase64(url, options));
     const batchResults = await Promise.all(batchPromises);
     results.push(...batchResults);
   }
-  
+
   return results;
 }
 
 /**
  * Uploads an image to Anthropic Files API for use in messages
- * 
+ *
  * @param url - The image URL to download and upload
  * @param anthropicApiKey - Anthropic API key
  * @param options - Download configuration options
@@ -187,15 +187,15 @@ export async function uploadImageToAnthropicFiles(
 ): Promise<AnthropicFileUploadResult> {
   // First download the image
   const downloadResult = await downloadImageAsBase64(url, options);
-  
+
   // Create form data for Files API upload
   const formData = new FormData();
-  
+
   // Create a Blob from the buffer for form data
-  const imageBlob = new Blob([downloadResult.buffer], { 
-    type: downloadResult.contentType 
+  const imageBlob = new Blob([downloadResult.buffer], {
+    type: downloadResult.contentType
   });
-  
+
   // Get file extension from content type
   const extension = downloadResult.contentType.split('/')[1] || 'png';
   formData.append('file', imageBlob, `image.${extension}`);
@@ -218,7 +218,7 @@ export async function uploadImageToAnthropicFiles(
   }
 
   const fileResult = await response.json() as { id: string };
-  
+
   return {
     fileId: fileResult.id,
     url: downloadResult.url,

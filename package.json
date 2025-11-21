@@ -13,6 +13,22 @@
       },
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
+    },
+    "./primitives": {
+      "types": {
+        "import": "./dist/primitives/index.d.mts",
+        "require": "./dist/primitives/index.d.ts"
+      },
+      "import": "./dist/primitives/index.mjs",
+      "require": "./dist/primitives/index.js"
+    },
+    "./functions": {
+      "types": {
+        "import": "./dist/functions/index.d.mts",
+        "require": "./dist/functions/index.d.ts"
+      },
+      "import": "./dist/functions/index.mjs",
+      "require": "./dist/functions/index.js"
     }
   },
   "scripts": {
@@ -49,13 +65,15 @@
     "dist"
   ],
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.28.0",
+    "@ai-sdk/anthropic": "^2.0.45",
+    "@ai-sdk/google": "^2.0.40",
+    "@ai-sdk/openai": "^2.0.71",
     "@aws-sdk/client-s3": "^3.0.0",
     "@aws-sdk/lib-storage": "^3.0.0",
     "@aws-sdk/s3-request-presigner": "^3.0.0",
     "@mux/mux-node": "^12.5.0",
+    "ai": "^5.0.98",
     "dotenv": "^17.2.2",
-    "openai": "^5.13.1",
     "p-retry": "^7.0.0",
     "zod": "^3.25.76"
   },

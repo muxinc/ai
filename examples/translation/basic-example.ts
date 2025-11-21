@@ -1,12 +1,12 @@
 import 'dotenv/config';
-import { translateCaptions } from '@mux/ai';
+import { translateCaptions } from '@mux/ai/functions';
 
 
 async function main() {
   const assetId = process.argv[2];
   const fromLang = process.argv[3] || 'en';
   const toLang = process.argv[4] || 'es';
-  
+
   if (!assetId) {
     console.log('Usage: npm run example:translation <asset-id> [from-lang] [to-lang]');
     console.log('Example: npm run example:translation your-asset-id en es');
@@ -28,15 +28,15 @@ async function main() {
     console.log(`Source Language: ${result.sourceLanguageCode}`);
     console.log(`Target Language: ${result.targetLanguageCode}`);
     console.log(`Asset ID: ${result.assetId}`);
-    
+
     if (result.uploadedTrackId) {
       console.log(`🎬 Mux Track ID: ${result.uploadedTrackId}`);
     }
-    
+
     if (result.presignedUrl) {
       console.log(`🔗 Presigned URL: ${result.presignedUrl.substring(0, 80)}...`);
     }
-    
+
     console.log('\n✅ VTT translation completed successfully!');
 
   } catch (error) {

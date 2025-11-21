@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { translateAudio } from '@mux/ai';
+import { translateAudio } from '@mux/ai/functions';
 
 
 async function main() {
