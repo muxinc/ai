@@ -6,22 +6,52 @@ AI-powered video analysis library for Mux, built in TypeScript.
 
 | Function | Description | Providers | Default Models | Input | Output |
 |----------|-------------|-----------|----------------|--------|--------|
-| `getSummaryAndTags` | Generate titles, descriptions, and tags from a Mux video asset | OpenAI, Anthropic | `gpt-4o-mini`, `claude-3-5-haiku-20241022` | Asset ID + options | Title, description, tags, storyboard URL |
-| `getModerationScores` | Analyze video thumbnails for inappropriate content | OpenAI, Hive | `omni-moderation-latest`, Hive Visual API | Asset ID + thresholds | Sexual/violence scores, flagged status |
-| `hasBurnedInCaptions` | Detect burned-in captions (hardcoded subtitles) in video frames | OpenAI, Anthropic | `gpt-4o-mini`, `claude-3-5-haiku-20241022` | Asset ID + options | Boolean result, confidence, language |
-| `generateChapters` | Generate AI-powered chapter markers from video captions | OpenAI, Anthropic | `gpt-4o-mini`, `claude-3-5-haiku-20241022` | Asset ID + language + options | Timestamped chapter list |
-| `translateCaptions` | Translate video captions to different languages | Anthropic only | `claude-sonnet-4-20250514` | Asset ID + languages + S3 config | Translated VTT + Mux track ID |
+| `getSummaryAndTags` | Generate titles, descriptions, and tags from a Mux video asset | OpenAI, Anthropic, Google | `gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash` | Asset ID + options | Title, description, tags, storyboard URL |
+| `getModerationScores` | Analyze video thumbnails for inappropriate content | OpenAI, Anthropic, Google | `omni-moderation-latest` (OpenAI) or AI SDK defaults (`gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash`) | Asset ID + thresholds | Sexual/violence scores, flagged status |
+| `hasBurnedInCaptions` | Detect burned-in captions (hardcoded subtitles) in video frames | OpenAI, Anthropic, Google | `gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash` | Asset ID + options | Boolean result, confidence, language |
+| `generateChapters` | Generate AI-powered chapter markers from video captions | OpenAI, Anthropic, Google | `gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash` | Asset ID + language + options | Timestamped chapter list |
+| `translateCaptions` | Translate video captions to different languages | OpenAI, Anthropic, Google | Provider default models | Asset ID + languages + S3 config | Translated VTT + Mux track ID |
 | `translateAudio` | Create AI-dubbed audio tracks in different languages | ElevenLabs only | ElevenLabs Dubbing API | Asset ID + languages + S3 config | Dubbed audio + Mux track ID |
 
 ## Features
 
-- **Cost-Effective by Default**: Uses affordable models like `gpt-4o-mini` and `claude-3-5-haiku` to keep analysis costs low while maintaining high quality results
+- **Cost-Effective by Default**: Uses affordable frontier models like `gpt-5-mini`, `claude-sonnet-4-5`, and `gemini-2.5-flash` to keep analysis costs low while maintaining high quality results
 - **Multi-modal Analysis**: Combines storyboard images with video transcripts
 - **Tone Control**: Normal, sassy, or professional analysis styles (summarization only)
 - **Configurable Thresholds**: Custom sensitivity levels for content moderation
 - **TypeScript**: Fully typed for excellent developer experience
-- **Provider Choice**: Switch between OpenAI and Anthropic for different perspectives
+- **Provider Choice**: Switch between OpenAI, Anthropic, and Google for different perspectives
+- **Composable Building Blocks**: Import primitives to fetch transcripts, thumbnails, and moderation data to build bespoke flows
 - **Universal Language Support**: Automatic language name detection using `Intl.DisplayNames` for all ISO 639-1 codes
+
+## Package Structure
+
+This package ships with layered entry points so you can pick the right level of abstraction for your workflow:
+
+- `@mux/ai/functions` – opinionated, production-ready helpers (`getSummaryAndTags`, `generateChapters`, `translateCaptions`, etc.) that orchestrate Mux API access, transcript/storyboard gathering, and the AI provider call.
+- `@mux/ai/primitives` – low-level building blocks such as `getModerationScores`, `fetchTranscriptForAsset`, `getStoryboardUrl`, and `getThumbnailUrls`. Use these when you need to mix our utilities into your own prompts or safety checks.
+- `@mux/ai` – re-exports both namespaces, plus shared `types`, so you can also write `import { functions, primitives } from '@mux/ai';`.
+
+Every helper inside `@mux/ai/functions` is composed entirely from the primitives. That means you can start with a high-level helper and gradually drop down to primitives whenever you need more control.
+
+```typescript
+import { getSummaryAndTags } from '@mux/ai/functions';
+import { getModerationScores } from '@mux/ai/primitives';
+
+export async function summarizeIfSafe(assetId: string) {
+  const moderation = await getModerationScores(assetId, { provider: 'google' });
+  if (moderation.exceedsThreshold) {
+    throw new Error('Asset failed content safety review');
+  }
+
+  return getSummaryAndTags(assetId, {
+    provider: 'anthropic',
+    tone: 'professional',
+  });
+}
+```
+
+Use whichever layer makes sense: call a function as-is, pull just the primitives you need, or mix the two like the example above to build a custom workflow.
 
 ## Installation
 
@@ -34,22 +64,22 @@ npm install @mux/ai
 ### Video Summarization
 
 ```typescript
-import { getSummaryAndTags } from '@mux/ai';
+import { getSummaryAndTags } from '@mux/ai/functions';
 
 // Uses built-in optimized prompt
 const result = await getSummaryAndTags('your-mux-asset-id', {
   tone: 'professional'
 });
 
-console.log(result.title);       // Short, descriptive title
-console.log(result.description); // Detailed description
-console.log(result.tags);        // Array of relevant keywords
+console.log(result.title);         // Short, descriptive title
+console.log(result.description);   // Detailed description
+console.log(result.tags);          // Array of relevant keywords
 console.log(result.storyboardUrl); // URL to Mux storyboard
 
-// Use base64 mode for improved reliability (works with both OpenAI and Anthropic)
+// Use base64 mode for improved reliability (works with OpenAI, Anthropic, and Google)
 const reliableResult = await getSummaryAndTags('your-mux-asset-id', {
   provider: 'anthropic',
-  imageSubmissionMode: 'base64',  // Uses Files API for Anthropic, base64 for OpenAI
+  imageSubmissionMode: 'base64',  // Downloads storyboard locally before submission
   imageDownloadOptions: {
     timeout: 15000,
     retries: 2,
@@ -62,7 +92,7 @@ const reliableResult = await getSummaryAndTags('your-mux-asset-id', {
 ### Content Moderation
 
 ```typescript
-import { getModerationScores } from '@mux/ai';
+import { getModerationScores } from '@mux/ai/primitives';
 
 // Analyze Mux video asset for inappropriate content (OpenAI default)
 const result = await getModerationScores('your-mux-asset-id', {
@@ -73,10 +103,17 @@ console.log(result.maxScores);        // Highest scores across all thumbnails
 console.log(result.exceedsThreshold); // true if content should be flagged
 console.log(result.thumbnailScores);  // Individual thumbnail results
 
-// Or use Hive for moderation
-const hiveResult = await getModerationScores('your-mux-asset-id', {
-  provider: 'hive',
-  thresholds: { sexual: 0.7, violence: 0.8 }
+// Evaluate the same asset with Anthropic via the AI SDK
+const anthropicResult = await getModerationScores('your-mux-asset-id', {
+  provider: 'anthropic',
+  model: 'claude-sonnet-4-5',
+  thresholds: { sexual: 0.65, violence: 0.75 },
+});
+
+// Or use Google Gemini vision models
+const googleResult = await getModerationScores('your-mux-asset-id', {
+  provider: 'google',
+  model: 'gemini-2.5-flash',
 });
 
 // Use base64 submission for improved reliability (downloads images locally)
@@ -89,23 +126,12 @@ const reliableResult = await getModerationScores('your-mux-asset-id', {
     retryDelay: 1000
   }
 });
-
-// Hive also supports base64 mode (uses multipart upload)
-const hiveReliableResult = await getModerationScores('your-mux-asset-id', {
-  provider: 'hive',
-  imageSubmissionMode: 'base64',
-  imageDownloadOptions: {
-    timeout: 15000,
-    retries: 2,
-    retryDelay: 1000
-  }
-});
 ```
 
 ### Burned-in Caption Detection
 
 ```typescript
-import { hasBurnedInCaptions } from '@mux/ai';
+import { hasBurnedInCaptions } from '@mux/ai/functions';
 
 // Detect burned-in captions (hardcoded subtitles) in video frames
 const result = await hasBurnedInCaptions('your-mux-asset-id', {
@@ -120,7 +146,12 @@ console.log(result.storyboardUrl);      // Video storyboard analyzed
 // Compare providers
 const anthropicResult = await hasBurnedInCaptions('your-mux-asset-id', {
   provider: 'anthropic',
-  model: 'claude-3-5-haiku-20241022'
+  model: 'claude-sonnet-4-5'
+});
+
+const googleResult = await hasBurnedInCaptions('your-mux-asset-id', {
+  provider: 'google',
+  model: 'gemini-2.5-flash'
 });
 
 // Use base64 mode for improved reliability
@@ -151,8 +182,7 @@ Choose between two methods for submitting images to AI providers:
 - Better control over slow TTFB and network issues
 - Slightly higher bandwidth usage but more reliable results
 - For OpenAI: submits images as base64 data URIs
-- For Hive: uploads images via multipart/form-data (Hive doesn't support base64 data URIs)
-- For Anthropic (summarization): uploads to Files API then references by file_id (no size limit)
+- For Anthropic/Google: the AI SDK handles converting the base64 payload into the provider-specific format automatically
 
 ```typescript
 // High reliability mode - recommended for production
@@ -170,7 +200,7 @@ const result = await getModerationScores(assetId, {
 ### Caption Translation
 
 ```typescript
-import { translateCaptions } from '@mux/ai';
+import { translateCaptions } from '@mux/ai/functions';
 
 // Translate existing captions to Spanish and add as new track
 const result = await translateCaptions(
@@ -178,8 +208,8 @@ const result = await translateCaptions(
   'en',  // from language
   'es',  // to language
   {
-    provider: 'anthropic',
-    model: 'claude-sonnet-4-20250514'
+    provider: 'google',
+    model: 'gemini-2.5-flash'
   }
 );
 
@@ -191,7 +221,7 @@ console.log(result.translatedVtt);    // Translated VTT content
 ### Video Chapters
 
 ```typescript
-import { generateChapters } from '@mux/ai';
+import { generateChapters } from '@mux/ai/functions';
 
 // Generate AI-powered chapters from video captions
 const result = await generateChapters('your-mux-asset-id', 'en', {
@@ -207,14 +237,19 @@ player.addChapters(result.chapters);
 // Compare providers
 const anthropicResult = await generateChapters('your-mux-asset-id', 'en', {
   provider: 'anthropic',
-  model: 'claude-3-5-haiku-20241022'
+  model: 'claude-sonnet-4-5'
+});
+
+const googleResult = await generateChapters('your-mux-asset-id', 'en', {
+  provider: 'google',
+  model: 'gemini-2.5-flash'
 });
 ```
 
 ### Audio Dubbing
 
 ```typescript
-import { translateAudio } from '@mux/ai';
+import { translateAudio } from '@mux/ai/functions';
 
 // Create AI-dubbed audio track and add to Mux asset
 // Uses the default audio track on your asset, language is auto-detected
@@ -235,26 +270,33 @@ console.log(result.presignedUrl);     // S3 audio file URL
 ### Compare Summarization from Providers
 
 ```typescript
-import { getSummaryAndTags } from '@mux/ai';
+import { getSummaryAndTags } from '@mux/ai/functions';
 
 // Compare different AI providers analyzing the same Mux video asset
 const assetId = 'your-mux-asset-id';
 
-// OpenAI analysis (default: gpt-4o-mini)
+// OpenAI analysis (default: gpt-5-mini)
 const openaiResult = await getSummaryAndTags(assetId, {
   provider: 'openai',
   tone: 'professional'
 });
 
-// Anthropic analysis (default: claude-3-5-haiku-20241022)  
+// Anthropic analysis (default: claude-sonnet-4-5)
 const anthropicResult = await getSummaryAndTags(assetId, {
   provider: 'anthropic',
+  tone: 'professional'
+});
+
+// Google Gemini analysis (default: gemini-2.5-flash)
+const googleResult = await getSummaryAndTags(assetId, {
+  provider: 'google',
   tone: 'professional'
 });
 
 // Compare results
 console.log('OpenAI:', openaiResult.title);
 console.log('Anthropic:', anthropicResult.title);
+console.log('Google:', googleResult.title);
 ```
 
 ## Configuration
@@ -266,8 +308,8 @@ MUX_TOKEN_ID=your_mux_token_id
 MUX_TOKEN_SECRET=your_mux_token_secret
 OPENAI_API_KEY=your_openai_api_key
 ANTHROPIC_API_KEY=your_anthropic_api_key
+GOOGLE_GENERATIVE_AI_API_KEY=your_google_api_key # or set GOOGLE_API_KEY
 ELEVENLABS_API_KEY=your_elevenlabs_api_key
-HIVE_API_KEY=your_hive_api_key
 
 # S3-Compatible Storage (required for translation & audio dubbing)
 S3_ENDPOINT=https://your-s3-endpoint.com
@@ -298,9 +340,9 @@ Analyzes a Mux video asset and returns AI-generated metadata.
 - `options` (optional) - Configuration options
 
 **Options:**
-- `provider?: 'openai' | 'anthropic'` - AI provider (default: 'openai')
+- `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
 - `tone?: 'normal' | 'sassy' | 'professional'` - Analysis tone (default: 'normal')
-- `model?: string` - AI model to use (default: 'gpt-4o-mini' for OpenAI, 'claude-3-5-haiku-20241022' for Anthropic)
+- `model?: string` - AI model to use (defaults: `gpt-5-mini`, `claude-sonnet-4-5`, or `gemini-2.5-flash`)
 - `includeTranscript?: boolean` - Include video transcript in analysis (default: true)
 - `cleanTranscript?: boolean` - Remove VTT timestamps and formatting from transcript (default: true)
 - `imageSubmissionMode?: 'url' | 'base64'` - How to submit storyboard to AI providers (default: 'url')
@@ -314,6 +356,7 @@ Analyzes a Mux video asset and returns AI-generated metadata.
 - `muxTokenSecret?: string` - Mux API token secret  
 - `openaiApiKey?: string` - OpenAI API key
 - `anthropicApiKey?: string` - Anthropic API key
+- `googleApiKey?: string` - Google Generative AI API key
 
 **Returns:**
 ```typescript
@@ -328,15 +371,15 @@ Analyzes a Mux video asset and returns AI-generated metadata.
 
 ### `getModerationScores(assetId, options?)`
 
-Analyzes video thumbnails for inappropriate content using OpenAI's moderation API or Hive's Visual Moderation API.
+Analyzes video thumbnails for inappropriate content using OpenAI's moderation API or multimodal models from Anthropic/Google via the AI SDK.
 
 **Parameters:**
 - `assetId` (string) - Mux video asset ID
 - `options` (optional) - Configuration options
 
 **Options:**
-- `provider?: 'openai' | 'hive'` - Moderation provider (default: 'openai')
-- `model?: string` - OpenAI model to use (default: 'omni-moderation-latest')
+- `provider?: 'openai' | 'anthropic' | 'google'` - Moderation provider (default: 'openai')
+- `model?: string` - Model to use (`omni-moderation-latest` for OpenAI, otherwise the provider's chat-vision defaults)
 - `thresholds?: { sexual?: number; violence?: number }` - Custom thresholds (default: {sexual: 0.7, violence: 0.8})
 - `thumbnailInterval?: number` - Seconds between thumbnails for long videos (default: 10)
 - `thumbnailWidth?: number` - Thumbnail width in pixels (default: 640)
@@ -348,8 +391,8 @@ Analyzes video thumbnails for inappropriate content using OpenAI's moderation AP
   - `retryDelay?: number` - Base delay between retries in milliseconds (default: 1000)
   - `maxRetryDelay?: number` - Maximum delay between retries in milliseconds (default: 10000)
   - `exponentialBackoff?: boolean` - Whether to use exponential backoff (default: true)
-- `muxTokenId/muxTokenSecret/openaiApiKey?: string` - API credentials
-- `hiveApiKey?: string` - Hive API key (required for Hive provider)
+- `muxTokenId/muxTokenSecret?: string` - Mux credentials
+- `openaiApiKey?/anthropicApiKey?/googleApiKey?` - Provider credentials
 
 **Returns:**
 ```typescript
@@ -382,8 +425,8 @@ Analyzes video frames to detect burned-in captions (hardcoded subtitles) that ar
 - `options` (optional) - Configuration options
 
 **Options:**
-- `provider?: 'openai' | 'anthropic'` - AI provider (default: 'openai')
-- `model?: string` - AI model to use (default: 'gpt-4o-mini' for OpenAI, 'claude-3-5-haiku-20241022' for Anthropic)
+- `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
+- `model?: string` - AI model to use (defaults: `gpt-5-mini`, `claude-sonnet-4-5`, or `gemini-2.5-flash`)
 - `imageSubmissionMode?: 'url' | 'base64'` - How to submit storyboard to AI providers (default: 'url')
 - `imageDownloadOptions?: object` - Options for image download when using base64 mode
   - `timeout?: number` - Request timeout in milliseconds (default: 10000)
@@ -395,6 +438,7 @@ Analyzes video frames to detect burned-in captions (hardcoded subtitles) that ar
 - `muxTokenSecret?: string` - Mux API token secret
 - `openaiApiKey?: string` - OpenAI API key
 - `anthropicApiKey?: string` - Anthropic API key
+- `googleApiKey?: string` - Google Generative AI API key
 
 **Returns:**
 ```typescript
@@ -425,15 +469,16 @@ Translates existing captions from one language to another and optionally adds th
 - `options` (optional) - Configuration options
 
 **Options:**
-- `provider?: 'anthropic'` - AI provider (default: 'anthropic')
-- `model?: string` - Model to use (default: 'claude-sonnet-4-20250514')
+- `provider: 'openai' | 'anthropic' | 'google'` - AI provider (required)
+- `model?: string` - Model to use (defaults to the provider's chat-vision model if omitted)
 - `uploadToMux?: boolean` - Whether to upload translated track to Mux (default: true)
 - `s3Endpoint?: string` - S3-compatible storage endpoint
 - `s3Region?: string` - S3 region (default: 'auto')
 - `s3Bucket?: string` - S3 bucket name
 - `s3AccessKeyId?: string` - S3 access key ID
 - `s3SecretAccessKey?: string` - S3 secret access key
-- `muxTokenId/muxTokenSecret/anthropicApiKey?: string` - API credentials
+- `muxTokenId/muxTokenSecret?: string` - Mux credentials
+- `openaiApiKey?/anthropicApiKey?/googleApiKey?` - Provider credentials
 
 **Returns:**
 ```typescript
@@ -461,12 +506,13 @@ Generates AI-powered chapter markers by analyzing video captions. Creates logica
 - `options` (optional) - Configuration options
 
 **Options:**
-- `provider?: 'openai' | 'anthropic'` - AI provider (default: 'openai')
-- `model?: string` - AI model to use (default: 'gpt-4o-mini' for OpenAI, 'claude-3-5-haiku-20241022' for Anthropic)
+- `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
+- `model?: string` - AI model to use (defaults: `gpt-5-mini`, `claude-sonnet-4-5`, or `gemini-2.5-flash`)
 - `muxTokenId?: string` - Mux API token ID
 - `muxTokenSecret?: string` - Mux API token secret
 - `openaiApiKey?: string` - OpenAI API key
 - `anthropicApiKey?: string` - Anthropic API key
+- `googleApiKey?: string` - Google Generative AI API key
 
 **Returns:**
 ```typescript
@@ -558,6 +604,7 @@ MUX_TOKEN_ID=your_token_id
 MUX_TOKEN_SECRET=your_token_secret
 OPENAI_API_KEY=your_openai_key
 ANTHROPIC_API_KEY=your_anthropic_key
+GOOGLE_GENERATIVE_AI_API_KEY=your_google_key
 ```
 
 All examples automatically load environment variables using `dotenv`.
@@ -627,21 +674,21 @@ npm run custom
 ### Moderation Examples
 - **Basic Moderation**: Analyze content with default thresholds
 - **Custom Thresholds**: Compare strict/default/permissive settings
-- **Hive Provider**: Use Hive's Visual Moderation API
-- **Provider Comparison**: Compare OpenAI vs Hive results side-by-side
+- **Google/Anthropic Providers**: Run thumbnail scoring with Gemini or Claude vision models (same pipeline used in `src/primitives/moderation.ts`)
+- **Provider Comparison**: OpenAI uses the dedicated Moderation API while Anthropic/Google rely on their underlying multimodal chat models
 
 ```bash
 cd examples/moderation
 npm install
 npm run basic <your-asset-id>
 npm run thresholds <your-asset-id>
-npm run hive <your-asset-id>
+npm run google <your-asset-id>
 npm run compare <your-asset-id>
 ```
 
 ### Burned-in Caption Examples
 - **Basic Detection**: Detect burned-in captions with different AI providers
-- **Provider Comparison**: Compare OpenAI vs Anthropic detection accuracy
+- **Provider Comparison**: Compare OpenAI vs Anthropic vs Google detection accuracy
 
 ```bash
 cd examples/burned-in-captions
@@ -652,7 +699,7 @@ npm run compare <your-asset-id>
 
 ### Chapter Generation Examples
 - **Basic Chapters**: Generate chapters with different AI providers
-- **Provider Comparison**: Compare OpenAI vs Anthropic chapter generation
+- **Provider Comparison**: Compare OpenAI vs Anthropic vs Google chapter generation
 
 ```bash
 cd examples/chapters
