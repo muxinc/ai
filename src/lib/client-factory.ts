@@ -113,11 +113,11 @@ export function createWorkflowClients(
     credentials,
   };
 
-  if (provider === 'openai' || credentials.openaiApiKey) {
+  if (credentials.openaiApiKey) {
     clients.openai = createOpenAIClient(credentials);
   }
 
-  if (provider === 'anthropic' || credentials.anthropicApiKey) {
+  if (credentials.anthropicApiKey) {
     clients.anthropic = createAnthropicClient(credentials);
   }
 
