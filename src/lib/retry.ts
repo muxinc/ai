@@ -35,10 +35,13 @@ function calculateDelay(attempt: number, baseDelay: number, maxDelay: number): n
  */
 export async function withRetry<T>(
   fn: () => Promise<T>,
-  options: RetryOptions = {}
+  {
+    maxRetries = DEFAULT_RETRY_OPTIONS.maxRetries,
+    baseDelay = DEFAULT_RETRY_OPTIONS.baseDelay,
+    maxDelay = DEFAULT_RETRY_OPTIONS.maxDelay,
+    shouldRetry = defaultShouldRetry
+  }: RetryOptions = {}
 ): Promise<T> {
-  const { maxRetries, baseDelay, maxDelay } = { ...DEFAULT_RETRY_OPTIONS, ...options };
-  const shouldRetry = options.shouldRetry || defaultShouldRetry;
 
   let lastError: Error | undefined;
 
