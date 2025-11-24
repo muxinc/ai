@@ -17,6 +17,7 @@ OPENAI_API_KEY=your_openai_api_key
 # Optional additional providers
 ANTHROPIC_API_KEY=your_anthropic_key
 GOOGLE_GENERATIVE_AI_API_KEY=your_google_generative_ai_key
+HIVE_API_KEY=your_hive_visual_moderation_key
 ```
 
 ## Examples
@@ -48,6 +49,20 @@ Compares three threshold levels:
 - **Default**: Standard thresholds (0.7/0.8) - balanced approach
 - **Permissive**: Higher thresholds (0.9/0.9) - less likely to flag content
 
+### Hive Example (`hive-example.ts`)
+
+Demonstrates running moderation through Hive’s Visual Moderation API:
+
+```bash
+npm run hive <your-asset-id> [submission-mode]
+```
+
+Features:
+- Requires `HIVE_API_KEY` plus standard Mux credentials.
+- Optional `submission-mode` argument lets you compare URL vs `base64` thumbnail uploads.
+- Uses stricter default thresholds (`0.9/0.9`), matching Hive’s recommended starting point from their docs.
+- Prints both aggregate and per-thumbnail scores so you can tune thresholds quickly.
+
 ## How It Works
 
 1. **Thumbnail Generation**: Creates thumbnails at regular intervals
@@ -64,7 +79,7 @@ Compares three threshold levels:
 
 Key options for `getModerationScores`:
 
-- `provider`: `'openai' | 'anthropic' | 'google'` (default: `'openai'`)
+- `provider`: `'openai' | 'anthropic' | 'google' | 'hive'` (default: `'openai'`)
 - `model`: Provider-specific model (`omni-moderation-latest`, `claude-3-5-haiku-20241022`, `gemini-2.5-flash`, etc.)
 - `thresholds`: Custom thresholds for sexual and violence content
 - `thumbnailInterval`: Seconds between thumbnails for long videos (default: 10)

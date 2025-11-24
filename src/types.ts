@@ -18,6 +18,8 @@ export interface MuxAIConfig {
   anthropicApiKey?: string;
   /** Google Generative AI API key (defaults to GOOGLE_GENERATIVE_AI_API_KEY/GOOGLE_API_KEY). */
   googleApiKey?: string;
+  /** Hive Visual Moderation API key (defaults to process.env.HIVE_API_KEY). */
+  hiveApiKey?: string;
   /**
    * Reserved for future hosted deployments that may require overriding the API
    * base URL.
@@ -142,10 +144,24 @@ export interface ModerationResult {
   };
 }
 
+/** Provider list accepted by `getModerationScores`. */
+export type ModerationProvider = SupportedProvider | 'hive';
+
+export type HiveModerationSource =
+  | { kind: 'url'; value: string }
+  | { kind: 'file'; buffer: Buffer; contentType: string };
+
+export interface HiveModerationOutput {
+  classes?: Array<{
+    class: string;
+    score: number;
+  }>;
+}
+
 /** Configuration accepted by `getModerationScores`. */
 export interface ModerationOptions extends MuxAIOptions {
   /** Provider used for moderation (defaults to 'openai'). */
-  provider?: SupportedProvider;
+  provider?: ModerationProvider;
   /** Provider-specific model identifier (defaults to opinionated value per provider). */
   model?: ModelIdByProvider[SupportedProvider];
   /** Override the default sexual/violence thresholds (0-1). */

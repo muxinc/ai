@@ -7,7 +7,8 @@
     "basic": "ts-node basic-example.ts",
     "thresholds": "ts-node custom-thresholds.ts",
     "google": "ts-node google-example.ts",
-    "compare": "ts-node provider-comparison.ts"
+    "compare": "ts-node provider-comparison.ts",
+    "hive": "ts-node hive-example.ts"
   },
   "dependencies": {
     "@mux/ai": "file:../..",
