@@ -259,9 +259,13 @@ async function requestHiveModeration(
         );
       }
 
-      const outputs: HiveModerationOutput[] | undefined = json?.output || json?.response?.output;
+      // Hive API response structure: status[0].response.output or direct output/response.output
+      const outputs: HiveModerationOutput[] | undefined =
+        json?.status?.[0]?.response?.output ||
+        json?.output ||
+        json?.response?.output;
       if (!outputs) {
-        throw new Error('Hive moderation response missing output array.');
+        throw new Error(`Hive moderation response missing output array. Response: ${JSON.stringify(json)}`);
       }
 
       const aggregated = outputs.reduce(
