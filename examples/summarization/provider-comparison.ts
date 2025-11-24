@@ -6,7 +6,7 @@ async function compareProviders(assetId: string) {
 
   const providers = [
     { name: 'OpenAI', provider: 'openai' as const, model: 'gpt-5-mini' },
-    { name: 'Anthropic', provider: 'anthropic' as const, model: 'claude-3-5-haiku-20241022' },
+    { name: 'Anthropic', provider: 'anthropic' as const, model: 'claude-sonnet-4-5' },
     { name: 'Google', provider: 'google' as const, model: 'gemini-2.5-flash' },
   ];
 

@@ -53,8 +53,10 @@ export interface PlaybackAsset {
 }
 
 // Shared schemas and inferred types for AI interactions
+export const SUMMARY_KEYWORD_LIMIT = 10;
+
 export const summarySchema = z.object({
-  keywords: z.array(z.string()).max(10),
+  keywords: z.array(z.string()),
   title: z.string().max(100),
   description: z.string().max(1000),
 });

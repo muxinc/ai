@@ -5,7 +5,7 @@ async function main() {
   const assetId = process.argv[2];
   const languageCode = process.argv[3] || 'en';
   const provider = (process.argv[4] as 'openai' | 'anthropic' | 'google') || 'openai';
-  
+
   if (!assetId) {
     console.log('Usage: npm run example:chapters <asset-id> [language-code] [provider]');
     console.log('Example: npm run example:chapters ICwSGuYvLIHR00km1NMX00GH3le7wknGPx en openai');
@@ -18,7 +18,7 @@ async function main() {
 
   try {
     const start = Date.now();
-    
+
     const result = await generateChapters(assetId, languageCode, {
       provider,
     });

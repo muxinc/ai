@@ -605,6 +605,7 @@ MUX_TOKEN_SECRET=your_token_secret
 OPENAI_API_KEY=your_openai_key
 ANTHROPIC_API_KEY=your_anthropic_key
 GOOGLE_GENERATIVE_AI_API_KEY=your_google_key
+HIVE_API_KEY=your_hive_key # required for Hive moderation runs
 ```
 
 All examples automatically load environment variables using `dotenv`.
@@ -623,15 +624,15 @@ npm run example:burned-in <asset-id> [provider]
 npm run example:burned-in:compare <asset-id>
 
 # Summarization
-npm run example:summarization <asset-id>
+npm run example:summarization <asset-id> [provider]
 npm run example:summarization:compare <asset-id>
 
 # Moderation
-npm run example:moderation <asset-id>
+npm run example:moderation <asset-id> [provider]
 npm run example:moderation:compare <asset-id>
 
 # Translation
-npm run example:translation <asset-id> [from-lang] [to-lang]
+npm run example:translation <asset-id> [from-lang] [to-lang] [provider]
 
 # Audio Translation (Dubbing)
 npm run example:audio-translation <asset-id> [to-lang]
@@ -648,11 +649,14 @@ npm run example:burned-in abc123 anthropic
 # Compare OpenAI vs Anthropic chapter generation
 npm run example:chapters:compare abc123 en
 
-# Run moderation analysis
-npm run example:moderation abc123
+# Run moderation analysis with Hive
+npm run example:moderation abc123 hive
 
-# Translate captions from English to Spanish
-npm run example:translation abc123 en es
+# Translate captions from English to Spanish with Anthropic (default)
+npm run example:translation abc123 en es anthropic
+
+# Summarize a video with Claude Sonnet 4.5 (default)
+npm run example:summarization abc123 anthropic
 
 # Create AI-dubbed audio in French
 npm run example:audio-translation abc123 fr
@@ -666,7 +670,7 @@ npm run example:audio-translation abc123 fr
 ```bash
 cd examples/summarization
 npm install
-npm run basic <your-asset-id>
+npm run basic <your-asset-id> [provider]
 npm run tones <your-asset-id>
 npm run custom
 ```
@@ -676,15 +680,19 @@ npm run custom
 - **Custom Thresholds**: Compare strict/default/permissive settings
 - **Google/Anthropic Providers**: Run thumbnail scoring with Gemini or Claude vision models (same pipeline used in `src/primitives/moderation.ts`)
 - **Provider Comparison**: OpenAI uses the dedicated Moderation API while Anthropic/Google rely on their underlying multimodal chat models
+- **Hive Visual Moderation**: Call Hive’s dedicated computer-vision API for thumbnail scoring
 
 ```bash
 cd examples/moderation
 npm install
-npm run basic <your-asset-id>
+npm run basic <your-asset-id> [provider]
 npm run thresholds <your-asset-id>
 npm run google <your-asset-id>
+npm run hive <your-asset-id> [submission-mode]
 npm run compare <your-asset-id>
 ```
+
+Supported moderation providers: `openai` (default), `anthropic`, `google`, and `hive`. Use `HIVE_API_KEY` when selecting Hive.
 
 ### Burned-in Caption Examples
 - **Basic Detection**: Detect burned-in captions with different AI providers
@@ -715,13 +723,13 @@ npm run compare <your-asset-id> [language-code]
 ```bash
 cd examples/translation
 npm install
-npm run basic <your-asset-id> en es
-npm run translation-only <your-asset-id> en fr
+npm run basic <your-asset-id> en es [provider]
+npm run translation-only <your-asset-id> en fr [provider]
 ```
 
 **Translation Workflow:**
 1. Fetches existing captions from Mux asset
-2. Translates VTT content using Anthropic Claude
+2. Translates VTT content using your selected provider (default: Claude Sonnet 4.5)
 3. Uploads translated VTT to S3-compatible storage
 4. Generates presigned URL (1-hour expiry)
 5. Adds new subtitle track to Mux asset

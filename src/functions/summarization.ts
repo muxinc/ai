@@ -1,5 +1,10 @@
 import { generateObject } from 'ai';
-import { summarySchema, SummarizationOptions, SummaryAndTagsResult } from '../types';
+import {
+  SUMMARY_KEYWORD_LIMIT,
+  summarySchema,
+  SummarizationOptions,
+  SummaryAndTagsResult,
+} from '../types';
 import { downloadImageAsBase64 } from '../lib/image-download';
 import { createWorkflowClients } from '../lib/client-factory';
 import { withRetry } from '../lib/retry';
@@ -8,7 +13,38 @@ import { fetchPlaybackAsset } from '../lib/mux-assets';
 import { fetchTranscriptForAsset } from '../primitives/transcripts';
 import { getStoryboardUrl } from '../primitives/storyboards';
 
-const DEFAULT_PROMPT = "Generate a short title (max 100 characters) and description (max 500 characters) for what happens. Start immediately with the action or subject - never reference that this is a video, content, or storyboard. Example: Title: 'Cooking Pasta Tutorial' Description: 'Someone cooks pasta by boiling water and adding noodles.'";
+const DEFAULT_PROMPT =
+  "Generate a short title (max 100 characters) and description (max 500 characters) for what happens. Start immediately with the action or subject - never reference that this is a video, content, or storyboard. Provide up to 10 concise keywords that capture the primary people, objects, or actions. Example: Title: 'Cooking Pasta Tutorial' Description: 'Someone cooks pasta by boiling water and adding noodles.' Keywords: ['cooking', 'pasta', 'boiling water', 'noodles', 'kitchen'].";
+
+function normalizeKeywords(keywords?: string[]): string[] {
+  if (!Array.isArray(keywords) || keywords.length === 0) {
+    return [];
+  }
+
+  const uniqueLowercase = new Set<string>();
+  const normalized: string[] = [];
+
+  for (const keyword of keywords) {
+    const trimmed = keyword?.trim();
+    if (!trimmed) {
+      continue;
+    }
+
+    const lower = trimmed.toLowerCase();
+    if (uniqueLowercase.has(lower)) {
+      continue;
+    }
+
+    uniqueLowercase.add(lower);
+    normalized.push(trimmed);
+
+    if (normalized.length === SUMMARY_KEYWORD_LIMIT) {
+      break;
+    }
+  }
+
+  return normalized;
+}
 
 export async function getSummaryAndTags(
   assetId: string,
@@ -117,7 +153,7 @@ export async function getSummaryAndTags(
     assetId,
     title: aiAnalysis.title || 'No title available',
     description: aiAnalysis.description || 'No description available',
-    tags: aiAnalysis.keywords || [],
+    tags: normalizeKeywords(aiAnalysis.keywords),
     storyboardUrl: imageUrl,
   };
 }
