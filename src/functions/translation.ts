@@ -58,6 +58,8 @@ export type TranslationPayload = z.infer<typeof translationSchema>;
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
 
+const DEFAULT_PROVIDER = 'openai';
+
 export async function translateCaptions<P extends SupportedProvider = SupportedProvider>(
   assetId: string,
   fromLanguageCode: string,
@@ -65,7 +67,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   options: TranslationOptions<P>
 ): Promise<TranslationResult> {
   const {
-    provider,
+    provider = DEFAULT_PROVIDER,
     model,
     s3Endpoint: providedS3Endpoint,
     s3Region: providedS3Region,
@@ -75,10 +77,6 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     uploadToMux: uploadToMuxOption,
     ...clientConfig
   } = options;
-
-  if (!provider) {
-    throw new Error('Translation provider is required. Set options.provider to one of the supported providers (openai, anthropic, google).');
-  }
 
   const resolvedProvider = provider;
 

@@ -61,6 +61,8 @@ export interface SummarizationOptions extends MuxAIOptions {
 
 const DEFAULT_PROMPT =
   "Generate a short title (max 100 characters) and description (max 500 characters) for what happens. Start immediately with the action or subject - never reference that this is a video, content, or storyboard. Provide up to 10 concise keywords that capture the primary people, objects, or actions. Example: Title: 'Cooking Pasta Tutorial' Description: 'Someone cooks pasta by boiling water and adding noodles.' Keywords: ['cooking', 'pasta', 'boiling water', 'noodles', 'kitchen'].";
+const DEFAULT_PROVIDER = 'openai';
+const DEFAULT_TONE = 'normal';
 
 function normalizeKeywords(keywords?: string[]): string[] {
   if (!Array.isArray(keywords) || keywords.length === 0) {
@@ -110,9 +112,9 @@ export async function getSummaryAndTags(
   }
 
   const {
-    provider = 'openai',
+    provider = DEFAULT_PROVIDER,
     model,
-    tone = 'normal',
+    tone = DEFAULT_TONE,
     includeTranscript = true,
     cleanTranscript = true,
     imageSubmissionMode = 'url',

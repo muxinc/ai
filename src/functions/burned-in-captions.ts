@@ -46,6 +46,8 @@ export type BurnedInCaptionsAnalysis = z.infer<typeof burnedInCaptionsSchema>;
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
 
+const DEFAULT_PROVIDER = 'openai';
+
 const SYSTEM_PROMPT = `You are an expert at analyzing video frames to detect burned-in captions (also called open captions or hardcoded subtitles). These are text overlays that are permanently embedded in the video image, common on TikTok, Instagram Reels, and other social media platforms.
 
 CRITICAL: Burned-in captions must appear consistently across MOST frames in the storyboard. Text appearing in only 1-2 frames at the end is typically marketing copy, taglines, or end-cards - NOT burned-in captions.
@@ -81,7 +83,7 @@ export async function hasBurnedInCaptions(
   options: BurnedInCaptionsOptions = {}
 ): Promise<BurnedInCaptionsResult> {
   const {
-    provider = 'openai',
+    provider = DEFAULT_PROVIDER,
     model,
     imageSubmissionMode = 'url',
     imageDownloadOptions,

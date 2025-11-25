@@ -47,6 +47,8 @@ export interface ChaptersOptions extends MuxAIOptions {
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
 
+const DEFAULT_PROVIDER = 'openai';
+
 const SYSTEM_PROMPT = `Your role is to segment the following captions into chunked chapters, summarising each chapter with a title.
 
 Analyze the transcript and create logical chapter breaks based on topic changes, major transitions, or distinct sections of content. Each chapter should represent a meaningful segment of the video.
@@ -73,7 +75,7 @@ export async function generateChapters(
   languageCode: string,
   options: ChaptersOptions = {}
 ): Promise<ChaptersResult> {
-  const { provider = 'openai', model, abortSignal } = options;
+  const { provider = DEFAULT_PROVIDER, model, abortSignal } = options;
 
   // Initialize clients with validated credentials and resolved language model
   const clients = createWorkflowClients({ ...options, model }, provider as SupportedProvider);
