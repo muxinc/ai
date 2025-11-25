@@ -5,7 +5,7 @@ import { downloadImageAsBase64, ImageDownloadOptions } from '../lib/image-downlo
 import { createWorkflowClients } from '../lib/client-factory';
 import { withRetry } from '../lib/retry';
 import { SupportedProvider, ModelIdByProvider } from '../lib/providers';
-import { fetchPlaybackAsset } from '../lib/mux-assets';
+import { getPlaybackIdForAsset } from '../lib/mux-assets';
 import { fetchTranscriptForAsset } from '../primitives/transcripts';
 import { getStoryboardUrl } from '../primitives/storyboards';
 
@@ -129,7 +129,7 @@ export async function getSummaryAndTags(
   );
 
   // Fetch asset data from Mux and grab playback/transcript details
-  const { asset: assetData, playbackId } = await fetchPlaybackAsset(clients.mux, assetId);
+  const { asset: assetData, playbackId } = await getPlaybackIdForAsset(clients.mux, assetId);
 
   const transcriptText =
     includeTranscript

@@ -2,7 +2,7 @@ import { generateObject } from 'ai';
 import { z } from 'zod';
 import { MuxAIOptions, ImageSubmissionMode } from '../types';
 import { downloadImageAsBase64, ImageDownloadOptions } from '../lib/image-download';
-import { fetchPlaybackAsset } from '../lib/mux-assets';
+import { getPlaybackIdForAsset } from '../lib/mux-assets';
 import { getStoryboardUrl } from '../primitives/storyboards';
 import { createWorkflowClients } from '../lib/client-factory';
 import { SupportedProvider, ModelIdByProvider } from '../lib/providers';
@@ -94,7 +94,7 @@ export async function hasBurnedInCaptions(
     { ...config, model },
     provider as SupportedProvider
   );
-  const { playbackId } = await fetchPlaybackAsset(clients.mux, assetId);
+  const { playbackId } = await getPlaybackIdForAsset(clients.mux, assetId);
   const imageUrl = getStoryboardUrl(playbackId, 640);
 
   let analysisResult: BurnedInCaptionsAnalysis | null = null;

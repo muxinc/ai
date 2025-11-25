@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { MuxAIOptions } from '../types';
 import { createWorkflowClients } from '../lib/client-factory';
 import { withRetry } from '../lib/retry';
-import { fetchPlaybackAsset } from '../lib/mux-assets';
+import { getPlaybackIdForAsset } from '../lib/mux-assets';
 import {
   fetchTranscriptForAsset,
   getReadyTextTracks,
@@ -81,7 +81,7 @@ export async function generateChapters(
   const clients = createWorkflowClients({ ...options, model }, provider as SupportedProvider);
 
   // Fetch asset and caption track/transcript
-  const { asset: assetData, playbackId } = await fetchPlaybackAsset(clients.mux, assetId);
+  const { asset: assetData, playbackId } = await getPlaybackIdForAsset(clients.mux, assetId);
 
   const transcriptResult = await fetchTranscriptForAsset(assetData, playbackId, {
     languageCode,

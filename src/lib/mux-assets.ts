@@ -16,7 +16,7 @@ function ensurePublicPlaybackId(asset: MuxAsset): string {
   return publicPlaybackId.id;
 }
 
-export async function fetchPlaybackAsset(
+export async function getPlaybackIdForAsset(
   mux: Mux,
   assetId: string
 ): Promise<PlaybackAsset> {

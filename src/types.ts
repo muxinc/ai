@@ -44,7 +44,7 @@ export type MuxAsset = Awaited<ReturnType<Mux['video']['assets']['retrieve']>>;
 /** Single ready track extracted from a Mux asset. */
 export type AssetTextTrack = NonNullable<MuxAsset['tracks']>[number];
 
-/** Convenience bundle returned by `fetchPlaybackAsset`. */
+/** Convenience bundle returned by `getPlaybackIdForAsset`. */
 export interface PlaybackAsset {
   asset: MuxAsset;
   playbackId: string;

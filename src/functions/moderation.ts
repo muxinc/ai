@@ -2,7 +2,7 @@ import { createMuxClient, validateCredentials } from '../lib/client-factory';
 import { MuxAIOptions, ImageSubmissionMode } from '../types';
 import { getThumbnailUrls } from '../primitives/thumbnails';
 import { downloadImagesAsBase64, ImageDownloadOptions } from '../lib/image-download';
-import { fetchPlaybackAsset } from '../lib/mux-assets';
+import { getPlaybackIdForAsset } from '../lib/mux-assets';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -320,7 +320,7 @@ export async function getModerationScores(
   const muxClient = createMuxClient(credentials);
 
   // Fetch asset data and a public playback ID from Mux via helper
-  const { asset, playbackId } = await fetchPlaybackAsset(muxClient, assetId);
+  const { asset, playbackId } = await getPlaybackIdForAsset(muxClient, assetId);
   const duration = asset.duration || 0;
 
   // Generate thumbnail URLs
