@@ -11,10 +11,6 @@ const DEFAULT_MODELS: Record<ProviderWithModel, string> = {
   google: 'gemini-2.5-flash',
 };
 
-function mask(value?: string | null) {
-  return value ? `${value.substring(0, 10)}...` : 'NOT SET';
-}
-
 async function main() {
   const assetId = process.argv[2];
   const providerArg = (process.argv[3] as ModerationProviderArg | undefined) || 'openai';
@@ -34,16 +30,8 @@ async function main() {
   const provider = providerArg;
   const model = provider === 'hive' ? undefined : DEFAULT_MODELS[provider];
 
-  // Debug: Check if env vars are loaded
-  console.log('Debug - Environment variables:');
-  console.log('MUX_TOKEN_ID:', mask(process.env.MUX_TOKEN_ID));
-  console.log('MUX_TOKEN_SECRET:', mask(process.env.MUX_TOKEN_SECRET));
-  console.log('OPENAI_API_KEY:', mask(process.env.OPENAI_API_KEY));
-  console.log('ANTHROPIC_API_KEY:', mask(process.env.ANTHROPIC_API_KEY));
-  console.log('GOOGLE_GENERATIVE_AI_API_KEY:', mask(process.env.GOOGLE_GENERATIVE_AI_API_KEY));
-  console.log('HIVE_API_KEY:', mask(process.env.HIVE_API_KEY));
   console.log('Asset ID:', assetId);
-  console.log(`Provider: ${provider}${model ? ` (${model})` : ''}\n`);
+  console.log(`Provider: ${provider} (${model})\n`);
 
   try {
     console.log('🛡️  Starting moderation analysis...\n');

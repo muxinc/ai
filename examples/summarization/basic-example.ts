@@ -9,10 +9,6 @@ const DEFAULT_MODELS: Record<Provider, string> = {
   google: 'gemini-2.5-flash',
 };
 
-function mask(value?: string | null) {
-  return value ? `${value.substring(0, 10)}...` : 'NOT SET';
-}
-
 async function main() {
   const assetId = process.argv[2];
   const provider = (process.argv[3] as Provider) || 'anthropic';
@@ -30,13 +26,6 @@ async function main() {
 
   const model = DEFAULT_MODELS[provider as Provider];
 
-  // Debug: Check if env vars are loaded
-  console.log('Debug - Environment variables:');
-  console.log('MUX_TOKEN_ID:', mask(process.env.MUX_TOKEN_ID));
-  console.log('MUX_TOKEN_SECRET:', mask(process.env.MUX_TOKEN_SECRET));
-  console.log('OPENAI_API_KEY:', mask(process.env.OPENAI_API_KEY));
-  console.log('ANTHROPIC_API_KEY:', mask(process.env.ANTHROPIC_API_KEY));
-  console.log('GOOGLE_GENERATIVE_AI_API_KEY:', mask(process.env.GOOGLE_GENERATIVE_AI_API_KEY));
   console.log('Asset ID:', assetId);
   console.log(`Provider: ${provider} (${model})\n`);
 
