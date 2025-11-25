@@ -641,8 +641,8 @@ npm run example:summarization:compare <asset-id>
 npm run example:moderation <asset-id> [provider]
 npm run example:moderation:compare <asset-id>
 
-# Translation
-npm run example:translation <asset-id> [from-lang] [to-lang] [provider]
+# Caption Translation
+npm run example:translate-captions <asset-id> [from-lang] [to-lang] [provider]
 
 # Audio Translation (Dubbing)
 npm run example:audio-translation <asset-id> [to-lang]
@@ -663,7 +663,7 @@ npm run example:chapters:compare abc123 en
 npm run example:moderation abc123 hive
 
 # Translate captions from English to Spanish with Anthropic (default)
-npm run example:translation abc123 en es anthropic
+npm run example:translate-captions abc123 en es anthropic
 
 # Summarize a video with Claude Sonnet 4.5 (default)
 npm run example:summarization abc123 anthropic
@@ -726,12 +726,12 @@ npm run chapters:basic <your-asset-id> [language-code] [provider]
 npm run compare <your-asset-id> [language-code]
 ```
 
-### Translation Examples
+### Caption Translation Examples
 - **Basic Translation**: Translate captions and upload to Mux
 - **Translation Only**: Translate without uploading to Mux
 
 ```bash
-cd examples/translation
+cd examples/translate-captions
 npm install
 npm run basic <your-asset-id> en es [provider]
 npm run translation-only <your-asset-id> en fr [provider]
