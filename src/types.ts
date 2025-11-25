@@ -28,6 +28,12 @@ export interface MuxAIConfig {
 export interface MuxAIOptions extends MuxAIConfig {
   /** Optional timeout (ms) for helper utilities that support request limits. */
   timeout?: number;
+  /**
+   * Optional cancellation signal passed through to underlying AI SDK calls.
+   * When aborted, in-flight model requests will be
+   * cancelled where supported.
+   */
+  abortSignal?: AbortSignal;
 }
 
 /** Tone controls for the summarization helper. */

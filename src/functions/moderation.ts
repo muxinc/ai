@@ -148,7 +148,8 @@ async function requestGenerativeModeration(
   model: ReturnType<typeof createWorkflowClients>['languageModel']['model'],
   maxConcurrent: number = 5,
   submissionMode: 'url' | 'base64' = 'url',
-  downloadOptions?: ImageDownloadOptions
+  downloadOptions?: ImageDownloadOptions,
+  abortSignal?: AbortSignal
 ): Promise<ThumbnailModerationScore[]> {
   const targetUrls =
     submissionMode === 'base64'
@@ -164,6 +165,7 @@ async function requestGenerativeModeration(
       const response = await generateObject({
         model,
         schema: thumbnailScoreSchema,
+        abortSignal,
         messages: [
           { role: 'system', content: prompt },
           {
@@ -318,6 +320,7 @@ export async function getModerationScores(
     maxConcurrent = 5,
     imageSubmissionMode = 'url',
     imageDownloadOptions,
+    abortSignal,
   } = options;
 
   const { provider: _ignoredProvider, ...clientOpts } = options;
@@ -380,7 +383,8 @@ export async function getModerationScores(
       workflowClients.languageModel.model,
       maxConcurrent,
       imageSubmissionMode,
-      imageDownloadOptions
+      imageDownloadOptions,
+      abortSignal
     );
   } else {
     throw new Error(`Unsupported moderation provider: ${provider}`);

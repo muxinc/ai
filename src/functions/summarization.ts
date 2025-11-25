@@ -71,6 +71,7 @@ export async function getSummaryAndTags(
     cleanTranscript = true,
     imageSubmissionMode = 'url',
     imageDownloadOptions,
+    abortSignal,
   } = actualOptions;
 
   // Initialize clients with validated credentials and resolved language model
@@ -114,6 +115,7 @@ export async function getSummaryAndTags(
     const response = await generateObject({
       model: clients.languageModel.model,
       schema: summarySchema,
+      abortSignal,
       messages: [
         {
           role: 'system',

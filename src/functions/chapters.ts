@@ -36,7 +36,7 @@ export async function generateChapters(
   languageCode: string,
   options: ChaptersOptions = {}
 ): Promise<ChaptersResult> {
-  const { provider = 'openai', model } = options;
+  const { provider = 'openai', model, abortSignal } = options;
 
   // Initialize clients with validated credentials and resolved language model
   const clients = createWorkflowClients({ ...options, model }, provider as SupportedProvider);
@@ -72,6 +72,7 @@ export async function generateChapters(
       generateObject({
         model: clients.languageModel.model,
         schema: chaptersSchema,
+        abortSignal,
         messages: [
           {
             role: 'system',

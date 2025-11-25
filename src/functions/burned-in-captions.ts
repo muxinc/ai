@@ -66,6 +66,7 @@ export async function hasBurnedInCaptions(
     const response = await generateObject({
       model: clients.languageModel.model,
       schema: burnedInCaptionsSchema,
+      abortSignal: options.abortSignal,
       messages: [
         {
           role: 'system',

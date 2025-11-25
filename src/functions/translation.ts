@@ -101,6 +101,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     const response = await generateObject({
       model: clients.languageModel.model,
       schema: translationSchema,
+      abortSignal: options.abortSignal,
       messages: [
         {
           role: 'user',
