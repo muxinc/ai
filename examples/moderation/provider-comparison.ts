@@ -1,7 +1,6 @@
 import 'dotenv/config';
 import { getModerationScores } from '@mux/ai/functions';
 
-
 async function main() {
   const assetId = process.argv[2];
 
@@ -10,7 +9,7 @@ async function main() {
     console.log('Example: npm run example:moderation:compare your-asset-id');
     console.log('');
     console.log('Note: Asset must have public playback IDs');
-    console.log('Note: Requires provider-specific API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY)');
+    console.log('Note: Requires OPENAI_API_KEY and HIVE_API_KEY environment variables');
     process.exit(1);
   }
 
@@ -26,28 +25,14 @@ async function main() {
         },
       },
       {
-        label: 'Anthropic',
-        options: {
-          provider: 'anthropic' as const,
-          model: 'claude-haiku-4-5',
-        },
-      },
-      {
-        label: 'Google',
-        options: {
-          provider: 'google' as const,
-          model: 'gemini-2.5-flash',
-        },
-      },
-      {
         label: 'Hive',
         options: {
           provider: 'hive' as const,
         },
-      }
+      },
     ];
 
-    console.log('⏳ Running all providers...\n');
+    console.log('⏳ Running providers...\n');
 
     const results = await Promise.all(
       configs.map(async (config) => {
@@ -77,13 +62,17 @@ async function main() {
         console.log(
           `${a.config.label} vs ${b.config.label}: Sexual Δ ${Math.abs(
             a.result.maxScores.sexual - b.result.maxScores.sexual
-          ).toFixed(3)}, Violence Δ ${Math.abs(a.result.maxScores.violence - b.result.maxScores.violence).toFixed(3)}`
+          ).toFixed(3)}, Violence Δ ${Math.abs(
+            a.result.maxScores.violence - b.result.maxScores.violence
+          ).toFixed(3)}`
         );
       }
     }
 
-    const agreesOnFlag = results.every((entry) => entry.result.exceedsThreshold === results[0].result.exceedsThreshold);
-    console.log(`\n🎯 Agreement: ${agreesOnFlag ? '✅ All providers agree' : '⚠️  Providers disagree'} on flagging`);
+    const agreesOnFlag = results.every(
+      (entry) => entry.result.exceedsThreshold === results[0].result.exceedsThreshold
+    );
+    console.log(`\n🎯 Agreement: ${agreesOnFlag ? '✅ Both providers agree' : '⚠️  Providers disagree'} on flagging`);
   } catch (error) {
     console.error('❌ Error:', error instanceof Error ? error.message : error);
   }

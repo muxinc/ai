@@ -1,8 +1,5 @@
-import { generateObject } from 'ai';
-import { z } from 'zod';
-import { createWorkflowClients, createMuxClient, validateCredentials } from '../lib/client-factory';
+import { createMuxClient, validateCredentials } from '../lib/client-factory';
 import { MuxAIOptions, ImageSubmissionMode } from '../types';
-import type { SupportedProvider, ModelIdByProvider } from '../lib/providers';
 import { getThumbnailUrls } from '../primitives/thumbnails';
 import { downloadImagesAsBase64, ImageDownloadOptions } from '../lib/image-download';
 import { fetchPlaybackAsset } from '../lib/mux-assets';
@@ -35,7 +32,7 @@ export interface ModerationResult {
 }
 
 /** Provider list accepted by `getModerationScores`. */
-export type ModerationProvider = SupportedProvider | 'hive';
+export type ModerationProvider = 'openai' | 'hive';
 
 export type HiveModerationSource =
   | { kind: 'url'; value: string }
@@ -52,8 +49,8 @@ export interface HiveModerationOutput {
 export interface ModerationOptions extends MuxAIOptions {
   /** Provider used for moderation (defaults to 'openai'). */
   provider?: ModerationProvider;
-  /** Provider-specific model identifier (defaults to opinionated value per provider). */
-  model?: ModelIdByProvider[SupportedProvider];
+  /** OpenAI moderation model identifier (defaults to 'omni-moderation-latest'). */
+  model?: string;
   /** Override the default sexual/violence thresholds (0-1). */
   thresholds?: {
     sexual?: number;
@@ -112,17 +109,6 @@ const HIVE_VIOLENCE_KEYWORDS = [
   /gore/i,
   /kill/i,
 ];
-
-const LANGUAGE_MODEL_PROVIDERS: SupportedProvider[] = ['openai', 'anthropic', 'google'];
-
-function isLanguageModelProvider(provider: ModerationProvider): provider is SupportedProvider {
-  return (LANGUAGE_MODEL_PROVIDERS as string[]).includes(provider);
-}
-
-const thumbnailScoreSchema = z.object({
-  sexual: z.number().min(0).max(1),
-  violence: z.number().min(0).max(1),
-});
 
 async function processConcurrently<T>(
   items: any[],
@@ -194,60 +180,6 @@ async function requestOpenAIModeration(
       };
     } catch (error) {
       console.error('OpenAI moderation failed:', error);
-      return {
-        url: entry.url,
-        sexual: 0,
-        violence: 0,
-        error: true,
-      };
-    }
-  };
-
-  return processConcurrently(targetUrls, moderate, maxConcurrent);
-}
-
-async function requestGenerativeModeration(
-  imageUrls: string[],
-  model: ReturnType<typeof createWorkflowClients>['languageModel']['model'],
-  maxConcurrent: number = 5,
-  submissionMode: 'url' | 'base64' = 'url',
-  downloadOptions?: ImageDownloadOptions,
-  abortSignal?: AbortSignal
-): Promise<ThumbnailModerationScore[]> {
-  const targetUrls =
-    submissionMode === 'base64'
-      ? (await downloadImagesAsBase64(imageUrls, downloadOptions, maxConcurrent)).map(
-          (img) => ({ url: img.url, image: img.base64Data })
-        )
-      : imageUrls.map((url) => ({ url, image: url }));
-
-  const prompt = `You are a content safety system. Analyze the provided image and return JSON with two numeric scores between 0 and 1: "sexual" and "violence". Higher = more risky.`;
-
-  const moderate = async (entry: { url: string; image: string }): Promise<ThumbnailModerationScore> => {
-    try {
-      const response = await generateObject({
-        model,
-        schema: thumbnailScoreSchema,
-        abortSignal,
-        messages: [
-          { role: 'system', content: prompt },
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: 'Score this image for sexual and violence risk.' },
-              { type: 'image', image: entry.image },
-            ],
-          },
-        ],
-      });
-
-      return {
-        url: entry.url,
-        ...response.object,
-        error: false,
-      };
-    } catch (error) {
-      console.error('Generative moderation failed:', error);
       return {
         url: entry.url,
         sexual: 0,
@@ -368,7 +300,6 @@ async function requestHiveModeration(
 /**
  * Moderate a Mux asset's thumbnails.
  * - provider 'openai' uses OpenAI's hosted moderation endpoint (requires OPENAI_API_KEY)
- * - provider 'google' or 'anthropic' uses the resolved language model via Vercel AI SDK to produce comparable scores
  */
 export async function getModerationScores(
   assetId: string,
@@ -383,20 +314,10 @@ export async function getModerationScores(
     maxConcurrent = 5,
     imageSubmissionMode = 'url',
     imageDownloadOptions,
-    abortSignal,
   } = options;
 
-  const { provider: _ignoredProvider, ...clientOpts } = options;
-  const isLLMProvider = isLanguageModelProvider(provider);
-
-  const workflowClients = isLLMProvider
-    ? createWorkflowClients(
-        { ...clientOpts, model },
-        provider as SupportedProvider
-      )
-    : null;
-
-  const muxClient = workflowClients?.mux || createMuxClient(validateCredentials(options));
+  const credentials = validateCredentials(options, provider === 'openai' ? 'openai' : undefined);
+  const muxClient = createMuxClient(credentials);
 
   // Fetch asset data and a public playback ID from Mux via helper
   const { asset, playbackId } = await fetchPlaybackAsset(muxClient, assetId);
@@ -411,8 +332,7 @@ export async function getModerationScores(
   let thumbnailScores: ThumbnailModerationScore[];
 
   if (provider === 'openai') {
-    const apiKey =
-      workflowClients?.credentials.openaiApiKey || process.env.OPENAI_API_KEY;
+    const apiKey = credentials.openaiApiKey;
     if (!apiKey) {
       throw new Error('OpenAI API key is required for moderation. Set OPENAI_API_KEY or pass openaiApiKey.');
     }
@@ -437,15 +357,6 @@ export async function getModerationScores(
       maxConcurrent,
       imageSubmissionMode,
       imageDownloadOptions
-    );
-  } else if (workflowClients?.languageModel.model) {
-    thumbnailScores = await requestGenerativeModeration(
-      thumbnailUrls,
-      workflowClients.languageModel.model,
-      maxConcurrent,
-      imageSubmissionMode,
-      imageDownloadOptions,
-      abortSignal
     );
   } else {
     throw new Error(`Unsupported moderation provider: ${provider}`);

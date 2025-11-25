@@ -42,9 +42,7 @@ function requireEnv(value: string | undefined, name: string): string {
 }
 
 /**
- * Resolves a language model using Vercel's AI SDK providers.
- * - BYO: defaults to the provider-specific env var conventions used by ai-sdk
- * - Mux-hosted: reserved for a future path that does not require provider keys
+ * Resolves a language model from a suggested provider.
  */
 export function resolveLanguageModel<P extends SupportedProvider = SupportedProvider>(
   options: ModelRequestOptions<P> = {}

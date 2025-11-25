@@ -1,14 +1,12 @@
 import 'dotenv/config';
 import { getModerationScores } from '@mux/ai/functions';
 
-const SUPPORTED_PROVIDERS = ['openai', 'anthropic', 'google', 'hive'] as const;
-type ModerationProviderArg = typeof SUPPORTED_PROVIDERS[number];
+const SUPPORTED_PROVIDERS = ['openai', 'hive'] as const;
+type ModerationProviderArg = (typeof SUPPORTED_PROVIDERS)[number];
 type ProviderWithModel = Exclude<ModerationProviderArg, 'hive'>;
 
 const DEFAULT_MODELS: Record<ProviderWithModel, string> = {
   openai: 'omni-moderation-latest',
-  anthropic: 'claude-sonnet-4-5',
-  google: 'gemini-2.5-flash',
 };
 
 async function main() {

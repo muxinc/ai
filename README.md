@@ -7,7 +7,7 @@ AI-powered video analysis library for Mux, built in TypeScript.
 | Function | Description | Providers | Default Models | Input | Output |
 |----------|-------------|-----------|----------------|--------|--------|
 | `getSummaryAndTags` | Generate titles, descriptions, and tags from a Mux video asset | OpenAI, Anthropic, Google | `gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash` | Asset ID + options | Title, description, tags, storyboard URL |
-| `getModerationScores` | Analyze video thumbnails for inappropriate content | OpenAI, Anthropic, Google | `omni-moderation-latest` (OpenAI) or AI SDK defaults (`gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash`) | Asset ID + thresholds | Sexual/violence scores, flagged status |
+| `getModerationScores` | Analyze video thumbnails for inappropriate content | OpenAI, Hive | `omni-moderation-latest` (OpenAI) or Hive visual moderation task | Asset ID + thresholds | Sexual/violence scores, flagged status |
 | `hasBurnedInCaptions` | Detect burned-in captions (hardcoded subtitles) in video frames | OpenAI, Anthropic, Google | `gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash` | Asset ID + options | Boolean result, confidence, language |
 | `generateChapters` | Generate AI-powered chapter markers from video captions | OpenAI, Anthropic, Google | `gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash` | Asset ID + language + options | Timestamped chapter list |
 | `translateCaptions` | Translate video captions to different languages | OpenAI, Anthropic, Google | Provider default models | Asset ID + languages + S3 config | Translated VTT + Mux track ID |
@@ -113,20 +113,13 @@ console.log(result.maxScores);        // Highest scores across all thumbnails
 console.log(result.exceedsThreshold); // true if content should be flagged
 console.log(result.thumbnailScores);  // Individual thumbnail results
 
-// Evaluate the same asset with Anthropic via the AI SDK
-const anthropicResult = await getModerationScores('your-mux-asset-id', {
-  provider: 'anthropic',
-  model: 'claude-sonnet-4-5',
-  thresholds: { sexual: 0.65, violence: 0.75 },
+// Run the same analysis using Hive’s visual moderation API
+const hiveResult = await getModerationScores('your-mux-asset-id', {
+  provider: 'hive',
+  thresholds: { sexual: 0.9, violence: 0.9 },
 });
 
-// Or use Google Gemini vision models
-const googleResult = await getModerationScores('your-mux-asset-id', {
-  provider: 'google',
-  model: 'gemini-2.5-flash',
-});
-
-// Use base64 submission for improved reliability (downloads images locally)
+// Use base64 submission for improved reliability with OpenAI (downloads images locally)
 const reliableResult = await getModerationScores('your-mux-asset-id', {
   provider: 'openai',
   imageSubmissionMode: 'base64',
@@ -381,15 +374,15 @@ Analyzes a Mux video asset and returns AI-generated metadata.
 
 ### `getModerationScores(assetId, options?)`
 
-Analyzes video thumbnails for inappropriate content using OpenAI's moderation API or multimodal models from Anthropic/Google via the AI SDK.
+Analyzes video thumbnails for inappropriate content using OpenAI's Moderation API or Hive’s visual moderation API.
 
 **Parameters:**
 - `assetId` (string) - Mux video asset ID
 - `options` (optional) - Configuration options
 
 **Options:**
-- `provider?: 'openai' | 'anthropic' | 'google'` - Moderation provider (default: 'openai')
-- `model?: string` - Model to use (`omni-moderation-latest` for OpenAI, otherwise the provider's chat-vision defaults)
+- `provider?: 'openai' | 'hive'` - Moderation provider (default: 'openai')
+- `model?: string` - OpenAI moderation model to use (default: `omni-moderation-latest`)
 - `thresholds?: { sexual?: number; violence?: number }` - Custom thresholds (default: {sexual: 0.7, violence: 0.8})
 - `thumbnailInterval?: number` - Seconds between thumbnails for long videos (default: 10)
 - `thumbnailWidth?: number` - Thumbnail width in pixels (default: 640)
@@ -402,7 +395,7 @@ Analyzes video thumbnails for inappropriate content using OpenAI's moderation AP
   - `maxRetryDelay?: number` - Maximum delay between retries in milliseconds (default: 10000)
   - `exponentialBackoff?: boolean` - Whether to use exponential backoff (default: true)
 - `muxTokenId/muxTokenSecret?: string` - Mux credentials
-- `openaiApiKey?/anthropicApiKey?/googleApiKey?` - Provider credentials
+- `openaiApiKey?/hiveApiKey?` - Provider credentials
 
 **Returns:**
 ```typescript
@@ -688,21 +681,17 @@ npm run custom
 ### Moderation Examples
 - **Basic Moderation**: Analyze content with default thresholds
 - **Custom Thresholds**: Compare strict/default/permissive settings
-- **Google/Anthropic Providers**: Run thumbnail scoring with Gemini or Claude vision models (same pipeline used in `src/functions/moderation.ts`)
-- **Provider Comparison**: OpenAI uses the dedicated Moderation API while Anthropic/Google rely on their underlying multimodal chat models
-- **Hive Visual Moderation**: Call Hive’s dedicated computer-vision API for thumbnail scoring
+- **Provider Comparison**: Compare OpenAI’s dedicated Moderation API with Hive’s visual moderation API
 
 ```bash
 cd examples/moderation
 npm install
-npm run basic <your-asset-id> [provider]
+npm run basic <your-asset-id> [provider]   # provider: openai | hive
 npm run thresholds <your-asset-id>
-npm run google <your-asset-id>
-npm run hive <your-asset-id> [submission-mode]
 npm run compare <your-asset-id>
 ```
 
-Supported moderation providers: `openai` (default), `anthropic`, `google`, and `hive`. Use `HIVE_API_KEY` when selecting Hive.
+Supported moderation providers: `openai` (default) and `hive`. Use `HIVE_API_KEY` when selecting Hive.
 
 ### Burned-in Caption Examples
 - **Basic Detection**: Detect burned-in captions with different AI providers
