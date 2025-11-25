@@ -399,9 +399,7 @@ export async function getModerationScores(
   const muxClient = workflowClients?.mux || createMuxClient(validateCredentials(options));
 
   // Fetch asset data and a public playback ID from Mux via helper
-  const { asset, playbackId } = await fetchPlaybackAsset(muxClient, assetId, {
-    requirePublic: true,
-  });
+  const { asset, playbackId } = await fetchPlaybackAsset(muxClient, assetId);
   const duration = asset.duration || 0;
 
   // Generate thumbnail URLs
