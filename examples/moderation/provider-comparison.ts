@@ -42,6 +42,13 @@ async function main() {
           thresholds: { sexual: 0.7, violence: 0.8 },
         },
       },
+      {
+        label: 'Hive',
+        options: {
+          provider: 'hive' as const,
+          thresholds: { sexual: 0.7, violence: 0.8 },
+        },
+      }
     ];
 
     console.log('⏳ Running all providers...\n');
