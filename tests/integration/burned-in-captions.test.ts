@@ -14,7 +14,7 @@ describe('Burned-in Captions Integration Tests', () => {
   ];
 
   describe('OpenAI provider - with captions', () => {
-    it.each(assetsWithCaptions)('should detect burned-in captions with >80%% confidence for asset %s', async (assetId) => {
+    it.each(assetsWithCaptions)('should detect burned-in captions with >80% confidence for asset %s', async (assetId) => {
       const result = await hasBurnedInCaptions(assetId, {
         provider: 'openai',
       });
@@ -57,7 +57,7 @@ describe('Burned-in Captions Integration Tests', () => {
   });
 
   describe('Anthropic provider - with captions', () => {
-    it.each(assetsWithCaptions)('should detect burned-in captions with >80%% confidence for asset %s', async (assetId) => {
+    it.each(assetsWithCaptions)('should detect burned-in captions with >80 confidence for asset %s', async (assetId) => {
       const result = await hasBurnedInCaptions(assetId, {
         provider: 'anthropic',
       });
