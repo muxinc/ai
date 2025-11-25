@@ -21,7 +21,7 @@ AI-powered video analysis library for Mux, built in TypeScript.
 - **Configurable Thresholds**: Custom sensitivity levels for content moderation
 - **TypeScript**: Fully typed for excellent developer experience
 - **Provider Choice**: Switch between OpenAI, Anthropic, and Google for different perspectives
-- **Composable Building Blocks**: Import primitives to fetch transcripts, thumbnails, and moderation data to build bespoke flows
+- **Composable Building Blocks**: Import primitives to fetch transcripts, thumbnails, and storyboards to build bespoke flows
 - **Universal Language Support**: Automatic language name detection using `Intl.DisplayNames` for all ISO 639-1 codes
 
 ## Package Structure
@@ -29,17 +29,18 @@ AI-powered video analysis library for Mux, built in TypeScript.
 This package ships with layered entry points so you can pick the right level of abstraction for your workflow:
 
 - `@mux/ai/functions` – opinionated, production-ready helpers (`getSummaryAndTags`, `generateChapters`, `translateCaptions`, etc.) that orchestrate Mux API access, transcript/storyboard gathering, and the AI provider call.
-- `@mux/ai/primitives` – low-level building blocks such as `getModerationScores`, `fetchTranscriptForAsset`, `getStoryboardUrl`, and `getThumbnailUrls`. Use these when you need to mix our utilities into your own prompts or safety checks.
+- `@mux/ai/primitives` – low-level building blocks such as `fetchTranscriptForAsset`, `getStoryboardUrl`, and `getThumbnailUrls`. Use these when you need to mix our utilities into your own prompts or custom workflows.
 - `@mux/ai` – re-exports both namespaces, plus shared `types`, so you can also write `import { functions, primitives } from '@mux/ai';`.
 
-Every helper inside `@mux/ai/functions` is composed entirely from the primitives. That means you can start with a high-level helper and gradually drop down to primitives whenever you need more control.
+Every helper inside `@mux/ai/functions` is composed from the primitives. That means you can start with a high-level function and gradually drop down to primitives whenever you need more control.
 
 ```typescript
-import { getSummaryAndTags } from '@mux/ai/functions';
-import { getModerationScores } from '@mux/ai/primitives';
+import { getSummaryAndTags, getModerationScores } from '@mux/ai/functions';
+import { fetchTranscriptForAsset, getStoryboardUrl } from '@mux/ai/primitives';
 
+// Compose high-level functions for a custom workflow
 export async function summarizeIfSafe(assetId: string) {
-  const moderation = await getModerationScores(assetId, { provider: 'google' });
+  const moderation = await getModerationScores(assetId, { provider: 'openai' });
   if (moderation.exceedsThreshold) {
     throw new Error('Asset failed content safety review');
   }
@@ -49,9 +50,18 @@ export async function summarizeIfSafe(assetId: string) {
     tone: 'professional',
   });
 }
+
+// Or drop down to primitives to build bespoke AI workflows
+export async function customTranscriptAnalysis(assetId: string, playbackId: string) {
+  const transcript = await fetchTranscriptForAsset(assetId, 'en');
+  const storyboardUrl = getStoryboardUrl(playbackId);
+
+  // Use these primitives in your own AI prompts or custom logic
+  return { transcript, storyboardUrl };
+}
 ```
 
-Use whichever layer makes sense: call a function as-is, pull just the primitives you need, or mix the two like the example above to build a custom workflow.
+Use whichever layer makes sense: call a function as-is, compose multiple functions together, or drop down to primitives to build a completely custom workflow.
 
 ## Installation
 
@@ -92,7 +102,7 @@ const reliableResult = await getSummaryAndTags('your-mux-asset-id', {
 ### Content Moderation
 
 ```typescript
-import { getModerationScores } from '@mux/ai/primitives';
+import { getModerationScores } from '@mux/ai/functions';
 
 // Analyze Mux video asset for inappropriate content (OpenAI default)
 const result = await getModerationScores('your-mux-asset-id', {
@@ -678,7 +688,7 @@ npm run custom
 ### Moderation Examples
 - **Basic Moderation**: Analyze content with default thresholds
 - **Custom Thresholds**: Compare strict/default/permissive settings
-- **Google/Anthropic Providers**: Run thumbnail scoring with Gemini or Claude vision models (same pipeline used in `src/primitives/moderation.ts`)
+- **Google/Anthropic Providers**: Run thumbnail scoring with Gemini or Claude vision models (same pipeline used in `src/functions/moderation.ts`)
 - **Provider Comparison**: OpenAI uses the dedicated Moderation API while Anthropic/Google rely on their underlying multimodal chat models
 - **Hive Visual Moderation**: Call Hive’s dedicated computer-vision API for thumbnail scoring
 

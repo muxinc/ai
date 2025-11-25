@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { getModerationScores } from '@mux/ai/primitives';
+import { getModerationScores } from '@mux/ai/functions';
 
 const SUPPORTED_PROVIDERS = ['openai', 'anthropic', 'google', 'hive'] as const;
 type ModerationProviderArg = typeof SUPPORTED_PROVIDERS[number];

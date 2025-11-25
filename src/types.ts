@@ -20,11 +20,6 @@ export interface MuxAIConfig {
   googleApiKey?: string;
   /** Hive Visual Moderation API key (defaults to process.env.HIVE_API_KEY). */
   hiveApiKey?: string;
-  /**
-   * Reserved for future hosted deployments that may require overriding the API
-   * base URL.
-   */
-  baseUrl?: string;
 }
 
 /**

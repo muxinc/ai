@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { getModerationScores } from '@mux/ai/primitives';
+import { getModerationScores } from '@mux/ai/functions';
 
 
 async function main() {

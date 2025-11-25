@@ -2,4 +2,3 @@
 export * from './thumbnails';
 export * from './transcripts';
 export * from './storyboards';
-export * from './moderation';

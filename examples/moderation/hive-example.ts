@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { getModerationScores } from '@mux/ai/primitives';
+import { getModerationScores } from '@mux/ai/functions';
 
 const usage = `
 Usage: npm run hive <asset-id> [submission-mode]

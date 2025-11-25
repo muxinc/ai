@@ -10,7 +10,7 @@ import {
   ThumbnailModerationScore,
 } from '../types';
 import type { SupportedProvider } from '../lib/providers';
-import { getThumbnailUrls } from './thumbnails';
+import { getThumbnailUrls } from '../primitives/thumbnails';
 import { downloadImagesAsBase64, ImageDownloadOptions } from '../lib/image-download';
 
 const DEFAULT_THRESHOLDS = {
