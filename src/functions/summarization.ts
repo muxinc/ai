@@ -168,7 +168,7 @@ export async function getSummaryAndTags(
         {
           role: 'system',
           content:
-            'You are an image analysis tool. You will be given a storyboard image from a video showing multiple frames/scenes, and be expected to return structured data about the contents across all the frames.',
+            'You are an image analysis tool. You will be given a storyboard image from a video showing multiple frames/scenes arranged in a grid. The frames are ordered temporally left-to-right, top-to-bottom (like reading text), so the first frame is in the top-left and the last frame is in the bottom-right. Analyze the progression of content across all frames and return structured data about what happens throughout the video.',
         },
         {
           role: 'user',
