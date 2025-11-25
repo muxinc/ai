@@ -4,7 +4,6 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { LanguageModel } from 'ai';
 import { MuxAIOptions } from '../types';
 
-// Hosted Mux Gemini path intentionally not exposed yet; limited to BYO providers for now.
 export type SupportedProvider = 'openai' | 'anthropic' | 'google';
 
 // Model ID unions inferred from ai-sdk provider call signatures
@@ -27,11 +26,6 @@ export interface ResolvedModel<P extends SupportedProvider = SupportedProvider> 
   provider: P;
   modelId: ModelIdByProvider[P];
   model: LanguageModel;
-  /**
-   * Indicates whether the model relies on Mux tokens instead of BYO provider keys.
-   * (Future hosted Mux models will flip this to true.)
-   */
-  usesMuxTokens: boolean;
 }
 
 const DEFAULT_LANGUAGE_MODELS: { [K in SupportedProvider]: ModelIdByProvider[K] } = {
@@ -70,7 +64,6 @@ export function resolveLanguageModel<P extends SupportedProvider = SupportedProv
         provider,
         modelId,
         model: openai(modelId),
-        usesMuxTokens: false,
       };
     }
     case 'anthropic': {
@@ -84,7 +77,6 @@ export function resolveLanguageModel<P extends SupportedProvider = SupportedProv
         provider,
         modelId,
         model: anthropic(modelId),
-        usesMuxTokens: false,
       };
     }
     case 'google': {
@@ -98,7 +90,6 @@ export function resolveLanguageModel<P extends SupportedProvider = SupportedProv
         provider,
         modelId,
         model: google(modelId),
-        usesMuxTokens: false,
       };
     }
     default: {
