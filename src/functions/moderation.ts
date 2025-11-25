@@ -12,6 +12,7 @@ import {
 import type { SupportedProvider } from '../lib/providers';
 import { getThumbnailUrls } from '../primitives/thumbnails';
 import { downloadImagesAsBase64, ImageDownloadOptions } from '../lib/image-download';
+import { fetchPlaybackAsset } from '../lib/mux-assets';
 
 const DEFAULT_THRESHOLDS = {
   sexual: 0.7,
@@ -331,16 +332,10 @@ export async function getModerationScores(
 
   const muxClient = workflowClients?.mux || createMuxClient(validateCredentials(options));
 
-  // Fetch asset data from Mux
-  const asset = await muxClient.video.assets.retrieve(assetId);
-
-  // Get playback ID - prefer public playback IDs
-  const publicPlaybackIds = asset.playback_ids?.filter((pid) => pid.policy === 'public') || [];
-  if (publicPlaybackIds.length === 0) {
-    throw new Error('No public playback IDs found for this asset. Moderation requires public playback access.');
-  }
-
-  const playbackId = publicPlaybackIds[0].id;
+  // Fetch asset data and a public playback ID from Mux via helper
+  const { asset, playbackId } = await fetchPlaybackAsset(muxClient, assetId, {
+    requirePublic: true,
+  });
   const duration = asset.duration || 0;
 
   // Generate thumbnail URLs
