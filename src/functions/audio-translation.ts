@@ -4,7 +4,49 @@ import { S3Client } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { AudioTranslationOptions, AudioTranslationResult } from '../types';
+import { MuxAIOptions } from '../types';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Output returned from `translateAudio`. */
+export interface AudioTranslationResult {
+  assetId: string;
+  targetLanguageCode: string;
+  dubbingId: string;
+  uploadedTrackId?: string;
+  presignedUrl?: string;
+}
+
+/** Configuration accepted by `translateAudio`. */
+export interface AudioTranslationOptions extends MuxAIOptions {
+  /** Audio dubbing provider (currently ElevenLabs only). */
+  provider?: 'elevenlabs';
+  /** Number of speakers supplied to ElevenLabs (0 = auto-detect, default). */
+  numSpeakers?: number;
+  /** Optional override for the S3-compatible endpoint used for uploads. */
+  s3Endpoint?: string;
+  /** S3 region (defaults to process.env.S3_REGION or 'auto'). */
+  s3Region?: string;
+  /** Bucket that will store dubbed audio files. */
+  s3Bucket?: string;
+  /** Access key ID used for uploads. */
+  s3AccessKeyId?: string;
+  /** Secret access key used for uploads. */
+  s3SecretAccessKey?: string;
+  /**
+   * When true (default) the dubbed audio file is uploaded to the configured
+   * bucket and attached to the Mux asset.
+   */
+  uploadToMux?: boolean;
+  /** Override for process.env.ELEVENLABS_API_KEY. */
+  elevenLabsApiKey?: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Implementation
+// ─────────────────────────────────────────────────────────────────────────────
 
 const STATIC_RENDITION_POLL_INTERVAL_MS = 5000;
 const STATIC_RENDITION_MAX_ATTEMPTS = 36; // ~3 minutes

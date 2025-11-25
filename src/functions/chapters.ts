@@ -1,5 +1,6 @@
 import { generateObject } from 'ai';
-import { chaptersSchema, Chapter, ChaptersOptions, ChaptersResult } from '../types';
+import { z } from 'zod';
+import { MuxAIOptions } from '../types';
 import { createWorkflowClients } from '../lib/client-factory';
 import { withRetry } from '../lib/retry';
 import { fetchPlaybackAsset } from '../lib/mux-assets';
@@ -8,7 +9,43 @@ import {
   getReadyTextTracks,
   extractTimestampedTranscript,
 } from '../primitives/transcripts';
-import { SupportedProvider } from '../lib/providers';
+import { SupportedProvider, ModelIdByProvider } from '../lib/providers';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const chapterSchema = z.object({
+  startTime: z.number(),
+  title: z.string(),
+});
+
+export type Chapter = z.infer<typeof chapterSchema>;
+
+export const chaptersSchema = z.object({
+  chapters: z.array(chapterSchema),
+});
+
+export type ChaptersType = z.infer<typeof chaptersSchema>;
+
+/** Structured return payload from `generateChapters`. */
+export interface ChaptersResult {
+  assetId: string;
+  languageCode: string;
+  chapters: Chapter[];
+}
+
+/** Configuration accepted by `generateChapters`. */
+export interface ChaptersOptions extends MuxAIOptions {
+  /** AI provider used to interpret the transcript (defaults to 'openai'). */
+  provider?: SupportedProvider;
+  /** Provider-specific model identifier. */
+  model?: ModelIdByProvider[SupportedProvider];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Implementation
+// ─────────────────────────────────────────────────────────────────────────────
 
 const SYSTEM_PROMPT = `Your role is to segment the following captions into chunked chapters, summarising each chapter with a title.
 

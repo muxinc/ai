@@ -1,15 +1,50 @@
 import { generateObject } from 'ai';
-import {
-  BurnedInCaptionsAnalysis,
-  BurnedInCaptionsOptions,
-  BurnedInCaptionsResult,
-  burnedInCaptionsSchema,
-} from '../types';
-import { downloadImageAsBase64 } from '../lib/image-download';
+import { z } from 'zod';
+import { MuxAIOptions, ImageSubmissionMode } from '../types';
+import { downloadImageAsBase64, ImageDownloadOptions } from '../lib/image-download';
 import { fetchPlaybackAsset } from '../lib/mux-assets';
 import { getStoryboardUrl } from '../primitives/storyboards';
 import { createWorkflowClients } from '../lib/client-factory';
-import { SupportedProvider } from '../lib/providers';
+import { SupportedProvider, ModelIdByProvider } from '../lib/providers';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Structured payload returned from `hasBurnedInCaptions`. */
+export interface BurnedInCaptionsResult {
+  assetId: string;
+  hasBurnedInCaptions: boolean;
+  confidence: number;
+  detectedLanguage: string | null;
+  storyboardUrl: string;
+}
+
+/** Configuration accepted by `hasBurnedInCaptions`. */
+export interface BurnedInCaptionsOptions extends MuxAIOptions {
+  /** AI provider used for storyboard inspection (defaults to 'openai'). */
+  provider?: SupportedProvider;
+  /** Provider-specific model identifier. */
+  model?: ModelIdByProvider[SupportedProvider];
+  /** Transport used for storyboard submission (defaults to 'url'). */
+  imageSubmissionMode?: ImageSubmissionMode;
+  /** Download tuning used when `imageSubmissionMode` === 'base64'. */
+  imageDownloadOptions?: ImageDownloadOptions;
+}
+
+/** Schema used to validate burned-in captions analysis responses. */
+export const burnedInCaptionsSchema = z.object({
+  hasBurnedInCaptions: z.boolean(),
+  confidence: z.number().min(0).max(1),
+  detectedLanguage: z.string().nullable(),
+});
+
+/** Inferred shape returned from the burned-in captions schema. */
+export type BurnedInCaptionsAnalysis = z.infer<typeof burnedInCaptionsSchema>;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Implementation
+// ─────────────────────────────────────────────────────────────────────────────
 
 const SYSTEM_PROMPT = `You are an expert at analyzing video frames to detect burned-in captions (also called open captions or hardcoded subtitles). These are text overlays that are permanently embedded in the video image, common on TikTok, Instagram Reels, and other social media platforms.
 

@@ -3,9 +3,60 @@ import { Upload } from '@aws-sdk/lib-storage';
 import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { generateObject } from 'ai';
-import { TranslationResult, TranslationOptions, translationSchema } from '../types';
+import { z } from 'zod';
+import { MuxAIOptions } from '../types';
 import { createWorkflowClients } from '../lib/client-factory';
-import { SupportedProvider } from '../lib/providers';
+import { SupportedProvider, ModelIdByProvider } from '../lib/providers';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Output returned from `translateCaptions`. */
+export interface TranslationResult {
+  assetId: string;
+  sourceLanguageCode: string;
+  targetLanguageCode: string;
+  originalVtt: string;
+  translatedVtt: string;
+  uploadedTrackId?: string;
+  presignedUrl?: string;
+}
+
+/** Configuration accepted by `translateCaptions`. */
+export interface TranslationOptions<P extends SupportedProvider = SupportedProvider> extends MuxAIOptions {
+  /** Provider responsible for the translation. */
+  provider: P;
+  /** Provider-specific chat model identifier. */
+  model?: ModelIdByProvider[P];
+  /** Optional override for the S3-compatible endpoint used for uploads. */
+  s3Endpoint?: string;
+  /** S3 region (defaults to process.env.S3_REGION or 'auto'). */
+  s3Region?: string;
+  /** Bucket that will store translated VTT files. */
+  s3Bucket?: string;
+  /** Access key ID used for uploads. */
+  s3AccessKeyId?: string;
+  /** Secret access key used for uploads. */
+  s3SecretAccessKey?: string;
+  /**
+   * When true (default) the translated VTT is uploaded to the configured
+   * bucket and attached to the Mux asset.
+   */
+  uploadToMux?: boolean;
+}
+
+/** Schema used when requesting caption translation from a language model. */
+export const translationSchema = z.object({
+  translation: z.string(),
+});
+
+/** Inferred shape returned by `translationSchema`. */
+export type TranslationPayload = z.infer<typeof translationSchema>;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Implementation
+// ─────────────────────────────────────────────────────────────────────────────
 
 export async function translateCaptions<P extends SupportedProvider = SupportedProvider>(
   assetId: string,

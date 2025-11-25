@@ -1,18 +1,79 @@
 import { generateObject } from 'ai';
 import { z } from 'zod';
 import { createWorkflowClients, createMuxClient, validateCredentials } from '../lib/client-factory';
-import {
-  HiveModerationOutput,
-  HiveModerationSource,
-  ModerationOptions,
-  ModerationProvider,
-  ModerationResult,
-  ThumbnailModerationScore,
-} from '../types';
-import type { SupportedProvider } from '../lib/providers';
+import { MuxAIOptions, ImageSubmissionMode } from '../types';
+import type { SupportedProvider, ModelIdByProvider } from '../lib/providers';
 import { getThumbnailUrls } from '../primitives/thumbnails';
 import { downloadImagesAsBase64, ImageDownloadOptions } from '../lib/image-download';
 import { fetchPlaybackAsset } from '../lib/mux-assets';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Per-thumbnail moderation result returned from `getModerationScores`. */
+export interface ThumbnailModerationScore {
+  url: string;
+  sexual: number;
+  violence: number;
+  error: boolean;
+}
+
+/** Aggregated moderation payload returned from `getModerationScores`. */
+export interface ModerationResult {
+  assetId: string;
+  thumbnailScores: ThumbnailModerationScore[];
+  maxScores: {
+    sexual: number;
+    violence: number;
+  };
+  exceedsThreshold: boolean;
+  thresholds: {
+    sexual: number;
+    violence: number;
+  };
+}
+
+/** Provider list accepted by `getModerationScores`. */
+export type ModerationProvider = SupportedProvider | 'hive';
+
+export type HiveModerationSource =
+  | { kind: 'url'; value: string }
+  | { kind: 'file'; buffer: Buffer; contentType: string };
+
+export interface HiveModerationOutput {
+  classes?: Array<{
+    class: string;
+    score: number;
+  }>;
+}
+
+/** Configuration accepted by `getModerationScores`. */
+export interface ModerationOptions extends MuxAIOptions {
+  /** Provider used for moderation (defaults to 'openai'). */
+  provider?: ModerationProvider;
+  /** Provider-specific model identifier (defaults to opinionated value per provider). */
+  model?: ModelIdByProvider[SupportedProvider];
+  /** Override the default sexual/violence thresholds (0-1). */
+  thresholds?: {
+    sexual?: number;
+    violence?: number;
+  };
+  /** Interval between storyboard thumbnails in seconds (defaults to 10). */
+  thumbnailInterval?: number;
+  /** Width of storyboard thumbnails in pixels (defaults to 640). */
+  thumbnailWidth?: number;
+  /** Max concurrent moderation requests (defaults to 5). */
+  maxConcurrent?: number;
+  /** Transport used for thumbnails (defaults to 'url'). */
+  imageSubmissionMode?: ImageSubmissionMode;
+  /** Download tuning used when `imageSubmissionMode` === 'base64'. */
+  imageDownloadOptions?: ImageDownloadOptions;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Implementation
+// ─────────────────────────────────────────────────────────────────────────────
 
 const DEFAULT_THRESHOLDS = {
   sexual: 0.7,

@@ -1,17 +1,63 @@
 import { generateObject } from 'ai';
-import {
-  SUMMARY_KEYWORD_LIMIT,
-  summarySchema,
-  SummarizationOptions,
-  SummaryAndTagsResult,
-} from '../types';
-import { downloadImageAsBase64 } from '../lib/image-download';
+import { z } from 'zod';
+import { MuxAIOptions, ToneType, ImageSubmissionMode } from '../types';
+import { downloadImageAsBase64, ImageDownloadOptions } from '../lib/image-download';
 import { createWorkflowClients } from '../lib/client-factory';
 import { withRetry } from '../lib/retry';
-import { SupportedProvider } from '../lib/providers';
+import { SupportedProvider, ModelIdByProvider } from '../lib/providers';
 import { fetchPlaybackAsset } from '../lib/mux-assets';
 import { fetchTranscriptForAsset } from '../primitives/transcripts';
 import { getStoryboardUrl } from '../primitives/storyboards';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const SUMMARY_KEYWORD_LIMIT = 10;
+
+export const summarySchema = z.object({
+  keywords: z.array(z.string()),
+  title: z.string(),
+  description: z.string(),
+});
+
+export type SummaryType = z.infer<typeof summarySchema>;
+
+/** Structured return payload for `getSummaryAndTags`. */
+export interface SummaryAndTagsResult {
+  /** Asset ID passed into the workflow. */
+  assetId: string;
+  /** Short headline generated from the storyboard. */
+  title: string;
+  /** Longer description of the detected content. */
+  description: string;
+  /** Up to 10 keywords extracted by the model. */
+  tags: string[];
+  /** Storyboard image URL that was analyzed. */
+  storyboardUrl: string;
+}
+
+/** Configuration accepted by `getSummaryAndTags`. */
+export interface SummarizationOptions extends MuxAIOptions {
+  /** AI provider to run (defaults to 'openai'). */
+  provider?: SupportedProvider;
+  /** Provider-specific chat model identifier. */
+  model?: ModelIdByProvider[SupportedProvider];
+  /** Prompt tone shim applied to the system instruction (defaults to 'normal'). */
+  tone?: ToneType;
+  /** Fetch the transcript and send it alongside the storyboard (defaults to true). */
+  includeTranscript?: boolean;
+  /** Strip timestamps/markup from transcripts before including them (defaults to true). */
+  cleanTranscript?: boolean;
+  /** How storyboard frames should be delivered to the provider (defaults to 'url'). */
+  imageSubmissionMode?: ImageSubmissionMode;
+  /** Fine-tune storyboard downloads when `imageSubmissionMode` === 'base64'. */
+  imageDownloadOptions?: ImageDownloadOptions;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Implementation
+// ─────────────────────────────────────────────────────────────────────────────
 
 const DEFAULT_PROMPT =
   "Generate a short title (max 100 characters) and description (max 500 characters) for what happens. Start immediately with the action or subject - never reference that this is a video, content, or storyboard. Provide up to 10 concise keywords that capture the primary people, objects, or actions. Example: Title: 'Cooking Pasta Tutorial' Description: 'Someone cooks pasta by boiling water and adding noodles.' Keywords: ['cooking', 'pasta', 'boiling water', 'noodles', 'kitchen'].";
