@@ -13,7 +13,7 @@ export interface MuxAIConfig {
   openaiApiKey?: string;
   /** Anthropic API key (defaults to process.env.ANTHROPIC_API_KEY). */
   anthropicApiKey?: string;
-  /** Google Generative AI API key (defaults to GOOGLE_GENERATIVE_AI_API_KEY/GOOGLE_API_KEY). */
+  /** Google Generative AI API key (defaults to process.env.GOOGLE_GENERATIVE_AI_API_KEY). */
   googleApiKey?: string;
   /** Hive Visual Moderation API key (defaults to process.env.HIVE_API_KEY). */
   hiveApiKey?: string;

@@ -34,9 +34,7 @@ export function validateCredentials(
   const openaiApiKey = options.openaiApiKey || process.env.OPENAI_API_KEY;
   const anthropicApiKey = options.anthropicApiKey || process.env.ANTHROPIC_API_KEY;
   const googleApiKey =
-    options.googleApiKey ||
-    process.env.GOOGLE_GENERATIVE_AI_API_KEY ||
-    process.env.GOOGLE_API_KEY;
+    options.googleApiKey || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
 
   if (!muxTokenId || !muxTokenSecret) {
     throw new Error(
@@ -58,7 +56,7 @@ export function validateCredentials(
 
   if (requiredProvider === 'google' && !googleApiKey) {
     throw new Error(
-      'Google Generative AI API key is required. Provide googleApiKey in options or set GOOGLE_GENERATIVE_AI_API_KEY/GOOGLE_API_KEY environment variables.'
+      'Google Generative AI API key is required. Provide googleApiKey in options or set GOOGLE_GENERATIVE_AI_API_KEY environment variable.'
     );
   }
 

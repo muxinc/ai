@@ -41,7 +41,7 @@ async function main() {
       muxTokenSecret: process.env.MUX_TOKEN_SECRET,
       openaiApiKey: process.env.OPENAI_API_KEY,
       anthropicApiKey: process.env.ANTHROPIC_API_KEY,
-      googleApiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GOOGLE_API_KEY,
+      googleApiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
     });
 
     console.log('📝 Title:');

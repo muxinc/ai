@@ -318,7 +318,7 @@ MUX_TOKEN_ID=your_mux_token_id
 MUX_TOKEN_SECRET=your_mux_token_secret
 OPENAI_API_KEY=your_openai_api_key
 ANTHROPIC_API_KEY=your_anthropic_api_key
-GOOGLE_GENERATIVE_AI_API_KEY=your_google_api_key # or set GOOGLE_API_KEY
+GOOGLE_GENERATIVE_AI_API_KEY=your_google_api_key
 ELEVENLABS_API_KEY=your_elevenlabs_api_key
 
 # S3-Compatible Storage (required for translation & audio dubbing)

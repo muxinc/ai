@@ -88,7 +88,7 @@ export function resolveLanguageModel<P extends SupportedProvider = SupportedProv
       };
     }
     case 'google': {
-      const apiKey = options.googleApiKey || process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GOOGLE_API_KEY;
+      const apiKey = options.googleApiKey || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
       requireEnv(apiKey, 'GOOGLE_GENERATIVE_AI_API_KEY');
       const google = createGoogleGenerativeAI({
         apiKey,
