@@ -23,7 +23,6 @@ async function main() {
         options: {
           provider: 'openai' as const,
           model: 'omni-moderation-latest',
-          thresholds: { sexual: 0.7, violence: 0.8 },
         },
       },
       {
@@ -31,7 +30,6 @@ async function main() {
         options: {
           provider: 'anthropic' as const,
           model: 'claude-haiku-4-5',
-          thresholds: { sexual: 0.7, violence: 0.8 },
         },
       },
       {
@@ -39,14 +37,12 @@ async function main() {
         options: {
           provider: 'google' as const,
           model: 'gemini-2.5-flash',
-          thresholds: { sexual: 0.7, violence: 0.8 },
         },
       },
       {
         label: 'Hive',
         options: {
           provider: 'hive' as const,
-          thresholds: { sexual: 0.7, violence: 0.8 },
         },
       }
     ];
