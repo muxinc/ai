@@ -17,10 +17,6 @@ describe('Burned-in Captions Integration Tests', () => {
     it.each(assetsWithCaptions)('should detect burned-in captions with >80%% confidence for asset %s', async (assetId) => {
       const result = await hasBurnedInCaptions(assetId, {
         provider: 'openai',
-        muxTokenId: process.env.MUX_TOKEN_ID,
-        muxTokenSecret: process.env.MUX_TOKEN_SECRET,
-        openaiApiKey: process.env.OPENAI_API_KEY,
-        anthropicApiKey: process.env.ANTHROPIC_API_KEY,
       });
 
       // Assert that the result exists
@@ -44,10 +40,6 @@ describe('Burned-in Captions Integration Tests', () => {
     it.each(assetsWithoutCaptions)('should NOT detect burned-in captions for asset %s', async (assetId) => {
       const result = await hasBurnedInCaptions(assetId, {
         provider: 'openai',
-        muxTokenId: process.env.MUX_TOKEN_ID,
-        muxTokenSecret: process.env.MUX_TOKEN_SECRET,
-        openaiApiKey: process.env.OPENAI_API_KEY,
-        anthropicApiKey: process.env.ANTHROPIC_API_KEY,
       });
 
       // Assert that the result exists
@@ -68,10 +60,6 @@ describe('Burned-in Captions Integration Tests', () => {
     it.each(assetsWithCaptions)('should detect burned-in captions with >80%% confidence for asset %s', async (assetId) => {
       const result = await hasBurnedInCaptions(assetId, {
         provider: 'anthropic',
-        muxTokenId: process.env.MUX_TOKEN_ID,
-        muxTokenSecret: process.env.MUX_TOKEN_SECRET,
-        openaiApiKey: process.env.OPENAI_API_KEY,
-        anthropicApiKey: process.env.ANTHROPIC_API_KEY,
       });
 
       // Assert that the result exists
@@ -95,10 +83,6 @@ describe('Burned-in Captions Integration Tests', () => {
     it.each(assetsWithoutCaptions)('should NOT detect burned-in captions for asset %s', async (assetId) => {
       const result = await hasBurnedInCaptions(assetId, {
         provider: 'anthropic',
-        muxTokenId: process.env.MUX_TOKEN_ID,
-        muxTokenSecret: process.env.MUX_TOKEN_SECRET,
-        openaiApiKey: process.env.OPENAI_API_KEY,
-        anthropicApiKey: process.env.ANTHROPIC_API_KEY,
       });
 
       // Assert that the result exists

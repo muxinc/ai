@@ -9,10 +9,6 @@ describe('Chapters Integration Tests', () => {
   it('should generate chapters with OpenAI provider', async () => {
     const result = await generateChapters(assetId, languageCode, {
       provider: 'openai',
-      muxTokenId: process.env.MUX_TOKEN_ID,
-      muxTokenSecret: process.env.MUX_TOKEN_SECRET,
-      openaiApiKey: process.env.OPENAI_API_KEY,
-      anthropicApiKey: process.env.ANTHROPIC_API_KEY,
     });
 
     // Assert that the result exists
@@ -37,10 +33,6 @@ describe('Chapters Integration Tests', () => {
   it('should generate chapters with Anthropic provider', async () => {
     const result = await generateChapters(assetId, languageCode, {
       provider: 'anthropic',
-      muxTokenId: process.env.MUX_TOKEN_ID,
-      muxTokenSecret: process.env.MUX_TOKEN_SECRET,
-      openaiApiKey: process.env.OPENAI_API_KEY,
-      anthropicApiKey: process.env.ANTHROPIC_API_KEY,
     });
 
     // Assert that the result exists

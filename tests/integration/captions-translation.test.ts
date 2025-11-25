@@ -8,10 +8,7 @@ describe('Captions Translation Integration Tests', () => {
   it('should translate captions from English to French without uploading to Mux', async () => {
     const result = await translateCaptions(assetId, 'en', 'fr', {
       provider: 'anthropic',
-      uploadToMux: false, // Don't upload to S3 or add track to Mux
-      muxTokenId: process.env.MUX_TOKEN_ID,
-      muxTokenSecret: process.env.MUX_TOKEN_SECRET,
-      anthropicApiKey: process.env.ANTHROPIC_API_KEY,
+      uploadToMux: false,
     });
 
     // Assert that the result exists

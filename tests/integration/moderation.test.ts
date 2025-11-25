@@ -15,9 +15,6 @@ describe('Moderation Integration Tests', () => {
       const result = await getModerationScores(safeAsset, {
         provider: 'openai',
         model: 'omni-moderation-latest',
-        muxTokenId: process.env.MUX_TOKEN_ID,
-        muxTokenSecret: process.env.MUX_TOKEN_SECRET,
-        openaiApiKey: process.env.OPENAI_API_KEY,
       });
 
       // Assert that the result exists
@@ -43,9 +40,6 @@ describe('Moderation Integration Tests', () => {
       const result = await getModerationScores(violentAsset, {
         provider: 'openai',
         model: 'omni-moderation-latest',
-        muxTokenId: process.env.MUX_TOKEN_ID,
-        muxTokenSecret: process.env.MUX_TOKEN_SECRET,
-        openaiApiKey: process.env.OPENAI_API_KEY,
       });
 
       // Assert that the result exists
@@ -70,9 +64,6 @@ describe('Moderation Integration Tests', () => {
     it('should detect safe content (not violent, not sexual)', async () => {
       const result = await getModerationScores(safeAsset, {
         provider: 'hive',
-        muxTokenId: process.env.MUX_TOKEN_ID,
-        muxTokenSecret: process.env.MUX_TOKEN_SECRET,
-        hiveApiKey: process.env.HIVE_API_KEY,
       });
 
       // Assert that the result exists
@@ -97,9 +88,6 @@ describe('Moderation Integration Tests', () => {
     it('should detect violent content (violent but not sexual)', async () => {
       const result = await getModerationScores(violentAsset, {
         provider: 'hive',
-        muxTokenId: process.env.MUX_TOKEN_ID,
-        muxTokenSecret: process.env.MUX_TOKEN_SECRET,
-        hiveApiKey: process.env.HIVE_API_KEY,
       });
 
       // Assert that the result exists

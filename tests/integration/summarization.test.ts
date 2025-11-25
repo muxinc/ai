@@ -10,10 +10,6 @@ describe('Summarization Integration Tests', () => {
       provider: 'openai',
       tone: 'normal',
       includeTranscript: true,
-      muxTokenId: process.env.MUX_TOKEN_ID,
-      muxTokenSecret: process.env.MUX_TOKEN_SECRET,
-      openaiApiKey: process.env.OPENAI_API_KEY,
-      anthropicApiKey: process.env.ANTHROPIC_API_KEY,
     });
 
     // Assert that the result exists
@@ -51,10 +47,6 @@ describe('Summarization Integration Tests', () => {
       provider: 'anthropic',
       tone: 'normal',
       includeTranscript: true,
-      muxTokenId: process.env.MUX_TOKEN_ID,
-      muxTokenSecret: process.env.MUX_TOKEN_SECRET,
-      openaiApiKey: process.env.OPENAI_API_KEY,
-      anthropicApiKey: process.env.ANTHROPIC_API_KEY,
     });
 
     // Assert that the result exists
