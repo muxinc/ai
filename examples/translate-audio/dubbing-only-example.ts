@@ -1,44 +1,57 @@
 import 'dotenv/config';
+import { Command } from 'commander';
 import { translateAudio } from '@mux/ai/functions';
 
+const program = new Command();
 
-async function main() {
-  const assetId = process.argv[2];
-  const toLang = process.argv[3] || 'es';
-  
-  if (!assetId) {
-    console.log('Usage: npm run dubbing-only <asset-id> [to-lang]');
-    console.log('Example: npm run dubbing-only your-asset-id fr');
-    console.log('Example: npm run dubbing-only your-asset-id de');
-    console.log('');
-    console.log('Note: This will only create the ElevenLabs dubbing job, not upload to Mux');
-    console.log('Note: Uses default audio track, language is auto-detected');
-    process.exit(1);
-  }
+program
+  .name('dubbing-only')
+  .description('Create ElevenLabs dubbing without uploading to Mux')
+  .argument('<asset-id>', 'Mux asset ID to translate')
+  .option('-t, --to <language>', 'Target language code', 'es')
+  .option('-s, --speakers <number>', 'Number of speakers (0 for auto-detect)', '0')
+  .addHelpText('after', `
+Notes:
+  - This will only create the ElevenLabs dubbing job, not upload to Mux
+  - Asset must have an audio.m4a static rendition
+  - Uses default audio track, source language is auto-detected
+  - To download the dubbed audio, use the ElevenLabs dashboard or API`)
+  .action(async (assetId: string, options: {
+    to: string;
+    speakers: string;
+  }) => {
+    const numSpeakers = parseInt(options.speakers, 10);
 
-  console.log(`Asset ID: ${assetId}`);
-  console.log(`Audio Dubbing: auto-detect -> ${toLang} (dubbing only)\n`);
+    if (isNaN(numSpeakers) || numSpeakers < 0) {
+      console.error('❌ Invalid number of speakers. Must be a non-negative integer.');
+      process.exit(1);
+    }
 
-  try {
-    console.log('🎙️ Starting ElevenLabs dubbing (no S3 upload)...\n');
+    console.log(`Asset ID: ${assetId}`);
+    console.log(`Audio Dubbing: auto-detect -> ${options.to} (dubbing only)`);
+    console.log(`Number of Speakers: ${numSpeakers === 0 ? 'auto-detect' : numSpeakers}\n`);
 
-    const result = await translateAudio(assetId, toLang, {
-      provider: 'elevenlabs',
-      numSpeakers: 0, // Auto-detect speakers
-      uploadToMux: false // Only dub, don't upload
-    });
+    try {
+      console.log('🎙️ Starting ElevenLabs dubbing (no upload to Mux)...\n');
 
-    console.log('\n📊 Audio Dubbing Results:');
-    console.log(`Target Language: ${result.targetLanguageCode}`);
-    console.log(`Asset ID: ${result.assetId}`);
-    console.log(`ElevenLabs Dubbing ID: ${result.dubbingId}`);
-    
-    console.log('\n✅ ElevenLabs dubbing completed successfully!');
-    console.log('💡 To download the dubbed audio, use the ElevenLabs dashboard or API');
+      const result = await translateAudio(assetId, options.to, {
+        provider: 'elevenlabs',
+        numSpeakers,
+        uploadToMux: false // Only dub, don't upload
+      });
 
-  } catch (error) {
-    console.error('❌ Error:', error instanceof Error ? error.message : error);
-  }
-}
+      console.log('\n📊 Audio Dubbing Results:');
+      console.log(`Target Language: ${result.targetLanguageCode}`);
+      console.log(`Asset ID: ${result.assetId}`);
+      console.log(`ElevenLabs Dubbing ID: ${result.dubbingId}`);
 
-main();
+      console.log('\n✅ ElevenLabs dubbing completed successfully!');
+      console.log('💡 To download the dubbed audio, use the ElevenLabs dashboard or API');
+
+    } catch (error) {
+      console.error('❌ Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+program.parse();
