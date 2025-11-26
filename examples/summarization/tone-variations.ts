@@ -1,44 +1,63 @@
 import 'dotenv/config';
+import { Command } from 'commander';
 import { getSummaryAndTags } from '@mux/ai/functions';
 import { ToneType } from '@mux/ai';
 
-async function demonstrateToneVariations(assetId: string) {
-  const tones: ToneType[] = ['normal', 'sassy', 'professional'];
+type Provider = 'openai' | 'anthropic' | 'google';
 
-  console.log('🎭 Demonstrating different tone variations for video analysis...\n');
-  console.log('Using the built-in default prompt with different tones.\n');
+const DEFAULT_MODELS: Record<Provider, string> = {
+  openai: 'gpt-5-mini',
+  anthropic: 'claude-sonnet-4-5',
+  google: 'gemini-2.5-flash',
+};
 
-  for (const tone of tones) {
-    try {
-      console.log(`\n--- ${tone.toUpperCase()} TONE ---`);
-      
-      // Uses the default prompt built into the library
-      const result = await getSummaryAndTags(assetId, {
-        tone,
-        model: 'gpt-5-mini',
-        includeTranscript: true,
-      });
+const program = new Command();
 
-      console.log(`Title: ${result.title}`);
-      console.log(`Description: ${result.description}`);
-      console.log(`Tags: ${result.tags.join(', ')}`);
-      console.log('---\n');
-
-    } catch (error) {
-      console.error(`❌ Error with ${tone} tone:`, error instanceof Error ? error.message : error);
+program
+  .name('tone-variations')
+  .description('Demonstrate summary generation with different tone variations')
+  .argument('<asset-id>', 'Mux asset ID to analyze')
+  .option('-p, --provider <provider>', 'AI provider (openai, anthropic, google)', 'openai')
+  .option('-m, --model <model>', 'Model name (overrides default for provider)')
+  .option('--no-transcript', 'Exclude transcript from analysis')
+  .action(async (assetId: string, options: {
+    provider: Provider;
+    model?: string;
+    transcript: boolean;
+  }) => {
+    // Validate provider
+    if (!['openai', 'anthropic', 'google'].includes(options.provider)) {
+      console.error('❌ Unsupported provider. Choose from: openai, anthropic, google');
+      process.exit(1);
     }
-  }
-}
 
-async function main() {
-  const assetId = process.argv[2];
-  
-  if (!assetId) {
-    console.log('Usage: npx ts-node tone-variations.ts <asset-id>');
-    process.exit(1);
-  }
+    const model = options.model || DEFAULT_MODELS[options.provider];
+    const tones: ToneType[] = ['normal', 'sassy', 'professional'];
 
-  await demonstrateToneVariations(assetId);
-}
+    console.log('🎭 Demonstrating different tone variations for video analysis...\n');
+    console.log(`Using ${options.provider} (${model}) with different tones.\n`);
 
-main();
+    for (const tone of tones) {
+      try {
+        console.log(`\n--- ${tone.toUpperCase()} TONE ---`);
+
+        // Uses the default prompt built into the library
+        const result = await getSummaryAndTags(assetId, {
+          tone,
+          provider: options.provider,
+          model,
+          includeTranscript: options.transcript,
+        });
+
+        console.log(`Title: ${result.title}`);
+        console.log(`Description: ${result.description}`);
+        console.log(`Tags: ${result.tags.join(', ')}`);
+        console.log('---\n');
+
+      } catch (error) {
+        console.error(`❌ Error with ${tone} tone:`, error instanceof Error ? error.message : error);
+      }
+    }
+  });
+
+program.parse();

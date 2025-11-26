@@ -1,47 +1,47 @@
 import 'dotenv/config';
+import { Command } from 'commander';
 import { getModerationScores } from '@mux/ai/functions';
 
-async function main() {
-  const assetId = process.argv[2];
+const program = new Command();
 
-  if (!assetId) {
-    console.log('Usage: npm run example:moderation:compare <asset-id>');
-    console.log('Example: npm run example:moderation:compare your-asset-id');
-    console.log('');
-    console.log('Note: Asset must have public playback IDs');
-    console.log('Note: Requires OPENAI_API_KEY and HIVE_API_KEY environment variables');
-    process.exit(1);
-  }
+program
+  .name('moderation-compare')
+  .description('Compare moderation analysis across multiple providers')
+  .argument('<asset-id>', 'Mux asset ID to analyze')
+  .addHelpText('after', `
+Notes:
+  - Asset must have public playback IDs
+  - Requires OPENAI_API_KEY and HIVE_API_KEY environment variables`)
+  .action(async (assetId: string) => {
+    console.log(`🔍 Comparing moderation providers for asset: ${assetId}\n`);
 
-  console.log(`🔍 Comparing moderation providers for asset: ${assetId}\n`);
-
-  try {
-    const configs = [
-      {
-        label: 'OpenAI',
-        options: {
-          provider: 'openai' as const,
-          model: 'omni-moderation-latest',
+    try {
+      const configs = [
+        {
+          label: 'OpenAI',
+          options: {
+            provider: 'openai' as const,
+            model: 'omni-moderation-latest',
+          },
         },
-      },
-      {
-        label: 'Hive',
-        options: {
-          provider: 'hive' as const,
+        {
+          label: 'Hive',
+          options: {
+            provider: 'hive' as const,
+          },
         },
-      },
-    ];
+      ];
 
-    console.log('⏳ Running providers...\n');
+      console.log('⏳ Running providers...\n');
 
-    const results = await Promise.all(
-      configs.map(async (config) => {
-        const start = Date.now();
-        const result = await getModerationScores(assetId, config.options);
-        const duration = Date.now() - start;
-        return { config, result, duration };
-      })
-    );
+      const results = await Promise.all(
+        configs.map(async (config) => {
+          const start = Date.now();
+          const result = await getModerationScores(assetId, config.options);
+          const duration = Date.now() - start;
+          return { config, result, duration };
+        })
+      );
 
     console.log('📊 Comparison Results:\n');
 
@@ -69,13 +69,14 @@ async function main() {
       }
     }
 
-    const agreesOnFlag = results.every(
-      (entry) => entry.result.exceedsThreshold === results[0].result.exceedsThreshold
-    );
-    console.log(`\n🎯 Agreement: ${agreesOnFlag ? '✅ Both providers agree' : '⚠️  Providers disagree'} on flagging`);
-  } catch (error) {
-    console.error('❌ Error:', error instanceof Error ? error.message : error);
-  }
-}
+      const agreesOnFlag = results.every(
+        (entry) => entry.result.exceedsThreshold === results[0].result.exceedsThreshold
+      );
+      console.log(`\n🎯 Agreement: ${agreesOnFlag ? '✅ Both providers agree' : '⚠️  Providers disagree'} on flagging`);
+    } catch (error) {
+      console.error('❌ Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
 
-main();
+program.parse();

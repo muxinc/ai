@@ -1,34 +1,34 @@
 import 'dotenv/config';
+import { Command } from 'commander';
 import { generateChapters } from '@mux/ai/functions';
 
+const program = new Command();
 
-async function main() {
-  const assetId = process.argv[2];
-  const languageCode = process.argv[3] || 'en';
+program
+  .name('chapters-compare')
+  .description('Compare chapter generation across multiple AI providers')
+  .argument('<asset-id>', 'Mux asset ID to analyze')
+  .option('-l, --language <code>', 'Language code for transcription', 'en')
+  .action(async (assetId: string, options: {
+    language: string;
+  }) => {
+    console.log(`🎯 Comparing chapter generation for asset: ${assetId}`);
+    console.log(`📝 Language: ${options.language}\n`);
 
-  if (!assetId) {
-    console.log('Usage: npm run example:chapters:compare <asset-id> [language-code]');
-    console.log('Example: npm run example:chapters:compare ICwSGuYvLIHR00km1NMX00GH3le7wknGPx en');
-    process.exit(1);
-  }
+    try {
+      const providers: Array<{ name: string; provider: 'openai' | 'anthropic' | 'google' }> = [
+        { name: 'OpenAI', provider: 'openai' },
+        { name: 'Anthropic', provider: 'anthropic' },
+        { name: 'Google', provider: 'google' },
+      ];
 
-  console.log(`🎯 Comparing chapter generation for asset: ${assetId}`);
-  console.log(`📝 Language: ${languageCode}\n`);
+      const results = [];
 
-  try {
-    const providers: Array<{ name: string; provider: 'openai' | 'anthropic' | 'google' }> = [
-      { name: 'OpenAI', provider: 'openai' },
-      { name: 'Anthropic', provider: 'anthropic' },
-      { name: 'Google', provider: 'google' },
-    ];
-
-    const results = [];
-
-    for (const config of providers) {
-      console.log(`Testing ${config.name} chapter generation...`);
-      const start = Date.now();
-      const result = await generateChapters(assetId, languageCode, { provider: config.provider });
-      const duration = Date.now() - start;
+      for (const config of providers) {
+        console.log(`Testing ${config.name} chapter generation...`);
+        const start = Date.now();
+        const result = await generateChapters(assetId, options.language, { provider: config.provider });
+        const duration = Date.now() - start;
 
       console.log('📊 Results:');
       console.log(`  Duration: ${duration}ms`);
@@ -73,10 +73,10 @@ async function main() {
       console.log('🤔 No obvious common topics detected - providers may have different approaches');
     }
 
-  } catch (error) {
-    console.error('❌ Error:', error instanceof Error ? error.message : error);
-    process.exit(1);
-  }
-}
+    } catch (error) {
+      console.error('❌ Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
 
-main();
+program.parse();
