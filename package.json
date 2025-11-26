@@ -13,6 +13,22 @@
       },
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
+    },
+    "./primitives": {
+      "types": {
+        "import": "./dist/primitives/index.d.mts",
+        "require": "./dist/primitives/index.d.ts"
+      },
+      "import": "./dist/primitives/index.mjs",
+      "require": "./dist/primitives/index.js"
+    },
+    "./functions": {
+      "types": {
+        "import": "./dist/functions/index.d.mts",
+        "require": "./dist/functions/index.d.ts"
+      },
+      "import": "./dist/functions/index.mjs",
+      "require": "./dist/functions/index.js"
     }
   },
   "scripts": {
@@ -23,16 +39,16 @@
     "test:ui": "vitest --ui",
     "lint": "eslint src/**/*.ts",
     "typecheck": "tsc --noEmit",
-    "example:chapters": "npx ts-node examples/chapters/basic-example.ts",
-    "example:chapters:compare": "npx ts-node examples/chapters/provider-comparison.ts",
-    "example:burned-in": "npx ts-node examples/burned-in-captions/basic-example.ts",
-    "example:burned-in:compare": "npx ts-node examples/burned-in-captions/provider-comparison.ts",
-    "example:summarization": "npx ts-node examples/summarization/basic-example.ts",
-    "example:summarization:compare": "npx ts-node examples/summarization/provider-comparison.ts",
-    "example:moderation": "npx ts-node examples/moderation/basic-example.ts",
-    "example:moderation:compare": "npx ts-node examples/moderation/provider-comparison.ts",
-    "example:translation": "npx ts-node examples/translation/basic-example.ts",
-    "example:audio-translation": "npx ts-node examples/audio-translation/basic-example.ts"
+    "example:chapters": "npx ts-node --transpile-only --require tsconfig-paths/register examples/chapters/basic-example.ts",
+    "example:chapters:compare": "npx ts-node --transpile-only --require tsconfig-paths/register examples/chapters/provider-comparison.ts",
+    "example:burned-in": "npx ts-node --transpile-only --require tsconfig-paths/register examples/burned-in-captions/basic-example.ts",
+    "example:burned-in:compare": "npx ts-node --transpile-only --require tsconfig-paths/register examples/burned-in-captions/provider-comparison.ts",
+    "example:summarization": "npx ts-node --transpile-only --require tsconfig-paths/register examples/summarization/basic-example.ts",
+    "example:summarization:compare": "npx ts-node --transpile-only --require tsconfig-paths/register examples/summarization/provider-comparison.ts",
+    "example:moderation": "npx ts-node --transpile-only --require tsconfig-paths/register examples/moderation/basic-example.ts",
+    "example:moderation:compare": "npx ts-node --transpile-only --require tsconfig-paths/register examples/moderation/provider-comparison.ts",
+    "example:translate-captions": "npx ts-node --transpile-only --require tsconfig-paths/register examples/translate-captions/basic-example.ts",
+    "example:translate-audio": "npx ts-node --transpile-only --require tsconfig-paths/register examples/translate-audio/basic-example.ts"
   },
   "keywords": [
     "mux",
@@ -49,13 +65,15 @@
     "dist"
   ],
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.28.0",
+    "@ai-sdk/anthropic": "^2.0.45",
+    "@ai-sdk/google": "^2.0.40",
+    "@ai-sdk/openai": "^2.0.71",
     "@aws-sdk/client-s3": "^3.0.0",
     "@aws-sdk/lib-storage": "^3.0.0",
     "@aws-sdk/s3-request-presigner": "^3.0.0",
     "@mux/mux-node": "^12.5.0",
+    "ai": "^5.0.98",
     "dotenv": "^17.2.2",
-    "openai": "^5.13.1",
     "p-retry": "^7.0.0",
     "zod": "^3.25.76"
   },
@@ -65,6 +83,9 @@
     "@typescript-eslint/parser": "^6.0.0",
     "@vitest/ui": "^4.0.13",
     "eslint": "^8.0.0",
+    "jest": "^29.0.0",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
     "tsup": "^8.5.0",
     "typescript": "^5.0.0",
     "vitest": "^4.0.13"

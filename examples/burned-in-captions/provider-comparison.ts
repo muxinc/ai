@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { hasBurnedInCaptions } from '../../src/burned-in-captions';
+import { hasBurnedInCaptions } from '@mux/ai/functions';
 
 
 async function main() {
@@ -14,49 +14,54 @@ async function main() {
   console.log(`🔍 Comparing burned-in caption detection for asset: ${assetId}\n`);
 
   try {
-    console.log('1️⃣ Testing OpenAI burned-in caption detection...');
-    const openaiStart = Date.now();
-    const openaiResult = await hasBurnedInCaptions(assetId, {
-      provider: 'openai'
-    });
-    const openaiDuration = Date.now() - openaiStart;
+    type ProviderConfig = { name: string; provider: 'openai' | 'anthropic' | 'google' };
+    const providers: ProviderConfig[] = [
+      { name: 'OpenAI', provider: 'openai' },
+      { name: 'Anthropic', provider: 'anthropic' },
+      { name: 'Google', provider: 'google' },
+    ];
 
-    console.log('📊 OpenAI Results:');
-    console.log(`  Duration: ${openaiDuration}ms`);
-    console.log(`  Has burned-in captions: ${openaiResult.hasBurnedInCaptions ? '✅ YES' : '❌ NO'}`);
-    console.log(`  Confidence: ${(openaiResult.confidence * 100).toFixed(1)}%`);
-    console.log(`  Detected language: ${openaiResult.detectedLanguage || 'N/A'}`);
-    console.log(`  Storyboard URL: ${openaiResult.storyboardUrl}`);
-    console.log();
+    const results: Array<{
+      config: ProviderConfig;
+      result: Awaited<ReturnType<typeof hasBurnedInCaptions>>;
+      duration: number;
+    }> = [];
 
-    console.log('2️⃣ Testing Anthropic burned-in caption detection...');
-    const anthropicStart = Date.now();
-    const anthropicResult = await hasBurnedInCaptions(assetId, {
-      provider: 'anthropic'
-    });
-    const anthropicDuration = Date.now() - anthropicStart;
+    for (const config of providers) {
+      console.log(`Testing ${config.name} burned-in caption detection...`);
+      const start = Date.now();
+      const result = await hasBurnedInCaptions(assetId, { provider: config.provider });
+      const duration = Date.now() - start;
 
-    console.log('📊 Anthropic Results:');
-    console.log(`  Duration: ${anthropicDuration}ms`);
-    console.log(`  Has burned-in captions: ${anthropicResult.hasBurnedInCaptions ? '✅ YES' : '❌ NO'}`);
-    console.log(`  Confidence: ${(anthropicResult.confidence * 100).toFixed(1)}%`);
-    console.log(`  Detected language: ${anthropicResult.detectedLanguage || 'N/A'}`);
-    console.log(`  Storyboard URL: ${anthropicResult.storyboardUrl}`);
+      console.log('📊 Results:');
+      console.log(`  Duration: ${duration}ms`);
+      console.log(`  Has burned-in captions: ${result.hasBurnedInCaptions ? '✅ YES' : '❌ NO'}`);
+      console.log(`  Confidence: ${(result.confidence * 100).toFixed(1)}%`);
+      console.log(`  Detected language: ${result.detectedLanguage || 'N/A'}`);
+      console.log(`  Storyboard URL: ${result.storyboardUrl}\n`);
+
+      results.push({ config, result, duration });
+    }
 
     console.log('\n🏁 Provider Comparison:');
-    console.log(`OpenAI:    ${openaiResult.hasBurnedInCaptions ? '✅' : '❌'} burned-in captions (${(openaiResult.confidence * 100).toFixed(1)}% confidence)`);
-    console.log(`Anthropic: ${anthropicResult.hasBurnedInCaptions ? '✅' : '❌'} burned-in captions (${(anthropicResult.confidence * 100).toFixed(1)}% confidence)`);
+    results.forEach(({ config, result, duration }) => {
+      console.log(
+        `${config.name}: ${result.hasBurnedInCaptions ? '✅' : '❌'} (${(result.confidence * 100).toFixed(
+          1
+        )}% confidence, ${duration}ms)`
+      );
+    });
 
-    // Analysis
-    const agreement = openaiResult.hasBurnedInCaptions === anthropicResult.hasBurnedInCaptions;
+    const agreement = results.every((entry) => entry.result.hasBurnedInCaptions === results[0].result.hasBurnedInCaptions);
     console.log(`\n🤝 Provider Agreement: ${agreement ? '✅ AGREE' : '❌ DISAGREE'}`);
 
     if (!agreement) {
       console.log('   Consider manually reviewing the storyboard to determine ground truth.');
-      console.log(`   Storyboard: ${openaiResult.storyboardUrl}`);
+      console.log(`   Storyboard: ${results[0].result.storyboardUrl}`);
     }
 
-    const avgConfidence = (openaiResult.confidence + anthropicResult.confidence) / 2;
+    const avgConfidence =
+      results.reduce((sum, entry) => sum + entry.result.confidence, 0) / results.length;
     console.log(`📊 Average Confidence: ${(avgConfidence * 100).toFixed(1)}%`);
 
   } catch (error) {

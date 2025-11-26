@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import 'dotenv/config';
-import { getModerationScores } from '../../src/moderation';
+import { getModerationScores } from '../../src/functions';
 
 describe('Moderation Integration Tests', () => {
   const safeAsset = '88Lb01qNUqFJrOFMITk00Ck201F00Qmcbpc5qgopNV4fCOk';

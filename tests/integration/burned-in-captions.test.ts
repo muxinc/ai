@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import 'dotenv/config';
-import { hasBurnedInCaptions } from '../../src/burned-in-captions';
+import { hasBurnedInCaptions } from '../../src/functions';
 
 describe('Burned-in Captions Integration Tests', () => {
   const assetsWithCaptions = [

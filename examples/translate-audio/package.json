@@ -1,5 +1,5 @@
 {
-  "name": "@mux/ai-examples-audio-translation",
+  "name": "@mux/ai-examples-translate-audio",
   "version": "0.1.0",
   "description": "Examples for @mux/ai audio translation functionality",
   "private": true,

@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { getModerationScores } from '@mux/ai';
+import { getModerationScores } from '@mux/ai/functions';
 
 async function testDifferentThresholds(assetId: string) {
   console.log('🎯 Testing different moderation thresholds...\n');
@@ -14,7 +14,7 @@ async function testDifferentThresholds(assetId: string) {
     try {
       console.log(`--- ${config.name.toUpperCase()} THRESHOLDS ---`);
       console.log(`Sexual: ${config.sexual}, Violence: ${config.violence}`);
-      
+
       const result = await getModerationScores(assetId, {
         thresholds: {
           sexual: config.sexual,
@@ -24,7 +24,7 @@ async function testDifferentThresholds(assetId: string) {
 
       const sexualResult = result.maxScores.sexual > config.sexual ? '❌ FLAGGED' : '✅ PASSED';
       const violenceResult = result.maxScores.violence > config.violence ? '❌ FLAGGED' : '✅ PASSED';
-      
+
       console.log(`Sexual Score: ${result.maxScores.sexual.toFixed(3)} ${sexualResult}`);
       console.log(`Violence Score: ${result.maxScores.violence.toFixed(3)} ${violenceResult}`);
       console.log(`Overall: ${result.exceedsThreshold ? '❌ WOULD BLOCK' : '✅ WOULD ALLOW'}`);
@@ -38,7 +38,7 @@ async function testDifferentThresholds(assetId: string) {
 
 async function main() {
   const assetId = process.argv[2];
-  
+
   if (!assetId) {
     console.log('Usage: npm run thresholds <asset-id>');
     process.exit(1);

@@ -1,13 +1,17 @@
 import Mux from '@mux/mux-node';
-import OpenAI from 'openai';
-import Anthropic from '@anthropic-ai/sdk';
-import { MuxAIOptions } from '../types';
+import {
+  resolveLanguageModel,
+  ResolvedModel,
+  SupportedProvider,
+  ModelRequestOptions,
+} from './providers';
 
 export interface ClientCredentials {
   muxTokenId?: string;
   muxTokenSecret?: string;
   openaiApiKey?: string;
   anthropicApiKey?: string;
+  googleApiKey?: string;
 }
 
 export interface ValidatedCredentials {
@@ -15,6 +19,7 @@ export interface ValidatedCredentials {
   muxTokenSecret: string;
   openaiApiKey?: string;
   anthropicApiKey?: string;
+  googleApiKey?: string;
 }
 
 /**
@@ -22,12 +27,14 @@ export interface ValidatedCredentials {
  */
 export function validateCredentials(
   options: ClientCredentials,
-  requiredProvider?: 'openai' | 'anthropic'
+  requiredProvider?: SupportedProvider
 ): ValidatedCredentials {
   const muxTokenId = options.muxTokenId || process.env.MUX_TOKEN_ID;
   const muxTokenSecret = options.muxTokenSecret || process.env.MUX_TOKEN_SECRET;
   const openaiApiKey = options.openaiApiKey || process.env.OPENAI_API_KEY;
   const anthropicApiKey = options.anthropicApiKey || process.env.ANTHROPIC_API_KEY;
+  const googleApiKey =
+    options.googleApiKey || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
 
   if (!muxTokenId || !muxTokenSecret) {
     throw new Error(
@@ -47,11 +54,18 @@ export function validateCredentials(
     );
   }
 
+  if (requiredProvider === 'google' && !googleApiKey) {
+    throw new Error(
+      'Google Generative AI API key is required. Provide googleApiKey in options or set GOOGLE_GENERATIVE_AI_API_KEY environment variable.'
+    );
+  }
+
   return {
     muxTokenId,
     muxTokenSecret,
     openaiApiKey,
     anthropicApiKey,
+    googleApiKey,
   };
 }
 
@@ -69,57 +83,28 @@ export function createMuxClient(credentials: ValidatedCredentials): Mux {
 }
 
 /**
- * Creates an OpenAI client with validated credentials
- */
-export function createOpenAIClient(credentials: ValidatedCredentials): OpenAI {
-  if (!credentials.openaiApiKey) {
-    throw new Error('OpenAI API key is required to create OpenAI client');
-  }
-  return new OpenAI({
-    apiKey: credentials.openaiApiKey,
-  });
-}
-
-/**
- * Creates an Anthropic client with validated credentials
- */
-export function createAnthropicClient(credentials: ValidatedCredentials): Anthropic {
-  if (!credentials.anthropicApiKey) {
-    throw new Error('Anthropic API key is required to create Anthropic client');
-  }
-  return new Anthropic({
-    apiKey: credentials.anthropicApiKey,
-  });
-}
-
-/**
  * Factory for creating all necessary clients for a workflow
  */
 export interface WorkflowClients {
   mux: Mux;
-  openai?: OpenAI;
-  anthropic?: Anthropic;
+  languageModel: ResolvedModel;
   credentials: ValidatedCredentials;
 }
 
 export function createWorkflowClients(
-  options: MuxAIOptions,
-  provider?: 'openai' | 'anthropic'
+  options: ModelRequestOptions,
+  provider?: SupportedProvider
 ): WorkflowClients {
-  const credentials = validateCredentials(options, provider);
+  const providerToUse = provider || options.provider || 'openai';
+  const credentials = validateCredentials(options, providerToUse);
+  const languageModel = resolveLanguageModel({
+    ...options,
+    provider: providerToUse,
+  });
 
-  const clients: WorkflowClients = {
+  return {
     mux: createMuxClient(credentials),
+    languageModel,
     credentials,
   };
-
-  if (credentials.openaiApiKey) {
-    clients.openai = createOpenAIClient(credentials);
-  }
-
-  if (credentials.anthropicApiKey) {
-    clients.anthropic = createAnthropicClient(credentials);
-  }
-
-  return clients;
 }

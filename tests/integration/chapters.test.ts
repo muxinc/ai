@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import 'dotenv/config';
-import { generateChapters } from '../../src/chapters';
+import { generateChapters } from '../../src/functions';
 
 describe('Chapters Integration Tests', () => {
   const assetId = '88Lb01qNUqFJrOFMITk00Ck201F00Qmcbpc5qgopNV4fCOk';

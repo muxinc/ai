@@ -13,7 +13,14 @@
     "declarationMap": true,
     "sourceMap": true,
     "resolveJsonModule": true,
-    "moduleResolution": "bundler"
+    "moduleResolution": "bundler",
+    "baseUrl": ".",
+    "paths": {
+      "@mux/ai": ["src/index.ts"],
+      "@mux/ai/functions": ["src/functions/index.ts"],
+      "@mux/ai/primitives": ["src/primitives/index.ts"],
+      "@mux/ai/types": ["src/types.ts"]
+    }
   },
   "ts-node": {
     "compilerOptions": {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import 'dotenv/config';
-import { translateAudio } from '../../src/audio-translation';
+import { translateAudio } from '../../src/functions';
 
 describe('Audio Translation Integration Tests', () => {
   const assetId = '88Lb01qNUqFJrOFMITk00Ck201F00Qmcbpc5qgopNV4fCOk';

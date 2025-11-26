@@ -1,5 +1,6 @@
 import 'dotenv/config';
-import { getSummaryAndTags, ToneType } from '@mux/ai';
+import { getSummaryAndTags } from '@mux/ai/functions';
+import { ToneType } from '@mux/ai';
 
 async function demonstrateToneVariations(assetId: string) {
   const tones: ToneType[] = ['normal', 'sassy', 'professional'];
@@ -14,11 +15,12 @@ async function demonstrateToneVariations(assetId: string) {
       // Uses the default prompt built into the library
       const result = await getSummaryAndTags(assetId, {
         tone,
-        model: 'gpt-4o-mini',
+        model: 'gpt-5-mini',
         includeTranscript: true,
       });
 
-      console.log(`Summary: ${result.summary}`);
+      console.log(`Title: ${result.title}`);
+      console.log(`Description: ${result.description}`);
       console.log(`Tags: ${result.tags.join(', ')}`);
       console.log('---\n');
 

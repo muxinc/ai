@@ -1,6 +1,6 @@
 # Moderation Examples
 
-This directory contains examples demonstrating how to use the `getModerationScores` function from `@mux/ai`.
+This directory contains examples demonstrating how to use the `getModerationScores` helper from `@mux/ai/functions`.
 
 ## Setup
 
@@ -14,6 +14,8 @@ npm install
 MUX_TOKEN_ID=your_mux_token_id
 MUX_TOKEN_SECRET=your_mux_token_secret
 OPENAI_API_KEY=your_openai_api_key
+# Optional Hive provider
+HIVE_API_KEY=your_hive_visual_moderation_key
 ```
 
 ## Examples
@@ -45,13 +47,30 @@ Compares three threshold levels:
 - **Default**: Standard thresholds (0.7/0.8) - balanced approach
 - **Permissive**: Higher thresholds (0.9/0.9) - less likely to flag content
 
+### Hive Example
+
+Demonstrates running moderation through Hive’s Visual Moderation API:
+
+```bash
+# From this directory
+npm run basic <your-asset-id> hive
+
+# Or from the project root
+npm run example:moderation <your-asset-id> hive
+```
+
+Features:
+- Requires `HIVE_API_KEY` plus standard Mux credentials.
+- You can use stricter default thresholds in your own code (e.g. `0.9/0.9`), matching Hive’s recommended starting point from their docs.
+- Prints both aggregate and per-thumbnail scores so you can tune thresholds quickly.
+
 ## How It Works
 
 1. **Thumbnail Generation**: Creates thumbnails at regular intervals
    - Short videos (≤50s): 5 evenly spaced thumbnails
    - Long videos: One thumbnail every 10 seconds
 
-2. **Parallel Analysis**: Sends all thumbnails to OpenAI's moderation API concurrently
+2. **Parallel Analysis**: Sends thumbnails to the selected provider (OpenAI Moderation endpoint or Hive Visual Moderation API)
 
 3. **Score Aggregation**: Takes the maximum score across all thumbnails for each category
 
@@ -59,15 +78,14 @@ Compares three threshold levels:
 
 ## Configuration Options
 
-The `getModerationScores` function accepts these options:
+Key options for `getModerationScores`:
 
-- `provider`: 'openai' (default and only supported provider)
-- `model`: OpenAI model to use (default: 'omni-moderation-latest')
+- `provider`: `'openai' | 'hive'` (default: `'openai'`)
+- `model`: OpenAI moderation model (e.g. `omni-moderation-latest`)
 - `thresholds`: Custom thresholds for sexual and violence content
 - `thumbnailInterval`: Seconds between thumbnails for long videos (default: 10)
 - `thumbnailWidth`: Thumbnail width in pixels (default: 640)
-- `muxTokenId/muxTokenSecret`: Mux credentials
-- `openaiApiKey`: OpenAI API key
+- Credential overrides: `muxTokenId`, `muxTokenSecret`, `openaiApiKey`, `hiveApiKey`
 
 ## What You'll Get
 

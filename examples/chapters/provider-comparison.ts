@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { generateChapters } from '../../src/chapters';
+import { generateChapters } from '@mux/ai/functions';
 
 
 async function main() {
@@ -16,65 +16,59 @@ async function main() {
   console.log(`📝 Language: ${languageCode}\n`);
 
   try {
-    console.log('1️⃣ Testing OpenAI chapter generation...');
-    const openaiStart = Date.now();
-    const openaiResult = await generateChapters(assetId, languageCode, {
-      provider: 'openai'
-    });
-    const openaiDuration = Date.now() - openaiStart;
+    const providers: Array<{ name: string; provider: 'openai' | 'anthropic' | 'google' }> = [
+      { name: 'OpenAI', provider: 'openai' },
+      { name: 'Anthropic', provider: 'anthropic' },
+      { name: 'Google', provider: 'google' },
+    ];
 
-    console.log('📊 OpenAI Results:');
-    console.log(`  Duration: ${openaiDuration}ms`);
-    console.log(`  Generated chapters: ${openaiResult.chapters.length}`);
-    console.log('  Chapter breakdown:');
-    openaiResult.chapters.forEach((chapter, index) => {
-      const minutes = Math.floor(chapter.startTime / 60);
-      const seconds = Math.floor(chapter.startTime % 60);
-      console.log(`    ${index + 1}. ${minutes}:${seconds.toString().padStart(2, '0')} - ${chapter.title}`);
-    });
-    console.log();
+    const results = [];
 
-    console.log('2️⃣ Testing Anthropic chapter generation...');
-    const anthropicStart = Date.now();
-    const anthropicResult = await generateChapters(assetId, languageCode, {
-      provider: 'anthropic'
-    });
-    const anthropicDuration = Date.now() - anthropicStart;
+    for (const config of providers) {
+      console.log(`Testing ${config.name} chapter generation...`);
+      const start = Date.now();
+      const result = await generateChapters(assetId, languageCode, { provider: config.provider });
+      const duration = Date.now() - start;
 
-    console.log('📊 Anthropic Results:');
-    console.log(`  Duration: ${anthropicDuration}ms`);
-    console.log(`  Generated chapters: ${anthropicResult.chapters.length}`);
-    console.log('  Chapter breakdown:');
-    anthropicResult.chapters.forEach((chapter, index) => {
-      const minutes = Math.floor(chapter.startTime / 60);
-      const seconds = Math.floor(chapter.startTime % 60);
-      console.log(`    ${index + 1}. ${minutes}:${seconds.toString().padStart(2, '0')} - ${chapter.title}`);
-    });
+      console.log('📊 Results:');
+      console.log(`  Duration: ${duration}ms`);
+      console.log(`  Generated chapters: ${result.chapters.length}`);
+      console.log('  Chapter breakdown:');
+      result.chapters.forEach((chapter, index) => {
+        const minutes = Math.floor(chapter.startTime / 60);
+        const seconds = Math.floor(chapter.startTime % 60);
+        console.log(`    ${index + 1}. ${minutes}:${seconds.toString().padStart(2, '0')} - ${chapter.title}`);
+      });
+      console.log();
+
+      results.push({ config, result, duration });
+    }
 
     console.log('\n🏁 Provider Comparison:');
-    console.log(`OpenAI chapters:    ${openaiResult.chapters.length}`);
-    console.log(`Anthropic chapters: ${anthropicResult.chapters.length}`);
-    console.log(`Speed comparison:   OpenAI ${openaiDuration}ms vs Anthropic ${anthropicDuration}ms`);
-
-    // Compare chapter titles for similarity
-    const commonTopics = new Set();
-    const openaiTitles = openaiResult.chapters.map(c => c.title.toLowerCase());
-    const anthropicTitles = anthropicResult.chapters.map(c => c.title.toLowerCase());
-
-    openaiTitles.forEach(title => {
-      anthropicTitles.forEach(anthropicTitle => {
-        // Simple keyword overlap check
-        const openaiWords = title.split(' ').filter(w => w.length > 3);
-        const anthropicWords = anthropicTitle.split(' ').filter(w => w.length > 3);
-        const overlap = openaiWords.filter(word => anthropicWords.includes(word));
-        if (overlap.length > 1) {
-          commonTopics.add(overlap.join(' '));
-        }
-      });
+    results.forEach(({ config, result, duration }) => {
+      console.log(`${config.name}: ${result.chapters.length} chapters (${duration}ms)`);
     });
 
-    if (commonTopics.size > 0) {
-      console.log(`🤝 Common topics found: ${Array.from(commonTopics).join(', ')}`);
+    const topicOverlap = new Set<string>();
+    for (let i = 0; i < results.length; i++) {
+      for (let j = i + 1; j < results.length; j++) {
+        const titlesA = results[i].result.chapters.map((c) => c.title.toLowerCase());
+        const titlesB = results[j].result.chapters.map((c) => c.title.toLowerCase());
+        titlesA.forEach((title) => {
+          titlesB.forEach((otherTitle) => {
+            const wordsA = title.split(' ').filter((w) => w.length > 3);
+            const wordsB = otherTitle.split(' ').filter((w) => w.length > 3);
+            const overlap = wordsA.filter((word) => wordsB.includes(word));
+            if (overlap.length > 1) {
+              topicOverlap.add(overlap.join(' '));
+            }
+          });
+        });
+      }
+    }
+
+    if (topicOverlap.size > 0) {
+      console.log(`🤝 Common topics found: ${Array.from(topicOverlap).join(', ')}`);
     } else {
       console.log('🤔 No obvious common topics detected - providers may have different approaches');
     }

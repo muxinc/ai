@@ -1,58 +1,78 @@
 import 'dotenv/config';
-import { getModerationScores } from '@mux/ai';
-
+import { getModerationScores } from '@mux/ai/functions';
 
 async function main() {
   const assetId = process.argv[2];
-  
+
   if (!assetId) {
     console.log('Usage: npm run example:moderation:compare <asset-id>');
     console.log('Example: npm run example:moderation:compare your-asset-id');
     console.log('');
     console.log('Note: Asset must have public playback IDs');
-    console.log('Note: Requires both OPENAI_API_KEY and HIVE_API_KEY environment variables');
+    console.log('Note: Requires OPENAI_API_KEY and HIVE_API_KEY environment variables');
     process.exit(1);
   }
 
-  console.log(`🔍 Comparing OpenAI vs Hive moderation for asset: ${assetId}\n`);
+  console.log(`🔍 Comparing moderation providers for asset: ${assetId}\n`);
 
   try {
-    // Run both providers in parallel
-    console.log('⏳ Running both providers...\n');
-    
-    const [openaiResult, hiveResult] = await Promise.all([
-      getModerationScores(assetId, {
-        provider: 'openai',
-        model: 'omni-moderation-latest',
-        thresholds: { sexual: 0.7, violence: 0.8 }
-      }),
-      getModerationScores(assetId, {
-        provider: 'hive',
-        thresholds: { sexual: 0.7, violence: 0.8 }
+    const configs = [
+      {
+        label: 'OpenAI',
+        options: {
+          provider: 'openai' as const,
+          model: 'omni-moderation-latest',
+        },
+      },
+      {
+        label: 'Hive',
+        options: {
+          provider: 'hive' as const,
+        },
+      },
+    ];
+
+    console.log('⏳ Running providers...\n');
+
+    const results = await Promise.all(
+      configs.map(async (config) => {
+        const start = Date.now();
+        const result = await getModerationScores(assetId, config.options);
+        const duration = Date.now() - start;
+        return { config, result, duration };
       })
-    ]);
+    );
 
     console.log('📊 Comparison Results:\n');
-    
-    console.log('🤖 OpenAI Results:');
-    console.log(`  Max Sexual: ${openaiResult.maxScores.sexual.toFixed(3)}`);
-    console.log(`  Max Violence: ${openaiResult.maxScores.violence.toFixed(3)}`);
-    console.log(`  Exceeds Threshold: ${openaiResult.exceedsThreshold ? '⚠️  YES' : '✅ No'}`);
-    console.log(`  Thumbnails: ${openaiResult.thumbnailScores.length}`);
-    
-    console.log('\n🏢 Hive Results:');
-    console.log(`  Max Sexual: ${hiveResult.maxScores.sexual.toFixed(3)}`);
-    console.log(`  Max Violence: ${hiveResult.maxScores.violence.toFixed(3)}`);
-    console.log(`  Exceeds Threshold: ${hiveResult.exceedsThreshold ? '⚠️  YES' : '✅ No'}`);
-    console.log(`  Thumbnails: ${hiveResult.thumbnailScores.length}`);
+
+    results.forEach(({ config, result, duration }) => {
+      console.log(`${config.label} Results:`);
+      console.log(`  Duration: ${duration}ms`);
+      console.log(`  Max Sexual: ${result.maxScores.sexual.toFixed(3)}`);
+      console.log(`  Max Violence: ${result.maxScores.violence.toFixed(3)}`);
+      console.log(`  Exceeds Threshold: ${result.exceedsThreshold ? '⚠️  YES' : '✅ No'}`);
+      console.log(`  Thumbnails: ${result.thumbnailScores.length}\n`);
+    });
 
     console.log('\n📈 Score Differences:');
-    console.log(`  Sexual Δ: ${Math.abs(openaiResult.maxScores.sexual - hiveResult.maxScores.sexual).toFixed(3)}`);
-    console.log(`  Violence Δ: ${Math.abs(openaiResult.maxScores.violence - hiveResult.maxScores.violence).toFixed(3)}`);
-    
-    const agreesOnFlag = openaiResult.exceedsThreshold === hiveResult.exceedsThreshold;
-    console.log(`\n🎯 Agreement: ${agreesOnFlag ? '✅ Both agree' : '⚠️  Providers disagree'} on flagging`);
+    for (let i = 0; i < results.length; i++) {
+      for (let j = i + 1; j < results.length; j++) {
+        const a = results[i];
+        const b = results[j];
+        console.log(
+          `${a.config.label} vs ${b.config.label}: Sexual Δ ${Math.abs(
+            a.result.maxScores.sexual - b.result.maxScores.sexual
+          ).toFixed(3)}, Violence Δ ${Math.abs(
+            a.result.maxScores.violence - b.result.maxScores.violence
+          ).toFixed(3)}`
+        );
+      }
+    }
 
+    const agreesOnFlag = results.every(
+      (entry) => entry.result.exceedsThreshold === results[0].result.exceedsThreshold
+    );
+    console.log(`\n🎯 Agreement: ${agreesOnFlag ? '✅ Both providers agree' : '⚠️  Providers disagree'} on flagging`);
   } catch (error) {
     console.error('❌ Error:', error instanceof Error ? error.message : error);
   }
