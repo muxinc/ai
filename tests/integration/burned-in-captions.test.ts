@@ -98,4 +98,47 @@ describe('Burned-in Captions Integration Tests', () => {
       expect(result.confidence).toBeLessThanOrEqual(1);
     });
   });
+
+  describe('Google provider - with captions', () => {
+    it.each(assetsWithCaptions)('should detect burned-in captions with >80% confidence for asset %s', async (assetId) => {
+      const result = await hasBurnedInCaptions(assetId, {
+        provider: 'google',
+      });
+
+      // Assert that the result exists
+      expect(result).toBeDefined();
+      expect(result.hasBurnedInCaptions).toBe(true);
+
+      // Assert confidence is greater than 80%
+      expect(result.confidence).toBeGreaterThan(0.8);
+
+      // Verify result structure
+      expect(result).toHaveProperty('assetId');
+      expect(result).toHaveProperty('confidence');
+      expect(result).toHaveProperty('detectedLanguage');
+      expect(typeof result.confidence).toBe('number');
+      expect(result.confidence).toBeGreaterThanOrEqual(0);
+      expect(result.confidence).toBeLessThanOrEqual(1);
+    });
+  });
+
+  describe('Google provider - without captions', () => {
+    it.each(assetsWithoutCaptions)('should NOT detect burned-in captions for asset %s', async (assetId) => {
+      const result = await hasBurnedInCaptions(assetId, {
+        provider: 'google',
+      });
+
+      // Assert that the result exists
+      expect(result).toBeDefined();
+      expect(result.hasBurnedInCaptions).toBe(false);
+
+      // Verify result structure
+      expect(result).toHaveProperty('assetId');
+      expect(result).toHaveProperty('confidence');
+      expect(result).toHaveProperty('detectedLanguage');
+      expect(typeof result.confidence).toBe('number');
+      expect(result.confidence).toBeGreaterThanOrEqual(0);
+      expect(result.confidence).toBeLessThanOrEqual(1);
+    });
+  });
 });
