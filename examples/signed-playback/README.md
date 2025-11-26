@@ -37,20 +37,32 @@ Verifies that signed URLs are correctly generated for storyboards, thumbnails, a
 
 ```bash
 npm run basic <signed-asset-id>
+
+# With options:
+npm run basic <signed-asset-id> -- --width 320 --interval 5
 ```
+
+**Options:**
+- `-w, --width <pixels>` - Storyboard/thumbnail width in pixels (default: 640)
+- `-i, --interval <seconds>` - Thumbnail interval in seconds (default: 10)
 
 ### Summarization with Signed Assets
 
 Demonstrates the full summarization workflow with a signed asset:
 
 ```bash
-npm run summarize <signed-asset-id> [provider]
+npm run summarize <signed-asset-id>
 
-# Examples:
-npm run summarize abc123def456 anthropic
-npm run summarize abc123def456 openai
-npm run summarize abc123def456 google
+# With options:
+npm run summarize <signed-asset-id> -- --provider openai --tone sassy
+npm run summarize <signed-asset-id> -- -p google -t professional --no-transcript
 ```
+
+**Options:**
+- `-p, --provider <provider>` - AI provider: openai, anthropic, google (default: anthropic)
+- `-m, --model <model>` - Model name (overrides default for provider)
+- `-t, --tone <tone>` - Tone for summary: normal, sassy, professional (default: professional)
+- `--no-transcript` - Exclude transcript from analysis
 
 ## How It Works
 
@@ -82,4 +94,3 @@ Your asset has a signed playback policy but you haven't provided signing credent
 Your asset doesn't have a signed playback policy. Either:
 - Create a new asset with `playback_policy: "signed"`
 - Or use a public asset (no signing credentials needed)
-
