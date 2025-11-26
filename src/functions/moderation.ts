@@ -80,34 +80,41 @@ const DEFAULT_THRESHOLDS = {
 const DEFAULT_PROVIDER = 'openai';
 
 const HIVE_ENDPOINT = 'https://api.thehive.ai/api/v2/task/sync';
-const HIVE_SEXUAL_KEYWORDS = [
-  /nsfw/i,
-  /suggestive/i,
-  /sexual/i,
-  /genital/i,
-  /nipple/i,
-  /cleavage/i,
-  /underboob/i,
-  /lingerie/i,
-  /underwear/i,
-  /bikini/i,
-  /thong/i,
-  /butt/i,
+const HIVE_SEXUAL_CATEGORIES = [
+  'general_nsfw',
+  'general_suggestive',
+  'yes_sexual_activity',
+  'female_underwear',
+  'male_underwear',
+  'bra',
+  'panties',
+  'sex_toys',
+  'nudity_female',
+  'nudity_male',
+  'cleavage',
+  'swimwear',
 ];
 
-const HIVE_VIOLENCE_KEYWORDS = [
-  /gun/i,
-  /knife/i,
-  /blood/i,
-  /hanging/i,
-  /corpse/i,
-  /self[_-]?harm/i,
-  /abuse/i,
-  /fight/i,
-  /violence/i,
-  /weapon/i,
-  /gore/i,
-  /kill/i,
+const HIVE_VIOLENCE_CATEGORIES = [
+  'gun_in_hand',
+  'gun_not_in_hand',
+  'animated_gun',
+  'knife_in_hand',
+  'knife_not_in_hand',
+  'culinary_knife_not_in_hand',
+  'culinary_knife_in_hand',
+  'very_bloody',
+  'a_little_bloody',
+  'other_blood',
+  'hanging',
+  'noose',
+  'human_corpse',
+  'animated_corpse',
+  'emaciated_body',
+  'self_harm',
+  'animal_abuse',
+  'fights',
+  'garm_death_injury_or_military_conflict',
 ];
 
 async function processConcurrently<T>(
@@ -192,17 +199,15 @@ async function requestOpenAIModeration(
   return processConcurrently(targetUrls, moderate, maxConcurrent);
 }
 
-function getHiveCategoryScore(
+function getHiveCategoryScores(
   classes: NonNullable<HiveModerationOutput['classes']>,
-  patterns: RegExp[]
+  categoryNames: string[]
 ): number {
-  return classes.reduce((max, entry) => {
-    if (!entry?.class) {
-      return max;
-    }
-    const matchesCategory = patterns.some((pattern) => pattern.test(entry.class));
-    return matchesCategory ? Math.max(max, entry.score ?? 0) : max;
-  }, 0);
+  const scoreMap = Object.fromEntries(
+    classes.map((c) => [c.class, c.score])
+  );
+  const scores = categoryNames.map((category) => scoreMap[category] || 0);
+  return Math.max(...scores, 0);
 }
 
 async function requestHiveModeration(
@@ -257,30 +262,14 @@ async function requestHiveModeration(
         );
       }
 
-      // Hive API response structure: status[0].response.output or direct output/response.output
-      const outputs: HiveModerationOutput[] | undefined =
-        json?.status?.[0]?.response?.output ||
-        json?.output ||
-        json?.response?.output;
-      if (!outputs) {
-        throw new Error(`Hive moderation response missing output array. Response: ${JSON.stringify(json)}`);
-      }
-
-      const aggregated = outputs.reduce(
-        (acc, output) => {
-          const classes = output?.classes || [];
-          return {
-            sexual: Math.max(acc.sexual, getHiveCategoryScore(classes, HIVE_SEXUAL_KEYWORDS)),
-            violence: Math.max(acc.violence, getHiveCategoryScore(classes, HIVE_VIOLENCE_KEYWORDS)),
-          };
-        },
-        { sexual: 0, violence: 0 }
-      );
+      // Extract scores from Hive response
+      // Hive returns scores in status[0].response.output[0].classes as array of {class, score}
+      const classes = json?.status?.[0]?.response?.output?.[0]?.classes || [];
 
       return {
         url: entry.url,
-        sexual: aggregated.sexual,
-        violence: aggregated.violence,
+        sexual: getHiveCategoryScores(classes, HIVE_SEXUAL_CATEGORIES),
+        violence: getHiveCategoryScores(classes, HIVE_VIOLENCE_CATEGORIES),
         error: false,
       };
     } catch (error) {
