@@ -1,37 +1,35 @@
 import 'dotenv/config';
+import { Command } from 'commander';
 import { hasBurnedInCaptions } from '@mux/ai/functions';
 
+const program = new Command();
 
-async function main() {
-  const assetId = process.argv[2];
+program
+  .name('burned-in-captions-compare')
+  .description('Compare burned-in caption detection across multiple AI providers')
+  .argument('<asset-id>', 'Mux asset ID to analyze')
+  .action(async (assetId: string) => {
+    console.log(`🔍 Comparing burned-in caption detection for asset: ${assetId}\n`);
 
-  if (!assetId) {
-    console.log('Usage: npm run example:burned-in:compare <asset-id>');
-    console.log('Example: npm run example:burned-in:compare ICwSGuYvLIHR00km1NMX00GH3le7wknGPx');
-    process.exit(1);
-  }
+    try {
+      type ProviderConfig = { name: string; provider: 'openai' | 'anthropic' | 'google' };
+      const providers: ProviderConfig[] = [
+        { name: 'OpenAI', provider: 'openai' },
+        { name: 'Anthropic', provider: 'anthropic' },
+        { name: 'Google', provider: 'google' },
+      ];
 
-  console.log(`🔍 Comparing burned-in caption detection for asset: ${assetId}\n`);
+      const results: Array<{
+        config: ProviderConfig;
+        result: Awaited<ReturnType<typeof hasBurnedInCaptions>>;
+        duration: number;
+      }> = [];
 
-  try {
-    type ProviderConfig = { name: string; provider: 'openai' | 'anthropic' | 'google' };
-    const providers: ProviderConfig[] = [
-      { name: 'OpenAI', provider: 'openai' },
-      { name: 'Anthropic', provider: 'anthropic' },
-      { name: 'Google', provider: 'google' },
-    ];
-
-    const results: Array<{
-      config: ProviderConfig;
-      result: Awaited<ReturnType<typeof hasBurnedInCaptions>>;
-      duration: number;
-    }> = [];
-
-    for (const config of providers) {
-      console.log(`Testing ${config.name} burned-in caption detection...`);
-      const start = Date.now();
-      const result = await hasBurnedInCaptions(assetId, { provider: config.provider });
-      const duration = Date.now() - start;
+      for (const config of providers) {
+        console.log(`Testing ${config.name} burned-in caption detection...`);
+        const start = Date.now();
+        const result = await hasBurnedInCaptions(assetId, { provider: config.provider });
+        const duration = Date.now() - start;
 
       console.log('📊 Results:');
       console.log(`  Duration: ${duration}ms`);
@@ -60,14 +58,14 @@ async function main() {
       console.log(`   Storyboard: ${results[0].result.storyboardUrl}`);
     }
 
-    const avgConfidence =
-      results.reduce((sum, entry) => sum + entry.result.confidence, 0) / results.length;
-    console.log(`📊 Average Confidence: ${(avgConfidence * 100).toFixed(1)}%`);
+      const avgConfidence =
+        results.reduce((sum, entry) => sum + entry.result.confidence, 0) / results.length;
+      console.log(`📊 Average Confidence: ${(avgConfidence * 100).toFixed(1)}%`);
 
-  } catch (error) {
-    console.error('❌ Error:', error instanceof Error ? error.message : error);
-    process.exit(1);
-  }
-}
+    } catch (error) {
+      console.error('❌ Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
 
-main();
+program.parse();
