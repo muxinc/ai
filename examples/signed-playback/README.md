@@ -37,14 +37,7 @@ Verifies that signed URLs are correctly generated for storyboards, thumbnails, a
 
 ```bash
 npm run basic <signed-asset-id>
-
-# With options:
-npm run basic <signed-asset-id> -- --width 320 --interval 5
 ```
-
-**Options:**
-- `-w, --width <pixels>` - Storyboard/thumbnail width in pixels (default: 640)
-- `-i, --interval <seconds>` - Thumbnail interval in seconds (default: 10)
 
 ### Summarization with Signed Assets
 

@@ -26,8 +26,6 @@ program
   .name('signed-playback')
   .description('Test signed URL generation for Mux assets with signed playback policies')
   .argument('<asset-id>', 'Mux asset ID with signed playback policy')
-  .option('-w, --width <pixels>', 'Storyboard/thumbnail width in pixels', '640')
-  .option('-i, --interval <seconds>', 'Thumbnail interval in seconds', '10')
   .addHelpText('after', `
 Environment Variables:
   MUX_TOKEN_ID        Your Mux API token ID
@@ -38,12 +36,7 @@ Environment Variables:
 Notes:
   - Asset must have a signed playback policy
   - Create signing keys in Mux Dashboard → Settings → Signing Keys`)
-  .action(async (assetId: string, options: {
-    width: string;
-    interval: string;
-  }) => {
-    const width = parseInt(options.width, 10);
-    const interval = parseInt(options.interval, 10);
+  .action(async (assetId: string) => {
 
     // Validate environment
     const muxTokenId = process.env.MUX_TOKEN_ID;
@@ -68,9 +61,7 @@ Notes:
     };
 
     console.log('🔐 Signed Playback URL Test\n');
-    console.log(`Asset ID: ${assetId}`);
-    console.log(`Width: ${width}px`);
-    console.log(`Thumbnail Interval: ${interval}s\n`);
+    console.log(`Asset ID: ${assetId}\n`);
 
     // Initialize Mux client
     const mux = new Mux({
@@ -113,7 +104,7 @@ Notes:
     console.log('📊 Test 1: Storyboard URL');
     console.log('─'.repeat(60));
     try {
-      const storyboardUrl = await getStoryboardUrl(playbackId, width, signingContext);
+      const storyboardUrl = await getStoryboardUrl(playbackId, 640, signingContext);
       console.log('Generated URL:');
       console.log(`  ${storyboardUrl.substring(0, 80)}...`);
 
@@ -136,8 +127,8 @@ Notes:
     try {
       const duration = asset.duration || 60;
       const thumbnailUrls = await getThumbnailUrls(playbackId, duration, {
-        interval,
-        width: Math.min(width, 320), // Use smaller width for thumbnails
+        interval: 10,
+        width: 640,
         signingContext,
       });
 
