@@ -1,5 +1,4 @@
 import Mux from '@mux/mux-node';
-// Using direct HTTP requests instead of SDK for better compatibility
 import { S3Client } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { GetObjectCommand } from '@aws-sdk/client-s3';

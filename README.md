@@ -638,7 +638,7 @@ npm run example:moderation:compare <asset-id>
 npm run example:translate-captions <asset-id> [from-lang] [to-lang] [provider]
 
 # Audio Translation (Dubbing)
-npm run example:audio-translation <asset-id> [to-lang]
+npm run example:translate-audio <asset-id> [to-lang]
 ```
 
 **Examples:**
@@ -662,7 +662,7 @@ npm run example:translate-captions abc123 en es anthropic
 npm run example:summarization abc123 anthropic
 
 # Create AI-dubbed audio in French
-npm run example:audio-translation abc123 fr
+npm run example:translate-audio abc123 fr
 ```
 
 ### Summarization Examples
@@ -739,7 +739,7 @@ npm run translation-only <your-asset-id> en fr [provider]
 - **Dubbing Only**: Create dubbed audio without uploading to Mux
 
 ```bash
-cd examples/audio-translation
+cd examples/translate-audio
 npm install
 npm run basic <your-asset-id> es
 npm run dubbing-only <your-asset-id> fr

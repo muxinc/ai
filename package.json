@@ -48,7 +48,7 @@
     "example:moderation": "npx ts-node --transpile-only --require tsconfig-paths/register examples/moderation/basic-example.ts",
     "example:moderation:compare": "npx ts-node --transpile-only --require tsconfig-paths/register examples/moderation/provider-comparison.ts",
     "example:translate-captions": "npx ts-node --transpile-only --require tsconfig-paths/register examples/translate-captions/basic-example.ts",
-    "example:audio-translation": "npx ts-node --transpile-only --require tsconfig-paths/register examples/audio-translation/basic-example.ts"
+    "example:translate-audio": "npx ts-node --transpile-only --require tsconfig-paths/register examples/translate-audio/basic-example.ts"
   },
   "keywords": [
     "mux",
