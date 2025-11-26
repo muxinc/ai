@@ -10,6 +10,7 @@ import {
   extractTimestampedTranscript,
 } from '../primitives/transcripts';
 import { SupportedProvider, ModelIdByProvider } from '../lib/providers';
+import { resolveSigningContext } from '../lib/url-signing';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -81,11 +82,21 @@ export async function generateChapters(
   const clients = createWorkflowClients({ ...options, model }, provider as SupportedProvider);
 
   // Fetch asset and caption track/transcript
-  const { asset: assetData, playbackId } = await getPlaybackIdForAsset(clients.mux, assetId);
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(clients.mux, assetId);
+
+  // Resolve signing context for signed playback IDs
+  const signingContext = resolveSigningContext(options);
+  if (policy === 'signed' && !signingContext) {
+    throw new Error(
+      'Signed playback ID requires signing credentials. ' +
+      'Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.'
+    );
+  }
 
   const transcriptResult = await fetchTranscriptForAsset(assetData, playbackId, {
     languageCode,
     cleanTranscript: false, // keep timestamps for chapter segmentation
+    signingContext: policy === 'signed' ? signingContext : undefined,
   });
 
   if (!transcriptResult.track || !transcriptResult.transcriptText) {

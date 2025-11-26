@@ -9,6 +9,10 @@ export interface MuxAIConfig {
   muxTokenId?: string;
   /** Override for process.env.MUX_TOKEN_SECRET. */
   muxTokenSecret?: string;
+  /** Mux signing key ID for signed playback IDs (defaults to process.env.MUX_SIGNING_KEY). */
+  muxSigningKey?: string;
+  /** Mux signing key private key for signed playback IDs (defaults to process.env.MUX_PRIVATE_KEY). */
+  muxPrivateKey?: string;
   /** OpenAI API key (defaults to process.env.OPENAI_API_KEY). */
   openaiApiKey?: string;
   /** Anthropic API key (defaults to process.env.ANTHROPIC_API_KEY). */
@@ -44,8 +48,13 @@ export type MuxAsset = Awaited<ReturnType<Mux['video']['assets']['retrieve']>>;
 /** Single ready track extracted from a Mux asset. */
 export type AssetTextTrack = NonNullable<MuxAsset['tracks']>[number];
 
+/** Playback policy type for Mux assets. */
+export type PlaybackPolicy = 'public' | 'signed';
+
 /** Convenience bundle returned by `getPlaybackIdForAsset`. */
 export interface PlaybackAsset {
   asset: MuxAsset;
   playbackId: string;
+  /** The policy type of the playback ID ('public' or 'signed'). */
+  policy: PlaybackPolicy;
 }

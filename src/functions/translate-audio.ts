@@ -4,6 +4,8 @@ import { Upload } from '@aws-sdk/lib-storage';
 import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { MuxAIOptions } from '../types';
+import { getPlaybackIdForAsset } from '../lib/mux-assets';
+import { resolveSigningContext, signUrl } from '../lib/url-signing';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -191,29 +193,33 @@ export async function translateAudio(
     tokenSecret: muxSecret,
   });
 
-  // Fetch asset data from Mux
+  // Fetch asset data and playback ID from Mux
   console.log(`🎬 Fetching Mux asset: ${assetId}`);
-  let assetData;
-  try {
-    const asset = await mux.video.assets.retrieve(assetId);
-    assetData = asset;
-  } catch (error) {
-    throw new Error(`Failed to fetch asset from Mux: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  const { asset: initialAsset, playbackId, policy } = await getPlaybackIdForAsset(mux, assetId);
+
+  // Resolve signing context for signed playback IDs
+  const signingContext = resolveSigningContext(options);
+  if (policy === 'signed' && !signingContext) {
+    throw new Error(
+      'Signed playback ID requires signing credentials. ' +
+      'Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.'
+    );
   }
 
   // Check for audio-only static rendition
   console.log('🔍 Checking for audio-only static rendition...');
 
-  if (!hasReadyAudioStaticRendition(assetData)) {
+  let currentAsset = initialAsset;
+  if (!hasReadyAudioStaticRendition(currentAsset)) {
     console.log('❌ No ready audio static rendition found. Requesting one now...');
-    assetData = await waitForAudioStaticRendition({
+    currentAsset = await waitForAudioStaticRendition({
       assetId,
       muxClient: mux,
-      initialAsset: assetData
+      initialAsset: currentAsset
     });
   }
 
-  const audioRendition = getReadyAudioStaticRendition(assetData);
+  const audioRendition = getReadyAudioStaticRendition(currentAsset);
 
   if (!audioRendition) {
     throw new Error(
@@ -221,7 +227,11 @@ export async function translateAudio(
     );
   }
 
-  const audioUrl = `https://stream.mux.com/${assetData.playback_ids?.[0]?.id}/audio.m4a`;
+  // Build audio URL (signed if needed)
+  let audioUrl = `https://stream.mux.com/${playbackId}/audio.m4a`;
+  if (policy === 'signed' && signingContext) {
+    audioUrl = await signUrl(audioUrl, playbackId, signingContext, 'video');
+  }
   console.log(`✅ Found audio rendition: ${audioUrl}`);
 
   // Create dubbing job in ElevenLabs

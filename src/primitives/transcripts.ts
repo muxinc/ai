@@ -1,8 +1,11 @@
 import { AssetTextTrack, MuxAsset } from '../types';
+import { SigningContext, signUrl } from '../lib/url-signing';
 
 export interface TranscriptFetchOptions {
   languageCode?: string;
   cleanTranscript?: boolean;
+  /** Optional signing context for signed playback IDs */
+  signingContext?: SigningContext;
 }
 
 export interface TranscriptResult {
@@ -105,8 +108,27 @@ export function extractTimestampedTranscript(vttContent: string): string {
     .join('\n');
 }
 
-export function buildTranscriptUrl(playbackId: string, trackId: string): string {
-  return `https://stream.mux.com/${playbackId}/text/${trackId}.vtt`;
+/**
+ * Builds a transcript URL for the given playback ID and track ID.
+ * If a signing context is provided, the URL will be signed with a token.
+ *
+ * @param playbackId - The Mux playback ID
+ * @param trackId - The text track ID
+ * @param signingContext - Optional signing context for signed playback IDs
+ * @returns Transcript URL (signed if context provided)
+ */
+export async function buildTranscriptUrl(
+  playbackId: string,
+  trackId: string,
+  signingContext?: SigningContext
+): Promise<string> {
+  const baseUrl = `https://stream.mux.com/${playbackId}/text/${trackId}.vtt`;
+
+  if (signingContext) {
+    return signUrl(baseUrl, playbackId, signingContext, 'video');
+  }
+
+  return baseUrl;
 }
 
 export async function fetchTranscriptForAsset(
@@ -114,7 +136,7 @@ export async function fetchTranscriptForAsset(
   playbackId: string,
   options: TranscriptFetchOptions = {}
 ): Promise<TranscriptResult> {
-  const { languageCode, cleanTranscript = true } = options;
+  const { languageCode, cleanTranscript = true, signingContext } = options;
   const track = findCaptionTrack(asset, languageCode);
 
   if (!track) {
@@ -125,7 +147,7 @@ export async function fetchTranscriptForAsset(
     return { transcriptText: '', track };
   }
 
-  const transcriptUrl = buildTranscriptUrl(playbackId, track.id);
+  const transcriptUrl = await buildTranscriptUrl(playbackId, track.id, signingContext);
 
   try {
     const response = await fetch(transcriptUrl);
@@ -142,4 +164,3 @@ export async function fetchTranscriptForAsset(
     return { transcriptText: '', transcriptUrl, track };
   }
 }
-

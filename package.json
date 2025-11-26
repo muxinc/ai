@@ -45,6 +45,8 @@
     "example:burned-in:compare": "npx ts-node --transpile-only --require tsconfig-paths/register examples/burned-in-captions/provider-comparison.ts",
     "example:summarization": "npx ts-node --transpile-only --require tsconfig-paths/register examples/summarization/basic-example.ts",
     "example:summarization:compare": "npx ts-node --transpile-only --require tsconfig-paths/register examples/summarization/provider-comparison.ts",
+    "example:signed-playback": "npx ts-node --transpile-only --require tsconfig-paths/register examples/signed-playback/signed-playback.ts",
+    "example:signed-playback:summarize": "npx ts-node --transpile-only --require tsconfig-paths/register examples/signed-playback/signed-summarization.ts",
     "example:moderation": "npx ts-node --transpile-only --require tsconfig-paths/register examples/moderation/basic-example.ts",
     "example:moderation:compare": "npx ts-node --transpile-only --require tsconfig-paths/register examples/moderation/provider-comparison.ts",
     "example:translate-captions": "npx ts-node --transpile-only --require tsconfig-paths/register examples/translate-captions/basic-example.ts",

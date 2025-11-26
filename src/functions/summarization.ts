@@ -8,6 +8,7 @@ import { SupportedProvider, ModelIdByProvider } from '../lib/providers';
 import { getPlaybackIdForAsset } from '../lib/mux-assets';
 import { fetchTranscriptForAsset } from '../primitives/transcripts';
 import { getStoryboardUrl } from '../primitives/storyboards';
+import { resolveSigningContext } from '../lib/url-signing';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -129,11 +130,23 @@ export async function getSummaryAndTags(
   );
 
   // Fetch asset data from Mux and grab playback/transcript details
-  const { asset: assetData, playbackId } = await getPlaybackIdForAsset(clients.mux, assetId);
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(clients.mux, assetId);
+
+  // Resolve signing context for signed playback IDs
+  const signingContext = resolveSigningContext(actualOptions);
+  if (policy === 'signed' && !signingContext) {
+    throw new Error(
+      'Signed playback ID requires signing credentials. ' +
+      'Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.'
+    );
+  }
 
   const transcriptText =
     includeTranscript
-      ? (await fetchTranscriptForAsset(assetData, playbackId, { cleanTranscript })).transcriptText
+      ? (await fetchTranscriptForAsset(assetData, playbackId, {
+          cleanTranscript,
+          signingContext: policy === 'signed' ? signingContext : undefined,
+        })).transcriptText
       : '';
 
   // Create tone-informed prompt
@@ -156,8 +169,8 @@ export async function getSummaryAndTags(
     contextualPrompt += ` Use the following ${transcriptType} for additional context: "${transcriptText}"`;
   }
 
-  // Analyze storyboard with AI provider
-  const imageUrl = getStoryboardUrl(playbackId, 640);
+  // Analyze storyboard with AI provider (signed if needed)
+  const imageUrl = await getStoryboardUrl(playbackId, 640, policy === 'signed' ? signingContext : undefined);
 
   const analyzeStoryboard = async (imageDataUrl: string) => {
     const response = await generateObject({

@@ -1,0 +1,20 @@
+{
+  "name": "@mux/ai-examples-signed-playback",
+  "version": "0.1.0",
+  "description": "Examples for testing @mux/ai signed playback functionality",
+  "private": true,
+  "scripts": {
+    "basic": "ts-node signed-playback.ts",
+    "summarize": "ts-node signed-summarization.ts"
+  },
+  "dependencies": {
+    "@mux/ai": "file:../..",
+    "dotenv": "^16.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "ts-node": "^10.0.0",
+    "typescript": "^5.0.0"
+  }
+}
+
