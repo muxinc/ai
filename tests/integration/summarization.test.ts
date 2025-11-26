@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import 'dotenv/config';
-import { getSummaryAndTags } from '../../src/summarization';
+import { getSummaryAndTags } from '../../src/functions';
 
 describe('Summarization Integration Tests', () => {
   const assetId = '88Lb01qNUqFJrOFMITk00Ck201F00Qmcbpc5qgopNV4fCOk';
