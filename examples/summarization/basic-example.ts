@@ -60,6 +60,10 @@ program
         openaiApiKey: process.env.OPENAI_API_KEY,
         anthropicApiKey: process.env.ANTHROPIC_API_KEY,
         googleApiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
+        promptOverrides: {
+          task: 'Generate SEO-optimized metadata for this product video.',
+          title: 'Create a click-worthy title under 60 characters for YouTube.',
+        },
       });
 
       console.log('📝 Title:');

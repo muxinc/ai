@@ -50,13 +50,31 @@ Compares three tone styles:
 
 ### Custom Prompt Example (`custom-prompt-example.ts`)
 
-Demonstrates how to override the default prompt with your own:
+Demonstrates how to use `promptOverrides` to customize the summarization for specific use cases:
 
 ```bash
-npm run custom
+# Use a preset (seo, social, technical, ecommerce)
+npm run example:summarization:custom <asset-id> --preset seo
+
+# Custom override via CLI
+npm run example:summarization:custom <asset-id> --task "Focus on product features"
+
+# Combine preset with additional overrides
+npm run example:summarization:custom <asset-id> --preset social --title-guidance "Make it viral"
 ```
 
-Shows how to provide a custom prompt for specialized analysis needs.
+**Available Presets:**
+- `seo` - Search engine optimized metadata for discoverability
+- `social` - Social media optimized for engagement and shares
+- `technical` - Production/cinematography focused analysis
+- `ecommerce` - Product video metadata for conversions
+
+**Overridable Sections:**
+- `task` - Main instruction for what to analyze
+- `title` - Guidance for title generation
+- `description` - Guidance for description generation
+- `keywords` - Guidance for keyword/tag generation
+- `qualityGuidelines` - General quality instructions
 
 ## Configuration Options
 
@@ -67,7 +85,44 @@ Key options for `getSummaryAndTags`:
 - `tone`: `'normal' | 'sassy' | 'professional'` (default: `'normal'`)
 - `includeTranscript`: Include the asset transcript when available (default: `true`)
 - `imageSubmissionMode`: `'url' | 'base64'` storyboard transport (default: `'url'`)
+- `promptOverrides`: Override specific sections of the prompt (see below)
 - Credential overrides (all fall back to env vars): `muxTokenId`, `muxTokenSecret`, `openaiApiKey`, `anthropicApiKey`, `googleApiKey`
+
+### Using `promptOverrides`
+
+The `promptOverrides` option lets you customize specific sections of the prompt while keeping the rest of the defaults:
+
+```typescript
+import { getSummaryAndTags } from '@mux/ai/functions';
+
+// SEO-optimized metadata
+const seoResult = await getSummaryAndTags(assetId, {
+  promptOverrides: {
+    task: 'Generate SEO-optimized metadata for search engines.',
+    title: 'Create a search-optimized title (50-60 chars) with primary keyword front-loaded.',
+    keywords: 'Focus on high search volume terms and long-tail keywords.',
+  },
+});
+
+// Social media optimized
+const socialResult = await getSummaryAndTags(assetId, {
+  promptOverrides: {
+    title: 'Create a scroll-stopping headline using emotional triggers or curiosity gaps.',
+    description: 'Write shareable copy that creates FOMO and works without watching the video.',
+    keywords: 'Generate hashtag-ready keywords for trending and niche community tags.',
+  },
+});
+
+// Technical/production analysis
+const technicalResult = await getSummaryAndTags(assetId, {
+  tone: 'professional',
+  promptOverrides: {
+    task: 'Analyze cinematography, lighting, and production techniques.',
+    title: 'Describe the production style or filmmaking technique.',
+    keywords: 'Use industry-standard production terminology.',
+  },
+});
+```
 
 ## What You'll Get
 

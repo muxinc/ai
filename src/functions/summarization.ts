@@ -1,4 +1,5 @@
 import { generateObject } from 'ai';
+import dedent from 'dedent';
 import { z } from 'zod';
 import { MuxAIOptions, ToneType, ImageSubmissionMode } from '../types';
 import { downloadImageAsBase64, ImageDownloadOptions } from '../lib/image-download';
@@ -6,6 +7,12 @@ import { createWorkflowClients } from '../lib/client-factory';
 import { withRetry } from '../lib/retry';
 import { SupportedProvider, ModelIdByProvider } from '../lib/providers';
 import { getPlaybackIdForAsset } from '../lib/mux-assets';
+import {
+  createPromptBuilder,
+  createTranscriptSection,
+  createToneSection,
+  PromptOverrides,
+} from '../lib/prompt-builder';
 import { fetchTranscriptForAsset } from '../primitives/transcripts';
 import { getStoryboardUrl } from '../primitives/storyboards';
 import { resolveSigningContext } from '../lib/url-signing';
@@ -38,6 +45,33 @@ export interface SummaryAndTagsResult {
   storyboardUrl: string;
 }
 
+/**
+ * Sections of the summarization user prompt that can be overridden.
+ * Use these to customize the AI's behavior for your specific use case.
+ */
+export type SummarizationPromptSections =
+  | 'task'
+  | 'title'
+  | 'description'
+  | 'keywords'
+  | 'qualityGuidelines';
+
+/**
+ * Override specific sections of the summarization prompt.
+ * Each key corresponds to a section that can be customized.
+ *
+ * @example
+ * ```typescript
+ * const result = await getSummaryAndTags(assetId, {
+ *   promptOverrides: {
+ *     task: 'Generate SEO-optimized metadata for this product video.',
+ *     title: 'Create a click-worthy title under 60 characters for YouTube.',
+ *   },
+ * });
+ * ```
+ */
+export type SummarizationPromptOverrides = PromptOverrides<SummarizationPromptSections>;
+
 /** Configuration accepted by `getSummaryAndTags`. */
 export interface SummarizationOptions extends MuxAIOptions {
   /** AI provider to run (defaults to 'openai'). */
@@ -54,14 +88,135 @@ export interface SummarizationOptions extends MuxAIOptions {
   imageSubmissionMode?: ImageSubmissionMode;
   /** Fine-tune storyboard downloads when `imageSubmissionMode` === 'base64'. */
   imageDownloadOptions?: ImageDownloadOptions;
+  /**
+   * Override specific sections of the user prompt.
+   * Useful for customizing the AI's output for specific use cases (SEO, social media, etc.)
+   */
+  promptOverrides?: SummarizationPromptOverrides;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Prompts
+// ─────────────────────────────────────────────────────────────────────────────
+
+const TONE_INSTRUCTIONS: Record<ToneType, string> = {
+  normal: 'Provide a clear, straightforward analysis.',
+  sassy: 'Answer with a sassy, playful attitude and personality.',
+  professional: 'Provide a professional, executive-level analysis suitable for business reporting.',
+};
+
+/**
+ * Prompt builder for the summarization user prompt.
+ * Sections can be individually overridden via `promptOverrides` in SummarizationOptions.
+ */
+const summarizationPromptBuilder = createPromptBuilder<SummarizationPromptSections>({
+  template: {
+    task: {
+      tag: 'task',
+      content: 'Analyze the storyboard frames and generate metadata that captures the essence of the video content.',
+    },
+    title: {
+      tag: 'title_requirements',
+      content: dedent`
+        A short, compelling headline that immediately communicates the subject or action.
+        Aim for brevity - typically under 10 words. Think of how a news headline or video card title would read.
+        Start with the primary subject, action, or topic - never begin with "A video of" or similar phrasing.
+        Use active, specific language.`,
+    },
+    description: {
+      tag: 'description_requirements',
+      content: dedent`
+        A concise summary (2-4 sentences) that describes what happens across the video.
+        Cover the main subjects, actions, setting, and any notable progression visible across frames.
+        Write in present tense. Be specific about observable details rather than making assumptions.
+        If the transcript provides dialogue or narration, incorporate key points but prioritize visual content.`,
+    },
+    keywords: {
+      tag: 'keywords_requirements',
+      content: dedent`
+        Specific, searchable terms (up to 10) that capture:
+        - Primary subjects (people, animals, objects)
+        - Actions and activities being performed
+        - Setting and environment
+        - Notable objects or tools
+        - Style or genre (if applicable)
+        Prefer concrete nouns and action verbs over abstract concepts.
+        Use lowercase. Avoid redundant or overly generic terms like "video" or "content".`,
+    },
+    qualityGuidelines: {
+      tag: 'quality_guidelines',
+      content: dedent`
+        - Examine all frames to understand the full context and progression
+        - Be precise: "golden retriever" is better than "dog" when identifiable
+        - Capture the narrative: what begins, develops, and concludes
+        - Balance brevity with informativeness`,
+    },
+  },
+  sectionOrder: ['task', 'title', 'description', 'keywords', 'qualityGuidelines'],
+});
+
+const SYSTEM_PROMPT = dedent`
+  <role>
+    You are a video content analyst specializing in storyboard interpretation and multimodal analysis.
+  </role>
+
+  <context>
+    You receive storyboard images containing multiple sequential frames extracted from a video.
+    These frames are arranged in a grid and represent the visual progression of the content over time.
+    Read frames left-to-right, top-to-bottom to understand the temporal sequence.
+  </context>
+
+  <transcript_guidance>
+    When a transcript is provided alongside the storyboard:
+    - Use it to understand spoken content, dialogue, narration, and audio context
+    - Correlate transcript content with visual frames to build a complete picture
+    - Extract key terminology, names, and specific language used by speakers
+    - Let the transcript inform keyword selection, especially for topics not visually obvious
+    - Prioritize visual content for the description, but enrich it with transcript insights
+    - If transcript and visuals conflict, trust the visual evidence
+  </transcript_guidance>
+
+  <capabilities>
+    - Extract meaning from visual sequences
+    - Identify subjects, actions, settings, and narrative arcs
+    - Generate accurate, searchable metadata
+    - Synthesize visual and transcript information when provided
+  </capabilities>
+
+  <constraints>
+    - Only describe what is clearly observable in the frames or explicitly stated in the transcript
+    - Do not fabricate details or make unsupported assumptions
+    - Return structured data matching the requested schema
+  </constraints>`;
+
+interface UserPromptContext {
+  tone: ToneType;
+  transcriptText?: string;
+  isCleanTranscript?: boolean;
+  promptOverrides?: SummarizationPromptOverrides;
+}
+
+function buildUserPrompt({
+  tone,
+  transcriptText,
+  isCleanTranscript = true,
+  promptOverrides,
+}: UserPromptContext): string {
+  // Build dynamic context sections
+  const contextSections = [createToneSection(TONE_INSTRUCTIONS[tone])];
+
+  if (transcriptText) {
+    const format = isCleanTranscript ? 'plain text' : 'WebVTT';
+    contextSections.push(createTranscriptSection(transcriptText, format));
+  }
+
+  return summarizationPromptBuilder.buildWithContext(promptOverrides, contextSections);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
 
-const DEFAULT_PROMPT =
-  "Generate a short title (max 100 characters) and description (max 500 characters) for what happens. Start immediately with the action or subject - never reference that this is a video, content, or storyboard. Provide up to 10 concise keywords that capture the primary people, objects, or actions. Example: Title: 'Cooking Pasta Tutorial' Description: 'Someone cooks pasta by boiling water and adding noodles.' Keywords: ['cooking', 'pasta', 'boiling water', 'noodles', 'kitchen'].";
 const DEFAULT_PROVIDER = 'openai';
 const DEFAULT_TONE = 'normal';
 
@@ -97,21 +252,8 @@ function normalizeKeywords(keywords?: string[]): string[] {
 
 export async function getSummaryAndTags(
   assetId: string,
-  promptOrOptions?: string | SummarizationOptions,
   options?: SummarizationOptions
 ): Promise<SummaryAndTagsResult> {
-  // Handle overloaded parameters
-  let prompt: string;
-  let actualOptions: SummarizationOptions;
-
-  if (typeof promptOrOptions === 'string') {
-    prompt = promptOrOptions;
-    actualOptions = options || {};
-  } else {
-    prompt = DEFAULT_PROMPT;
-    actualOptions = promptOrOptions || {};
-  }
-
   const {
     provider = DEFAULT_PROVIDER,
     model,
@@ -121,11 +263,12 @@ export async function getSummaryAndTags(
     imageSubmissionMode = 'url',
     imageDownloadOptions,
     abortSignal,
-  } = actualOptions;
+    promptOverrides,
+  } = options ?? {};
 
   // Initialize clients with validated credentials and resolved language model
   const clients = createWorkflowClients(
-    { ...actualOptions, model },
+    { ...options, model },
     provider as SupportedProvider
   );
 
@@ -133,7 +276,7 @@ export async function getSummaryAndTags(
   const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(clients.mux, assetId);
 
   // Resolve signing context for signed playback IDs
-  const signingContext = resolveSigningContext(actualOptions);
+  const signingContext = resolveSigningContext(options ?? {});
   if (policy === 'signed' && !signingContext) {
     throw new Error(
       'Signed playback ID requires signing credentials. ' +
@@ -149,25 +292,13 @@ export async function getSummaryAndTags(
         })).transcriptText
       : '';
 
-  // Create tone-informed prompt
-  let toneInstruction = '';
-  switch (tone) {
-    case 'sassy':
-      toneInstruction = ' Answer with a sassy, playful attitude and personality.';
-      break;
-    case 'professional':
-      toneInstruction = ' Provide a professional, executive-level analysis suitable for business reporting.';
-      break;
-    default: // normal
-      toneInstruction = ' Provide a clear, straightforward analysis.';
-  }
-
-  // Add transcript context to prompt if available
-  let contextualPrompt = prompt + toneInstruction;
-  if (transcriptText) {
-    const transcriptType = cleanTranscript ? 'transcript' : 'WebVTT transcript';
-    contextualPrompt += ` Use the following ${transcriptType} for additional context: "${transcriptText}"`;
-  }
+  // Build the user prompt with all context and any overrides
+  const userPrompt = buildUserPrompt({
+    tone,
+    transcriptText,
+    isCleanTranscript: cleanTranscript,
+    promptOverrides,
+  });
 
   // Analyze storyboard with AI provider (signed if needed)
   const imageUrl = await getStoryboardUrl(playbackId, 640, policy === 'signed' ? signingContext : undefined);
@@ -180,13 +311,12 @@ export async function getSummaryAndTags(
       messages: [
         {
           role: 'system',
-          content:
-            'You are an image analysis tool. You will be given a storyboard image from a video showing multiple frames/scenes arranged in a grid. The frames are ordered temporally left-to-right, top-to-bottom (like reading text), so the first frame is in the top-left and the last frame is in the bottom-right. Analyze the progression of content across all frames and return structured data about what happens throughout the video.',
+          content: SYSTEM_PROMPT,
         },
         {
           role: 'user',
           content: [
-            { type: 'text', text: contextualPrompt },
+            { type: 'text', text: userPrompt },
             { type: 'image', image: imageDataUrl },
           ],
         },
@@ -212,17 +342,10 @@ export async function getSummaryAndTags(
     );
   }
 
-  if (!aiAnalysis.title) {
-    throw new Error(`Failed to generate title for asset ${assetId}`);
-  }
-  if (!aiAnalysis.description) {
-    throw new Error(`Failed to generate description for asset ${assetId}`);
-  }
-
   return {
     assetId,
-    title: aiAnalysis.title,
-    description: aiAnalysis.description,
+    title: aiAnalysis.title || 'No title available',
+    description: aiAnalysis.description || 'No description available',
     tags: normalizeKeywords(aiAnalysis.keywords),
     storyboardUrl: imageUrl,
   };
