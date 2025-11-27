@@ -6,6 +6,7 @@ import { getPlaybackIdForAsset } from '../lib/mux-assets';
 import { getStoryboardUrl } from '../primitives/storyboards';
 import { createWorkflowClients } from '../lib/client-factory';
 import { SupportedProvider, ModelIdByProvider } from '../lib/providers';
+import { resolveSigningContext } from '../lib/url-signing';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -94,8 +95,18 @@ export async function hasBurnedInCaptions(
     { ...config, model },
     provider as SupportedProvider
   );
-  const { playbackId } = await getPlaybackIdForAsset(clients.mux, assetId);
-  const imageUrl = getStoryboardUrl(playbackId, 640);
+  const { playbackId, policy } = await getPlaybackIdForAsset(clients.mux, assetId);
+
+  // Resolve signing context for signed playback IDs
+  const signingContext = resolveSigningContext(options);
+  if (policy === 'signed' && !signingContext) {
+    throw new Error(
+      'Signed playback ID requires signing credentials. ' +
+      'Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.'
+    );
+  }
+
+  const imageUrl = await getStoryboardUrl(playbackId, 640, policy === 'signed' ? signingContext : undefined);
 
   let analysisResult: BurnedInCaptionsAnalysis | null = null;
 

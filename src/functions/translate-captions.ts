@@ -7,6 +7,8 @@ import { z } from 'zod';
 import { MuxAIOptions } from '../types';
 import { createWorkflowClients } from '../lib/client-factory';
 import { SupportedProvider, ModelIdByProvider } from '../lib/providers';
+import { getPlaybackIdForAsset } from '../lib/mux-assets';
+import { resolveSigningContext, signUrl } from '../lib/url-signing';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -97,19 +99,16 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     throw new Error('S3 configuration is required for uploading to Mux. Provide s3Endpoint, s3Bucket, s3AccessKeyId, and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.');
   }
 
-  // Fetch asset data from Mux
-  let assetData;
-  try {
-    const asset = await clients.mux.video.assets.retrieve(assetId);
-    assetData = asset;
-  } catch (error) {
-    throw new Error(`Failed to fetch asset from Mux: ${error instanceof Error ? error.message : 'Unknown error'}`);
-  }
+  // Fetch asset data and playback ID from Mux
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(clients.mux, assetId);
 
-  // Get playback ID for caption URL
-  const playbackId = assetData.playback_ids?.[0]?.id;
-  if (!playbackId) {
-    throw new Error('No playback ID found for this asset');
+  // Resolve signing context for signed playback IDs
+  const signingContext = resolveSigningContext(options);
+  if (policy === 'signed' && !signingContext) {
+    throw new Error(
+      'Signed playback ID requires signing credentials. ' +
+      'Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.'
+    );
   }
 
   // Find text track with the source language
@@ -127,8 +126,11 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     throw new Error(`No ready text track found with language code '${fromLanguageCode}' for this asset`);
   }
 
-  // Fetch the VTT file content
-  const vttUrl = `https://stream.mux.com/${playbackId}/text/${sourceTextTrack.id}.vtt`;
+  // Fetch the VTT file content (signed if needed)
+  let vttUrl = `https://stream.mux.com/${playbackId}/text/${sourceTextTrack.id}.vtt`;
+  if (policy === 'signed' && signingContext) {
+    vttUrl = await signUrl(vttUrl, playbackId, signingContext, 'video');
+  }
   let vttContent: string;
 
   try {

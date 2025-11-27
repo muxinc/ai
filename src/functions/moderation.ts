@@ -3,6 +3,7 @@ import { MuxAIOptions, ImageSubmissionMode } from '../types';
 import { getThumbnailUrls } from '../primitives/thumbnails';
 import { downloadImagesAsBase64, ImageDownloadOptions } from '../lib/image-download';
 import { getPlaybackIdForAsset } from '../lib/mux-assets';
+import { resolveSigningContext } from '../lib/url-signing';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -308,14 +309,24 @@ export async function getModerationScores(
   const credentials = validateCredentials(options, provider === 'openai' ? 'openai' : undefined);
   const muxClient = createMuxClient(credentials);
 
-  // Fetch asset data and a public playback ID from Mux via helper
-  const { asset, playbackId } = await getPlaybackIdForAsset(muxClient, assetId);
+  // Fetch asset data and playback ID from Mux via helper
+  const { asset, playbackId, policy } = await getPlaybackIdForAsset(muxClient, assetId);
   const duration = asset.duration || 0;
 
-  // Generate thumbnail URLs
-  const thumbnailUrls = getThumbnailUrls(playbackId, duration, {
+  // Resolve signing context for signed playback IDs
+  const signingContext = resolveSigningContext(options);
+  if (policy === 'signed' && !signingContext) {
+    throw new Error(
+      'Signed playback ID requires signing credentials. ' +
+      'Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.'
+    );
+  }
+
+  // Generate thumbnail URLs (signed if needed)
+  const thumbnailUrls = await getThumbnailUrls(playbackId, duration, {
     interval: thumbnailInterval,
     width: thumbnailWidth,
+    signingContext: policy === 'signed' ? signingContext : undefined,
   });
 
   let thumbnailScores: ThumbnailModerationScore[];

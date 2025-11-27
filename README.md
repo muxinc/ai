@@ -314,6 +314,10 @@ ANTHROPIC_API_KEY=your_anthropic_api_key
 GOOGLE_GENERATIVE_AI_API_KEY=your_google_api_key
 ELEVENLABS_API_KEY=your_elevenlabs_api_key
 
+# Signed Playback (for assets with signed playback policies)
+MUX_SIGNING_KEY=your_signing_key_id
+MUX_PRIVATE_KEY=your_base64_encoded_private_key
+
 # S3-Compatible Storage (required for translation & audio dubbing)
 S3_ENDPOINT=https://your-s3-endpoint.com
 S3_REGION=auto
@@ -328,7 +332,10 @@ Or pass credentials directly:
 const result = await getSummaryAndTags(assetId, {
   muxTokenId: 'your-token-id',
   muxTokenSecret: 'your-token-secret',
-  openaiApiKey: 'your-openai-key'
+  openaiApiKey: 'your-openai-key',
+  // For assets with signed playback policies:
+  muxSigningKey: 'your-signing-key-id',
+  muxPrivateKey: 'your-base64-private-key'
 });
 ```
 
@@ -356,7 +363,9 @@ Analyzes a Mux video asset and returns AI-generated metadata.
   - `maxRetryDelay?: number` - Maximum delay between retries in milliseconds (default: 10000)
   - `exponentialBackoff?: boolean` - Whether to use exponential backoff (default: true)
 - `muxTokenId?: string` - Mux API token ID
-- `muxTokenSecret?: string` - Mux API token secret  
+- `muxTokenSecret?: string` - Mux API token secret
+- `muxSigningKey?: string` - Signing key ID for signed playback policies
+- `muxPrivateKey?: string` - Base64-encoded private key for signed playback policies
 - `openaiApiKey?: string` - OpenAI API key
 - `anthropicApiKey?: string` - Anthropic API key
 - `googleApiKey?: string` - Google Generative AI API key
@@ -639,6 +648,10 @@ npm run example:translate-captions <asset-id> [from-lang] [to-lang] [provider]
 
 # Audio Translation (Dubbing)
 npm run example:translate-audio <asset-id> [to-lang]
+
+# Signed Playback (for assets with signed playback policies)
+npm run example:signed-playback <signed-asset-id>
+npm run example:signed-playback:summarize <signed-asset-id> [provider]
 ```
 
 **Examples:**
@@ -755,6 +768,33 @@ npm run dubbing-only <your-asset-id> fr
 7. Generates presigned URL (1-hour expiry)
 8. Adds new audio track to Mux asset
 9. Track name: "{Language} (auto-dubbed)"
+
+### Signed Playback Examples
+- **URL Generation Test**: Verify signed URLs work for storyboards, thumbnails, and transcripts
+- **Signed Summarization**: Full summarization workflow with a signed asset
+
+```bash
+cd examples/signed-playback
+npm install
+
+# Verify signed URL generation
+npm run basic <signed-asset-id>
+
+# Summarize a signed asset
+npm run summarize <signed-asset-id> [provider]
+```
+
+**Prerequisites:**
+1. Create a Mux asset with `playback_policy: "signed"`
+2. Create a signing key in Mux Dashboard → Settings → Signing Keys
+3. Set `MUX_SIGNING_KEY` and `MUX_PRIVATE_KEY` environment variables
+
+**How Signed Playback Works:**
+When you provide signing credentials, the library automatically:
+- Detects if an asset has a signed playback policy
+- Generates JWT tokens with RS256 algorithm
+- Uses the correct `aud` claim for each asset type (video, thumbnail, storyboard)
+- Appends tokens to URLs as query parameters
 
 ## S3-Compatible Storage
 

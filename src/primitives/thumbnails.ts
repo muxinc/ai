@@ -1,19 +1,29 @@
+import { SigningContext, signUrl } from '../lib/url-signing';
+
 export interface ThumbnailOptions {
   /** Interval between thumbnails in seconds (default: 10) */
   interval?: number;
   /** Width of the thumbnail in pixels (default: 640) */
   width?: number;
+  /** Optional signing context for signed playback IDs */
+  signingContext?: SigningContext;
 }
 
 /**
  * Generates thumbnail URLs at regular intervals based on video duration.
+ * If a signing context is provided, the URLs will be signed with tokens.
+ *
+ * @param playbackId - The Mux playback ID
+ * @param duration - Video duration in seconds
+ * @param options - Thumbnail generation options
+ * @returns Array of thumbnail URLs (signed if context provided)
  */
-export function getThumbnailUrls(
+export async function getThumbnailUrls(
   playbackId: string,
   duration: number,
   options: ThumbnailOptions = {}
-): string[] {
-  const { interval = 10, width = 640 } = options;
+): Promise<string[]> {
+  const { interval = 10, width = 640, signingContext } = options;
   const timestamps: number[] = [];
 
   if (duration <= 50) {
@@ -27,7 +37,15 @@ export function getThumbnailUrls(
     }
   }
 
-  return timestamps.map(
-    (time) => `https://image.mux.com/${playbackId}/thumbnail.png?time=${time}&width=${width}`
-  );
+  const baseUrl = `https://image.mux.com/${playbackId}/thumbnail.png`;
+
+  const urlPromises = timestamps.map(async (time) => {
+    if (signingContext) {
+      return signUrl(baseUrl, playbackId, signingContext, 'thumbnail', { time, width });
+    }
+
+    return `${baseUrl}?time=${time}&width=${width}`;
+  });
+
+  return Promise.all(urlPromises);
 }
