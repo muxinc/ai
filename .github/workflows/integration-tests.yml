@@ -32,6 +32,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
           HIVE_API_KEY: ${{ secrets.HIVE_API_KEY }}
+          GOOGLE_GENERATIVE_AI_API_KEY : ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
           S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
           S3_REGION: ${{ secrets.S3_REGION }}
           S3_BUCKET: ${{ secrets.S3_BUCKET }}
