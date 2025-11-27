@@ -37,14 +37,14 @@ export async function getThumbnailUrls(
     }
   }
 
-  const urlPromises = timestamps.map(async (time) => {
-    const baseUrl = `https://image.mux.com/${playbackId}/thumbnail.png?time=${time}&width=${width}`;
+  const baseUrl = `https://image.mux.com/${playbackId}/thumbnail.png`;
 
+  const urlPromises = timestamps.map(async (time) => {
     if (signingContext) {
       return signUrl(baseUrl, playbackId, signingContext, 'thumbnail', { time, width });
     }
 
-    return baseUrl;
+    return `${baseUrl}?time=${time}&width=${width}`;
   });
 
   return Promise.all(urlPromises);

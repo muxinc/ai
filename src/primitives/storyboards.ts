@@ -16,11 +16,11 @@ export async function getStoryboardUrl(
   width: number = DEFAULT_STORYBOARD_WIDTH,
   signingContext?: SigningContext
 ): Promise<string> {
-  const baseUrl = `https://image.mux.com/${playbackId}/storyboard.png?width=${width}`;
+  const baseUrl = `https://image.mux.com/${playbackId}/storyboard.png`;
 
   if (signingContext) {
-    return signUrl(baseUrl, playbackId, signingContext, 'storyboard');
+    return signUrl(baseUrl, playbackId, signingContext, 'storyboard', { width });
   }
 
-  return baseUrl;
+  return `${baseUrl}?width=${width}`;
 }
