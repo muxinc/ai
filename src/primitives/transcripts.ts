@@ -33,8 +33,8 @@ export function findCaptionTrack(asset: MuxAsset, languageCode?: string): AssetT
 
   return tracks.find(
     track =>
-      track.text_type === "subtitles"
-      && track.language_code === languageCode,
+      track.text_type === "subtitles" &&
+      track.language_code === languageCode,
   );
 }
 
@@ -169,8 +169,7 @@ export async function fetchTranscriptForAsset(
     const transcriptText = cleanTranscript ? extractTextFromVTT(rawVtt) : rawVtt;
 
     return { transcriptText, transcriptUrl, track };
-  }
-  catch (error) {
+  } catch (error) {
     console.warn("Failed to fetch transcript:", error);
     return { transcriptText: "", transcriptUrl, track };
   }

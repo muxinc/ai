@@ -111,8 +111,7 @@ export async function downloadImageAsBase64(
           sizeBytes: buffer.length,
           attempts: attemptCount,
         };
-      }
-      catch (error) {
+      } catch (error) {
         clearTimeout(timeoutId);
 
         // If it's an AbortError (non-retryable), re-throw it

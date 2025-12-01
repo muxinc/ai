@@ -58,11 +58,10 @@ program
         console.log(`   Storyboard: ${results[0].result.storyboardUrl}`);
       }
 
-      const avgConfidence
-        = results.reduce((sum, entry) => sum + entry.result.confidence, 0) / results.length;
+      const avgConfidence =
+        results.reduce((sum, entry) => sum + entry.result.confidence, 0) / results.length;
       console.log(`📊 Average Confidence: ${(avgConfidence * 100).toFixed(1)}%`);
-    }
-    catch (error) {
+    } catch (error) {
       console.error("❌ Error:", error instanceof Error ? error.message : error);
       process.exit(1);
     }

@@ -90,8 +90,8 @@ export async function generateChapters(
   const signingContext = resolveSigningContext(options);
   if (policy === "signed" && !signingContext) {
     throw new Error(
-      "Signed playback ID requires signing credentials. "
-      + "Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
+      "Signed playback ID requires signing credentials. " +
+      "Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
     );
   }
 
@@ -139,8 +139,7 @@ export async function generateChapters(
     );
 
     chaptersData = response.object;
-  }
-  catch (error) {
+  } catch (error) {
     throw new Error(
       `Failed to generate chapters with ${provider}: ${error instanceof Error ? error.message : "Unknown error"}`,
     );

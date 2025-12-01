@@ -104,8 +104,8 @@ export async function hasBurnedInCaptions(
   const signingContext = resolveSigningContext(options);
   if (policy === "signed" && !signingContext) {
     throw new Error(
-      "Signed playback ID requires signing credentials. "
-      + "Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
+      "Signed playback ID requires signing credentials. " +
+      "Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
     );
   }
 
@@ -139,8 +139,7 @@ export async function hasBurnedInCaptions(
   if (imageSubmissionMode === "base64") {
     const downloadResult = await downloadImageAsBase64(imageUrl, imageDownloadOptions);
     analysisResult = await analyzeStoryboard(downloadResult.base64Data);
-  }
-  else {
+  } else {
     analysisResult = await analyzeStoryboard(imageUrl);
   }
 

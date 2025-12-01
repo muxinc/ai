@@ -22,5 +22,9 @@ export default antfu({
       case: "kebabCase",
       ignore: ["README.md"],
     }],
+    // Cuddled else: } else { on same line
+    "style/brace-style": ["error", "1tbs"],
+    // Operators at end of line, not beginning
+    "style/operator-linebreak": ["error", "after"],
   },
 });

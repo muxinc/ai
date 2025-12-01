@@ -76,13 +76,12 @@ async function requestStaticRenditionCreation(muxClient: Mux, assetId: string) {
       resolution: "audio-only",
     });
     console.log("📼 Static rendition request accepted by Mux.");
-  }
-  catch (error: any) {
+  } catch (error: any) {
     const statusCode = error?.status ?? error?.statusCode;
     const messages: string[] | undefined = error?.error?.messages;
-    const alreadyDefined
-      = messages?.some(message => message.toLowerCase().includes("already defined"))
-        ?? error?.message?.toLowerCase().includes("already defined");
+    const alreadyDefined =
+      messages?.some(message => message.toLowerCase().includes("already defined")) ??
+      error?.message?.toLowerCase().includes("already defined");
 
     if (statusCode === 409 || alreadyDefined) {
       console.log("ℹ️ Static rendition already requested. Waiting for it to finish...");
@@ -113,12 +112,10 @@ async function waitForAudioStaticRendition({
 
   if (status === "not_requested" || status === undefined) {
     await requestStaticRenditionCreation(muxClient, assetId);
-  }
-  else if (status === "errored") {
+  } else if (status === "errored") {
     console.log("⚠️ Previous static rendition request errored. Creating a new one...");
     await requestStaticRenditionCreation(muxClient, assetId);
-  }
-  else {
+  } else {
     console.log(`ℹ️ Static rendition already ${status}. Waiting for it to finish...`);
   }
 
@@ -205,8 +202,8 @@ export async function translateAudio(
   const signingContext = resolveSigningContext(options);
   if (policy === "signed" && !signingContext) {
     throw new Error(
-      "Signed playback ID requires signing credentials. "
-      + "Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
+      "Signed playback ID requires signing credentials. " +
+      "Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
     );
   }
 
@@ -279,8 +276,7 @@ export async function translateAudio(
     dubbingId = dubbingData.dubbing_id;
     console.log(`✅ Dubbing job created: ${dubbingId}`);
     console.log(`⏱️ Expected duration: ${dubbingData.expected_duration_sec}s`);
-  }
-  catch (error) {
+  } catch (error) {
     throw new Error(`Failed to create ElevenLabs dubbing job: ${error instanceof Error ? error.message : "Unknown error"}`);
   }
 
@@ -314,8 +310,7 @@ export async function translateAudio(
       if (dubbingStatus === "failed") {
         throw new Error("ElevenLabs dubbing job failed");
       }
-    }
-    catch (error) {
+    } catch (error) {
       throw new Error(`Failed to check dubbing status: ${error instanceof Error ? error.message : "Unknown error"}`);
     }
   }
@@ -355,8 +350,7 @@ export async function translateAudio(
 
     dubbedAudioBuffer = await audioResponse.arrayBuffer();
     console.log(`✅ Downloaded dubbed audio (${dubbedAudioBuffer.byteLength} bytes)`);
-  }
-  catch (error) {
+  } catch (error) {
     throw new Error(`Failed to download dubbed audio: ${error instanceof Error ? error.message : "Unknown error"}`);
   }
 
@@ -404,8 +398,7 @@ export async function translateAudio(
     });
 
     console.log(`🔗 Generated presigned URL (expires in 1 hour)`);
-  }
-  catch (error) {
+  } catch (error) {
     throw new Error(`Failed to upload audio to S3: ${error instanceof Error ? error.message : "Unknown error"}`);
   }
 
@@ -428,8 +421,7 @@ export async function translateAudio(
     uploadedTrackId = trackResponse.id;
     console.log(`✅ Audio track added to Mux asset with ID: ${uploadedTrackId}`);
     console.log(`🎵 Track name: "${trackName}"`);
-  }
-  catch (error) {
+  } catch (error) {
     console.warn(`⚠️ Failed to add audio track to Mux asset: ${error instanceof Error ? error.message : "Unknown error"}`);
     console.log("🔗 You can manually add the track using this presigned URL:");
     console.log(presignedUrl);

@@ -48,8 +48,7 @@ program
 
       console.log("\n🎬 Mux Player Format:");
       console.log(JSON.stringify(result.chapters, null, 2));
-    }
-    catch (error) {
+    } catch (error) {
       console.error("❌ Error:", error instanceof Error ? error.message : error);
       process.exit(1);
     }

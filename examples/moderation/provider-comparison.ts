@@ -73,8 +73,7 @@ Notes:
         entry => entry.result.exceedsThreshold === results[0].result.exceedsThreshold,
       );
       console.log(`\n🎯 Agreement: ${agreesOnFlag ? "✅ Both providers agree" : "⚠️  Providers disagree"} on flagging`);
-    }
-    catch (error) {
+    } catch (error) {
       console.error("❌ Error:", error instanceof Error ? error.message : error);
       process.exit(1);
     }

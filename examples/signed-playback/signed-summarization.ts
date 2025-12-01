@@ -76,8 +76,7 @@ Notes:
 
     if (!hasSigningCredentials) {
       console.log("   If your asset has a signed playback policy, this will fail.\n");
-    }
-    else {
+    } else {
       console.log("");
     }
 
@@ -109,8 +108,7 @@ Notes:
       console.log("\n🖼️  Storyboard URL (signed):");
       console.log(`${result.storyboardUrl.substring(0, 80)}...`);
       console.log("─".repeat(60));
-    }
-    catch (error) {
+    } catch (error) {
       console.error("❌ Error:", error instanceof Error ? error.message : error);
 
       if (error instanceof Error && error.message.includes("signing credentials")) {

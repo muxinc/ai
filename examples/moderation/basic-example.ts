@@ -59,8 +59,7 @@ async function main() {
     });
 
     console.log("\n📦 Asset ID:", result.assetId);
-  }
-  catch (error) {
+  } catch (error) {
     console.error("❌ Error:", error instanceof Error ? error.message : error);
   }
 }

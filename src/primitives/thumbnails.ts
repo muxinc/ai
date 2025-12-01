@@ -33,8 +33,7 @@ export async function getThumbnailUrls(
     for (let i = 1; i <= 5; i++) {
       timestamps.push(Math.round(i * spacing));
     }
-  }
-  else {
+  } else {
     for (let time = 0; time < duration; time += interval) {
       timestamps.push(time);
     }

@@ -61,8 +61,7 @@ program
         console.log(`Violence Score: ${result.maxScores.violence.toFixed(3)} ${violenceResult}`);
         console.log(`Overall: ${result.exceedsThreshold ? "❌ WOULD BLOCK" : "✅ WOULD ALLOW"}`);
         console.log("");
-      }
-      catch (error) {
+      } catch (error) {
         console.error(`❌ Error with ${config.name} thresholds:`, error instanceof Error ? error.message : error);
       }
     }

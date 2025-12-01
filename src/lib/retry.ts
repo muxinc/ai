@@ -47,8 +47,7 @@ export async function withRetry<T>(
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await fn();
-    }
-    catch (error) {
+    } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
 
       const isLastAttempt = attempt === maxRetries;

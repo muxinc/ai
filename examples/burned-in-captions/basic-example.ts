@@ -45,13 +45,11 @@ program
           console.log(`   Language detected: ${result.detectedLanguage}`);
         }
         console.log("   Consider this when processing captions or accessibility features.");
-      }
-      else {
+      } else {
         console.log("\n📝 No burned-in captions detected.");
         console.log("   This video likely uses separate caption tracks or no captions.");
       }
-    }
-    catch (error) {
+    } catch (error) {
       console.error("❌ Error:", error instanceof Error ? error.message : error);
       process.exit(1);
     }

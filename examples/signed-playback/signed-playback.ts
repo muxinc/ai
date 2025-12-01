@@ -72,8 +72,7 @@ Notes:
     let asset;
     try {
       asset = await mux.video.assets.retrieve(assetId);
-    }
-    catch (error) {
+    } catch (error) {
       console.error("❌ Failed to fetch asset:", error instanceof Error ? error.message : error);
       process.exit(1);
     }
@@ -111,12 +110,10 @@ Notes:
       const response = await fetch(storyboardUrl, { method: "HEAD" });
       if (response.ok) {
         console.log(`✅ URL is accessible (HTTP ${response.status})`);
-      }
-      else {
+      } else {
         console.log(`❌ URL returned HTTP ${response.status}`);
       }
-    }
-    catch (error) {
+    } catch (error) {
       console.error("❌ Error:", error instanceof Error ? error.message : error);
     }
     console.log("");
@@ -142,13 +139,11 @@ Notes:
         const response = await fetch(thumbnailUrls[0], { method: "HEAD" });
         if (response.ok) {
           console.log(`✅ URL is accessible (HTTP ${response.status})`);
-        }
-        else {
+        } else {
           console.log(`❌ URL returned HTTP ${response.status}`);
         }
       }
-    }
-    catch (error) {
+    } catch (error) {
       console.error("❌ Error:", error instanceof Error ? error.message : error);
     }
     console.log("");
@@ -169,16 +164,13 @@ Notes:
         const response = await fetch(transcriptUrl, { method: "HEAD" });
         if (response.ok) {
           console.log(`✅ URL is accessible (HTTP ${response.status})`);
-        }
-        else {
+        } else {
           console.log(`❌ URL returned HTTP ${response.status}`);
         }
-      }
-      else {
+      } else {
         console.log("ℹ️  No caption track found on this asset (skipping transcript test)");
       }
-    }
-    catch (error) {
+    } catch (error) {
       console.error("❌ Error:", error instanceof Error ? error.message : error);
     }
     console.log("");

@@ -38,8 +38,8 @@ export function validateCredentials(
   const muxTokenSecret = options.muxTokenSecret ?? env.MUX_TOKEN_SECRET;
   const openaiApiKey = options.openaiApiKey ?? env.OPENAI_API_KEY;
   const anthropicApiKey = options.anthropicApiKey ?? env.ANTHROPIC_API_KEY;
-  const googleApiKey
-    = options.googleApiKey ?? env.GOOGLE_GENERATIVE_AI_API_KEY;
+  const googleApiKey =
+    options.googleApiKey ?? env.GOOGLE_GENERATIVE_AI_API_KEY;
 
   if (!muxTokenId || !muxTokenSecret) {
     throw new Error(

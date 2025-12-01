@@ -108,8 +108,8 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   const signingContext = resolveSigningContext(options);
   if (policy === "signed" && !signingContext) {
     throw new Error(
-      "Signed playback ID requires signing credentials. "
-      + "Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
+      "Signed playback ID requires signing credentials. " +
+      "Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
     );
   }
 
@@ -119,9 +119,9 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   }
 
   const sourceTextTrack = assetData.tracks.find(track =>
-    track.type === "text"
-    && track.status === "ready"
-    && track.language_code === fromLanguageCode,
+    track.type === "text" &&
+    track.status === "ready" &&
+    track.language_code === fromLanguageCode,
   );
 
   if (!sourceTextTrack) {
@@ -141,8 +141,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
       throw new Error(`Failed to fetch VTT file: ${vttResponse.statusText}`);
     }
     vttContent = await vttResponse.text();
-  }
-  catch (error) {
+  } catch (error) {
     throw new Error(`Failed to fetch VTT content: ${error instanceof Error ? error.message : "Unknown error"}`);
   }
 
@@ -165,8 +164,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     });
 
     translatedVtt = response.object.translation;
-  }
-  catch (error) {
+  } catch (error) {
     throw new Error(`Failed to translate VTT with ${resolvedProvider}: ${error instanceof Error ? error.message : "Unknown error"}`);
   }
 
@@ -229,8 +227,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     });
 
     console.log(`🔗 Generated presigned URL (expires in 1 hour)`);
-  }
-  catch (error) {
+  } catch (error) {
     throw new Error(`Failed to upload VTT to S3: ${error instanceof Error ? error.message : "Unknown error"}`);
   }
 
@@ -254,8 +251,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     uploadedTrackId = trackResponse.id;
     console.log(`✅ Track added to Mux asset with ID: ${uploadedTrackId}`);
     console.log(`📋 Track name: "${trackName}"`);
-  }
-  catch (error) {
+  } catch (error) {
     console.warn(`⚠️ Failed to add track to Mux asset: ${error instanceof Error ? error.message : "Unknown error"}`);
     console.log("🔗 You can manually add the track using this presigned URL:");
     console.log(presignedUrl);

@@ -54,8 +54,7 @@ program
         console.log(`Description: ${result.description}`);
         console.log(`Tags: ${result.tags.join(", ")}`);
         console.log("---\n");
-      }
-      catch (error) {
+      } catch (error) {
         console.error(`❌ Error with ${tone} tone:`, error instanceof Error ? error.message : error);
       }
     }

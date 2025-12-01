@@ -54,12 +54,12 @@ export interface SummaryAndTagsResult {
  * Sections of the summarization user prompt that can be overridden.
  * Use these to customize the AI's behavior for your specific use case.
  */
-export type SummarizationPromptSections
-  = | "task"
-    | "title"
-    | "description"
-    | "keywords"
-    | "qualityGuidelines";
+export type SummarizationPromptSections =
+  | "task" |
+  "title" |
+  "description" |
+  "keywords" |
+  "qualityGuidelines";
 
 /**
  * Override specific sections of the summarization prompt.
@@ -284,18 +284,18 @@ export async function getSummaryAndTags(
   const signingContext = resolveSigningContext(options ?? {});
   if (policy === "signed" && !signingContext) {
     throw new Error(
-      "Signed playback ID requires signing credentials. "
-      + "Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
+      "Signed playback ID requires signing credentials. " +
+      "Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
     );
   }
 
-  const transcriptText
-    = includeTranscript
-      ? (await fetchTranscriptForAsset(assetData, playbackId, {
+  const transcriptText =
+    includeTranscript ?
+        (await fetchTranscriptForAsset(assetData, playbackId, {
           cleanTranscript,
           signingContext: policy === "signed" ? signingContext : undefined,
-        })).transcriptText
-      : "";
+        })).transcriptText :
+      "";
 
   // Build the user prompt with all context and any overrides
   const userPrompt = buildUserPrompt({
@@ -337,13 +337,11 @@ export async function getSummaryAndTags(
     if (imageSubmissionMode === "base64") {
       const downloadResult = await downloadImageAsBase64(imageUrl, imageDownloadOptions);
       aiAnalysis = await analyzeStoryboard(downloadResult.base64Data);
-    }
-    else {
+    } else {
       // URL-based submission with retry logic
       aiAnalysis = await withRetry(() => analyzeStoryboard(imageUrl));
     }
-  }
-  catch (error: unknown) {
+  } catch (error: unknown) {
     throw new Error(
       `Failed to analyze video content with ${provider}: ${
         error instanceof Error ? error.message : "Unknown error"

@@ -238,8 +238,7 @@ program
       console.log(result.tags.join(", "));
       console.log("\n🖼️  Storyboard URL:");
       console.log(result.storyboardUrl);
-    }
-    catch (error) {
+    } catch (error) {
       console.error("❌ Error:", error instanceof Error ? error.message : error);
       process.exit(1);
     }

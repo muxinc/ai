@@ -69,12 +69,10 @@ program
 
       if (topicOverlap.size > 0) {
         console.log(`🤝 Common topics found: ${Array.from(topicOverlap).join(", ")}`);
-      }
-      else {
+      } else {
         console.log("🤔 No obvious common topics detected - providers may have different approaches");
       }
-    }
-    catch (error) {
+    } catch (error) {
       console.error("❌ Error:", error instanceof Error ? error.message : error);
       process.exit(1);
     }

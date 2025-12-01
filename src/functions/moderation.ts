@@ -40,9 +40,9 @@ export interface ModerationResult {
 /** Provider list accepted by `getModerationScores`. */
 export type ModerationProvider = "openai" | "hive";
 
-export type HiveModerationSource
-  = | { kind: "url"; value: string }
-    | { kind: "file"; buffer: Buffer; contentType: string };
+export type HiveModerationSource =
+  | { kind: "url"; value: string } |
+  { kind: "file"; buffer: Buffer; contentType: string };
 
 export interface HiveModerationOutput {
   classes?: Array<{
@@ -148,12 +148,12 @@ async function requestOpenAIModeration(
   submissionMode: "url" | "base64" = "url",
   downloadOptions?: ImageDownloadOptions,
 ): Promise<ThumbnailModerationScore[]> {
-  const targetUrls
-    = submissionMode === "base64"
-      ? (await downloadImagesAsBase64(imageUrls, downloadOptions, maxConcurrent)).map(
+  const targetUrls =
+    submissionMode === "base64" ?
+        (await downloadImagesAsBase64(imageUrls, downloadOptions, maxConcurrent)).map(
           img => ({ url: img.url, image: img.base64Data }),
-        )
-      : imageUrls.map(url => ({ url, image: url }));
+        ) :
+        imageUrls.map(url => ({ url, image: url }));
 
   const moderate = async (entry: { url: string; image: string }): Promise<ThumbnailModerationScore> => {
     try {
@@ -191,8 +191,7 @@ async function requestOpenAIModeration(
         violence: categoryScores.violence || 0,
         error: false,
       };
-    }
-    catch (error) {
+    } catch (error) {
       console.error("OpenAI moderation failed:", error);
       return {
         url: entry.url,
@@ -224,17 +223,17 @@ async function requestHiveModeration(
   submissionMode: "url" | "base64" = "url",
   downloadOptions?: ImageDownloadOptions,
 ): Promise<ThumbnailModerationScore[]> {
-  const targets: Array<{ url: string; source: HiveModerationSource }>
-    = submissionMode === "base64"
-      ? (await downloadImagesAsBase64(imageUrls, downloadOptions, maxConcurrent)).map(img => ({
+  const targets: Array<{ url: string; source: HiveModerationSource }> =
+    submissionMode === "base64" ?
+        (await downloadImagesAsBase64(imageUrls, downloadOptions, maxConcurrent)).map(img => ({
           url: img.url,
           source: {
             kind: "file",
             buffer: img.buffer,
             contentType: img.contentType,
           },
-        }))
-      : imageUrls.map(url => ({
+        })) :
+        imageUrls.map(url => ({
           url,
           source: { kind: "url", value: url },
         }));
@@ -245,8 +244,7 @@ async function requestHiveModeration(
 
       if (entry.source.kind === "url") {
         formData.append("url", entry.source.value);
-      }
-      else {
+      } else {
         const extension = entry.source.contentType.split("/")[1] || "jpg";
         const blob = new Blob([entry.source.buffer], {
           type: entry.source.contentType,
@@ -280,8 +278,7 @@ async function requestHiveModeration(
         violence: getHiveCategoryScores(classes, HIVE_VIOLENCE_CATEGORIES),
         error: false,
       };
-    }
-    catch (error) {
+    } catch (error) {
       console.error("Hive moderation failed:", error);
       return {
         url: entry.url,
@@ -325,8 +322,8 @@ export async function getModerationScores(
   const signingContext = resolveSigningContext(options);
   if (policy === "signed" && !signingContext) {
     throw new Error(
-      "Signed playback ID requires signing credentials. "
-      + "Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
+      "Signed playback ID requires signing credentials. " +
+      "Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
     );
   }
 
@@ -353,8 +350,7 @@ export async function getModerationScores(
       imageSubmissionMode,
       imageDownloadOptions,
     );
-  }
-  else if (provider === "hive") {
+  } else if (provider === "hive") {
     const hiveApiKey = options.hiveApiKey || env.HIVE_API_KEY;
     if (!hiveApiKey) {
       throw new Error("Hive API key is required for moderation. Set HIVE_API_KEY or pass hiveApiKey.");
@@ -367,8 +363,7 @@ export async function getModerationScores(
       imageSubmissionMode,
       imageDownloadOptions,
     );
-  }
-  else {
+  } else {
     throw new Error(`Unsupported moderation provider: ${provider}`);
   }
 

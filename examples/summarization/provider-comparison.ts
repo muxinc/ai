@@ -49,8 +49,7 @@ program
         console.log(`📋 Description: ${result.description}`);
         console.log(`🏷️  Tags: ${result.tags.join(", ")}`);
         console.log("---\n");
-      }
-      catch (error) {
+      } catch (error) {
         console.error(`❌ Error with ${config.name}:`, error instanceof Error ? error.message : error);
         console.log("---\n");
       }

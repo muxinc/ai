@@ -69,11 +69,11 @@ export async function signPlaybackId(
   const client = createSigningClient(context);
 
   // Convert params to Record<string, string> as required by the SDK
-  const stringParams = params
-    ? Object.fromEntries(
+  const stringParams = params ?
+      Object.fromEntries(
         Object.entries(params).map(([key, value]) => [key, String(value)]),
-      )
-    : undefined;
+      ) :
+    undefined;
 
   return client.jwt.signPlaybackId(playbackId, {
     type,
