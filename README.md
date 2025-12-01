@@ -922,4 +922,4 @@ Mux requires a publicly accessible URL to ingest subtitle tracks. The translatio
 
 ## License
 
-MIT © Mux, Inc.
+[Apache 2.0](LICENSE)
