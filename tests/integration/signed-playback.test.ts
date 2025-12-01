@@ -129,7 +129,7 @@ describe('Signed Playback Integration Tests', () => {
 
   describe('Primitives with Signing', () => {
     describe('getStoryboardUrl', () => {
-      it.skipIf(!canRunSignedTests)(skipMessage, async () => {
+      it.skipIf(!canRunSignedTests)('should generate signed storyboard URL', async () => {
         const url = await getStoryboardUrl(playbackId, 640, signingContext);
 
         expect(url).toContain(`https://image.mux.com/${playbackId}/storyboard.png`);
@@ -150,7 +150,7 @@ describe('Signed Playback Integration Tests', () => {
     });
 
     describe('getThumbnailUrls', () => {
-      it.skipIf(!canRunSignedTests)(skipMessage, async () => {
+      it.skipIf(!canRunSignedTests)('should generate signed thumbnail URLs', async () => {
         const urls = await getThumbnailUrls(playbackId, 30, {
           interval: 10,
           width: 640,
@@ -184,7 +184,7 @@ describe('Signed Playback Integration Tests', () => {
     });
 
     describe('buildTranscriptUrl', () => {
-      it.skipIf(!canRunSignedTests)(skipMessage, async () => {
+      it.skipIf(!canRunSignedTests)('should generate signed transcript URL', async () => {
         const trackId = 'test-track-id';
         const url = await buildTranscriptUrl(playbackId, trackId, signingContext);
 
@@ -205,7 +205,7 @@ describe('Signed Playback Integration Tests', () => {
 
   describe('Workflow Functions with Signed Assets', () => {
     describe('getSummaryAndTags', () => {
-      it.skipIf(!canRunSignedTests)(skipMessage, async () => {
+      it.skipIf(!canRunSignedTests)('should generate summary for signed asset', async () => {
         const result = await getSummaryAndTags(signedAssetId, {
           provider: 'anthropic',
           tone: 'normal',
@@ -241,7 +241,7 @@ describe('Signed Playback Integration Tests', () => {
     });
 
     describe('hasBurnedInCaptions', () => {
-      it.skipIf(!canRunSignedTests)(skipMessage, async () => {
+      it.skipIf(!canRunSignedTests)('should detect burned-in captions for signed asset', async () => {
         const result = await hasBurnedInCaptions(signedAssetId, {
           provider: 'anthropic',
           muxSigningKey: signingKeyId,
@@ -258,7 +258,7 @@ describe('Signed Playback Integration Tests', () => {
     });
 
     describe('getModerationScores', () => {
-      it.skipIf(!canRunSignedTests)(skipMessage, async () => {
+      it.skipIf(!canRunSignedTests)('should generate moderation scores for signed asset', async () => {
         const result = await getModerationScores(signedAssetId, {
           provider: 'openai',
           model: 'omni-moderation-latest',
@@ -275,7 +275,7 @@ describe('Signed Playback Integration Tests', () => {
     });
 
     describe('generateChapters', () => {
-      it.skipIf(!canRunSignedTests)(skipMessage, async () => {
+      it.skipIf(!canRunSignedTests)('should generate chapters for signed asset', async () => {
         const result = await generateChapters(signedAssetId, 'en', {
           provider: 'anthropic',
           muxSigningKey: signingKeyId,
