@@ -13,9 +13,6 @@
     "ai",
     "typescript"
   ],
-  "engines": {
-    "node": ">=20.0.0"
-  },
   "exports": {
     ".": {
       "types": {
@@ -48,6 +45,9 @@
   "files": [
     "dist"
   ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
