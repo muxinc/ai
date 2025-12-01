@@ -1,14 +1,15 @@
-import { describe, it, expect } from 'vitest';
-import 'dotenv/config';
-import { generateChapters } from '../../src/functions';
+import { describe, expect, it } from "vitest";
 
-describe('Chapters Integration Tests', () => {
-  const assetId = '88Lb01qNUqFJrOFMITk00Ck201F00Qmcbpc5qgopNV4fCOk';
-  const languageCode = 'en';
+import "../../src/env";
+import { generateChapters } from "../../src/functions";
 
-  it('should generate chapters with OpenAI provider', async () => {
+describe("chapters Integration Tests", () => {
+  const assetId = "88Lb01qNUqFJrOFMITk00Ck201F00Qmcbpc5qgopNV4fCOk";
+  const languageCode = "en";
+
+  it("should generate chapters with OpenAI provider", async () => {
     const result = await generateChapters(assetId, languageCode, {
-      provider: 'openai',
+      provider: "openai",
     });
 
     // Assert that the result exists
@@ -23,16 +24,16 @@ describe('Chapters Integration Tests', () => {
 
     // Verify chapter structure
     result.chapters.forEach((chapter) => {
-      expect(chapter).toHaveProperty('startTime');
-      expect(chapter).toHaveProperty('title');
-      expect(typeof chapter.startTime).toBe('number');
-      expect(typeof chapter.title).toBe('string');
+      expect(chapter).toHaveProperty("startTime");
+      expect(chapter).toHaveProperty("title");
+      expect(typeof chapter.startTime).toBe("number");
+      expect(typeof chapter.title).toBe("string");
     });
   });
 
-  it('should generate chapters with Anthropic provider', async () => {
+  it("should generate chapters with Anthropic provider", async () => {
     const result = await generateChapters(assetId, languageCode, {
-      provider: 'anthropic',
+      provider: "anthropic",
     });
 
     // Assert that the result exists
@@ -47,16 +48,16 @@ describe('Chapters Integration Tests', () => {
 
     // Verify chapter structure
     result.chapters.forEach((chapter) => {
-      expect(chapter).toHaveProperty('startTime');
-      expect(chapter).toHaveProperty('title');
-      expect(typeof chapter.startTime).toBe('number');
-      expect(typeof chapter.title).toBe('string');
+      expect(chapter).toHaveProperty("startTime");
+      expect(chapter).toHaveProperty("title");
+      expect(typeof chapter.startTime).toBe("number");
+      expect(typeof chapter.title).toBe("string");
     });
   });
 
-  it('should generate chapters with Google provider', async () => {
+  it("should generate chapters with Google provider", async () => {
     const result = await generateChapters(assetId, languageCode, {
-      provider: 'google',
+      provider: "google",
     });
 
     // Assert that the result exists
@@ -71,10 +72,10 @@ describe('Chapters Integration Tests', () => {
 
     // Verify chapter structure
     result.chapters.forEach((chapter) => {
-      expect(chapter).toHaveProperty('startTime');
-      expect(chapter).toHaveProperty('title');
-      expect(typeof chapter.startTime).toBe('number');
-      expect(typeof chapter.title).toBe('string');
+      expect(chapter).toHaveProperty("startTime");
+      expect(chapter).toHaveProperty("title");
+      expect(typeof chapter.startTime).toBe("number");
+      expect(typeof chapter.title).toBe("string");
     });
   });
 });

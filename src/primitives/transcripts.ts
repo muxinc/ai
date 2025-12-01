@@ -1,5 +1,6 @@
-import { AssetTextTrack, MuxAsset } from '../types';
-import { SigningContext, signUrl } from '../lib/url-signing';
+import type { SigningContext } from "../lib/url-signing";
+import { signUrl } from "../lib/url-signing";
+import type { AssetTextTrack, MuxAsset } from "../types";
 
 export interface TranscriptFetchOptions {
   languageCode?: string;
@@ -16,77 +17,85 @@ export interface TranscriptResult {
 
 export function getReadyTextTracks(asset: MuxAsset): AssetTextTrack[] {
   return (asset.tracks || []).filter(
-    (track) => track.type === 'text' && track.status === 'ready'
+    track => track.type === "text" && track.status === "ready",
   );
 }
 
 export function findCaptionTrack(asset: MuxAsset, languageCode?: string): AssetTextTrack | undefined {
   const tracks = getReadyTextTracks(asset);
-  if (!tracks.length) return undefined;
+  if (!tracks.length)
+    return undefined;
 
   if (!languageCode) {
     return tracks[0];
   }
 
   return tracks.find(
-    (track) =>
-      track.text_type === 'subtitles' &&
-      track.language_code === languageCode
+    track =>
+      track.text_type === "subtitles" &&
+      track.language_code === languageCode,
   );
 }
 
 export function extractTextFromVTT(vttContent: string): string {
   if (!vttContent.trim()) {
-    return '';
+    return "";
   }
 
-  const lines = vttContent.split('\n');
+  const lines = vttContent.split("\n");
   const textLines: string[] = [];
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
 
-    if (!line) continue;
-    if (line === 'WEBVTT') continue;
-    if (line.startsWith('NOTE ')) continue;
-    if (line.includes('-->')) continue;
-    if (/^[\d\w-]+$/.test(line) && !line.includes(' ')) continue;
-    if (line.startsWith('STYLE') || line.startsWith('REGION')) continue;
+    if (!line)
+      continue;
+    if (line === "WEBVTT")
+      continue;
+    if (line.startsWith("NOTE "))
+      continue;
+    if (line.includes("-->"))
+      continue;
+    if (/^[\w-]+$/.test(line) && !line.includes(" "))
+      continue;
+    if (line.startsWith("STYLE") || line.startsWith("REGION"))
+      continue;
 
-    const cleanLine = line.replace(/<[^>]*>/g, '').trim();
+    const cleanLine = line.replace(/<[^>]*>/g, "").trim();
 
     if (cleanLine) {
       textLines.push(cleanLine);
     }
   }
 
-  return textLines.join(' ').replace(/\s+/g, ' ').trim();
+  return textLines.join(" ").replace(/\s+/g, " ").trim();
 }
 
 export function vttTimestampToSeconds(timestamp: string): number {
-  const parts = timestamp.split(':');
-  if (parts.length !== 3) return 0;
+  const parts = timestamp.split(":");
+  if (parts.length !== 3)
+    return 0;
 
-  const hours = parseInt(parts[0], 10) || 0;
-  const minutes = parseInt(parts[1], 10) || 0;
-  const seconds = parseFloat(parts[2]) || 0;
+  const hours = Number.parseInt(parts[0], 10) || 0;
+  const minutes = Number.parseInt(parts[1], 10) || 0;
+  const seconds = Number.parseFloat(parts[2]) || 0;
 
   return hours * 3600 + minutes * 60 + seconds;
 }
 
 export function extractTimestampedTranscript(vttContent: string): string {
   if (!vttContent.trim()) {
-    return '';
+    return "";
   }
 
-  const lines = vttContent.split('\n');
+  const lines = vttContent.split("\n");
   const segments: Array<{ time: number; text: string }> = [];
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
 
-    if (line.includes('-->')) {
-      const startTime = line.split(' --> ')[0].trim();
+    if (line.includes("-->")) {
+      const startTime = line.split(" --> ")[0].trim();
       const timeInSeconds = vttTimestampToSeconds(startTime);
 
       let j = i + 1;
@@ -95,7 +104,7 @@ export function extractTimestampedTranscript(vttContent: string): string {
       }
 
       if (j < lines.length) {
-        const text = lines[j].trim().replace(/<[^>]*>/g, '');
+        const text = lines[j].trim().replace(/<[^>]*>/g, "");
         if (text) {
           segments.push({ time: timeInSeconds, text });
         }
@@ -104,8 +113,8 @@ export function extractTimestampedTranscript(vttContent: string): string {
   }
 
   return segments
-    .map((segment) => `[${Math.floor(segment.time)}s] ${segment.text}`)
-    .join('\n');
+    .map(segment => `[${Math.floor(segment.time)}s] ${segment.text}`)
+    .join("\n");
 }
 
 /**
@@ -120,12 +129,12 @@ export function extractTimestampedTranscript(vttContent: string): string {
 export async function buildTranscriptUrl(
   playbackId: string,
   trackId: string,
-  signingContext?: SigningContext
+  signingContext?: SigningContext,
 ): Promise<string> {
   const baseUrl = `https://stream.mux.com/${playbackId}/text/${trackId}.vtt`;
 
   if (signingContext) {
-    return signUrl(baseUrl, playbackId, signingContext, 'video');
+    return signUrl(baseUrl, playbackId, signingContext, "video");
   }
 
   return baseUrl;
@@ -134,17 +143,17 @@ export async function buildTranscriptUrl(
 export async function fetchTranscriptForAsset(
   asset: MuxAsset,
   playbackId: string,
-  options: TranscriptFetchOptions = {}
+  options: TranscriptFetchOptions = {},
 ): Promise<TranscriptResult> {
   const { languageCode, cleanTranscript = true, signingContext } = options;
   const track = findCaptionTrack(asset, languageCode);
 
   if (!track) {
-    return { transcriptText: '' };
+    return { transcriptText: "" };
   }
 
   if (!track.id) {
-    return { transcriptText: '', track };
+    return { transcriptText: "", track };
   }
 
   const transcriptUrl = await buildTranscriptUrl(playbackId, track.id, signingContext);
@@ -152,7 +161,7 @@ export async function fetchTranscriptForAsset(
   try {
     const response = await fetch(transcriptUrl);
     if (!response.ok) {
-      return { transcriptText: '', transcriptUrl, track };
+      return { transcriptText: "", transcriptUrl, track };
     }
 
     const rawVtt = await response.text();
@@ -160,7 +169,7 @@ export async function fetchTranscriptForAsset(
 
     return { transcriptText, transcriptUrl, track };
   } catch (error) {
-    console.warn('Failed to fetch transcript:', error);
-    return { transcriptText: '', transcriptUrl, track };
+    console.warn("Failed to fetch transcript:", error);
+    return { transcriptText: "", transcriptUrl, track };
   }
 }

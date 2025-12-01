@@ -1,5 +1,7 @@
-import Mux from '@mux/mux-node';
-import { MuxAIConfig } from '../types';
+import Mux from "@mux/mux-node";
+
+import env from "../env";
+import type { MuxAIConfig } from "../types";
 
 /**
  * Context required to sign URLs for signed playback IDs.
@@ -16,15 +18,15 @@ export interface SigningContext {
 /**
  * Token type determines which Mux service the token is valid for.
  */
-export type TokenType = 'video' | 'thumbnail' | 'storyboard' | 'gif';
+export type TokenType = "video" | "thumbnail" | "storyboard" | "gif";
 
 /**
  * Resolves signing context from config or environment variables.
  * Returns undefined if signing keys are not configured.
  */
 export function resolveSigningContext(config: MuxAIConfig): SigningContext | undefined {
-  const keyId = config.muxSigningKey || process.env.MUX_SIGNING_KEY;
-  const keySecret = config.muxPrivateKey || process.env.MUX_PRIVATE_KEY;
+  const keyId = config.muxSigningKey ?? env.MUX_SIGNING_KEY;
+  const keySecret = config.muxPrivateKey ?? env.MUX_PRIVATE_KEY;
 
   if (!keyId || !keySecret) {
     return undefined;
@@ -41,8 +43,8 @@ function createSigningClient(context: SigningContext): Mux {
   return new Mux({
     // These are not needed for signing, but the SDK requires them
     // Using empty strings as we only need the jwt functionality
-    tokenId: process.env.MUX_TOKEN_ID || '',
-    tokenSecret: process.env.MUX_TOKEN_SECRET || '',
+    tokenId: env.MUX_TOKEN_ID || "",
+    tokenSecret: env.MUX_TOKEN_SECRET || "",
     jwtSigningKey: context.keyId,
     jwtPrivateKey: context.keySecret,
   });
@@ -60,21 +62,21 @@ function createSigningClient(context: SigningContext): Mux {
 export async function signPlaybackId(
   playbackId: string,
   context: SigningContext,
-  type: TokenType = 'video',
-  params?: Record<string, string | number>
+  type: TokenType = "video",
+  params?: Record<string, string | number>,
 ): Promise<string> {
   const client = createSigningClient(context);
 
   // Convert params to Record<string, string> as required by the SDK
-  const stringParams = params
-    ? Object.fromEntries(
-        Object.entries(params).map(([key, value]) => [key, String(value)])
-      )
-    : undefined;
+  const stringParams = params ?
+      Object.fromEntries(
+        Object.entries(params).map(([key, value]) => [key, String(value)]),
+      ) :
+    undefined;
 
   return client.jwt.signPlaybackId(playbackId, {
     type,
-    expiration: context.expiration || '1h',
+    expiration: context.expiration || "1h",
     params: stringParams,
   });
 }
@@ -93,10 +95,10 @@ export async function signUrl(
   url: string,
   playbackId: string,
   context: SigningContext,
-  type: TokenType = 'video',
-  params?: Record<string, string | number>
+  type: TokenType = "video",
+  params?: Record<string, string | number>,
 ): Promise<string> {
   const token = await signPlaybackId(playbackId, context, type, params);
-  const separator = url.includes('?') ? '&' : '?';
+  const separator = url.includes("?") ? "&" : "?";
   return `${url}${separator}token=${token}`;
 }

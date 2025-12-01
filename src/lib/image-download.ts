@@ -1,4 +1,6 @@
-import pRetry, { AbortError } from 'p-retry';
+import { Buffer } from "node:buffer";
+
+import pRetry, { AbortError } from "p-retry";
 
 export interface ImageDownloadOptions {
   /** Request timeout in milliseconds (default: 10000) */
@@ -57,7 +59,7 @@ const DEFAULT_OPTIONS: Required<ImageDownloadOptions> = {
  */
 export async function downloadImageAsBase64(
   url: string,
-  options: ImageDownloadOptions = {}
+  options: ImageDownloadOptions = {},
 ): Promise<ImageDownloadResult> {
   const opts = { ...DEFAULT_OPTIONS, ...options };
   let attemptCount = 0;
@@ -73,7 +75,7 @@ export async function downloadImageAsBase64(
         const response = await fetch(url, {
           signal: controller.signal,
           headers: {
-            'User-Agent': '@mux/ai image downloader',
+            "User-Agent": "@mux/ai image downloader",
           },
         });
 
@@ -87,8 +89,8 @@ export async function downloadImageAsBase64(
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 
-        const contentType = response.headers.get('content-type');
-        if (!contentType?.startsWith('image/')) {
+        const contentType = response.headers.get("content-type");
+        if (!contentType?.startsWith("image/")) {
           throw new AbortError(`Invalid content type: ${contentType}. Expected image/*`);
         }
 
@@ -96,11 +98,11 @@ export async function downloadImageAsBase64(
         const buffer = Buffer.from(arrayBuffer);
 
         if (buffer.length === 0) {
-          throw new AbortError('Downloaded image is empty');
+          throw new AbortError("Downloaded image is empty");
         }
 
         // Convert to base64 with data URI prefix
-        const base64Data = `data:${contentType};base64,${buffer.toString('base64')}`;
+        const base64Data = `data:${contentType};base64,${buffer.toString("base64")}`;
 
         return {
           base64Data,
@@ -110,7 +112,6 @@ export async function downloadImageAsBase64(
           sizeBytes: buffer.length,
           attempts: attemptCount,
         };
-
       } catch (error) {
         clearTimeout(timeoutId);
 
@@ -121,13 +122,13 @@ export async function downloadImageAsBase64(
 
         // For network errors, timeout errors, etc., wrap in retryable error
         if (error instanceof Error) {
-          if (error.name === 'AbortError') {
+          if (error.name === "AbortError") {
             throw new Error(`Request timeout after ${opts.timeout}ms`);
           }
           throw new Error(`Download failed: ${error.message}`);
         }
 
-        throw new Error('Unknown download error');
+        throw new Error("Unknown download error");
       }
     },
     {
@@ -142,7 +143,7 @@ export async function downloadImageAsBase64(
           console.warn(`Retrying... (${error.retriesLeft} attempts left)`);
         }
       },
-    }
+    },
   );
 }
 
@@ -157,7 +158,7 @@ export async function downloadImageAsBase64(
 export async function downloadImagesAsBase64(
   urls: string[],
   options: ImageDownloadOptions = {},
-  maxConcurrent: number = 5
+  maxConcurrent: number = 5,
 ): Promise<ImageDownloadResult[]> {
   const results: ImageDownloadResult[] = [];
 
@@ -183,7 +184,7 @@ export async function downloadImagesAsBase64(
 export async function uploadImageToAnthropicFiles(
   url: string,
   anthropicApiKey: string,
-  options: ImageDownloadOptions = {}
+  options: ImageDownloadOptions = {},
 ): Promise<AnthropicFileUploadResult> {
   // First download the image
   const downloadResult = await downloadImageAsBase64(url, options);
@@ -193,23 +194,23 @@ export async function uploadImageToAnthropicFiles(
 
   // Create a Blob from the buffer for form data
   const imageBlob = new Blob([downloadResult.buffer], {
-    type: downloadResult.contentType
+    type: downloadResult.contentType,
   });
 
   // Get file extension from content type
-  const extension = downloadResult.contentType.split('/')[1] || 'png';
-  formData.append('file', imageBlob, `image.${extension}`);
+  const extension = downloadResult.contentType.split("/")[1] || "png";
+  formData.append("file", imageBlob, `image.${extension}`);
 
   // Upload to Anthropic Files API
-  const response = await fetch('https://api.anthropic.com/v1/files', {
-    method: 'POST',
+  const response = await fetch("https://api.anthropic.com/v1/files", {
+    method: "POST",
     headers: {
-      'x-api-key': anthropicApiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-beta': 'files-api-2025-04-14',
+      "x-api-key": anthropicApiKey,
+      "anthropic-version": "2023-06-01",
+      "anthropic-beta": "files-api-2025-04-14",
       // Don't set Content-Type header - let fetch set it with boundary for multipart
     },
-    body: formData
+    body: formData,
   });
 
   if (!response.ok) {

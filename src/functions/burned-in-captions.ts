@@ -1,12 +1,14 @@
-import { generateObject } from 'ai';
-import { z } from 'zod';
-import { MuxAIOptions, ImageSubmissionMode } from '../types';
-import { downloadImageAsBase64, ImageDownloadOptions } from '../lib/image-download';
-import { getPlaybackIdForAsset } from '../lib/mux-assets';
-import { getStoryboardUrl } from '../primitives/storyboards';
-import { createWorkflowClients } from '../lib/client-factory';
-import { SupportedProvider, ModelIdByProvider } from '../lib/providers';
-import { resolveSigningContext } from '../lib/url-signing';
+import { generateObject } from "ai";
+import { z } from "zod";
+
+import { createWorkflowClients } from "../lib/client-factory";
+import type { ImageDownloadOptions } from "../lib/image-download";
+import { downloadImageAsBase64 } from "../lib/image-download";
+import { getPlaybackIdForAsset } from "../lib/mux-assets";
+import type { ModelIdByProvider, SupportedProvider } from "../lib/providers";
+import { resolveSigningContext } from "../lib/url-signing";
+import { getStoryboardUrl } from "../primitives/storyboards";
+import type { ImageSubmissionMode, MuxAIOptions } from "../types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -47,7 +49,7 @@ export type BurnedInCaptionsAnalysis = z.infer<typeof burnedInCaptionsSchema>;
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
 
-const DEFAULT_PROVIDER = 'openai';
+const DEFAULT_PROVIDER = "openai";
 
 const SYSTEM_PROMPT = `You are an expert at analyzing video frames to detect burned-in captions (also called open captions or hardcoded subtitles). These are text overlays that are permanently embedded in the video image, common on TikTok, Instagram Reels, and other social media platforms.
 
@@ -81,32 +83,32 @@ const USER_PROMPT = `Analyze this storyboard:
 
 export async function hasBurnedInCaptions(
   assetId: string,
-  options: BurnedInCaptionsOptions = {}
+  options: BurnedInCaptionsOptions = {},
 ): Promise<BurnedInCaptionsResult> {
   const {
     provider = DEFAULT_PROVIDER,
     model,
-    imageSubmissionMode = 'url',
+    imageSubmissionMode = "url",
     imageDownloadOptions,
     ...config
   } = options;
 
   const clients = createWorkflowClients(
     { ...config, model },
-    provider as SupportedProvider
+    provider as SupportedProvider,
   );
   const { playbackId, policy } = await getPlaybackIdForAsset(clients.mux, assetId);
 
   // Resolve signing context for signed playback IDs
   const signingContext = resolveSigningContext(options);
-  if (policy === 'signed' && !signingContext) {
+  if (policy === "signed" && !signingContext) {
     throw new Error(
-      'Signed playback ID requires signing credentials. ' +
-      'Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.'
+      "Signed playback ID requires signing credentials. " +
+      "Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
     );
   }
 
-  const imageUrl = await getStoryboardUrl(playbackId, 640, policy === 'signed' ? signingContext : undefined);
+  const imageUrl = await getStoryboardUrl(playbackId, 640, policy === "signed" ? signingContext : undefined);
 
   let analysisResult: BurnedInCaptionsAnalysis | null = null;
 
@@ -117,14 +119,14 @@ export async function hasBurnedInCaptions(
       abortSignal: options.abortSignal,
       messages: [
         {
-          role: 'system',
+          role: "system",
           content: SYSTEM_PROMPT,
         },
         {
-          role: 'user',
+          role: "user",
           content: [
-            { type: 'text', text: USER_PROMPT },
-            { type: 'image', image: imageDataUrl },
+            { type: "text", text: USER_PROMPT },
+            { type: "image", image: imageDataUrl },
           ],
         },
       ],
@@ -133,7 +135,7 @@ export async function hasBurnedInCaptions(
     return response.object;
   };
 
-  if (imageSubmissionMode === 'base64') {
+  if (imageSubmissionMode === "base64") {
     const downloadResult = await downloadImageAsBase64(imageUrl, imageDownloadOptions);
     analysisResult = await analyzeStoryboard(downloadResult.base64Data);
   } else {
@@ -141,7 +143,7 @@ export async function hasBurnedInCaptions(
   }
 
   if (!analysisResult) {
-    throw new Error('No analysis result received from AI provider');
+    throw new Error("No analysis result received from AI provider");
   }
 
   return {

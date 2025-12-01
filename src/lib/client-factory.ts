@@ -1,10 +1,15 @@
-import Mux from '@mux/mux-node';
-import {
-  resolveLanguageModel,
+import Mux from "@mux/mux-node";
+
+import env from "../env";
+
+import type {
+  ModelRequestOptions,
   ResolvedModel,
   SupportedProvider,
-  ModelRequestOptions,
-} from './providers';
+} from "./providers";
+import {
+  resolveLanguageModel,
+} from "./providers";
 
 export interface ClientCredentials {
   muxTokenId?: string;
@@ -27,36 +32,36 @@ export interface ValidatedCredentials {
  */
 export function validateCredentials(
   options: ClientCredentials,
-  requiredProvider?: SupportedProvider
+  requiredProvider?: SupportedProvider,
 ): ValidatedCredentials {
-  const muxTokenId = options.muxTokenId || process.env.MUX_TOKEN_ID;
-  const muxTokenSecret = options.muxTokenSecret || process.env.MUX_TOKEN_SECRET;
-  const openaiApiKey = options.openaiApiKey || process.env.OPENAI_API_KEY;
-  const anthropicApiKey = options.anthropicApiKey || process.env.ANTHROPIC_API_KEY;
+  const muxTokenId = options.muxTokenId ?? env.MUX_TOKEN_ID;
+  const muxTokenSecret = options.muxTokenSecret ?? env.MUX_TOKEN_SECRET;
+  const openaiApiKey = options.openaiApiKey ?? env.OPENAI_API_KEY;
+  const anthropicApiKey = options.anthropicApiKey ?? env.ANTHROPIC_API_KEY;
   const googleApiKey =
-    options.googleApiKey || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+    options.googleApiKey ?? env.GOOGLE_GENERATIVE_AI_API_KEY;
 
   if (!muxTokenId || !muxTokenSecret) {
     throw new Error(
-      'Mux credentials are required. Provide muxTokenId and muxTokenSecret in options or set MUX_TOKEN_ID and MUX_TOKEN_SECRET environment variables.'
+      "Mux credentials are required. Provide muxTokenId and muxTokenSecret in options or set MUX_TOKEN_ID and MUX_TOKEN_SECRET environment variables.",
     );
   }
 
-  if (requiredProvider === 'openai' && !openaiApiKey) {
+  if (requiredProvider === "openai" && !openaiApiKey) {
     throw new Error(
-      'OpenAI API key is required. Provide openaiApiKey in options or set OPENAI_API_KEY environment variable.'
+      "OpenAI API key is required. Provide openaiApiKey in options or set OPENAI_API_KEY environment variable.",
     );
   }
 
-  if (requiredProvider === 'anthropic' && !anthropicApiKey) {
+  if (requiredProvider === "anthropic" && !anthropicApiKey) {
     throw new Error(
-      'Anthropic API key is required. Provide anthropicApiKey in options or set ANTHROPIC_API_KEY environment variable.'
+      "Anthropic API key is required. Provide anthropicApiKey in options or set ANTHROPIC_API_KEY environment variable.",
     );
   }
 
-  if (requiredProvider === 'google' && !googleApiKey) {
+  if (requiredProvider === "google" && !googleApiKey) {
     throw new Error(
-      'Google Generative AI API key is required. Provide googleApiKey in options or set GOOGLE_GENERATIVE_AI_API_KEY environment variable.'
+      "Google Generative AI API key is required. Provide googleApiKey in options or set GOOGLE_GENERATIVE_AI_API_KEY environment variable.",
     );
   }
 
@@ -74,7 +79,7 @@ export function validateCredentials(
  */
 export function createMuxClient(credentials: ValidatedCredentials): Mux {
   if (!credentials.muxTokenId || !credentials.muxTokenSecret) {
-    throw new Error('Mux credentials are required. Provide muxTokenId and muxTokenSecret in options or set MUX_TOKEN_ID and MUX_TOKEN_SECRET environment variables.');
+    throw new Error("Mux credentials are required. Provide muxTokenId and muxTokenSecret in options or set MUX_TOKEN_ID and MUX_TOKEN_SECRET environment variables.");
   }
   return new Mux({
     tokenId: credentials.muxTokenId,
@@ -93,9 +98,9 @@ export interface WorkflowClients {
 
 export function createWorkflowClients(
   options: ModelRequestOptions,
-  provider?: SupportedProvider
+  provider?: SupportedProvider,
 ): WorkflowClients {
-  const providerToUse = provider || options.provider || 'openai';
+  const providerToUse = provider || options.provider || "openai";
   const credentials = validateCredentials(options, providerToUse);
   const languageModel = resolveLanguageModel({
     ...options,

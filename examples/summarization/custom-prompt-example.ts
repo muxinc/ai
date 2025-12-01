@@ -23,18 +23,22 @@
  *   npm run example:summarization:custom <asset-id> --preset social --title-guidance "Make it viral"
  */
 
-import 'dotenv/config';
-import { Command } from 'commander';
-import { getSummaryAndTags, SummarizationPromptOverrides } from '@mux/ai/functions';
-import { ToneType } from '@mux/ai';
+import { Command } from "commander";
 
-type Provider = 'openai' | 'anthropic' | 'google';
-type Preset = 'seo' | 'social' | 'technical' | 'ecommerce';
+import type { ToneType } from "@mux/ai";
+import type { SummarizationPromptOverrides } from "@mux/ai/functions";
+import { getSummaryAndTags } from "@mux/ai/functions";
+
+import "dotenv/config";
+import "../env";
+
+type Provider = "openai" | "anthropic" | "google";
+type Preset = "seo" | "social" | "technical" | "ecommerce";
 
 const DEFAULT_MODELS: Record<Provider, string> = {
-  openai: 'gpt-5-mini',
-  anthropic: 'claude-sonnet-4-5',
-  google: 'gemini-2.5-flash',
+  openai: "gpt-5-mini",
+  anthropic: "claude-sonnet-4-5",
+  google: "gemini-2.5-flash",
 };
 
 /**
@@ -44,7 +48,7 @@ const DEFAULT_MODELS: Record<Provider, string> = {
 const PRESETS: Record<Preset, SummarizationPromptOverrides> = {
   // SEO-optimized metadata for search engines and video platforms
   seo: {
-    task: 'Generate SEO-optimized metadata that maximizes discoverability in search engines and video platforms.',
+    task: "Generate SEO-optimized metadata that maximizes discoverability in search engines and video platforms.",
     title: `
       Create a search-optimized title (50-60 characters ideal for SERP display).
       Front-load the primary keyword. Include a compelling hook or benefit.
@@ -70,7 +74,7 @@ const PRESETS: Record<Preset, SummarizationPromptOverrides> = {
 
   // Social media optimized for engagement
   social: {
-    task: 'Generate social media-optimized metadata designed to maximize engagement, shares, and comments.',
+    task: "Generate social media-optimized metadata designed to maximize engagement, shares, and comments.",
     title: `
       Create a scroll-stopping headline that works across social platforms.
       Use emotional triggers, curiosity gaps, or unexpected angles.
@@ -96,7 +100,7 @@ const PRESETS: Record<Preset, SummarizationPromptOverrides> = {
 
   // Technical/production analysis
   technical: {
-    task: 'Analyze the storyboard with focus on production quality, cinematography, and technical filmmaking elements.',
+    task: "Analyze the storyboard with focus on production quality, cinematography, and technical filmmaking elements.",
     title: `
       Create a technical headline describing the production style or technique.
       Focus on cinematography, editing, or production quality rather than narrative.
@@ -122,7 +126,7 @@ const PRESETS: Record<Preset, SummarizationPromptOverrides> = {
 
   // E-commerce product videos
   ecommerce: {
-    task: 'Generate e-commerce optimized metadata for product videos that drive conversions.',
+    task: "Generate e-commerce optimized metadata for product videos that drive conversions.",
     title: `
       Create a product-focused title that highlights key selling points.
       Include product category and primary benefit.
@@ -149,18 +153,18 @@ const PRESETS: Record<Preset, SummarizationPromptOverrides> = {
 const program = new Command();
 
 program
-  .name('custom-prompt')
-  .description('Generate summary with custom prompt overrides')
-  .argument('<asset-id>', 'Mux asset ID to analyze')
-  .option('--preset <name>', 'Use a preset: seo, social, technical, ecommerce')
-  .option('--task <text>', 'Override the task description')
-  .option('--title-guidance <text>', 'Override title generation guidance')
-  .option('--description-guidance <text>', 'Override description generation guidance')
-  .option('--keywords-guidance <text>', 'Override keywords generation guidance')
-  .option('-p, --provider <provider>', 'AI provider (openai, anthropic, google)', 'openai')
-  .option('-m, --model <model>', 'Model name (overrides default for provider)')
-  .option('-t, --tone <tone>', 'Tone for summary (normal, sassy, professional)', 'professional')
-  .option('--no-transcript', 'Exclude transcript from analysis')
+  .name("custom-prompt")
+  .description("Generate summary with custom prompt overrides")
+  .argument("<asset-id>", "Mux asset ID to analyze")
+  .option("--preset <name>", "Use a preset: seo, social, technical, ecommerce")
+  .option("--task <text>", "Override the task description")
+  .option("--title-guidance <text>", "Override title generation guidance")
+  .option("--description-guidance <text>", "Override description generation guidance")
+  .option("--keywords-guidance <text>", "Override keywords generation guidance")
+  .option("-p, --provider <provider>", "AI provider (openai, anthropic, google)", "openai")
+  .option("-m, --model <model>", "Model name (overrides default for provider)")
+  .option("-t, --tone <tone>", "Tone for summary (normal, sassy, professional)", "professional")
+  .option("--no-transcript", "Exclude transcript from analysis")
   .action(async (assetId: string, options: {
     preset?: string;
     task?: string;
@@ -173,20 +177,20 @@ program
     transcript: boolean;
   }) => {
     // Validate provider
-    if (!['openai', 'anthropic', 'google'].includes(options.provider)) {
-      console.error('❌ Unsupported provider. Choose from: openai, anthropic, google');
+    if (!["openai", "anthropic", "google"].includes(options.provider)) {
+      console.error("❌ Unsupported provider. Choose from: openai, anthropic, google");
       process.exit(1);
     }
 
     // Validate tone
-    if (!['normal', 'sassy', 'professional'].includes(options.tone)) {
-      console.error('❌ Unsupported tone. Choose from: normal, sassy, professional');
+    if (!["normal", "sassy", "professional"].includes(options.tone)) {
+      console.error("❌ Unsupported tone. Choose from: normal, sassy, professional");
       process.exit(1);
     }
 
     // Validate preset if provided
     if (options.preset && !Object.keys(PRESETS).includes(options.preset)) {
-      console.error(`❌ Unknown preset "${options.preset}". Choose from: ${Object.keys(PRESETS).join(', ')}`);
+      console.error(`❌ Unknown preset "${options.preset}". Choose from: ${Object.keys(PRESETS).join(", ")}`);
       process.exit(1);
     }
 
@@ -198,21 +202,25 @@ program
     };
 
     // CLI options override preset values
-    if (options.task) promptOverrides.task = options.task;
-    if (options.titleGuidance) promptOverrides.title = options.titleGuidance;
-    if (options.descriptionGuidance) promptOverrides.description = options.descriptionGuidance;
-    if (options.keywordsGuidance) promptOverrides.keywords = options.keywordsGuidance;
+    if (options.task)
+      promptOverrides.task = options.task;
+    if (options.titleGuidance)
+      promptOverrides.title = options.titleGuidance;
+    if (options.descriptionGuidance)
+      promptOverrides.description = options.descriptionGuidance;
+    if (options.keywordsGuidance)
+      promptOverrides.keywords = options.keywordsGuidance;
 
     const hasOverrides = Object.keys(promptOverrides).length > 0;
 
-    console.log('🎯 Generating summary with custom prompt overrides...\n');
+    console.log("🎯 Generating summary with custom prompt overrides...\n");
     console.log(`Provider: ${options.provider} (${model})`);
     console.log(`Tone: ${options.tone}`);
     if (options.preset) {
       console.log(`Preset: ${options.preset}`);
     }
     if (hasOverrides) {
-      console.log(`Overridden sections: ${Object.keys(promptOverrides).join(', ')}`);
+      console.log(`Overridden sections: ${Object.keys(promptOverrides).join(", ")}`);
     }
     console.log();
 
@@ -225,15 +233,15 @@ program
         promptOverrides: hasOverrides ? promptOverrides : undefined,
       });
 
-      console.log('📋 Analysis Result:');
+      console.log("📋 Analysis Result:");
       console.log(`Title: ${result.title}`);
       console.log(`\nDescription: ${result.description}`);
-      console.log('\n🏷️  Tags:');
-      console.log(result.tags.join(', '));
-      console.log('\n🖼️  Storyboard URL:');
+      console.log("\n🏷️  Tags:");
+      console.log(result.tags.join(", "));
+      console.log("\n🖼️  Storyboard URL:");
       console.log(result.storyboardUrl);
     } catch (error) {
-      console.error('❌ Error:', error instanceof Error ? error.message : error);
+      console.error("❌ Error:", error instanceof Error ? error.message : error);
       process.exit(1);
     }
   });

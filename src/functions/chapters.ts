@@ -1,16 +1,17 @@
-import { generateObject } from 'ai';
-import { z } from 'zod';
-import { MuxAIOptions } from '../types';
-import { createWorkflowClients } from '../lib/client-factory';
-import { withRetry } from '../lib/retry';
-import { getPlaybackIdForAsset } from '../lib/mux-assets';
+import { generateObject } from "ai";
+import { z } from "zod";
+
+import { createWorkflowClients } from "../lib/client-factory";
+import { getPlaybackIdForAsset } from "../lib/mux-assets";
+import type { ModelIdByProvider, SupportedProvider } from "../lib/providers";
+import { withRetry } from "../lib/retry";
+import { resolveSigningContext } from "../lib/url-signing";
 import {
+  extractTimestampedTranscript,
   fetchTranscriptForAsset,
   getReadyTextTracks,
-  extractTimestampedTranscript,
-} from '../primitives/transcripts';
-import { SupportedProvider, ModelIdByProvider } from '../lib/providers';
-import { resolveSigningContext } from '../lib/url-signing';
+} from "../primitives/transcripts";
+import type { MuxAIOptions } from "../types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -48,7 +49,7 @@ export interface ChaptersOptions extends MuxAIOptions {
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
 
-const DEFAULT_PROVIDER = 'openai';
+const DEFAULT_PROVIDER = "openai";
 
 const SYSTEM_PROMPT = `Your role is to segment the following captions into chunked chapters, summarising each chapter with a title.
 
@@ -74,7 +75,7 @@ Important rules:
 export async function generateChapters(
   assetId: string,
   languageCode: string,
-  options: ChaptersOptions = {}
+  options: ChaptersOptions = {},
 ): Promise<ChaptersResult> {
   const { provider = DEFAULT_PROVIDER, model, abortSignal } = options;
 
@@ -86,32 +87,32 @@ export async function generateChapters(
 
   // Resolve signing context for signed playback IDs
   const signingContext = resolveSigningContext(options);
-  if (policy === 'signed' && !signingContext) {
+  if (policy === "signed" && !signingContext) {
     throw new Error(
-      'Signed playback ID requires signing credentials. ' +
-      'Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.'
+      "Signed playback ID requires signing credentials. " +
+      "Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
     );
   }
 
   const transcriptResult = await fetchTranscriptForAsset(assetData, playbackId, {
     languageCode,
     cleanTranscript: false, // keep timestamps for chapter segmentation
-    signingContext: policy === 'signed' ? signingContext : undefined,
+    signingContext: policy === "signed" ? signingContext : undefined,
   });
 
   if (!transcriptResult.track || !transcriptResult.transcriptText) {
     const availableLanguages = getReadyTextTracks(assetData)
-      .map((t) => t.language_code)
+      .map(t => t.language_code)
       .filter(Boolean)
-      .join(', ');
+      .join(", ");
     throw new Error(
-      `No caption track found for language '${languageCode}'. Available languages: ${availableLanguages || 'none'}`
+      `No caption track found for language '${languageCode}'. Available languages: ${availableLanguages || "none"}`,
     );
   }
 
   const timestampedTranscript = extractTimestampedTranscript(transcriptResult.transcriptText);
   if (!timestampedTranscript) {
-    throw new Error('No usable content found in caption track');
+    throw new Error("No usable content found in caption track");
   }
 
   // Generate chapters using AI SDK
@@ -125,35 +126,35 @@ export async function generateChapters(
         abortSignal,
         messages: [
           {
-            role: 'system',
+            role: "system",
             content: SYSTEM_PROMPT,
           },
           {
-            role: 'user',
+            role: "user",
             content: timestampedTranscript,
           },
         ],
-      })
+      }),
     );
 
     chaptersData = response.object;
   } catch (error) {
     throw new Error(
-      `Failed to generate chapters with ${provider}: ${error instanceof Error ? error.message : 'Unknown error'}`
+      `Failed to generate chapters with ${provider}: ${error instanceof Error ? error.message : "Unknown error"}`,
     );
   }
 
   if (!chaptersData || !chaptersData.chapters) {
-    throw new Error('No chapters generated from AI response');
+    throw new Error("No chapters generated from AI response");
   }
 
   // Validate and sort chapters
   const validChapters = chaptersData.chapters
-    .filter(chapter => typeof chapter.startTime === 'number' && typeof chapter.title === 'string')
+    .filter(chapter => typeof chapter.startTime === "number" && typeof chapter.title === "string")
     .sort((a, b) => a.startTime - b.startTime);
 
   if (validChapters.length === 0) {
-    throw new Error('No valid chapters found in AI response');
+    throw new Error("No valid chapters found in AI response");
   }
 
   // Ensure first chapter starts at 0

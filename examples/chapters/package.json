@@ -1,8 +1,8 @@
 {
   "name": "@mux/ai-examples-chapters",
   "version": "0.1.0",
-  "description": "Examples for @mux/ai chapter generation functionality",
   "private": true,
+  "description": "Examples for @mux/ai chapter generation functionality",
   "scripts": {
     "chapters:basic": "ts-node basic-example.ts",
     "compare": "ts-node provider-comparison.ts"

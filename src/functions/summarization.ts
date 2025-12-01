@@ -1,21 +1,25 @@
-import { generateObject } from 'ai';
-import dedent from 'dedent';
-import { z } from 'zod';
-import { MuxAIOptions, ToneType, ImageSubmissionMode } from '../types';
-import { downloadImageAsBase64, ImageDownloadOptions } from '../lib/image-download';
-import { createWorkflowClients } from '../lib/client-factory';
-import { withRetry } from '../lib/retry';
-import { SupportedProvider, ModelIdByProvider } from '../lib/providers';
-import { getPlaybackIdForAsset } from '../lib/mux-assets';
+import { generateObject } from "ai";
+import dedent from "dedent";
+import { z } from "zod";
+
+import { createWorkflowClients } from "../lib/client-factory";
+import type { ImageDownloadOptions } from "../lib/image-download";
+import { downloadImageAsBase64 } from "../lib/image-download";
+import { getPlaybackIdForAsset } from "../lib/mux-assets";
+import type {
+  PromptOverrides,
+} from "../lib/prompt-builder";
 import {
   createPromptBuilder,
-  createTranscriptSection,
   createToneSection,
-  PromptOverrides,
-} from '../lib/prompt-builder';
-import { fetchTranscriptForAsset } from '../primitives/transcripts';
-import { getStoryboardUrl } from '../primitives/storyboards';
-import { resolveSigningContext } from '../lib/url-signing';
+  createTranscriptSection,
+} from "../lib/prompt-builder";
+import type { ModelIdByProvider, SupportedProvider } from "../lib/providers";
+import { withRetry } from "../lib/retry";
+import { resolveSigningContext } from "../lib/url-signing";
+import { getStoryboardUrl } from "../primitives/storyboards";
+import { fetchTranscriptForAsset } from "../primitives/transcripts";
+import type { ImageSubmissionMode, MuxAIOptions, ToneType } from "../types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -50,11 +54,11 @@ export interface SummaryAndTagsResult {
  * Use these to customize the AI's behavior for your specific use case.
  */
 export type SummarizationPromptSections =
-  | 'task'
-  | 'title'
-  | 'description'
-  | 'keywords'
-  | 'qualityGuidelines';
+  | "task" |
+  "title" |
+  "description" |
+  "keywords" |
+  "qualityGuidelines";
 
 /**
  * Override specific sections of the summarization prompt.
@@ -100,9 +104,9 @@ export interface SummarizationOptions extends MuxAIOptions {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const TONE_INSTRUCTIONS: Record<ToneType, string> = {
-  normal: 'Provide a clear, straightforward analysis.',
-  sassy: 'Answer with a sassy, playful attitude and personality.',
-  professional: 'Provide a professional, executive-level analysis suitable for business reporting.',
+  normal: "Provide a clear, straightforward analysis.",
+  sassy: "Answer with a sassy, playful attitude and personality.",
+  professional: "Provide a professional, executive-level analysis suitable for business reporting.",
 };
 
 /**
@@ -112,11 +116,11 @@ const TONE_INSTRUCTIONS: Record<ToneType, string> = {
 const summarizationPromptBuilder = createPromptBuilder<SummarizationPromptSections>({
   template: {
     task: {
-      tag: 'task',
-      content: 'Analyze the storyboard frames and generate metadata that captures the essence of the video content.',
+      tag: "task",
+      content: "Analyze the storyboard frames and generate metadata that captures the essence of the video content.",
     },
     title: {
-      tag: 'title_requirements',
+      tag: "title_requirements",
       content: dedent`
         A short, compelling headline that immediately communicates the subject or action.
         Aim for brevity - typically under 10 words. Think of how a news headline or video card title would read.
@@ -124,7 +128,7 @@ const summarizationPromptBuilder = createPromptBuilder<SummarizationPromptSectio
         Use active, specific language.`,
     },
     description: {
-      tag: 'description_requirements',
+      tag: "description_requirements",
       content: dedent`
         A concise summary (2-4 sentences) that describes what happens across the video.
         Cover the main subjects, actions, setting, and any notable progression visible across frames.
@@ -132,7 +136,7 @@ const summarizationPromptBuilder = createPromptBuilder<SummarizationPromptSectio
         If the transcript provides dialogue or narration, incorporate key points but prioritize visual content.`,
     },
     keywords: {
-      tag: 'keywords_requirements',
+      tag: "keywords_requirements",
       content: dedent`
         Specific, searchable terms (up to 10) that capture:
         - Primary subjects (people, animals, objects)
@@ -144,7 +148,7 @@ const summarizationPromptBuilder = createPromptBuilder<SummarizationPromptSectio
         Use lowercase. Avoid redundant or overly generic terms like "video" or "content".`,
     },
     qualityGuidelines: {
-      tag: 'quality_guidelines',
+      tag: "quality_guidelines",
       content: dedent`
         - Examine all frames to understand the full context and progression
         - Be precise: "golden retriever" is better than "dog" when identifiable
@@ -152,7 +156,7 @@ const summarizationPromptBuilder = createPromptBuilder<SummarizationPromptSectio
         - Balance brevity with informativeness`,
     },
   },
-  sectionOrder: ['task', 'title', 'description', 'keywords', 'qualityGuidelines'],
+  sectionOrder: ["task", "title", "description", "keywords", "qualityGuidelines"],
 });
 
 const SYSTEM_PROMPT = dedent`
@@ -206,7 +210,7 @@ function buildUserPrompt({
   const contextSections = [createToneSection(TONE_INSTRUCTIONS[tone])];
 
   if (transcriptText) {
-    const format = isCleanTranscript ? 'plain text' : 'WebVTT';
+    const format = isCleanTranscript ? "plain text" : "WebVTT";
     contextSections.push(createTranscriptSection(transcriptText, format));
   }
 
@@ -217,8 +221,8 @@ function buildUserPrompt({
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
 
-const DEFAULT_PROVIDER = 'openai';
-const DEFAULT_TONE = 'normal';
+const DEFAULT_PROVIDER = "openai";
+const DEFAULT_TONE = "normal";
 
 function normalizeKeywords(keywords?: string[]): string[] {
   if (!Array.isArray(keywords) || keywords.length === 0) {
@@ -252,7 +256,7 @@ function normalizeKeywords(keywords?: string[]): string[] {
 
 export async function getSummaryAndTags(
   assetId: string,
-  options?: SummarizationOptions
+  options?: SummarizationOptions,
 ): Promise<SummaryAndTagsResult> {
   const {
     provider = DEFAULT_PROVIDER,
@@ -260,7 +264,7 @@ export async function getSummaryAndTags(
     tone = DEFAULT_TONE,
     includeTranscript = true,
     cleanTranscript = true,
-    imageSubmissionMode = 'url',
+    imageSubmissionMode = "url",
     imageDownloadOptions,
     abortSignal,
     promptOverrides,
@@ -269,7 +273,7 @@ export async function getSummaryAndTags(
   // Initialize clients with validated credentials and resolved language model
   const clients = createWorkflowClients(
     { ...options, model },
-    provider as SupportedProvider
+    provider as SupportedProvider,
   );
 
   // Fetch asset data from Mux and grab playback/transcript details
@@ -277,20 +281,20 @@ export async function getSummaryAndTags(
 
   // Resolve signing context for signed playback IDs
   const signingContext = resolveSigningContext(options ?? {});
-  if (policy === 'signed' && !signingContext) {
+  if (policy === "signed" && !signingContext) {
     throw new Error(
-      'Signed playback ID requires signing credentials. ' +
-      'Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.'
+      "Signed playback ID requires signing credentials. " +
+      "Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
     );
   }
 
   const transcriptText =
-    includeTranscript
-      ? (await fetchTranscriptForAsset(assetData, playbackId, {
+    includeTranscript ?
+        (await fetchTranscriptForAsset(assetData, playbackId, {
           cleanTranscript,
-          signingContext: policy === 'signed' ? signingContext : undefined,
-        })).transcriptText
-      : '';
+          signingContext: policy === "signed" ? signingContext : undefined,
+        })).transcriptText :
+      "";
 
   // Build the user prompt with all context and any overrides
   const userPrompt = buildUserPrompt({
@@ -301,7 +305,7 @@ export async function getSummaryAndTags(
   });
 
   // Analyze storyboard with AI provider (signed if needed)
-  const imageUrl = await getStoryboardUrl(playbackId, 640, policy === 'signed' ? signingContext : undefined);
+  const imageUrl = await getStoryboardUrl(playbackId, 640, policy === "signed" ? signingContext : undefined);
 
   const analyzeStoryboard = async (imageDataUrl: string) => {
     const response = await generateObject({
@@ -310,14 +314,14 @@ export async function getSummaryAndTags(
       abortSignal,
       messages: [
         {
-          role: 'system',
+          role: "system",
           content: SYSTEM_PROMPT,
         },
         {
-          role: 'user',
+          role: "user",
           content: [
-            { type: 'text', text: userPrompt },
-            { type: 'image', image: imageDataUrl },
+            { type: "text", text: userPrompt },
+            { type: "image", image: imageDataUrl },
           ],
         },
       ],
@@ -329,7 +333,7 @@ export async function getSummaryAndTags(
   let aiAnalysis: { title?: string; description?: string; keywords?: string[] } | null = null;
 
   try {
-    if (imageSubmissionMode === 'base64') {
+    if (imageSubmissionMode === "base64") {
       const downloadResult = await downloadImageAsBase64(imageUrl, imageDownloadOptions);
       aiAnalysis = await analyzeStoryboard(downloadResult.base64Data);
     } else {
@@ -339,8 +343,8 @@ export async function getSummaryAndTags(
   } catch (error: unknown) {
     throw new Error(
       `Failed to analyze video content with ${provider}: ${
-        error instanceof Error ? error.message : 'Unknown error'
-      }`
+        error instanceof Error ? error.message : "Unknown error"
+      }`,
     );
   }
 
