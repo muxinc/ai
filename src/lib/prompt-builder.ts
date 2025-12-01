@@ -69,17 +69,42 @@ export interface PromptBuilder<TSections extends string> {
 export function renderSection(section: PromptSection): string {
   const { tag, content, attributes } = section;
 
+  const XML_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_.:-]*$/;
+
+  const assertValidXmlName = (name: string, context: 'tag' | 'attribute'): void => {
+    if (!XML_NAME_PATTERN.test(name)) {
+      throw new Error(`Invalid XML ${context} name: "${name}"`);
+    }
+  };
+
+  const escapeXmlText = (value: string): string =>
+    value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;/');
+
+  const escapeXmlAttribute = (value: string): string =>
+    escapeXmlText(value).replace(/"/g, '&quot;');
+
   if (!content.trim()) {
     return '';
   }
 
+  assertValidXmlName(tag, 'tag');
+
   const attrString = attributes
-    ? ' ' + Object.entries(attributes)
-        .map(([key, value]) => `${key}="${value}"`)
+    ? ' ' +
+      Object.entries(attributes)
+        .map(([key, value]) => {
+          assertValidXmlName(key, 'attribute');
+          return `${key}="${escapeXmlAttribute(value)}"`;
+        })
         .join(' ')
     : '';
 
-  return `<${tag}${attrString}>\n${content.trim()}\n</${tag}>`;
+  const safeContent = escapeXmlText(content.trim());
+
+  return `<${tag}${attrString}>\n${safeContent}\n</${tag}>`;
 }
 
 /**
