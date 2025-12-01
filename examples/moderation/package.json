@@ -1,8 +1,8 @@
 {
   "name": "@mux/ai-examples-moderation",
   "version": "0.1.0",
-  "description": "Examples for @mux/ai moderation functionality",
   "private": true,
+  "description": "Examples for @mux/ai moderation functionality",
   "scripts": {
     "basic": "ts-node basic-example.ts",
     "thresholds": "ts-node custom-thresholds.ts",

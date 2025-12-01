@@ -1,8 +1,8 @@
 {
   "name": "@mux/ai-examples-translate-audio",
   "version": "0.1.0",
-  "description": "Examples for @mux/ai audio translation functionality",
   "private": true,
+  "description": "Examples for @mux/ai audio translation functionality",
   "scripts": {
     "basic": "ts-node basic-example.ts",
     "dubbing-only": "ts-node dubbing-only-example.ts"

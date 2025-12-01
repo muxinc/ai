@@ -1,5 +1,6 @@
-import Mux from '@mux/mux-node';
-import { MuxAsset, PlaybackAsset, PlaybackPolicy } from '../types';
+import type Mux from "@mux/mux-node";
+
+import type { MuxAsset, PlaybackAsset, PlaybackPolicy } from "../types";
 
 /**
  * Finds a usable playback ID for the given asset.
@@ -10,26 +11,26 @@ function getPlaybackId(asset: MuxAsset): { id: string; policy: PlaybackPolicy } 
   const playbackIds = asset.playback_ids || [];
 
   // First, try to find a public playback ID
-  const publicPlaybackId = playbackIds.find((pid) => pid.policy === 'public');
+  const publicPlaybackId = playbackIds.find(pid => pid.policy === "public");
   if (publicPlaybackId?.id) {
-    return { id: publicPlaybackId.id, policy: 'public' };
+    return { id: publicPlaybackId.id, policy: "public" };
   }
 
   // Fall back to signed playback ID
-  const signedPlaybackId = playbackIds.find((pid) => pid.policy === 'signed');
+  const signedPlaybackId = playbackIds.find(pid => pid.policy === "signed");
   if (signedPlaybackId?.id) {
-    return { id: signedPlaybackId.id, policy: 'signed' };
+    return { id: signedPlaybackId.id, policy: "signed" };
   }
 
   throw new Error(
-    'No public or signed playback ID found for this asset. ' +
-    'A public or signed playback ID is required. DRM playback IDs are not currently supported.'
+    "No public or signed playback ID found for this asset. "
+    + "A public or signed playback ID is required. DRM playback IDs are not currently supported.",
   );
 }
 
 export async function getPlaybackIdForAsset(
   mux: Mux,
-  assetId: string
+  assetId: string,
 ): Promise<PlaybackAsset> {
   const asset = await mux.video.assets.retrieve(assetId);
   const { id: playbackId, policy } = getPlaybackId(asset);

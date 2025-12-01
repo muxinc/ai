@@ -15,6 +15,7 @@ These examples demonstrate how to use `@mux/ai` with assets that have **signed p
    - Save both the **Signing Key ID** and **Private Key**
 
 3. **Set environment variables**:
+
    ```bash
    # Mux API credentials
    export MUX_TOKEN_ID="your-token-id"
@@ -52,6 +53,7 @@ npm run summarize <signed-asset-id> -- -p google -t professional --no-transcript
 ```
 
 **Options:**
+
 - `-p, --provider <provider>` - AI provider: openai, anthropic, google (default: anthropic)
 - `-m, --model <model>` - Model name (overrides default for provider)
 - `-t, --tone <tone>` - Tone for summary: normal, sassy, professional (default: professional)
@@ -85,5 +87,6 @@ Your asset has a signed playback policy but you haven't provided signing credent
 ### "No signed playback ID found"
 
 Your asset doesn't have a signed playback policy. Either:
+
 - Create a new asset with `playback_policy: "signed"`
 - Or use a public asset (no signing credentials needed)

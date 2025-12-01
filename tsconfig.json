@@ -1,26 +1,26 @@
 {
   "compilerOptions": {
     "target": "ES2020",
-    "module": "ESNext",
     "lib": ["ES2020"],
-    "outDir": "./dist",
-    "rootDir": "./src",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
-    "resolveJsonModule": true,
-    "moduleResolution": "bundler",
     "baseUrl": ".",
+    "rootDir": "./src",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
     "paths": {
       "@mux/ai": ["src/index.ts"],
       "@mux/ai/functions": ["src/functions/index.ts"],
       "@mux/ai/primitives": ["src/primitives/index.ts"],
       "@mux/ai/types": ["src/types.ts"]
-    }
+    },
+    "resolveJsonModule": true,
+    "strict": true,
+    "declaration": true,
+    "declarationMap": true,
+    "outDir": "./dist",
+    "sourceMap": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true
   },
   "ts-node": {
     "compilerOptions": {

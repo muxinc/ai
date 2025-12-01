@@ -5,11 +5,13 @@ This directory contains examples demonstrating how to use the `getSummaryAndTags
 ## Setup
 
 1. Install dependencies:
+
 ```bash
 npm install
 ```
 
 2. Set environment variables in your `.env` file:
+
 ```bash
 MUX_TOKEN_ID=your_mux_token_id
 MUX_TOKEN_SECRET=your_mux_token_secret
@@ -30,6 +32,7 @@ npm run basic <your-asset-id>
 ```
 
 Features:
+
 - Uses the built-in optimized prompt
 - Professional tone analysis
 - Includes transcript data when available
@@ -44,6 +47,7 @@ npm run tones <your-asset-id>
 ```
 
 Compares three tone styles:
+
 - **Normal**: Clear, straightforward analysis
 - **Sassy**: Playful, engaging personality
 - **Professional**: Executive-level, business-appropriate
@@ -127,6 +131,7 @@ const technicalResult = await getSummaryAndTags(assetId, {
 ## What You'll Get
 
 Each analysis returns:
+
 - `title`: Short headline for the video content
 - `description`: Rich description (≤500 chars)
 - `tags`: Array of up to 10 keywords/topics

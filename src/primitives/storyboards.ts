@@ -1,4 +1,6 @@
-import { SigningContext, signUrl } from '../lib/url-signing';
+import type { SigningContext } from "../lib/url-signing";
+
+import { signUrl } from "../lib/url-signing";
 
 export const DEFAULT_STORYBOARD_WIDTH = 640;
 
@@ -14,12 +16,12 @@ export const DEFAULT_STORYBOARD_WIDTH = 640;
 export async function getStoryboardUrl(
   playbackId: string,
   width: number = DEFAULT_STORYBOARD_WIDTH,
-  signingContext?: SigningContext
+  signingContext?: SigningContext,
 ): Promise<string> {
   const baseUrl = `https://image.mux.com/${playbackId}/storyboard.png`;
 
   if (signingContext) {
-    return signUrl(baseUrl, playbackId, signingContext, 'storyboard', { width });
+    return signUrl(baseUrl, playbackId, signingContext, "storyboard", { width });
   }
 
   return `${baseUrl}?width=${width}`;

@@ -1,8 +1,8 @@
 {
   "name": "@mux/ai-examples-summarization",
   "version": "0.1.0",
-  "description": "Examples for @mux/ai summarization functionality",
   "private": true,
+  "description": "Examples for @mux/ai summarization functionality",
   "scripts": {
     "basic": "ts-node basic-example.ts",
     "tones": "ts-node tone-variations.ts",

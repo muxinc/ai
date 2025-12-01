@@ -1,9 +1,14 @@
-import { createMuxClient, validateCredentials } from '../lib/client-factory';
-import { MuxAIOptions, ImageSubmissionMode } from '../types';
-import { getThumbnailUrls } from '../primitives/thumbnails';
-import { downloadImagesAsBase64, ImageDownloadOptions } from '../lib/image-download';
-import { getPlaybackIdForAsset } from '../lib/mux-assets';
-import { resolveSigningContext } from '../lib/url-signing';
+import type { Buffer } from "node:buffer";
+
+import type { ImageDownloadOptions } from "../lib/image-download";
+import type { ImageSubmissionMode, MuxAIOptions } from "../types";
+
+import env from "../env";
+import { createMuxClient, validateCredentials } from "../lib/client-factory";
+import { downloadImagesAsBase64 } from "../lib/image-download";
+import { getPlaybackIdForAsset } from "../lib/mux-assets";
+import { resolveSigningContext } from "../lib/url-signing";
+import { getThumbnailUrls } from "../primitives/thumbnails";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -33,11 +38,11 @@ export interface ModerationResult {
 }
 
 /** Provider list accepted by `getModerationScores`. */
-export type ModerationProvider = 'openai' | 'hive';
+export type ModerationProvider = "openai" | "hive";
 
-export type HiveModerationSource =
-  | { kind: 'url'; value: string }
-  | { kind: 'file'; buffer: Buffer; contentType: string };
+export type HiveModerationSource
+  = | { kind: "url"; value: string }
+    | { kind: "file"; buffer: Buffer; contentType: string };
 
 export interface HiveModerationOutput {
   classes?: Array<{
@@ -78,50 +83,50 @@ const DEFAULT_THRESHOLDS = {
   violence: 0.8,
 };
 
-const DEFAULT_PROVIDER = 'openai';
+const DEFAULT_PROVIDER = "openai";
 
-const HIVE_ENDPOINT = 'https://api.thehive.ai/api/v2/task/sync';
+const HIVE_ENDPOINT = "https://api.thehive.ai/api/v2/task/sync";
 const HIVE_SEXUAL_CATEGORIES = [
-  'general_nsfw',
-  'general_suggestive',
-  'yes_sexual_activity',
-  'female_underwear',
-  'male_underwear',
-  'bra',
-  'panties',
-  'sex_toys',
-  'nudity_female',
-  'nudity_male',
-  'cleavage',
-  'swimwear',
+  "general_nsfw",
+  "general_suggestive",
+  "yes_sexual_activity",
+  "female_underwear",
+  "male_underwear",
+  "bra",
+  "panties",
+  "sex_toys",
+  "nudity_female",
+  "nudity_male",
+  "cleavage",
+  "swimwear",
 ];
 
 const HIVE_VIOLENCE_CATEGORIES = [
-  'gun_in_hand',
-  'gun_not_in_hand',
-  'animated_gun',
-  'knife_in_hand',
-  'knife_not_in_hand',
-  'culinary_knife_not_in_hand',
-  'culinary_knife_in_hand',
-  'very_bloody',
-  'a_little_bloody',
-  'other_blood',
-  'hanging',
-  'noose',
-  'human_corpse',
-  'animated_corpse',
-  'emaciated_body',
-  'self_harm',
-  'animal_abuse',
-  'fights',
-  'garm_death_injury_or_military_conflict',
+  "gun_in_hand",
+  "gun_not_in_hand",
+  "animated_gun",
+  "knife_in_hand",
+  "knife_not_in_hand",
+  "culinary_knife_not_in_hand",
+  "culinary_knife_in_hand",
+  "very_bloody",
+  "a_little_bloody",
+  "other_blood",
+  "hanging",
+  "noose",
+  "human_corpse",
+  "animated_corpse",
+  "emaciated_body",
+  "self_harm",
+  "animal_abuse",
+  "fights",
+  "garm_death_injury_or_military_conflict",
 ];
 
 async function processConcurrently<T>(
   items: any[],
   processor: (item: any) => Promise<T>,
-  maxConcurrent: number = 5
+  maxConcurrent: number = 5,
 ): Promise<T[]> {
   const results: T[] = [];
 
@@ -140,29 +145,29 @@ async function requestOpenAIModeration(
   apiKey: string,
   model: string,
   maxConcurrent: number = 5,
-  submissionMode: 'url' | 'base64' = 'url',
-  downloadOptions?: ImageDownloadOptions
+  submissionMode: "url" | "base64" = "url",
+  downloadOptions?: ImageDownloadOptions,
 ): Promise<ThumbnailModerationScore[]> {
-  const targetUrls =
-    submissionMode === 'base64'
+  const targetUrls
+    = submissionMode === "base64"
       ? (await downloadImagesAsBase64(imageUrls, downloadOptions, maxConcurrent)).map(
-          (img) => ({ url: img.url, image: img.base64Data })
+          img => ({ url: img.url, image: img.base64Data }),
         )
-      : imageUrls.map((url) => ({ url, image: url }));
+      : imageUrls.map(url => ({ url, image: url }));
 
   const moderate = async (entry: { url: string; image: string }): Promise<ThumbnailModerationScore> => {
     try {
-      const res = await fetch('https://api.openai.com/v1/moderations', {
-        method: 'POST',
+      const res = await fetch("https://api.openai.com/v1/moderations", {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
           model,
           input: [
             {
-              type: 'image_url',
+              type: "image_url",
               image_url: {
                 url: entry.image,
               },
@@ -174,7 +179,7 @@ async function requestOpenAIModeration(
       const json: any = await res.json();
       if (!res.ok) {
         throw new Error(
-          `OpenAI moderation error: ${res.status} ${res.statusText} - ${JSON.stringify(json)}`
+          `OpenAI moderation error: ${res.status} ${res.statusText} - ${JSON.stringify(json)}`,
         );
       }
 
@@ -186,8 +191,9 @@ async function requestOpenAIModeration(
         violence: categoryScores.violence || 0,
         error: false,
       };
-    } catch (error) {
-      console.error('OpenAI moderation failed:', error);
+    }
+    catch (error) {
+      console.error("OpenAI moderation failed:", error);
       return {
         url: entry.url,
         sexual: 0,
@@ -201,13 +207,13 @@ async function requestOpenAIModeration(
 }
 
 function getHiveCategoryScores(
-  classes: NonNullable<HiveModerationOutput['classes']>,
-  categoryNames: string[]
+  classes: NonNullable<HiveModerationOutput["classes"]>,
+  categoryNames: string[],
 ): number {
   const scoreMap = Object.fromEntries(
-    classes.map((c) => [c.class, c.score])
+    classes.map(c => [c.class, c.score]),
   );
-  const scores = categoryNames.map((category) => scoreMap[category] || 0);
+  const scores = categoryNames.map(category => scoreMap[category] || 0);
   return Math.max(...scores, 0);
 }
 
@@ -215,42 +221,43 @@ async function requestHiveModeration(
   imageUrls: string[],
   apiKey: string,
   maxConcurrent: number = 5,
-  submissionMode: 'url' | 'base64' = 'url',
-  downloadOptions?: ImageDownloadOptions
+  submissionMode: "url" | "base64" = "url",
+  downloadOptions?: ImageDownloadOptions,
 ): Promise<ThumbnailModerationScore[]> {
-  const targets: Array<{ url: string; source: HiveModerationSource }> =
-    submissionMode === 'base64'
-      ? (await downloadImagesAsBase64(imageUrls, downloadOptions, maxConcurrent)).map((img) => ({
+  const targets: Array<{ url: string; source: HiveModerationSource }>
+    = submissionMode === "base64"
+      ? (await downloadImagesAsBase64(imageUrls, downloadOptions, maxConcurrent)).map(img => ({
           url: img.url,
           source: {
-            kind: 'file',
+            kind: "file",
             buffer: img.buffer,
             contentType: img.contentType,
           },
         }))
-      : imageUrls.map((url) => ({
+      : imageUrls.map(url => ({
           url,
-          source: { kind: 'url', value: url },
+          source: { kind: "url", value: url },
         }));
 
   const moderate = async (entry: { url: string; source: HiveModerationSource }): Promise<ThumbnailModerationScore> => {
     try {
       const formData = new FormData();
 
-      if (entry.source.kind === 'url') {
-        formData.append('url', entry.source.value);
-      } else {
-        const extension = entry.source.contentType.split('/')[1] || 'jpg';
+      if (entry.source.kind === "url") {
+        formData.append("url", entry.source.value);
+      }
+      else {
+        const extension = entry.source.contentType.split("/")[1] || "jpg";
         const blob = new Blob([entry.source.buffer], {
           type: entry.source.contentType,
         });
-        formData.append('media', blob, `thumbnail.${extension}`);
+        formData.append("media", blob, `thumbnail.${extension}`);
       }
 
       const res = await fetch(HIVE_ENDPOINT, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          Accept: 'application/json',
+          Accept: "application/json",
           Authorization: `Token ${apiKey}`,
         },
         body: formData,
@@ -259,7 +266,7 @@ async function requestHiveModeration(
       const json: any = await res.json().catch(() => undefined);
       if (!res.ok) {
         throw new Error(
-          `Hive moderation error: ${res.status} ${res.statusText} - ${JSON.stringify(json)}`
+          `Hive moderation error: ${res.status} ${res.statusText} - ${JSON.stringify(json)}`,
         );
       }
 
@@ -273,8 +280,9 @@ async function requestHiveModeration(
         violence: getHiveCategoryScores(classes, HIVE_VIOLENCE_CATEGORIES),
         error: false,
       };
-    } catch (error) {
-      console.error('Hive moderation failed:', error);
+    }
+    catch (error) {
+      console.error("Hive moderation failed:", error);
       return {
         url: entry.url,
         sexual: 0,
@@ -293,20 +301,20 @@ async function requestHiveModeration(
  */
 export async function getModerationScores(
   assetId: string,
-  options: ModerationOptions = {}
+  options: ModerationOptions = {},
 ): Promise<ModerationResult> {
   const {
     provider = DEFAULT_PROVIDER,
-    model = provider === 'openai' ? 'omni-moderation-latest' : undefined,
+    model = provider === "openai" ? "omni-moderation-latest" : undefined,
     thresholds = DEFAULT_THRESHOLDS,
     thumbnailInterval = 10,
     thumbnailWidth = 640,
     maxConcurrent = 5,
-    imageSubmissionMode = 'url',
+    imageSubmissionMode = "url",
     imageDownloadOptions,
   } = options;
 
-  const credentials = validateCredentials(options, provider === 'openai' ? 'openai' : undefined);
+  const credentials = validateCredentials(options, provider === "openai" ? "openai" : undefined);
   const muxClient = createMuxClient(credentials);
 
   // Fetch asset data and playback ID from Mux via helper
@@ -315,10 +323,10 @@ export async function getModerationScores(
 
   // Resolve signing context for signed playback IDs
   const signingContext = resolveSigningContext(options);
-  if (policy === 'signed' && !signingContext) {
+  if (policy === "signed" && !signingContext) {
     throw new Error(
-      'Signed playback ID requires signing credentials. ' +
-      'Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.'
+      "Signed playback ID requires signing credentials. "
+      + "Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
     );
   }
 
@@ -326,29 +334,30 @@ export async function getModerationScores(
   const thumbnailUrls = await getThumbnailUrls(playbackId, duration, {
     interval: thumbnailInterval,
     width: thumbnailWidth,
-    signingContext: policy === 'signed' ? signingContext : undefined,
+    signingContext: policy === "signed" ? signingContext : undefined,
   });
 
   let thumbnailScores: ThumbnailModerationScore[];
 
-  if (provider === 'openai') {
+  if (provider === "openai") {
     const apiKey = credentials.openaiApiKey;
     if (!apiKey) {
-      throw new Error('OpenAI API key is required for moderation. Set OPENAI_API_KEY or pass openaiApiKey.');
+      throw new Error("OpenAI API key is required for moderation. Set OPENAI_API_KEY or pass openaiApiKey.");
     }
 
     thumbnailScores = await requestOpenAIModeration(
       thumbnailUrls,
       apiKey,
-      model || 'omni-moderation-latest',
+      model || "omni-moderation-latest",
       maxConcurrent,
       imageSubmissionMode,
-      imageDownloadOptions
+      imageDownloadOptions,
     );
-  } else if (provider === 'hive') {
-    const hiveApiKey = options.hiveApiKey || process.env.HIVE_API_KEY;
+  }
+  else if (provider === "hive") {
+    const hiveApiKey = options.hiveApiKey || env.HIVE_API_KEY;
     if (!hiveApiKey) {
-      throw new Error('Hive API key is required for moderation. Set HIVE_API_KEY or pass hiveApiKey.');
+      throw new Error("Hive API key is required for moderation. Set HIVE_API_KEY or pass hiveApiKey.");
     }
 
     thumbnailScores = await requestHiveModeration(
@@ -356,15 +365,16 @@ export async function getModerationScores(
       hiveApiKey,
       maxConcurrent,
       imageSubmissionMode,
-      imageDownloadOptions
+      imageDownloadOptions,
     );
-  } else {
+  }
+  else {
     throw new Error(`Unsupported moderation provider: ${provider}`);
   }
 
   // Find highest scores across all thumbnails
-  const maxSexual = Math.max(...thumbnailScores.map((s) => s.sexual));
-  const maxViolence = Math.max(...thumbnailScores.map((s) => s.violence));
+  const maxSexual = Math.max(...thumbnailScores.map(s => s.sexual));
+  const maxViolence = Math.max(...thumbnailScores.map(s => s.violence));
 
   const finalThresholds = { ...DEFAULT_THRESHOLDS, ...thresholds };
 

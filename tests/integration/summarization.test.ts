@@ -1,14 +1,15 @@
-import { describe, it, expect } from 'vitest';
-import 'dotenv/config';
-import { getSummaryAndTags } from '../../src/functions';
+import { describe, expect, it } from "vitest";
 
-describe('Summarization Integration Tests', () => {
-  const assetId = '88Lb01qNUqFJrOFMITk00Ck201F00Qmcbpc5qgopNV4fCOk';
+import "../../src/env";
+import { getSummaryAndTags } from "../../src/functions";
 
-  it('should generate summary and tags with OpenAI provider', async () => {
+describe("summarization Integration Tests", () => {
+  const assetId = "88Lb01qNUqFJrOFMITk00Ck201F00Qmcbpc5qgopNV4fCOk";
+
+  it("should generate summary and tags with OpenAI provider", async () => {
     const result = await getSummaryAndTags(assetId, {
-      provider: 'openai',
-      tone: 'normal',
+      provider: "openai",
+      tone: "normal",
       includeTranscript: true,
     });
 
@@ -16,21 +17,21 @@ describe('Summarization Integration Tests', () => {
     expect(result).toBeDefined();
 
     // Verify structure
-    expect(result).toHaveProperty('assetId');
-    expect(result).toHaveProperty('title');
-    expect(result).toHaveProperty('description');
-    expect(result).toHaveProperty('tags');
+    expect(result).toHaveProperty("assetId");
+    expect(result).toHaveProperty("title");
+    expect(result).toHaveProperty("description");
+    expect(result).toHaveProperty("tags");
 
     // Verify assetId matches
     expect(result.assetId).toBe(assetId);
 
     // Verify title
-    expect(typeof result.title).toBe('string');
+    expect(typeof result.title).toBe("string");
     expect(result.title.length).toBeGreaterThan(0);
     expect(result.title.length).toBeLessThanOrEqual(100);
 
     // Verify description
-    expect(typeof result.description).toBe('string');
+    expect(typeof result.description).toBe("string");
     expect(result.description.length).toBeGreaterThan(0);
     expect(result.description.length).toBeLessThanOrEqual(1000);
 
@@ -38,14 +39,14 @@ describe('Summarization Integration Tests', () => {
     expect(Array.isArray(result.tags)).toBe(true);
     expect(result.tags.length).toBeGreaterThan(0);
     result.tags.forEach((tag) => {
-      expect(typeof tag).toBe('string');
+      expect(typeof tag).toBe("string");
     });
   });
 
-  it('should generate summary and tags with Anthropic provider', async () => {
+  it("should generate summary and tags with Anthropic provider", async () => {
     const result = await getSummaryAndTags(assetId, {
-      provider: 'anthropic',
-      tone: 'normal',
+      provider: "anthropic",
+      tone: "normal",
       includeTranscript: true,
     });
 
@@ -53,21 +54,21 @@ describe('Summarization Integration Tests', () => {
     expect(result).toBeDefined();
 
     // Verify structure
-    expect(result).toHaveProperty('assetId');
-    expect(result).toHaveProperty('title');
-    expect(result).toHaveProperty('description');
-    expect(result).toHaveProperty('tags');
+    expect(result).toHaveProperty("assetId");
+    expect(result).toHaveProperty("title");
+    expect(result).toHaveProperty("description");
+    expect(result).toHaveProperty("tags");
 
     // Verify assetId matches
     expect(result.assetId).toBe(assetId);
 
     // Verify title
-    expect(typeof result.title).toBe('string');
+    expect(typeof result.title).toBe("string");
     expect(result.title.length).toBeGreaterThan(0);
     expect(result.title.length).toBeLessThanOrEqual(100);
 
     // Verify description
-    expect(typeof result.description).toBe('string');
+    expect(typeof result.description).toBe("string");
     expect(result.description.length).toBeGreaterThan(0);
     expect(result.description.length).toBeLessThanOrEqual(1000);
 
@@ -75,14 +76,14 @@ describe('Summarization Integration Tests', () => {
     expect(Array.isArray(result.tags)).toBe(true);
     expect(result.tags.length).toBeGreaterThan(0);
     result.tags.forEach((tag) => {
-      expect(typeof tag).toBe('string');
+      expect(typeof tag).toBe("string");
     });
   });
 
-  it('should generate summary and tags with Google provider', async () => {
+  it("should generate summary and tags with Google provider", async () => {
     const result = await getSummaryAndTags(assetId, {
-      provider: 'google',
-      tone: 'normal',
+      provider: "google",
+      tone: "normal",
       includeTranscript: true,
     });
 
@@ -90,21 +91,21 @@ describe('Summarization Integration Tests', () => {
     expect(result).toBeDefined();
 
     // Verify structure
-    expect(result).toHaveProperty('assetId');
-    expect(result).toHaveProperty('title');
-    expect(result).toHaveProperty('description');
-    expect(result).toHaveProperty('tags');
+    expect(result).toHaveProperty("assetId");
+    expect(result).toHaveProperty("title");
+    expect(result).toHaveProperty("description");
+    expect(result).toHaveProperty("tags");
 
     // Verify assetId matches
     expect(result.assetId).toBe(assetId);
 
     // Verify title
-    expect(typeof result.title).toBe('string');
+    expect(typeof result.title).toBe("string");
     expect(result.title.length).toBeGreaterThan(0);
     expect(result.title.length).toBeLessThanOrEqual(100);
 
     // Verify description
-    expect(typeof result.description).toBe('string');
+    expect(typeof result.description).toBe("string");
     expect(result.description.length).toBeGreaterThan(0);
     expect(result.description.length).toBeLessThanOrEqual(1000);
 
@@ -112,7 +113,7 @@ describe('Summarization Integration Tests', () => {
     expect(Array.isArray(result.tags)).toBe(true);
     expect(result.tags.length).toBeGreaterThan(0);
     result.tags.forEach((tag) => {
-      expect(typeof tag).toBe('string');
+      expect(typeof tag).toBe("string");
     });
   });
 });

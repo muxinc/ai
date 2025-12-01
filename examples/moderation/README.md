@@ -5,11 +5,13 @@ This directory contains examples demonstrating how to use the `getModerationScor
 ## Setup
 
 1. Install dependencies:
+
 ```bash
 npm install
 ```
 
 2. Set environment variables in your `.env` file (same as parent project):
+
 ```bash
 MUX_TOKEN_ID=your_mux_token_id
 MUX_TOKEN_SECRET=your_mux_token_secret
@@ -29,6 +31,7 @@ npm run basic <your-asset-id>
 ```
 
 Features:
+
 - Analyzes video thumbnails for sexual and violent content
 - Uses default thresholds (sexual: 0.7, violence: 0.8)
 - Shows individual thumbnail scores and overall results
@@ -43,6 +46,7 @@ npm run thresholds <your-asset-id>
 ```
 
 Compares three threshold levels:
+
 - **Strict**: Lower thresholds (0.3/0.3) - more likely to flag content
 - **Default**: Standard thresholds (0.7/0.8) - balanced approach
 - **Permissive**: Higher thresholds (0.9/0.9) - less likely to flag content
@@ -60,6 +64,7 @@ npm run example:moderation <your-asset-id> hive
 ```
 
 Features:
+
 - Requires `HIVE_API_KEY` plus standard Mux credentials.
 - You can use stricter default thresholds in your own code (e.g. `0.9/0.9`), matching Hive’s recommended starting point from their docs.
 - Prints both aggregate and per-thumbnail scores so you can tune thresholds quickly.
@@ -90,6 +95,7 @@ Key options for `getModerationScores`:
 ## What You'll Get
 
 Each analysis returns:
+
 - `thumbnailScores`: Individual scores for each thumbnail analyzed
 - `maxScores`: Highest scores found across all thumbnails
 - `exceedsThreshold`: Boolean indicating if content should be flagged
@@ -99,6 +105,7 @@ Each analysis returns:
 ## Content Categories
 
 Currently analyzes two categories:
+
 - **Sexual**: Adult/sexual content detection
 - **Violence**: Violent content detection
 

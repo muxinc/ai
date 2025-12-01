@@ -1,4 +1,6 @@
-import { SigningContext, signUrl } from '../lib/url-signing';
+import type { SigningContext } from "../lib/url-signing";
+
+import { signUrl } from "../lib/url-signing";
 
 export interface ThumbnailOptions {
   /** Interval between thumbnails in seconds (default: 10) */
@@ -21,7 +23,7 @@ export interface ThumbnailOptions {
 export async function getThumbnailUrls(
   playbackId: string,
   duration: number,
-  options: ThumbnailOptions = {}
+  options: ThumbnailOptions = {},
 ): Promise<string[]> {
   const { interval = 10, width = 640, signingContext } = options;
   const timestamps: number[] = [];
@@ -31,7 +33,8 @@ export async function getThumbnailUrls(
     for (let i = 1; i <= 5; i++) {
       timestamps.push(Math.round(i * spacing));
     }
-  } else {
+  }
+  else {
     for (let time = 0; time < duration; time += interval) {
       timestamps.push(time);
     }
@@ -41,7 +44,7 @@ export async function getThumbnailUrls(
 
   const urlPromises = timestamps.map(async (time) => {
     if (signingContext) {
-      return signUrl(baseUrl, playbackId, signingContext, 'thumbnail', { time, width });
+      return signUrl(baseUrl, playbackId, signingContext, "thumbnail", { time, width });
     }
 
     return `${baseUrl}?time=${time}&width=${width}`;

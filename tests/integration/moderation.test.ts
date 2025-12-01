@@ -1,20 +1,21 @@
-import { describe, it, expect } from 'vitest';
-import 'dotenv/config';
-import { getModerationScores } from '../../src/functions';
+import { describe, expect, it } from "vitest";
 
-describe('Moderation Integration Tests', () => {
-  const safeAsset = '88Lb01qNUqFJrOFMITk00Ck201F00Qmcbpc5qgopNV4fCOk';
-  const violentAsset = 'zYHICEOEbVJIdEfbZZ0048501iJjg9T4SgY00oPVWOaHNU';
+import "../../src/env";
+import { getModerationScores } from "../../src/functions";
+
+describe("moderation Integration Tests", () => {
+  const safeAsset = "88Lb01qNUqFJrOFMITk00Ck201F00Qmcbpc5qgopNV4fCOk";
+  const violentAsset = "zYHICEOEbVJIdEfbZZ0048501iJjg9T4SgY00oPVWOaHNU";
 
   // Define reasonable thresholds for classification
   const VIOLENCE_THRESHOLD = 0.5;
   const SEXUAL_THRESHOLD = 0.5;
 
-  describe('OpenAI provider', () => {
-    it('should detect safe content (not violent, not sexual)', async () => {
+  describe("openAI provider", () => {
+    it("should detect safe content (not violent, not sexual)", async () => {
       const result = await getModerationScores(safeAsset, {
-        provider: 'openai',
-        model: 'omni-moderation-latest',
+        provider: "openai",
+        model: "omni-moderation-latest",
       });
 
       // Assert that the result exists
@@ -22,10 +23,10 @@ describe('Moderation Integration Tests', () => {
       expect(result.assetId).toBe(safeAsset);
 
       // Verify structure
-      expect(result).toHaveProperty('maxScores');
-      expect(result).toHaveProperty('thumbnailScores');
-      expect(result).toHaveProperty('exceedsThreshold');
-      expect(result).toHaveProperty('thresholds');
+      expect(result).toHaveProperty("maxScores");
+      expect(result).toHaveProperty("thumbnailScores");
+      expect(result).toHaveProperty("exceedsThreshold");
+      expect(result).toHaveProperty("thresholds");
 
       // Assert not violent and not sexual
       expect(result.maxScores.violence).toBeLessThan(VIOLENCE_THRESHOLD);
@@ -36,10 +37,10 @@ describe('Moderation Integration Tests', () => {
       expect(result.thumbnailScores.length).toBeGreaterThan(0);
     });
 
-    it('should detect violent content (violent but not sexual)', async () => {
+    it("should detect violent content (violent but not sexual)", async () => {
       const result = await getModerationScores(violentAsset, {
-        provider: 'openai',
-        model: 'omni-moderation-latest',
+        provider: "openai",
+        model: "omni-moderation-latest",
       });
 
       // Assert that the result exists
@@ -47,8 +48,8 @@ describe('Moderation Integration Tests', () => {
       expect(result.assetId).toBe(violentAsset);
 
       // Verify structure
-      expect(result).toHaveProperty('maxScores');
-      expect(result).toHaveProperty('thumbnailScores');
+      expect(result).toHaveProperty("maxScores");
+      expect(result).toHaveProperty("thumbnailScores");
 
       // Assert violent but not sexual
       expect(result.maxScores.violence).toBeGreaterThan(VIOLENCE_THRESHOLD);
@@ -60,10 +61,10 @@ describe('Moderation Integration Tests', () => {
     });
   });
 
-  describe('Hive provider', () => {
-    it('should detect safe content (not violent, not sexual)', async () => {
+  describe("hive provider", () => {
+    it("should detect safe content (not violent, not sexual)", async () => {
       const result = await getModerationScores(safeAsset, {
-        provider: 'hive',
+        provider: "hive",
       });
 
       // Assert that the result exists
@@ -71,10 +72,10 @@ describe('Moderation Integration Tests', () => {
       expect(result.assetId).toBe(safeAsset);
 
       // Verify structure
-      expect(result).toHaveProperty('maxScores');
-      expect(result).toHaveProperty('thumbnailScores');
-      expect(result).toHaveProperty('exceedsThreshold');
-      expect(result).toHaveProperty('thresholds');
+      expect(result).toHaveProperty("maxScores");
+      expect(result).toHaveProperty("thumbnailScores");
+      expect(result).toHaveProperty("exceedsThreshold");
+      expect(result).toHaveProperty("thresholds");
 
       // Assert not violent and not sexual
       expect(result.maxScores.violence).toBeLessThan(VIOLENCE_THRESHOLD);
@@ -85,9 +86,9 @@ describe('Moderation Integration Tests', () => {
       expect(result.thumbnailScores.length).toBeGreaterThan(0);
     });
 
-    it('should detect violent content (violent but not sexual)', async () => {
+    it("should detect violent content (violent but not sexual)", async () => {
       const result = await getModerationScores(violentAsset, {
-        provider: 'hive',
+        provider: "hive",
       });
 
       // Assert that the result exists
@@ -95,8 +96,8 @@ describe('Moderation Integration Tests', () => {
       expect(result.assetId).toBe(violentAsset);
 
       // Verify structure
-      expect(result).toHaveProperty('maxScores');
-      expect(result).toHaveProperty('thumbnailScores');
+      expect(result).toHaveProperty("maxScores");
+      expect(result).toHaveProperty("thumbnailScores");
 
       // Assert violent but not sexual
       expect(result.maxScores.violence).toBeGreaterThan(VIOLENCE_THRESHOLD);

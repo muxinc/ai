@@ -1,8 +1,8 @@
 {
   "name": "@mux/ai-examples-burned-in-captions",
   "version": "0.1.0",
-  "description": "Examples for @mux/ai burned-in caption detection functionality",
   "private": true,
+  "description": "Examples for @mux/ai burned-in caption detection functionality",
   "scripts": {
     "burned-in:basic": "ts-node basic-example.ts",
     "compare": "ts-node provider-comparison.ts"

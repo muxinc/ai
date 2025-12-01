@@ -4,14 +4,14 @@ AI-powered video analysis library for Mux, built in TypeScript.
 
 ## Available Tools
 
-| Function | Description | Providers | Default Models | Input | Output |
-|----------|-------------|-----------|----------------|--------|--------|
-| `getSummaryAndTags` | Generate titles, descriptions, and tags from a Mux video asset | OpenAI, Anthropic, Google | `gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash` | Asset ID + options | Title, description, tags, storyboard URL |
-| `getModerationScores` | Analyze video thumbnails for inappropriate content | OpenAI, Hive | `omni-moderation-latest` (OpenAI) or Hive visual moderation task | Asset ID + thresholds | Sexual/violence scores, flagged status |
-| `hasBurnedInCaptions` | Detect burned-in captions (hardcoded subtitles) in video frames | OpenAI, Anthropic, Google | `gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash` | Asset ID + options | Boolean result, confidence, language |
-| `generateChapters` | Generate AI-powered chapter markers from video captions | OpenAI, Anthropic, Google | `gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash` | Asset ID + language + options | Timestamped chapter list |
-| `translateCaptions` | Translate video captions to different languages | OpenAI, Anthropic, Google | Provider default models | Asset ID + languages + S3 config | Translated VTT + Mux track ID |
-| `translateAudio` | Create AI-dubbed audio tracks in different languages | ElevenLabs only | ElevenLabs Dubbing API | Asset ID + languages + S3 config | Dubbed audio + Mux track ID |
+| Function              | Description                                                     | Providers                 | Default Models                                                   | Input                            | Output                                   |
+| --------------------- | --------------------------------------------------------------- | ------------------------- | ---------------------------------------------------------------- | -------------------------------- | ---------------------------------------- |
+| `getSummaryAndTags`   | Generate titles, descriptions, and tags from a Mux video asset  | OpenAI, Anthropic, Google | `gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash`            | Asset ID + options               | Title, description, tags, storyboard URL |
+| `getModerationScores` | Analyze video thumbnails for inappropriate content              | OpenAI, Hive              | `omni-moderation-latest` (OpenAI) or Hive visual moderation task | Asset ID + thresholds            | Sexual/violence scores, flagged status   |
+| `hasBurnedInCaptions` | Detect burned-in captions (hardcoded subtitles) in video frames | OpenAI, Anthropic, Google | `gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash`            | Asset ID + options               | Boolean result, confidence, language     |
+| `generateChapters`    | Generate AI-powered chapter markers from video captions         | OpenAI, Anthropic, Google | `gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash`            | Asset ID + language + options    | Timestamped chapter list                 |
+| `translateCaptions`   | Translate video captions to different languages                 | OpenAI, Anthropic, Google | Provider default models                                          | Asset ID + languages + S3 config | Translated VTT + Mux track ID            |
+| `translateAudio`      | Create AI-dubbed audio tracks in different languages            | ElevenLabs only           | ElevenLabs Dubbing API                                           | Asset ID + languages + S3 config | Dubbed audio + Mux track ID              |
 
 ## Features
 
@@ -35,25 +35,25 @@ This package ships with layered entry points so you can pick the right level of 
 Every helper inside `@mux/ai/functions` is composed from the primitives. That means you can start with a high-level function and gradually drop down to primitives whenever you need more control.
 
 ```typescript
-import { getSummaryAndTags, getModerationScores } from '@mux/ai/functions';
-import { fetchTranscriptForAsset, getStoryboardUrl } from '@mux/ai/primitives';
+import { getModerationScores, getSummaryAndTags } from "@mux/ai/functions";
+import { fetchTranscriptForAsset, getStoryboardUrl } from "@mux/ai/primitives";
 
 // Compose high-level functions for a custom workflow
 export async function summarizeIfSafe(assetId: string) {
-  const moderation = await getModerationScores(assetId, { provider: 'openai' });
+  const moderation = await getModerationScores(assetId, { provider: "openai" });
   if (moderation.exceedsThreshold) {
-    throw new Error('Asset failed content safety review');
+    throw new Error("Asset failed content safety review");
   }
 
   return getSummaryAndTags(assetId, {
-    provider: 'anthropic',
-    tone: 'professional',
+    provider: "anthropic",
+    tone: "professional",
   });
 }
 
 // Or drop down to primitives to build bespoke AI workflows
 export async function customTranscriptAnalysis(assetId: string, playbackId: string) {
-  const transcript = await fetchTranscriptForAsset(assetId, 'en');
+  const transcript = await fetchTranscriptForAsset(assetId, "en");
   const storyboardUrl = getStoryboardUrl(playbackId);
 
   // Use these primitives in your own AI prompts or custom logic
@@ -74,36 +74,36 @@ npm install @mux/ai
 ### Video Summarization
 
 ```typescript
-import { getSummaryAndTags } from '@mux/ai/functions';
+import { getSummaryAndTags } from "@mux/ai/functions";
 
 // Uses built-in optimized prompt
-const result = await getSummaryAndTags('your-mux-asset-id', {
-  tone: 'professional'
+const result = await getSummaryAndTags("your-mux-asset-id", {
+  tone: "professional"
 });
 
-console.log(result.title);         // Short, descriptive title
-console.log(result.description);   // Detailed description
-console.log(result.tags);          // Array of relevant keywords
+console.log(result.title); // Short, descriptive title
+console.log(result.description); // Detailed description
+console.log(result.tags); // Array of relevant keywords
 console.log(result.storyboardUrl); // URL to Mux storyboard
 
 // Use base64 mode for improved reliability (works with OpenAI, Anthropic, and Google)
-const reliableResult = await getSummaryAndTags('your-mux-asset-id', {
-  provider: 'anthropic',
-  imageSubmissionMode: 'base64',  // Downloads storyboard locally before submission
+const reliableResult = await getSummaryAndTags("your-mux-asset-id", {
+  provider: "anthropic",
+  imageSubmissionMode: "base64", // Downloads storyboard locally before submission
   imageDownloadOptions: {
     timeout: 15000,
     retries: 2,
     retryDelay: 1000
   },
-  tone: 'professional'
+  tone: "professional"
 });
 
 // Customize for specific use cases with promptOverrides
-const seoResult = await getSummaryAndTags('your-mux-asset-id', {
+const seoResult = await getSummaryAndTags("your-mux-asset-id", {
   promptOverrides: {
-    task: 'Generate SEO-optimized metadata for search engines.',
-    title: 'Create a search-optimized title (50-60 chars) with primary keyword.',
-    keywords: 'Focus on high search volume and long-tail keywords.',
+    task: "Generate SEO-optimized metadata for search engines.",
+    title: "Create a search-optimized title (50-60 chars) with primary keyword.",
+    keywords: "Focus on high search volume and long-tail keywords.",
   },
 });
 ```
@@ -111,27 +111,27 @@ const seoResult = await getSummaryAndTags('your-mux-asset-id', {
 ### Content Moderation
 
 ```typescript
-import { getModerationScores } from '@mux/ai/functions';
+import { getModerationScores } from "@mux/ai/functions";
 
 // Analyze Mux video asset for inappropriate content (OpenAI default)
-const result = await getModerationScores('your-mux-asset-id', {
+const result = await getModerationScores("your-mux-asset-id", {
   thresholds: { sexual: 0.7, violence: 0.8 }
 });
 
-console.log(result.maxScores);        // Highest scores across all thumbnails
+console.log(result.maxScores); // Highest scores across all thumbnails
 console.log(result.exceedsThreshold); // true if content should be flagged
-console.log(result.thumbnailScores);  // Individual thumbnail results
+console.log(result.thumbnailScores); // Individual thumbnail results
 
 // Run the same analysis using Hive’s visual moderation API
-const hiveResult = await getModerationScores('your-mux-asset-id', {
-  provider: 'hive',
+const hiveResult = await getModerationScores("your-mux-asset-id", {
+  provider: "hive",
   thresholds: { sexual: 0.9, violence: 0.9 },
 });
 
 // Use base64 submission for improved reliability with OpenAI (downloads images locally)
-const reliableResult = await getModerationScores('your-mux-asset-id', {
-  provider: 'openai',
-  imageSubmissionMode: 'base64',
+const reliableResult = await getModerationScores("your-mux-asset-id", {
+  provider: "openai",
+  imageSubmissionMode: "base64",
   imageDownloadOptions: {
     timeout: 15000,
     retries: 3,
@@ -143,33 +143,33 @@ const reliableResult = await getModerationScores('your-mux-asset-id', {
 ### Burned-in Caption Detection
 
 ```typescript
-import { hasBurnedInCaptions } from '@mux/ai/functions';
+import { hasBurnedInCaptions } from "@mux/ai/functions";
 
 // Detect burned-in captions (hardcoded subtitles) in video frames
-const result = await hasBurnedInCaptions('your-mux-asset-id', {
-  provider: 'openai'
+const result = await hasBurnedInCaptions("your-mux-asset-id", {
+  provider: "openai"
 });
 
 console.log(result.hasBurnedInCaptions); // true/false
-console.log(result.confidence);         // 0.0-1.0 confidence score
-console.log(result.detectedLanguage);   // Language if captions detected
-console.log(result.storyboardUrl);      // Video storyboard analyzed
+console.log(result.confidence); // 0.0-1.0 confidence score
+console.log(result.detectedLanguage); // Language if captions detected
+console.log(result.storyboardUrl); // Video storyboard analyzed
 
 // Compare providers
-const anthropicResult = await hasBurnedInCaptions('your-mux-asset-id', {
-  provider: 'anthropic',
-  model: 'claude-sonnet-4-5'
+const anthropicResult = await hasBurnedInCaptions("your-mux-asset-id", {
+  provider: "anthropic",
+  model: "claude-sonnet-4-5"
 });
 
-const googleResult = await hasBurnedInCaptions('your-mux-asset-id', {
-  provider: 'google',
-  model: 'gemini-2.5-flash'
+const googleResult = await hasBurnedInCaptions("your-mux-asset-id", {
+  provider: "google",
+  model: "gemini-2.5-flash"
 });
 
 // Use base64 mode for improved reliability
-const reliableResult = await hasBurnedInCaptions('your-mux-asset-id', {
-  provider: 'openai',
-  imageSubmissionMode: 'base64',
+const reliableResult = await hasBurnedInCaptions("your-mux-asset-id", {
+  provider: "openai",
+  imageSubmissionMode: "base64",
   imageDownloadOptions: {
     timeout: 15000,
     retries: 3,
@@ -183,12 +183,14 @@ const reliableResult = await hasBurnedInCaptions('your-mux-asset-id', {
 Choose between two methods for submitting images to AI providers:
 
 **URL Mode (Default):**
+
 - Fast initial response
 - Lower bandwidth usage
 - Relies on AI provider's image downloading
 - May encounter timeouts with slow/unreliable image sources
 
 **Base64 Mode (Recommended for Production):**
+
 - Downloads images locally with robust retry logic
 - Eliminates AI provider timeout issues
 - Better control over slow TTFB and network issues
@@ -199,11 +201,11 @@ Choose between two methods for submitting images to AI providers:
 ```typescript
 // High reliability mode - recommended for production
 const result = await getModerationScores(assetId, {
-  imageSubmissionMode: 'base64',
+  imageSubmissionMode: "base64",
   imageDownloadOptions: {
-    timeout: 15000,      // 15s timeout per image
-    retries: 3,          // Retry failed downloads 3x
-    retryDelay: 1000,    // 1s base delay with exponential backoff
+    timeout: 15000, // 15s timeout per image
+    retries: 3, // Retry failed downloads 3x
+    retryDelay: 1000, // 1s base delay with exponential backoff
     exponentialBackoff: true
   }
 });
@@ -212,103 +214,103 @@ const result = await getModerationScores(assetId, {
 ### Caption Translation
 
 ```typescript
-import { translateCaptions } from '@mux/ai/functions';
+import { translateCaptions } from "@mux/ai/functions";
 
 // Translate existing captions to Spanish and add as new track
 const result = await translateCaptions(
-  'your-mux-asset-id',
-  'en',  // from language
-  'es',  // to language
+  "your-mux-asset-id",
+  "en", // from language
+  "es", // to language
   {
-    provider: 'google',
-    model: 'gemini-2.5-flash'
+    provider: "google",
+    model: "gemini-2.5-flash"
   }
 );
 
-console.log(result.uploadedTrackId);  // New Mux track ID
-console.log(result.presignedUrl);     // S3 file URL
-console.log(result.translatedVtt);    // Translated VTT content
+console.log(result.uploadedTrackId); // New Mux track ID
+console.log(result.presignedUrl); // S3 file URL
+console.log(result.translatedVtt); // Translated VTT content
 ```
 
 ### Video Chapters
 
 ```typescript
-import { generateChapters } from '@mux/ai/functions';
+import { generateChapters } from "@mux/ai/functions";
 
 // Generate AI-powered chapters from video captions
-const result = await generateChapters('your-mux-asset-id', 'en', {
-  provider: 'openai'
+const result = await generateChapters("your-mux-asset-id", "en", {
+  provider: "openai"
 });
 
-console.log(result.chapters);  // Array of {startTime: number, title: string}
+console.log(result.chapters); // Array of {startTime: number, title: string}
 
 // Use with Mux Player
-const player = document.querySelector('mux-player');
+const player = document.querySelector("mux-player");
 player.addChapters(result.chapters);
 
 // Compare providers
-const anthropicResult = await generateChapters('your-mux-asset-id', 'en', {
-  provider: 'anthropic',
-  model: 'claude-sonnet-4-5'
+const anthropicResult = await generateChapters("your-mux-asset-id", "en", {
+  provider: "anthropic",
+  model: "claude-sonnet-4-5"
 });
 
-const googleResult = await generateChapters('your-mux-asset-id', 'en', {
-  provider: 'google',
-  model: 'gemini-2.5-flash'
+const googleResult = await generateChapters("your-mux-asset-id", "en", {
+  provider: "google",
+  model: "gemini-2.5-flash"
 });
 ```
 
 ### Audio Dubbing
 
 ```typescript
-import { translateAudio } from '@mux/ai/functions';
+import { translateAudio } from "@mux/ai/functions";
 
 // Create AI-dubbed audio track and add to Mux asset
 // Uses the default audio track on your asset, language is auto-detected
 const result = await translateAudio(
-  'your-mux-asset-id',
-  'es',  // target language
+  "your-mux-asset-id",
+  "es", // target language
   {
-    provider: 'elevenlabs',
+    provider: "elevenlabs",
     numSpeakers: 0 // Auto-detect speakers
   }
 );
 
-console.log(result.dubbingId);        // ElevenLabs dubbing job ID
-console.log(result.uploadedTrackId);  // New Mux audio track ID
-console.log(result.presignedUrl);     // S3 audio file URL
+console.log(result.dubbingId); // ElevenLabs dubbing job ID
+console.log(result.uploadedTrackId); // New Mux audio track ID
+console.log(result.presignedUrl); // S3 audio file URL
 ```
 
 ### Compare Summarization from Providers
 
 ```typescript
-import { getSummaryAndTags } from '@mux/ai/functions';
+import { getSummaryAndTags } from "@mux/ai/functions";
 
 // Compare different AI providers analyzing the same Mux video asset
-const assetId = 'your-mux-asset-id';
+const assetId = "your-mux-asset-id";
 
 // OpenAI analysis (default: gpt-5-mini)
 const openaiResult = await getSummaryAndTags(assetId, {
-  provider: 'openai',
-  tone: 'professional'
+  provider: "openai",
+  tone: "professional"
 });
 
 // Anthropic analysis (default: claude-sonnet-4-5)
 const anthropicResult = await getSummaryAndTags(assetId, {
-  provider: 'anthropic',
-  tone: 'professional'
+  provider: "anthropic",
+  tone: "professional"
 });
 
 // Google Gemini analysis (default: gemini-2.5-flash)
 const googleResult = await getSummaryAndTags(assetId, {
-  provider: 'google',
-  tone: 'professional'
+  provider: "google",
+  tone: "professional"
 });
 
 // Compare results
-console.log('OpenAI:', openaiResult.title);
-console.log('Anthropic:', anthropicResult.title);
-console.log('Google:', googleResult.title);
+console.log("OpenAI:", openaiResult.title);
+console.log("Anthropic:", anthropicResult.title);
+console.log("Google:", googleResult.title);
 ```
 
 ## Configuration
@@ -339,12 +341,12 @@ Or pass credentials directly:
 
 ```typescript
 const result = await getSummaryAndTags(assetId, {
-  muxTokenId: 'your-token-id',
-  muxTokenSecret: 'your-token-secret',
-  openaiApiKey: 'your-openai-key',
+  muxTokenId: "your-token-id",
+  muxTokenSecret: "your-token-secret",
+  openaiApiKey: "your-openai-key",
   // For assets with signed playback policies:
-  muxSigningKey: 'your-signing-key-id',
-  muxPrivateKey: 'your-base64-private-key'
+  muxSigningKey: "your-signing-key-id",
+  muxPrivateKey: "your-base64-private-key"
 });
 ```
 
@@ -355,10 +357,12 @@ const result = await getSummaryAndTags(assetId, {
 Analyzes a Mux video asset and returns AI-generated metadata.
 
 **Parameters:**
+
 - `assetId` (string) - Mux video asset ID
 - `options` (optional) - Configuration options
 
 **Options:**
+
 - `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
 - `tone?: 'normal' | 'sassy' | 'professional'` - Analysis tone (default: 'normal')
 - `model?: string` - AI model to use (defaults: `gpt-5-mini`, `claude-sonnet-4-5`, or `gemini-2.5-flash`)
@@ -386,12 +390,13 @@ Analyzes a Mux video asset and returns AI-generated metadata.
 - `googleApiKey?: string` - Google Generative AI API key
 
 **Returns:**
+
 ```typescript
-{
+interface SummaryAndTagsResult {
   assetId: string;
-  title: string;        // Short title (max 100 chars)
-  description: string;  // Detailed description
-  tags: string[];       // Relevant keywords
+  title: string; // Short title (max 100 chars)
+  description: string; // Detailed description
+  tags: string[]; // Relevant keywords
   storyboardUrl: string; // Video storyboard URL
 }
 ```
@@ -401,10 +406,12 @@ Analyzes a Mux video asset and returns AI-generated metadata.
 Analyzes video thumbnails for inappropriate content using OpenAI's Moderation API or Hive’s visual moderation API.
 
 **Parameters:**
+
 - `assetId` (string) - Mux video asset ID
 - `options` (optional) - Configuration options
 
 **Options:**
+
 - `provider?: 'openai' | 'hive'` - Moderation provider (default: 'openai')
 - `model?: string` - OpenAI moderation model to use (default: `omni-moderation-latest`)
 - `thresholds?: { sexual?: number; violence?: number }` - Custom thresholds (default: {sexual: 0.7, violence: 0.8})
@@ -422,21 +429,22 @@ Analyzes video thumbnails for inappropriate content using OpenAI's Moderation AP
 - `openaiApiKey?/hiveApiKey?` - Provider credentials
 
 **Returns:**
+
 ```typescript
 {
   assetId: string;
-  thumbnailScores: Array<{     // Individual thumbnail results
+  thumbnailScores: Array<{ // Individual thumbnail results
     url: string;
-    sexual: number;            // 0-1 score
-    violence: number;          // 0-1 score
+    sexual: number; // 0-1 score
+    violence: number; // 0-1 score
     error: boolean;
   }>;
-  maxScores: {                 // Highest scores across all thumbnails
+  maxScores: { // Highest scores across all thumbnails
     sexual: number;
     violence: number;
   };
-  exceedsThreshold: boolean;   // true if content should be flagged
-  thresholds: {                // Threshold values used
+  exceedsThreshold: boolean; // true if content should be flagged
+  thresholds: { // Threshold values used
     sexual: number;
     violence: number;
   };
@@ -448,10 +456,12 @@ Analyzes video thumbnails for inappropriate content using OpenAI's Moderation AP
 Analyzes video frames to detect burned-in captions (hardcoded subtitles) that are permanently embedded in the video image.
 
 **Parameters:**
+
 - `assetId` (string) - Mux video asset ID
 - `options` (optional) - Configuration options
 
 **Options:**
+
 - `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
 - `model?: string` - AI model to use (defaults: `gpt-5-mini`, `claude-sonnet-4-5`, or `gemini-2.5-flash`)
 - `imageSubmissionMode?: 'url' | 'base64'` - How to submit storyboard to AI providers (default: 'url')
@@ -468,17 +478,19 @@ Analyzes video frames to detect burned-in captions (hardcoded subtitles) that ar
 - `googleApiKey?: string` - Google Generative AI API key
 
 **Returns:**
+
 ```typescript
 {
   assetId: string;
-  hasBurnedInCaptions: boolean;  // Whether burned-in captions were detected
-  confidence: number;            // Confidence score (0.0-1.0)
+  hasBurnedInCaptions: boolean; // Whether burned-in captions were detected
+  confidence: number; // Confidence score (0.0-1.0)
   detectedLanguage: string | null; // Language of detected captions, or null
-  storyboardUrl: string;         // URL to analyzed storyboard
+  storyboardUrl: string; // URL to analyzed storyboard
 }
 ```
 
 **Detection Logic:**
+
 - Analyzes video storyboard frames to identify text overlays
 - Distinguishes between actual captions and marketing/end-card text
 - Text appearing only in final 1-2 frames is classified as marketing copy
@@ -490,12 +502,14 @@ Analyzes video frames to detect burned-in captions (hardcoded subtitles) that ar
 Translates existing captions from one language to another and optionally adds them as a new track to the Mux asset.
 
 **Parameters:**
+
 - `assetId` (string) - Mux video asset ID
 - `fromLanguageCode` (string) - Source language code (e.g., 'en', 'es', 'fr')
 - `toLanguageCode` (string) - Target language code (e.g., 'es', 'fr', 'de')
 - `options` (optional) - Configuration options
 
 **Options:**
+
 - `provider: 'openai' | 'anthropic' | 'google'` - AI provider (required)
 - `model?: string` - Model to use (defaults to the provider's chat-vision model if omitted)
 - `uploadToMux?: boolean` - Whether to upload translated track to Mux (default: true)
@@ -508,15 +522,16 @@ Translates existing captions from one language to another and optionally adds th
 - `openaiApiKey?/anthropicApiKey?/googleApiKey?` - Provider credentials
 
 **Returns:**
+
 ```typescript
-{
+interface TranslateCaptionsResult {
   assetId: string;
   sourceLanguageCode: string;
   targetLanguageCode: string;
-  originalVtt: string;         // Original VTT content
-  translatedVtt: string;       // Translated VTT content
-  uploadedTrackId?: string;    // Mux track ID (if uploaded)
-  presignedUrl?: string;       // S3 presigned URL (expires in 1 hour)
+  originalVtt: string; // Original VTT content
+  translatedVtt: string; // Translated VTT content
+  uploadedTrackId?: string; // Mux track ID (if uploaded)
+  presignedUrl?: string; // S3 presigned URL (expires in 1 hour)
 }
 ```
 
@@ -528,11 +543,13 @@ All ISO 639-1 language codes are automatically supported using `Intl.DisplayName
 Generates AI-powered chapter markers by analyzing video captions. Creates logical chapter breaks based on topic changes and content transitions.
 
 **Parameters:**
+
 - `assetId` (string) - Mux video asset ID
 - `languageCode` (string) - Language code for captions (e.g., 'en', 'es', 'fr')
 - `options` (optional) - Configuration options
 
 **Options:**
+
 - `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
 - `model?: string` - AI model to use (defaults: `gpt-5-mini`, `claude-sonnet-4-5`, or `gemini-2.5-flash`)
 - `muxTokenId?: string` - Mux API token ID
@@ -542,29 +559,32 @@ Generates AI-powered chapter markers by analyzing video captions. Creates logica
 - `googleApiKey?: string` - Google Generative AI API key
 
 **Returns:**
+
 ```typescript
 {
   assetId: string;
   languageCode: string;
   chapters: Array<{
-    startTime: number;    // Chapter start time in seconds
-    title: string;        // Descriptive chapter title
+    startTime: number; // Chapter start time in seconds
+    title: string; // Descriptive chapter title
   }>;
 }
 ```
 
 **Requirements:**
+
 - Asset must have caption track in the specified language
 - Caption track must be in 'ready' status
 - Uses existing auto-generated or uploaded captions
 
 **Example Output:**
+
 ```javascript
 // Perfect format for Mux Player
 player.addChapters([
-  {startTime: 0, title: 'Introduction and Setup'},
-  {startTime: 45, title: 'Main Content Discussion'},
-  {startTime: 120, title: 'Conclusion'}
+  { startTime: 0, title: "Introduction and Setup" },
+  { startTime: 45, title: "Main Content Discussion" },
+  { startTime: 120, title: "Conclusion" }
 ]);
 ```
 
@@ -573,11 +593,13 @@ player.addChapters([
 Creates AI-dubbed audio tracks from existing video content using ElevenLabs voice cloning and translation. Uses the default audio track on your asset, language is auto-detected.
 
 **Parameters:**
+
 - `assetId` (string) - Mux video asset ID (must have audio.m4a static rendition)
 - `toLanguageCode` (string) - Target language code (e.g., 'es', 'fr', 'de')
 - `options` (optional) - Configuration options
 
 **Options:**
+
 - `provider?: 'elevenlabs'` - AI provider (default: 'elevenlabs')
 - `numSpeakers?: number` - Number of speakers (default: 0 for auto-detect)
 - `uploadToMux?: boolean` - Whether to upload dubbed track to Mux (default: true)
@@ -590,17 +612,19 @@ Creates AI-dubbed audio tracks from existing video content using ElevenLabs voic
 - `muxTokenId/muxTokenSecret?: string` - API credentials
 
 **Returns:**
+
 ```typescript
-{
+interface TranslateAudioResult {
   assetId: string;
   targetLanguageCode: string;
-  dubbingId: string;           // ElevenLabs dubbing job ID
-  uploadedTrackId?: string;    // Mux audio track ID (if uploaded)
-  presignedUrl?: string;       // S3 presigned URL (expires in 1 hour)
+  dubbingId: string; // ElevenLabs dubbing job ID
+  uploadedTrackId?: string; // Mux audio track ID (if uploaded)
+  presignedUrl?: string; // S3 presigned URL (expires in 1 hour)
 }
 ```
 
 **Requirements:**
+
 - Asset must have an `audio.m4a` static rendition
 - ElevenLabs API key with Creator plan or higher
 - S3-compatible storage for Mux ingestion
@@ -615,35 +639,35 @@ Customize specific sections of the summarization prompt for different use cases 
 **Tip:** Before adding overrides, read through the default summarization prompt template in `src/functions/summarization.ts` (the `summarizationPromptBuilder` config) so you have clear context on what each section does and what you’re changing.
 
 ```typescript
-import { getSummaryAndTags } from '@mux/ai/functions';
+import { getSummaryAndTags } from "@mux/ai/functions";
 
 // SEO-optimized metadata
 const seoResult = await getSummaryAndTags(assetId, {
-  tone: 'professional',
+  tone: "professional",
   promptOverrides: {
-    task: 'Generate SEO-optimized metadata that maximizes discoverability.',
-    title: 'Create a search-optimized title (50-60 chars) with primary keyword front-loaded.',
-    keywords: 'Focus on high search volume terms and long-tail keywords.',
+    task: "Generate SEO-optimized metadata that maximizes discoverability.",
+    title: "Create a search-optimized title (50-60 chars) with primary keyword front-loaded.",
+    keywords: "Focus on high search volume terms and long-tail keywords.",
   },
 });
 
 // Social media optimized for engagement
 const socialResult = await getSummaryAndTags(assetId, {
   promptOverrides: {
-    title: 'Create a scroll-stopping headline using emotional triggers or curiosity gaps.',
-    description: 'Write shareable copy that creates FOMO and works without watching the video.',
-    keywords: 'Generate hashtag-ready keywords for trending and niche community tags.',
+    title: "Create a scroll-stopping headline using emotional triggers or curiosity gaps.",
+    description: "Write shareable copy that creates FOMO and works without watching the video.",
+    keywords: "Generate hashtag-ready keywords for trending and niche community tags.",
   },
 });
 
 // Technical/production analysis
 const technicalResult = await getSummaryAndTags(assetId, {
-  tone: 'professional',
+  tone: "professional",
   promptOverrides: {
-    task: 'Analyze cinematography, lighting, and production techniques.',
-    title: 'Describe the production style or filmmaking technique.',
-    description: 'Provide a technical breakdown of camera work, lighting, and editing.',
-    keywords: 'Use industry-standard production terminology.',
+    task: "Analyze cinematography, lighting, and production techniques.",
+    title: "Describe the production style or filmmaking technique.",
+    description: "Provide a technical breakdown of camera work, lighting, and editing.",
+    keywords: "Use industry-standard production terminology.",
   },
 });
 ```
@@ -665,6 +689,7 @@ See the `examples/` directory for complete working examples.
 
 **Prerequisites:**
 Create a `.env` file in the project root with your API credentials:
+
 ```bash
 MUX_TOKEN_ID=your_token_id
 MUX_TOKEN_SECRET=your_token_secret
@@ -709,6 +734,7 @@ npm run example:signed-playback:summarize <signed-asset-id> [provider]
 ```
 
 **Examples:**
+
 ```bash
 # Generate chapters with OpenAI
 npm run example:chapters abc123 en openai
@@ -733,6 +759,7 @@ npm run example:translate-audio abc123 fr
 ```
 
 ### Summarization Examples
+
 - **Basic Usage**: Default prompt with different tones
 - **Custom Prompts**: Override prompt sections with presets (SEO, social, technical, ecommerce)
 - **Tone Variations**: Compare analysis styles
@@ -754,6 +781,7 @@ npm run custom <your-asset-id> --task "Focus on product features"
 ```
 
 ### Moderation Examples
+
 - **Basic Moderation**: Analyze content with default thresholds
 - **Custom Thresholds**: Compare strict/default/permissive settings
 - **Provider Comparison**: Compare OpenAI’s dedicated Moderation API with Hive’s visual moderation API
@@ -769,6 +797,7 @@ npm run compare <your-asset-id>
 Supported moderation providers: `openai` (default) and `hive`. Use `HIVE_API_KEY` when selecting Hive.
 
 ### Burned-in Caption Examples
+
 - **Basic Detection**: Detect burned-in captions with different AI providers
 - **Provider Comparison**: Compare OpenAI vs Anthropic vs Google detection accuracy
 
@@ -780,6 +809,7 @@ npm run compare <your-asset-id>
 ```
 
 ### Chapter Generation Examples
+
 - **Basic Chapters**: Generate chapters with different AI providers
 - **Provider Comparison**: Compare OpenAI vs Anthropic vs Google chapter generation
 
@@ -791,6 +821,7 @@ npm run compare <your-asset-id> [language-code]
 ```
 
 ### Caption Translation Examples
+
 - **Basic Translation**: Translate captions and upload to Mux
 - **Translation Only**: Translate without uploading to Mux
 
@@ -802,6 +833,7 @@ npm run translation-only <your-asset-id> en fr [provider]
 ```
 
 **Translation Workflow:**
+
 1. Fetches existing captions from Mux asset
 2. Translates VTT content using your selected provider (default: Claude Sonnet 4.5)
 3. Uploads translated VTT to S3-compatible storage
@@ -810,6 +842,7 @@ npm run translation-only <your-asset-id> en fr [provider]
 6. Track name: "{Language} (auto-translated)"
 
 ### Audio Dubbing Examples
+
 - **Basic Dubbing**: Create AI-dubbed audio and upload to Mux
 - **Dubbing Only**: Create dubbed audio without uploading to Mux
 
@@ -821,6 +854,7 @@ npm run dubbing-only <your-asset-id> fr
 ```
 
 **Audio Dubbing Workflow:**
+
 1. Checks asset has audio.m4a static rendition
 2. Downloads default audio track from Mux
 3. Creates ElevenLabs dubbing job with automatic language detection
@@ -832,6 +866,7 @@ npm run dubbing-only <your-asset-id> fr
 9. Track name: "{Language} (auto-dubbed)"
 
 ### Signed Playback Examples
+
 - **URL Generation Test**: Verify signed URLs work for storyboards, thumbnails, and transcripts
 - **Signed Summarization**: Full summarization workflow with a signed asset
 
@@ -847,12 +882,14 @@ npm run summarize <signed-asset-id> [provider]
 ```
 
 **Prerequisites:**
+
 1. Create a Mux asset with `playback_policy: "signed"`
 2. Create a signing key in Mux Dashboard → Settings → Signing Keys
 3. Set `MUX_SIGNING_KEY` and `MUX_PRIVATE_KEY` environment variables
 
 **How Signed Playback Works:**
 When you provide signing credentials, the library automatically:
+
 - Detects if an asset has a signed playback policy
 - Generates JWT tokens with RS256 algorithm
 - Uses the correct `aud` claim for each asset type (video, thumbnail, storyboard)
@@ -871,6 +908,7 @@ The translation feature requires S3-compatible storage to temporarily host VTT f
 
 **Why S3 Storage?**
 Mux requires a publicly accessible URL to ingest subtitle tracks. The translation workflow:
+
 1. Uploads translated VTT to your S3 storage
 2. Generates a presigned URL for secure access
 3. Mux fetches the file using the presigned URL

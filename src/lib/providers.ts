@@ -1,21 +1,25 @@
-import { createAnthropic } from '@ai-sdk/anthropic';
-import { createGoogleGenerativeAI } from '@ai-sdk/google';
-import { createOpenAI } from '@ai-sdk/openai';
-import { LanguageModel } from 'ai';
-import { MuxAIOptions } from '../types';
+import type { LanguageModel } from "ai";
 
-export type SupportedProvider = 'openai' | 'anthropic' | 'google';
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createOpenAI } from "@ai-sdk/openai";
+
+import type { MuxAIOptions } from "../types";
+
+import env from "../env";
+
+export type SupportedProvider = "openai" | "anthropic" | "google";
 
 // Model ID unions inferred from ai-sdk provider call signatures
-type OpenAIModelId = Parameters<ReturnType<typeof createOpenAI>['chat']>[0];
-type AnthropicModelId = Parameters<ReturnType<typeof createAnthropic>['chat']>[0];
-type GoogleModelId = Parameters<ReturnType<typeof createGoogleGenerativeAI>['chat']>[0];
+type OpenAIModelId = Parameters<ReturnType<typeof createOpenAI>["chat"]>[0];
+type AnthropicModelId = Parameters<ReturnType<typeof createAnthropic>["chat"]>[0];
+type GoogleModelId = Parameters<ReturnType<typeof createGoogleGenerativeAI>["chat"]>[0];
 
-export type ModelIdByProvider = {
+export interface ModelIdByProvider {
   openai: OpenAIModelId;
   anthropic: AnthropicModelId;
   google: GoogleModelId;
-};
+}
 
 export interface ModelRequestOptions<P extends SupportedProvider = SupportedProvider> extends MuxAIOptions {
   provider?: P;
@@ -29,9 +33,9 @@ export interface ResolvedModel<P extends SupportedProvider = SupportedProvider> 
 }
 
 const DEFAULT_LANGUAGE_MODELS: { [K in SupportedProvider]: ModelIdByProvider[K] } = {
-  openai: 'gpt-5-mini',
-  anthropic: 'claude-sonnet-4-5',
-  google: 'gemini-2.5-flash',
+  openai: "gpt-5-mini",
+  anthropic: "claude-sonnet-4-5",
+  google: "gemini-2.5-flash",
 };
 
 function requireEnv(value: string | undefined, name: string): string {
@@ -45,15 +49,15 @@ function requireEnv(value: string | undefined, name: string): string {
  * Resolves a language model from a suggested provider.
  */
 export function resolveLanguageModel<P extends SupportedProvider = SupportedProvider>(
-  options: ModelRequestOptions<P> = {}
+  options: ModelRequestOptions<P> = {},
 ): ResolvedModel<P> {
-  const provider = options.provider || ('openai' as P);
+  const provider = options.provider || ("openai" as P);
   const modelId = (options.model || DEFAULT_LANGUAGE_MODELS[provider]) as ModelIdByProvider[P];
 
   switch (provider) {
-    case 'openai': {
-      const apiKey = options.openaiApiKey || process.env.OPENAI_API_KEY;
-      requireEnv(apiKey, 'OPENAI_API_KEY');
+    case "openai": {
+      const apiKey = options.openaiApiKey ?? env.OPENAI_API_KEY;
+      requireEnv(apiKey, "OPENAI_API_KEY");
       const openai = createOpenAI({
         apiKey,
       });
@@ -64,9 +68,9 @@ export function resolveLanguageModel<P extends SupportedProvider = SupportedProv
         model: openai(modelId),
       };
     }
-    case 'anthropic': {
-      const apiKey = options.anthropicApiKey || process.env.ANTHROPIC_API_KEY;
-      requireEnv(apiKey, 'ANTHROPIC_API_KEY');
+    case "anthropic": {
+      const apiKey = options.anthropicApiKey ?? env.ANTHROPIC_API_KEY;
+      requireEnv(apiKey, "ANTHROPIC_API_KEY");
       const anthropic = createAnthropic({
         apiKey,
       });
@@ -77,9 +81,9 @@ export function resolveLanguageModel<P extends SupportedProvider = SupportedProv
         model: anthropic(modelId),
       };
     }
-    case 'google': {
-      const apiKey = options.googleApiKey || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-      requireEnv(apiKey, 'GOOGLE_GENERATIVE_AI_API_KEY');
+    case "google": {
+      const apiKey = options.googleApiKey ?? env.GOOGLE_GENERATIVE_AI_API_KEY;
+      requireEnv(apiKey, "GOOGLE_GENERATIVE_AI_API_KEY");
       const google = createGoogleGenerativeAI({
         apiKey,
       });

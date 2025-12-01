@@ -1,13 +1,14 @@
-import { describe, it, expect } from 'vitest';
-import 'dotenv/config';
-import { translateAudio } from '../../src/functions';
+import { describe, expect, it } from "vitest";
 
-describe('Audio Translation Integration Tests', () => {
-  const assetId = '88Lb01qNUqFJrOFMITk00Ck201F00Qmcbpc5qgopNV4fCOk';
+import "../../src/env";
+import { translateAudio } from "../../src/functions";
 
-  it('should translate audio to French without uploading to Mux', async () => {
-    const result = await translateAudio(assetId, 'fr', {
-      provider: 'elevenlabs',
+describe("audio Translation Integration Tests", () => {
+  const assetId = "88Lb01qNUqFJrOFMITk00Ck201F00Qmcbpc5qgopNV4fCOk";
+
+  it("should translate audio to French without uploading to Mux", async () => {
+    const result = await translateAudio(assetId, "fr", {
+      provider: "elevenlabs",
       uploadToMux: false,
     });
 
@@ -15,18 +16,18 @@ describe('Audio Translation Integration Tests', () => {
     expect(result).toBeDefined();
 
     // Verify structure
-    expect(result).toHaveProperty('assetId');
-    expect(result).toHaveProperty('targetLanguageCode');
-    expect(result).toHaveProperty('dubbingId');
+    expect(result).toHaveProperty("assetId");
+    expect(result).toHaveProperty("targetLanguageCode");
+    expect(result).toHaveProperty("dubbingId");
 
     // Verify asset ID matches
     expect(result.assetId).toBe(assetId);
 
     // Verify target language code
-    expect(result.targetLanguageCode).toBe('fr');
+    expect(result.targetLanguageCode).toBe("fr");
 
     // Verify dubbing ID exists
-    expect(typeof result.dubbingId).toBe('string');
+    expect(typeof result.dubbingId).toBe("string");
     expect(result.dubbingId.length).toBeGreaterThan(0);
 
     // Since uploadToMux is false, these should not be present

@@ -1,8 +1,8 @@
 {
   "name": "@mux/ai-examples-translation",
   "version": "0.1.0",
-  "description": "Examples for @mux/ai translation functionality",
   "private": true,
+  "description": "Examples for @mux/ai translation functionality",
   "scripts": {
     "basic": "ts-node basic-example.ts",
     "translation-only": "ts-node translation-only-example.ts"
