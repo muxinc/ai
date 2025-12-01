@@ -97,6 +97,15 @@ const reliableResult = await getSummaryAndTags('your-mux-asset-id', {
   },
   tone: 'professional'
 });
+
+// Customize for specific use cases with promptOverrides
+const seoResult = await getSummaryAndTags('your-mux-asset-id', {
+  promptOverrides: {
+    task: 'Generate SEO-optimized metadata for search engines.',
+    title: 'Create a search-optimized title (50-60 chars) with primary keyword.',
+    keywords: 'Focus on high search volume and long-tail keywords.',
+  },
+});
 ```
 
 ### Content Moderation
@@ -362,6 +371,12 @@ Analyzes a Mux video asset and returns AI-generated metadata.
   - `retryDelay?: number` - Base delay between retries in milliseconds (default: 1000)
   - `maxRetryDelay?: number` - Maximum delay between retries in milliseconds (default: 10000)
   - `exponentialBackoff?: boolean` - Whether to use exponential backoff (default: true)
+- `promptOverrides?: object` - Override specific sections of the prompt for custom use cases
+  - `task?: string` - Override the main task instruction
+  - `title?: string` - Override title generation guidance
+  - `description?: string` - Override description generation guidance
+  - `keywords?: string` - Override keywords generation guidance
+  - `qualityGuidelines?: string` - Override quality guidelines
 - `muxTokenId?: string` - Mux API token ID
 - `muxTokenSecret?: string` - Mux API token secret
 - `muxSigningKey?: string` - Signing key ID for signed playback policies
@@ -548,7 +563,7 @@ Generates AI-powered chapter markers by analyzing video captions. Creates logica
 // Perfect format for Mux Player
 player.addChapters([
   {startTime: 0, title: 'Introduction and Setup'},
-  {startTime: 45, title: 'Main Content Discussion'}, 
+  {startTime: 45, title: 'Main Content Discussion'},
   {startTime: 120, title: 'Conclusion'}
 ]);
 ```
@@ -593,17 +608,56 @@ Creates AI-dubbed audio tracks from existing video content using ElevenLabs voic
 **Supported Languages:**
 ElevenLabs supports 32+ languages with automatic language name detection via `Intl.DisplayNames`. Supported languages include English, Spanish, French, German, Italian, Portuguese, Polish, Japanese, Korean, Chinese, Russian, Arabic, Hindi, Thai, and many more. Track names are automatically generated (e.g., "Polish (auto-dubbed)").
 
-### Custom Prompts
+### Custom Prompts with `promptOverrides`
 
-Override the default summarization prompt:
+Customize specific sections of the summarization prompt for different use cases like SEO, social media, or technical analysis.
+
+**Tip:** Before adding overrides, read through the default summarization prompt template in `src/functions/summarization.ts` (the `summarizationPromptBuilder` config) so you have clear context on what each section does and what you’re changing.
 
 ```typescript
-const result = await getSummaryAndTags(
-  assetId, 
-  'Custom analysis prompt here',
-  { tone: 'professional' }
-);
+import { getSummaryAndTags } from '@mux/ai/functions';
+
+// SEO-optimized metadata
+const seoResult = await getSummaryAndTags(assetId, {
+  tone: 'professional',
+  promptOverrides: {
+    task: 'Generate SEO-optimized metadata that maximizes discoverability.',
+    title: 'Create a search-optimized title (50-60 chars) with primary keyword front-loaded.',
+    keywords: 'Focus on high search volume terms and long-tail keywords.',
+  },
+});
+
+// Social media optimized for engagement
+const socialResult = await getSummaryAndTags(assetId, {
+  promptOverrides: {
+    title: 'Create a scroll-stopping headline using emotional triggers or curiosity gaps.',
+    description: 'Write shareable copy that creates FOMO and works without watching the video.',
+    keywords: 'Generate hashtag-ready keywords for trending and niche community tags.',
+  },
+});
+
+// Technical/production analysis
+const technicalResult = await getSummaryAndTags(assetId, {
+  tone: 'professional',
+  promptOverrides: {
+    task: 'Analyze cinematography, lighting, and production techniques.',
+    title: 'Describe the production style or filmmaking technique.',
+    description: 'Provide a technical breakdown of camera work, lighting, and editing.',
+    keywords: 'Use industry-standard production terminology.',
+  },
+});
 ```
+
+**Available override sections:**
+| Section | Description |
+|---------|-------------|
+| `task` | Main instruction for what to analyze |
+| `title` | Guidance for generating the title |
+| `description` | Guidance for generating the description |
+| `keywords` | Guidance for generating keywords/tags |
+| `qualityGuidelines` | General quality instructions |
+
+Each override can be a simple string (replaces the section content) or a full `PromptSection` object for advanced control over XML tag names and attributes.
 
 ## Examples
 
@@ -680,7 +734,7 @@ npm run example:translate-audio abc123 fr
 
 ### Summarization Examples
 - **Basic Usage**: Default prompt with different tones
-- **Custom Prompts**: Override default behavior
+- **Custom Prompts**: Override prompt sections with presets (SEO, social, technical, ecommerce)
 - **Tone Variations**: Compare analysis styles
 
 ```bash
@@ -688,7 +742,15 @@ cd examples/summarization
 npm install
 npm run basic <your-asset-id> [provider]
 npm run tones <your-asset-id>
-npm run custom
+
+# Custom prompts with presets
+npm run custom <your-asset-id> --preset seo
+npm run custom <your-asset-id> --preset social
+npm run custom <your-asset-id> --preset technical
+npm run custom <your-asset-id> --preset ecommerce
+
+# Or provide individual overrides
+npm run custom <your-asset-id> --task "Focus on product features"
 ```
 
 ### Moderation Examples
