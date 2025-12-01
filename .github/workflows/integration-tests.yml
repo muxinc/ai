@@ -18,11 +18,14 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version-file: ".nvmrc"
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        # Using npm install instead of npm ci to work around npm bug with
+        # cross-platform optional dependencies (rollup native binaries)
+        # See: https://github.com/npm/cli/issues/4828
+        run: npm install
 
       - name: Run integration tests
         env:
