@@ -338,14 +338,28 @@ export async function getSummaryAndTags(
     }
   } catch (error: unknown) {
     throw new Error(
-      `Failed to analyze video content with ${provider}: ${error instanceof Error ? error.message : 'Unknown error'}`
+      `Failed to analyze video content with ${provider}: ${
+        error instanceof Error ? error.message : 'Unknown error'
+      }`
     );
+  }
+
+  if (!aiAnalysis) {
+    throw new Error(`Failed to analyze video content for asset ${assetId}`);
+  }
+
+  if (!aiAnalysis.title) {
+    throw new Error(`Failed to generate title for asset ${assetId}`);
+  }
+
+  if (!aiAnalysis.description) {
+    throw new Error(`Failed to generate description for asset ${assetId}`);
   }
 
   return {
     assetId,
-    title: aiAnalysis.title || 'No title available',
-    description: aiAnalysis.description || 'No description available',
+    title: aiAnalysis.title,
+    description: aiAnalysis.description,
     tags: normalizeKeywords(aiAnalysis.keywords),
     storyboardUrl: imageUrl,
   };
