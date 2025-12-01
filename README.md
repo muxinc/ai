@@ -610,8 +610,6 @@ ElevenLabs supports 32+ languages with automatic language name detection via `In
 
 ### Custom Prompts with `promptOverrides`
 
-summarization prompt:
-
 Customize specific sections of the summarization prompt for different use cases like SEO, social media, or technical analysis.
 
 **Tip:** Before adding overrides, read through the default summarization prompt template in `src/functions/summarization.ts` (the `summarizationPromptBuilder` config) so you have clear context on what each section does and what you’re changing.
