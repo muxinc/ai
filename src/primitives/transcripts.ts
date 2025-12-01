@@ -1,7 +1,6 @@
 import type { SigningContext } from "../lib/url-signing";
-import type { AssetTextTrack, MuxAsset } from "../types";
-
 import { signUrl } from "../lib/url-signing";
+import type { AssetTextTrack, MuxAsset } from "../types";
 
 export interface TranscriptFetchOptions {
   languageCode?: string;

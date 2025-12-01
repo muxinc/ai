@@ -6,10 +6,10 @@
  * URL signing when credentials are provided.
  */
 
-import type { ToneType } from "@mux/ai";
-
-import { getSummaryAndTags } from "@mux/ai/functions";
 import { Command } from "commander";
+
+import type { ToneType } from "@mux/ai";
+import { getSummaryAndTags } from "@mux/ai/functions";
 
 import env from "../env";
 

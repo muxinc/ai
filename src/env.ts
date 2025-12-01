@@ -1,7 +1,8 @@
 /* eslint-disable node/no-process-env */
+import path from "node:path";
+
 import { config } from "dotenv";
 import { expand } from "dotenv-expand";
-import path from "node:path";
 import { z } from "zod";
 
 expand(config({
@@ -13,15 +14,15 @@ expand(config({
 
 function optionalString(description: string, message?: string) {
   return z.preprocess(
-    value => typeof value === "string" && value.trim() === "" ? undefined : value,
+    value => typeof value === "string" && value.trim().length === 0 ? undefined : value,
     z.string().trim().min(1, message).optional(),
   ).describe(description);
 }
 
 function requiredString(description: string, message?: string) {
   return z.preprocess(
-    value => typeof value === "string" ? value.trim() : value,
-    z.string().min(1, message),
+    value => typeof value === "string" ? value.trim().length > 0 ? value.trim() : undefined : value,
+    z.string().trim().min(1, message),
   ).describe(description);
 }
 

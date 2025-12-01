@@ -1,12 +1,11 @@
-import type { LanguageModel } from "ai";
-
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 
+import env from "../env";
 import type { MuxAIOptions } from "../types";
 
-import env from "../env";
+import type { LanguageModel } from "ai";
 
 export type SupportedProvider = "openai" | "anthropic" | "google";
 

@@ -1,6 +1,8 @@
-import "../env";
-import { generateChapters } from "@mux/ai/functions";
 import { Command } from "commander";
+
+import { generateChapters } from "@mux/ai/functions";
+
+import "../env";
 
 const program = new Command();
 

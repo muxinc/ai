@@ -1,11 +1,9 @@
 import { generateObject } from "ai";
 import { z } from "zod";
 
-import type { ModelIdByProvider, SupportedProvider } from "../lib/providers";
-import type { MuxAIOptions } from "../types";
-
 import { createWorkflowClients } from "../lib/client-factory";
 import { getPlaybackIdForAsset } from "../lib/mux-assets";
+import type { ModelIdByProvider, SupportedProvider } from "../lib/providers";
 import { withRetry } from "../lib/retry";
 import { resolveSigningContext } from "../lib/url-signing";
 import {
@@ -13,6 +11,7 @@ import {
   fetchTranscriptForAsset,
   getReadyTextTracks,
 } from "../primitives/transcripts";
+import type { MuxAIOptions } from "../types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types

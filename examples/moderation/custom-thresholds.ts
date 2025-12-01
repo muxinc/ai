@@ -1,6 +1,8 @@
-import "../env";
-import { getModerationScores } from "@mux/ai/functions";
 import { Command } from "commander";
+
+import { getModerationScores } from "@mux/ai/functions";
+
+import "../env";
 
 const SUPPORTED_PROVIDERS = ["openai", "hive"] as const;
 type ModerationProviderArg = (typeof SUPPORTED_PROVIDERS)[number];

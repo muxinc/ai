@@ -1,5 +1,4 @@
 import type { SigningContext } from "../lib/url-signing";
-
 import { signUrl } from "../lib/url-signing";
 
 export interface ThumbnailOptions {

@@ -23,12 +23,14 @@
  *   npm run example:summarization:custom <asset-id> --preset social --title-guidance "Make it viral"
  */
 
-import "dotenv/config";
+import { Command } from "commander";
+
 import type { ToneType } from "@mux/ai";
 import type { SummarizationPromptOverrides } from "@mux/ai/functions";
-
 import { getSummaryAndTags } from "@mux/ai/functions";
-import { Command } from "commander";
+
+import "dotenv/config";
+import "../env";
 
 type Provider = "openai" | "anthropic" | "google";
 type Preset = "seo" | "social" | "technical" | "ecommerce";

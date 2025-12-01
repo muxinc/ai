@@ -1,8 +1,9 @@
-import "../env";
-import type { ToneType } from "@mux/ai";
-
-import { getSummaryAndTags } from "@mux/ai/functions";
 import { Command } from "commander";
+
+import type { ToneType } from "@mux/ai";
+import { getSummaryAndTags } from "@mux/ai/functions";
+
+import "../env";
 
 type Provider = "openai" | "anthropic" | "google";
 

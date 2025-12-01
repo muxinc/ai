@@ -8,9 +8,10 @@
  * - Transcript URL signing
  */
 
-import { buildTranscriptUrl, findCaptionTrack, getStoryboardUrl, getThumbnailUrls } from "@mux/ai/primitives";
 import Mux from "@mux/mux-node";
 import { Command } from "commander";
+
+import { buildTranscriptUrl, findCaptionTrack, getStoryboardUrl, getThumbnailUrls } from "@mux/ai/primitives";
 
 import env from "../env";
 

@@ -1,12 +1,12 @@
 import Mux from "@mux/mux-node";
 
+import env from "../env";
+
 import type {
   ModelRequestOptions,
   ResolvedModel,
   SupportedProvider,
 } from "./providers";
-
-import env from "../env";
 import {
   resolveLanguageModel,
 } from "./providers";

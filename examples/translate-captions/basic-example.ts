@@ -1,6 +1,8 @@
-import "../env";
-import { translateCaptions } from "@mux/ai/functions";
 import { Command } from "commander";
+
+import { translateCaptions } from "@mux/ai/functions";
+
+import "../env";
 
 type Provider = "openai" | "anthropic" | "google";
 

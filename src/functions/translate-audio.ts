@@ -3,11 +3,10 @@ import { Upload } from "@aws-sdk/lib-storage";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import Mux from "@mux/mux-node";
 
-import type { MuxAIOptions } from "../types";
-
 import env from "../env";
 import { getPlaybackIdForAsset } from "../lib/mux-assets";
 import { resolveSigningContext, signUrl } from "../lib/url-signing";
+import type { MuxAIOptions } from "../types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types

@@ -1,6 +1,6 @@
-import type Mux from "@mux/mux-node";
-
 import type { MuxAsset, PlaybackAsset, PlaybackPolicy } from "../types";
+
+import type Mux from "@mux/mux-node";
 
 /**
  * Finds a usable playback ID for the given asset.

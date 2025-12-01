@@ -17,6 +17,20 @@ export default antfu({
     "node/no-process-env": ["error"],
     "perfectionist/sort-imports": ["error", {
       tsconfigRootDir: ".",
+      groups: [
+        "side-effect-style",
+        "builtin",
+        "external",
+        ["internal", "internal-type"],
+        ["parent", "parent-type"],
+        ["sibling", "sibling-type"],
+        ["index", "index-type"],
+        "type",
+        "side-effect",
+        "object",
+        "unknown",
+      ],
+      internalPattern: ["^@mux/ai.*"],
     }],
     "unicorn/filename-case": ["error", {
       case: "kebabCase",

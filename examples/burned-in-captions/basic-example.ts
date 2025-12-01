@@ -1,6 +1,8 @@
-import "../env";
-import { hasBurnedInCaptions } from "@mux/ai/functions";
 import { Command } from "commander";
+
+import { hasBurnedInCaptions } from "@mux/ai/functions";
+
+import "../env";
 
 type Provider = "openai" | "anthropic" | "google";
 

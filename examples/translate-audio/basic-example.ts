@@ -1,6 +1,8 @@
-import "../env";
-import { translateAudio } from "@mux/ai/functions";
 import { Command } from "commander";
+
+import { translateAudio } from "@mux/ai/functions";
+
+import "../env";
 
 const program = new Command();
 

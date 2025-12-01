@@ -1,8 +1,7 @@
 import Mux from "@mux/mux-node";
 
-import type { MuxAIConfig } from "../types";
-
 import env from "../env";
+import type { MuxAIConfig } from "../types";
 
 /**
  * Context required to sign URLs for signed playback IDs.
