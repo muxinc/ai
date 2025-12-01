@@ -1,14 +1,17 @@
 import { generateObject } from "ai";
+import dedent from "dedent";
 import { z } from "zod";
 
 import { createWorkflowClients } from "../lib/client-factory";
 import type { ImageDownloadOptions } from "../lib/image-download";
 import { downloadImageAsBase64 } from "../lib/image-download";
 import { getPlaybackIdForAsset } from "../lib/mux-assets";
+import type { PromptOverrides } from "../lib/prompt-builder";
+import { createPromptBuilder } from "../lib/prompt-builder";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers";
 import { resolveSigningContext } from "../lib/url-signing";
 import { getStoryboardUrl } from "../primitives/storyboards";
-import type { ImageSubmissionMode, MuxAIOptions } from "../types";
+import type { ImageSubmissionMode, MuxAIOptions, TokenUsage } from "../types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -21,7 +24,35 @@ export interface BurnedInCaptionsResult {
   confidence: number;
   detectedLanguage: string | null;
   storyboardUrl: string;
+  /** Token usage from the AI provider (for efficiency/cost analysis). */
+  usage?: TokenUsage;
 }
+
+/**
+ * Sections of the burned-in captions user prompt that can be overridden.
+ * Use these to customize the AI's behavior for your specific use case.
+ */
+export type BurnedInCaptionsPromptSections =
+  "task" |
+  "analysisSteps" |
+  "positiveIndicators" |
+  "negativeIndicators";
+
+/**
+ * Override specific sections of the burned-in captions prompt.
+ * Each key corresponds to a section that can be customized.
+ *
+ * @example
+ * ```typescript
+ * const result = await hasBurnedInCaptions(assetId, {
+ *   promptOverrides: {
+ *     task: 'Detect any text overlays in the video frames.',
+ *     positiveIndicators: 'Classify as captions if text appears consistently.',
+ *   },
+ * });
+ * ```
+ */
+export type BurnedInCaptionsPromptOverrides = PromptOverrides<BurnedInCaptionsPromptSections>;
 
 /** Configuration accepted by `hasBurnedInCaptions`. */
 export interface BurnedInCaptionsOptions extends MuxAIOptions {
@@ -33,6 +64,11 @@ export interface BurnedInCaptionsOptions extends MuxAIOptions {
   imageSubmissionMode?: ImageSubmissionMode;
   /** Download tuning used when `imageSubmissionMode` === 'base64'. */
   imageDownloadOptions?: ImageDownloadOptions;
+  /**
+   * Override specific sections of the user prompt.
+   * Useful for customizing the AI's detection criteria for specific use cases.
+   */
+  promptOverrides?: BurnedInCaptionsPromptOverrides;
 }
 
 /** Schema used to validate burned-in captions analysis responses. */
@@ -46,40 +82,103 @@ export const burnedInCaptionsSchema = z.object({
 export type BurnedInCaptionsAnalysis = z.infer<typeof burnedInCaptionsSchema>;
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Prompts
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SYSTEM_PROMPT = dedent`
+  <role>
+    You are an expert at analyzing video frames to detect burned-in captions (also called open captions or hardcoded subtitles).
+    These are text overlays that are permanently embedded in the video image, common on TikTok, Instagram Reels, and other social media platforms.
+  </role>
+
+  <critical_note>
+    Burned-in captions must appear consistently across MOST frames in the storyboard.
+    Text appearing in only 1-2 frames at the end is typically marketing copy, taglines, or end-cards - NOT burned-in captions.
+  </critical_note>
+
+  <confidence_scoring>
+    Use this rubric to determine your confidence score (0.0-1.0):
+
+    - Score 1.0: Definitive captions - text overlays visible in most frames, consistent positioning, content changes between frames indicating dialogue/narration, clear caption-style formatting
+    - Score 0.7-0.9: Strong evidence - captions visible across multiple frames with consistent placement, but minor ambiguity (e.g., some frames unclear, atypical styling)
+    - Score 0.4-0.6: Moderate evidence - text present in several frames but uncertain classification (e.g., could be captions or persistent on-screen graphics, ambiguous formatting)
+    - Score 0.1-0.3: Weak evidence - minimal text detected, appears in only a few frames, likely marketing copy or end-cards rather than captions
+    - Score 0.0: No captions - no text overlays detected, or text is clearly not captions (logos, watermarks, scene content, single end-card)
+  </confidence_scoring>
+
+  <context>
+    You receive storyboard images containing multiple sequential frames extracted from a video.
+    These frames are arranged in a grid and represent the visual progression of the content over time.
+    Read frames left-to-right, top-to-bottom to understand the temporal sequence.
+  </context>
+
+  <capabilities>
+    - Detect and analyze text overlays in video frames
+    - Distinguish between captions and other text elements (marketing, logos, UI)
+    - Identify language of detected caption text
+    - Assess confidence in caption detection
+  </capabilities>
+
+  <constraints>
+    - Only classify as burned-in captions when evidence is clear across multiple frames
+    - Base decisions on observable visual evidence
+    - Return structured data matching the requested schema
+  </constraints>`;
+
+/**
+ * Prompt builder for the burned-in captions user prompt.
+ * Sections can be individually overridden via `promptOverrides` in BurnedInCaptionsOptions.
+ */
+const burnedInCaptionsPromptBuilder = createPromptBuilder<BurnedInCaptionsPromptSections>({
+  template: {
+    task: {
+      tag: "task",
+      content: dedent`
+        Analyze the provided video storyboard to detect burned-in captions (hardcoded subtitles).
+        Count frames with text vs no text, note position consistency and whether text changes across frames.
+        Decide if captions exist, with confidence (0.0-1.0) and detected language if any.`,
+    },
+    analysisSteps: {
+      tag: "analysis_steps",
+      content: dedent`
+        1. COUNT how many frames contain text overlays vs. how many don't
+        2. Check if text appears in consistent positions across multiple frames
+        3. Verify text changes content between frames (indicating dialogue/narration)
+        4. Ensure text has caption-style formatting (contrasting colors, readable fonts)
+        5. If captions are detected, identify the language of the text`,
+    },
+    positiveIndicators: {
+      tag: "classify_as_captions",
+      content: dedent`
+        ONLY classify as burned-in captions if:
+        - Text appears in multiple frames (not just 1-2 end frames)
+        - Text positioning is consistent across those frames
+        - Content suggests dialogue, narration, or subtitles (not marketing)
+        - Formatting looks like captions (not graphics/logos)`,
+    },
+    negativeIndicators: {
+      tag: "not_captions",
+      content: dedent`
+        DO NOT classify as burned-in captions:
+        - Marketing taglines appearing only in final 1-2 frames
+        - Single words or phrases that don't change between frames
+        - Graphics, logos, watermarks, or UI elements
+        - Text that's part of the original scene content
+        - End-cards with calls-to-action or brand messaging`,
+    },
+  },
+  sectionOrder: ["task", "analysisSteps", "positiveIndicators", "negativeIndicators"],
+});
+
+function buildUserPrompt(promptOverrides?: BurnedInCaptionsPromptOverrides): string {
+  return burnedInCaptionsPromptBuilder.build(promptOverrides);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
 
 const DEFAULT_PROVIDER = "openai";
-
-const SYSTEM_PROMPT = `You are an expert at analyzing video frames to detect burned-in captions (also called open captions or hardcoded subtitles). These are text overlays that are permanently embedded in the video image, common on TikTok, Instagram Reels, and other social media platforms.
-
-CRITICAL: Burned-in captions must appear consistently across MOST frames in the storyboard. Text appearing in only 1-2 frames at the end is typically marketing copy, taglines, or end-cards - NOT burned-in captions.
-
-Analyze the provided video storyboard by:
-1. COUNT how many frames contain text overlays vs. how many don't
-2. Check if text appears in consistent positions across multiple frames
-3. Verify text changes content between frames (indicating dialogue/narration)
-4. Ensure text has caption-style formatting (contrasting colors, readable fonts)
-
-ONLY classify as burned-in captions if:
-- Text appears in multiple frames (not just 1-2 end frames)
-- Text positioning is consistent across those frames
-- Content suggests dialogue, narration, or subtitles (not marketing)
-- Formatting looks like captions (not graphics/logos)
-
-DO NOT classify as burned-in captions:
-- Marketing taglines appearing only in final 1-2 frames
-- Single words or phrases that don't change between frames
-- Graphics, logos, watermarks, or UI elements
-- Text that's part of the original scene content
-- End-cards with calls-to-action or brand messaging
-
-If you detect burned-in captions, try to identify the language of the text, and classify whether burned-in captions are present in the storyboard.`;
-
-const USER_PROMPT = `Analyze this storyboard:
-- Count frames with text vs no text.
-- Note position consistency and whether text changes across frames.
-- Decide if captions exist, with confidence (0.0-1.0) and detected language if any.`;
 
 export async function hasBurnedInCaptions(
   assetId: string,
@@ -90,8 +189,12 @@ export async function hasBurnedInCaptions(
     model,
     imageSubmissionMode = "url",
     imageDownloadOptions,
+    promptOverrides,
     ...config
   } = options;
+
+  // Build the user prompt with any overrides
+  const userPrompt = buildUserPrompt(promptOverrides);
 
   const clients = createWorkflowClients(
     { ...config, model },
@@ -110,13 +213,17 @@ export async function hasBurnedInCaptions(
 
   const imageUrl = await getStoryboardUrl(playbackId, 640, policy === "signed" ? signingContext : undefined);
 
-  let analysisResult: BurnedInCaptionsAnalysis | null = null;
+  interface AnalysisResponse {
+    result: BurnedInCaptionsAnalysis;
+    usage: TokenUsage;
+  }
 
-  const analyzeStoryboard = async (imageDataUrl: string) => {
+  const analyzeStoryboard = async (imageDataUrl: string): Promise<AnalysisResponse> => {
     const response = await generateObject({
       model: clients.languageModel.model,
       schema: burnedInCaptionsSchema,
       abortSignal: options.abortSignal,
+      experimental_telemetry: { isEnabled: true },
       messages: [
         {
           role: "system",
@@ -125,32 +232,44 @@ export async function hasBurnedInCaptions(
         {
           role: "user",
           content: [
-            { type: "text", text: USER_PROMPT },
+            { type: "text", text: userPrompt },
             { type: "image", image: imageDataUrl },
           ],
         },
       ],
     });
 
-    return response.object;
+    return {
+      result: response.object,
+      usage: {
+        inputTokens: response.usage.inputTokens,
+        outputTokens: response.usage.outputTokens,
+        totalTokens: response.usage.totalTokens,
+        reasoningTokens: response.usage.reasoningTokens,
+        cachedInputTokens: response.usage.cachedInputTokens,
+      },
+    };
   };
+
+  let analysisResponse: AnalysisResponse;
 
   if (imageSubmissionMode === "base64") {
     const downloadResult = await downloadImageAsBase64(imageUrl, imageDownloadOptions);
-    analysisResult = await analyzeStoryboard(downloadResult.base64Data);
+    analysisResponse = await analyzeStoryboard(downloadResult.base64Data);
   } else {
-    analysisResult = await analyzeStoryboard(imageUrl);
+    analysisResponse = await analyzeStoryboard(imageUrl);
   }
 
-  if (!analysisResult) {
+  if (!analysisResponse.result) {
     throw new Error("No analysis result received from AI provider");
   }
 
   return {
     assetId,
-    hasBurnedInCaptions: analysisResult.hasBurnedInCaptions ?? false,
-    confidence: analysisResult.confidence ?? 0,
-    detectedLanguage: analysisResult.detectedLanguage ?? null,
+    hasBurnedInCaptions: analysisResponse.result.hasBurnedInCaptions ?? false,
+    confidence: analysisResponse.result.confidence ?? 0,
+    detectedLanguage: analysisResponse.result.detectedLanguage ?? null,
     storyboardUrl: imageUrl,
+    usage: analysisResponse.usage,
   };
 }

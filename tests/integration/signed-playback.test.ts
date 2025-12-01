@@ -7,8 +7,6 @@ import { resolveSigningContext, signPlaybackId, signUrl } from "../../src/lib/ur
 import { buildTranscriptUrl, getStoryboardUrl, getThumbnailUrls } from "../../src/primitives";
 import { generateChapters, getModerationScores, getSummaryAndTags, hasBurnedInCaptions } from "../../src/workflows";
 
-import "dotenv/config";
-
 /**
  * Integration tests for signed playback functionality.
  *

@@ -29,9 +29,6 @@ import type { ToneType } from "@mux/ai";
 import type { SummarizationPromptOverrides } from "@mux/ai/workflows";
 import { getSummaryAndTags } from "@mux/ai/workflows";
 
-import "dotenv/config";
-import "../env";
-
 type Provider = "openai" | "anthropic" | "google";
 type Preset = "seo" | "social" | "technical" | "ecommerce";
 

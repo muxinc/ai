@@ -129,3 +129,23 @@ export interface VideoEmbeddingsResult {
     generatedAt: string;
   };
 }
+// ─────────────────────────────────────────────────────────────────────────────
+// AI SDK Usage Metrics
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Token usage breakdown returned by AI SDK providers.
+ * Used for efficiency and cost analysis.
+ */
+export interface TokenUsage {
+  /** Number of tokens in the input prompt (text + image). */
+  inputTokens?: number;
+  /** Number of tokens generated in the output. */
+  outputTokens?: number;
+  /** Total tokens consumed (input + output). */
+  totalTokens?: number;
+  /** Tokens used for chain-of-thought reasoning (if applicable). */
+  reasoningTokens?: number;
+  /** Input tokens served from cache (reduces cost). */
+  cachedInputTokens?: number;
+}
