@@ -920,6 +920,56 @@ Mux requires a publicly accessible URL to ingest subtitle tracks. The translatio
 - **Batch Translation**: Translate multiple assets at once
 - **Custom Translation Prompts**: Override default translation behavior
 
+## Development
+
+### Setup
+
+```bash
+# Clone and install dependencies
+git clone https://github.com/muxinc/mux-ai.git
+cd mux-ai
+npm install  # Automatically sets up git hooks via Husky
+```
+
+### Code Quality
+
+This project uses automated tooling to enforce consistent code style:
+
+- **ESLint** with `@antfu/eslint-config` for linting and formatting
+- **TypeScript** strict mode for type safety
+- **Pre-commit hooks** that run automatically before each commit
+
+```bash
+# Check for linting issues
+npm run lint
+
+# Auto-fix linting issues
+npm run lint:fix
+
+# Run type checking
+npm run typecheck
+
+# Run tests
+npm test
+```
+
+See [docs/STYLING.md](./docs/STYLING.md) for detailed code style guidelines.
+
+### Pre-commit Hooks
+
+Git hooks are automatically installed by Husky during `npm install`. The following checks run on every commit:
+
+1. ✅ ESLint validation (code quality + formatting)
+2. ✅ TypeScript type checking
+3. ✅ Filename convention validation (kebab-case)
+4. ⚠️  Console.log detection (warning only)
+
+To bypass hooks temporarily (not recommended):
+
+```bash
+git commit --no-verify
+```
+
 ## License
 
 MIT © Mux, Inc.
