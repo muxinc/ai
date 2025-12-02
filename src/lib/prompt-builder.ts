@@ -49,14 +49,14 @@ export interface PromptBuilder<TSections extends string> {
   /** The default template sections */
   template: PromptTemplate<TSections>;
   /** Build a prompt string, optionally overriding specific sections */
-  build(overrides?: PromptOverrides<TSections>): string;
+  build: (overrides?: PromptOverrides<TSections>) => string;
   /** Build a prompt with additional dynamic sections appended */
-  buildWithContext(
+  buildWithContext: (
     overrides?: PromptOverrides<TSections>,
-    additionalSections?: PromptSection[]
-  ): string;
+    additionalSections?: PromptSection[],
+  ) => string;
   /** Get a single section's content (useful for partial rendering) */
-  getSection(section: TSections, override?: SectionOverride): string;
+  getSection: (section: TSections, override?: SectionOverride) => string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -69,9 +69,9 @@ export interface PromptBuilder<TSections extends string> {
 export function renderSection(section: PromptSection): string {
   const { tag, content, attributes } = section;
 
-  const XML_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_.:-]*$/;
+  const XML_NAME_PATTERN = /^[A-Z_][\w.:-]*$/i;
 
-  const assertValidXmlName = (name: string, context: 'tag' | 'attribute'): void => {
+  const assertValidXmlName = (name: string, context: "tag" | "attribute"): void => {
     if (!XML_NAME_PATTERN.test(name)) {
       throw new Error(`Invalid XML ${context} name: "${name}"`);
     }
@@ -79,28 +79,28 @@ export function renderSection(section: PromptSection): string {
 
   const escapeXmlText = (value: string): string =>
     value
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;/');
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;/");
 
   const escapeXmlAttribute = (value: string): string =>
-    escapeXmlText(value).replace(/"/g, '&quot;');
+    escapeXmlText(value).replace(/"/g, "&quot;");
 
   if (!content.trim()) {
-    return '';
+    return "";
   }
 
-  assertValidXmlName(tag, 'tag');
+  assertValidXmlName(tag, "tag");
 
-  const attrString = attributes
-    ? ' ' +
+  const attrString = attributes ?
+    ` ${
       Object.entries(attributes)
         .map(([key, value]) => {
-          assertValidXmlName(key, 'attribute');
+          assertValidXmlName(key, "attribute");
           return `${key}="${escapeXmlAttribute(value)}"`;
         })
-        .join(' ')
-    : '';
+        .join(" ")}` :
+    "";
 
   const safeContent = escapeXmlText(content.trim());
 
@@ -112,13 +112,13 @@ export function renderSection(section: PromptSection): string {
  */
 function resolveSection(
   defaultSection: PromptSection,
-  override?: SectionOverride
+  override?: SectionOverride,
 ): PromptSection {
   if (override === undefined) {
     return defaultSection;
   }
 
-  if (typeof override === 'string') {
+  if (typeof override === "string") {
     return { ...defaultSection, content: override };
   }
 
@@ -152,7 +152,7 @@ function resolveSection(
  * ```
  */
 export function createPromptBuilder<TSections extends string>(
-  config: PromptBuilderConfig<TSections>
+  config: PromptBuilderConfig<TSections>,
 ): PromptBuilder<TSections> {
   const { template, sectionOrder } = config;
 
@@ -163,15 +163,15 @@ export function createPromptBuilder<TSections extends string>(
 
   const build = (overrides?: PromptOverrides<TSections>): string => {
     const sections = sectionOrder
-      .map((sectionKey) => getSection(sectionKey, overrides?.[sectionKey]))
+      .map(sectionKey => getSection(sectionKey, overrides?.[sectionKey]))
       .filter(Boolean);
 
-    return sections.join('\n\n');
+    return sections.join("\n\n");
   };
 
   const buildWithContext = (
     overrides?: PromptOverrides<TSections>,
-    additionalSections?: PromptSection[]
+    additionalSections?: PromptSection[],
   ): string => {
     const basePrompt = build(overrides);
 
@@ -182,7 +182,7 @@ export function createPromptBuilder<TSections extends string>(
     const additional = additionalSections
       .map(renderSection)
       .filter(Boolean)
-      .join('\n\n');
+      .join("\n\n");
 
     return additional ? `${basePrompt}\n\n${additional}` : basePrompt;
   };
@@ -204,10 +204,10 @@ export function createPromptBuilder<TSections extends string>(
  */
 export function createTranscriptSection(
   transcriptText: string,
-  format: 'plain text' | 'WebVTT' = 'plain text'
+  format: "plain text" | "WebVTT" = "plain text",
 ): PromptSection {
   return {
-    tag: 'transcript',
+    tag: "transcript",
     content: transcriptText,
     attributes: { format },
   };
@@ -218,8 +218,7 @@ export function createTranscriptSection(
  */
 export function createToneSection(instruction: string): PromptSection {
   return {
-    tag: 'tone',
+    tag: "tone",
     content: instruction,
   };
 }
-

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import "../../src/env";
 import { translateCaptions } from "../../src/functions";
+
+import "../../src/env";
 
 describe("captions Translation Integration Tests", () => {
   const assetId = "88Lb01qNUqFJrOFMITk00Ck201F00Qmcbpc5qgopNV4fCOk";

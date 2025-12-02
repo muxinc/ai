@@ -1,13 +1,13 @@
 import Mux from "@mux/mux-node";
-import "dotenv/config";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-
-import type { SigningContext } from "../../src/lib/url-signing";
 
 import { env, reloadEnv } from "../../src/env";
 import { generateChapters, getModerationScores, getSummaryAndTags, hasBurnedInCaptions } from "../../src/functions";
+import type { SigningContext } from "../../src/lib/url-signing";
 import { resolveSigningContext, signPlaybackId, signUrl } from "../../src/lib/url-signing";
 import { buildTranscriptUrl, getStoryboardUrl, getThumbnailUrls } from "../../src/primitives";
+
+import "dotenv/config";
 
 /**
  * Integration tests for signed playback functionality.
@@ -26,9 +26,6 @@ describe("signed Playback Integration Tests", () => {
   // Check if signed playback testing is available
   const hasSigningCredentials = !!(signingKeyId && privateKey);
   const canRunSignedTests = hasSigningCredentials;
-
-  // Skip message for conditional tests
-  const skipMessage = "Skipping: MUX_SIGNING_KEY and MUX_PRIVATE_KEY not set";
 
   let signingContext: SigningContext;
   let playbackId: string;
