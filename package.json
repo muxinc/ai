@@ -3,7 +3,7 @@
   "version": "0.1.2",
   "description": "AI library for Mux",
   "author": "Mux",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/muxinc/mux-ai.git"
