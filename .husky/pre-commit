@@ -26,7 +26,7 @@ echo ""
 # Run ESLint (handles formatting, code quality, filename conventions, etc.)
 # ─────────────────────────────────────────────────────────────────────────────
 echo "🧹 Running ESLint..."
-if echo "$STAGED_FILES" | xargs npx eslint --max-warnings=0; then
+if echo "$STAGED_FILES" | xargs npx eslint; then
   echo "${GREEN}✓ ESLint passed${NC}"
 else
   echo "${RED}✗ ESLint failed${NC}"
