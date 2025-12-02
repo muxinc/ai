@@ -6,8 +6,8 @@ import type { EmbeddingModelIdByProvider, SupportedEmbeddingProvider } from "../
 import { resolveEmbeddingModel } from "../lib/providers";
 import { withRetry } from "../lib/retry";
 import { resolveSigningContext } from "../lib/url-signing";
-import { chunkText } from "../primitives/text-chunking";
-import { fetchTranscriptForAsset, getReadyTextTracks } from "../primitives/transcripts";
+import { chunkText, chunkVTTCues } from "../primitives/text-chunking";
+import { fetchTranscriptForAsset, getReadyTextTracks, parseVTTCues } from "../primitives/transcripts";
 import type {
   ChunkEmbedding,
   ChunkingStrategy,
@@ -189,10 +189,11 @@ export async function generateVideoEmbeddings(
     );
   }
 
-  // Fetch transcript
+  // Fetch transcript (raw VTT for VTT strategy, cleaned text otherwise)
+  const useVttChunking = chunkingStrategy.type === "vtt";
   const transcriptResult = await fetchTranscriptForAsset(assetData, playbackId, {
     languageCode,
-    cleanTranscript: true,
+    cleanTranscript: !useVttChunking,
     signingContext: policy === "signed" ? signingContext : undefined,
   });
 
@@ -212,7 +213,13 @@ export async function generateVideoEmbeddings(
   }
 
   // Chunk the transcript
-  const chunks = chunkText(transcriptText, chunkingStrategy);
+  const chunks = useVttChunking ?
+      chunkVTTCues(
+        parseVTTCues(transcriptText),
+        chunkingStrategy.maxTokens,
+        chunkingStrategy.overlapCues,
+      ) :
+      chunkText(transcriptText, chunkingStrategy);
   if (chunks.length === 0) {
     throw new Error("No chunks generated from transcript");
   }

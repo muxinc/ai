@@ -71,8 +71,17 @@ export interface TokenChunkingConfig {
   overlap?: number;
 }
 
+/** Configuration for VTT-aware chunking that respects cue boundaries. */
+export interface VTTChunkingConfig {
+  type: "vtt";
+  /** Maximum tokens per chunk. */
+  maxTokens: number;
+  /** Number of cues to overlap between chunks (default: 2). */
+  overlapCues?: number;
+}
+
 /** Union type for all chunking strategy configurations. */
-export type ChunkingStrategy = TokenChunkingConfig;
+export type ChunkingStrategy = TokenChunkingConfig | VTTChunkingConfig;
 
 /** A single chunk of text extracted from a transcript. */
 export interface TextChunk {

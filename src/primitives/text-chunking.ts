@@ -1,5 +1,7 @@
 import type { ChunkingStrategy, TextChunk } from "../types";
 
+import type { VTTCue } from "./transcripts";
+
 /**
  * Simple token counter that approximates tokens by word count.
  * For production use with OpenAI, consider using a proper tokenizer like tiktoken.
@@ -59,6 +61,72 @@ export function chunkByTokens(
     if (currentPosition <= (chunkIndex - 1) * (wordsPerChunk - overlapWords)) {
       break;
     }
+  }
+
+  return chunks;
+}
+
+/**
+ * Creates a TextChunk from a group of VTT cues.
+ */
+function createChunkFromCues(cues: VTTCue[], index: number): TextChunk {
+  const text = cues.map(c => c.text).join(" ");
+  return {
+    id: `chunk-${index}`,
+    text,
+    tokenCount: estimateTokenCount(text),
+    startTime: cues[0].startTime,
+    endTime: cues[cues.length - 1].endTime,
+  };
+}
+
+/**
+ * Chunks VTT cues into groups that respect natural cue boundaries.
+ * Splits at cue boundaries rather than mid-sentence, preserving accurate timestamps.
+ *
+ * @param cues - Array of VTT cues to chunk
+ * @param maxTokens - Maximum tokens per chunk
+ * @param overlapCues - Number of cues to overlap between chunks (default: 2)
+ * @returns Array of text chunks with accurate start/end times
+ */
+export function chunkVTTCues(
+  cues: VTTCue[],
+  maxTokens: number,
+  overlapCues: number = 2,
+): TextChunk[] {
+  if (cues.length === 0)
+    return [];
+
+  const chunks: TextChunk[] = [];
+  let currentCues: VTTCue[] = [];
+  let currentTokens = 0;
+  let chunkIndex = 0;
+
+  for (let i = 0; i < cues.length; i++) {
+    const cue = cues[i];
+    const cueTokens = estimateTokenCount(cue.text);
+
+    // If adding this cue would exceed limit, finalize current chunk
+    if (currentTokens + cueTokens > maxTokens && currentCues.length > 0) {
+      chunks.push(createChunkFromCues(currentCues, chunkIndex));
+      chunkIndex++;
+
+      // Start new chunk with overlap from end of previous
+      const overlapStart = Math.max(0, currentCues.length - overlapCues);
+      currentCues = currentCues.slice(overlapStart);
+      currentTokens = currentCues.reduce(
+        (sum, c) => sum + estimateTokenCount(c.text),
+        0,
+      );
+    }
+
+    currentCues.push(cue);
+    currentTokens += cueTokens;
+  }
+
+  // Don't forget the last chunk
+  if (currentCues.length > 0) {
+    chunks.push(createChunkFromCues(currentCues, chunkIndex));
   }
 
   return chunks;
