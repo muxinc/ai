@@ -2,8 +2,6 @@
 # Pre-commit hook for @mux/ai
 # Automatically installed by Husky during npm install
 
-. "$(dirname -- "$0")/_/husky.sh"
-
 echo "🔍 Running pre-commit checks..."
 
 # Colors
