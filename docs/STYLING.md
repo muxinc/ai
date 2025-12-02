@@ -53,10 +53,14 @@ npm install  # Husky installs git hooks automatically
 ```
 
 The pre-commit hook runs:
-1. ✅ ESLint on staged files (with `--max-warnings=0`)
-2. ✅ TypeScript type checking
-3. ✅ Filename convention validation (kebab-case)
-4. ⚠️  Console.log detection (warning only)
+1. ✅ **ESLint** on staged files (with `--max-warnings=0`)
+   - Enforces all rules in `eslint.config.mjs` including:
+   - Code formatting (indentation, quotes, semicolons, brace style)
+   - Import sorting
+   - Filename conventions (kebab-case)
+   - Code quality (no-console warnings, node/no-process-env errors, etc.)
+2. ✅ **TypeScript type checking**
+   - Validates types across the entire codebase
 
 ### Bypassing Hooks
 

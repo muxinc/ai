@@ -959,10 +959,8 @@ See [docs/STYLING.md](./docs/STYLING.md) for detailed code style guidelines.
 
 Git hooks are automatically installed by Husky during `npm install`. The following checks run on every commit:
 
-1. ✅ ESLint validation (code quality + formatting)
-2. ✅ TypeScript type checking
-3. ✅ Filename convention validation (kebab-case)
-4. ⚠️  Console.log detection (warning only)
+1. ✅ **ESLint** - All rules from `eslint.config.mjs` including formatting, code quality, import sorting, and filename conventions
+2. ✅ **TypeScript** - Strict type checking
 
 To bypass hooks temporarily (not recommended):
 
