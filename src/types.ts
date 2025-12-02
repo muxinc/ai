@@ -59,9 +59,6 @@ export interface PlaybackAsset {
   policy: PlaybackPolicy;
 }
 
-/** Chunking strategy type for embeddings generation. */
-export type ChunkingStrategyType = "token" | "sentence" | "time" | "scene";
-
 /** Configuration for token-based chunking. */
 export interface TokenChunkingConfig {
   type: "token";
