@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import "../../src/env";
 import { hasBurnedInCaptions } from "../../src/functions";
+
+import "../../src/env";
 
 describe("burned-in Captions Integration Tests", () => {
   const assetsWithCaptions = [

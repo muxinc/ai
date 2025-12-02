@@ -68,12 +68,14 @@ npm run example:summarization:custom <asset-id> --preset social --title-guidance
 ```
 
 **Available Presets:**
+
 - `seo` - Search engine optimized metadata for discoverability
 - `social` - Social media optimized for engagement and shares
 - `technical` - Production/cinematography focused analysis
 - `ecommerce` - Product video metadata for conversions
 
 **Overridable Sections:**
+
 - `task` - Main instruction for what to analyze
 - `title` - Guidance for title generation
 - `description` - Guidance for description generation
@@ -97,33 +99,33 @@ Key options for `getSummaryAndTags`:
 The `promptOverrides` option lets you customize specific sections of the prompt while keeping the rest of the defaults:
 
 ```typescript
-import { getSummaryAndTags } from '@mux/ai/functions';
+import { getSummaryAndTags } from "@mux/ai/functions";
 
 // SEO-optimized metadata
 const seoResult = await getSummaryAndTags(assetId, {
   promptOverrides: {
-    task: 'Generate SEO-optimized metadata for search engines.',
-    title: 'Create a search-optimized title (50-60 chars) with primary keyword front-loaded.',
-    keywords: 'Focus on high search volume terms and long-tail keywords.',
+    task: "Generate SEO-optimized metadata for search engines.",
+    title: "Create a search-optimized title (50-60 chars) with primary keyword front-loaded.",
+    keywords: "Focus on high search volume terms and long-tail keywords.",
   },
 });
 
 // Social media optimized
 const socialResult = await getSummaryAndTags(assetId, {
   promptOverrides: {
-    title: 'Create a scroll-stopping headline using emotional triggers or curiosity gaps.',
-    description: 'Write shareable copy that creates FOMO and works without watching the video.',
-    keywords: 'Generate hashtag-ready keywords for trending and niche community tags.',
+    title: "Create a scroll-stopping headline using emotional triggers or curiosity gaps.",
+    description: "Write shareable copy that creates FOMO and works without watching the video.",
+    keywords: "Generate hashtag-ready keywords for trending and niche community tags.",
   },
 });
 
 // Technical/production analysis
 const technicalResult = await getSummaryAndTags(assetId, {
-  tone: 'professional',
+  tone: "professional",
   promptOverrides: {
-    task: 'Analyze cinematography, lighting, and production techniques.',
-    title: 'Describe the production style or filmmaking technique.',
-    keywords: 'Use industry-standard production terminology.',
+    task: "Analyze cinematography, lighting, and production techniques.",
+    title: "Describe the production style or filmmaking technique.",
+    keywords: "Use industry-standard production terminology.",
   },
 });
 ```

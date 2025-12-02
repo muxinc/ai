@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import "../../src/env";
 import { getModerationScores } from "../../src/functions";
+
+import "../../src/env";
 
 describe("moderation Integration Tests", () => {
   const safeAsset = "88Lb01qNUqFJrOFMITk00Ck201F00Qmcbpc5qgopNV4fCOk";

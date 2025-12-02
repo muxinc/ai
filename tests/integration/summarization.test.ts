@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import "../../src/env";
 import { getSummaryAndTags } from "../../src/functions";
+
+import "../../src/env";
 
 describe("summarization Integration Tests", () => {
   const assetId = "88Lb01qNUqFJrOFMITk00Ck201F00Qmcbpc5qgopNV4fCOk";
