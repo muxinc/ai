@@ -19,7 +19,7 @@ import { withRetry } from "../lib/retry";
 import { resolveSigningContext } from "../lib/url-signing";
 import { getStoryboardUrl } from "../primitives/storyboards";
 import { fetchTranscriptForAsset } from "../primitives/transcripts";
-import type { ImageSubmissionMode, MuxAIOptions, ToneType } from "../types";
+import type { ImageSubmissionMode, MuxAIOptions, TokenUsage, ToneType } from "../types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -47,6 +47,10 @@ export interface SummaryAndTagsResult {
   tags: string[];
   /** Storyboard image URL that was analyzed. */
   storyboardUrl: string;
+  /** Token usage from the AI provider (for efficiency/cost analysis). */
+  usage?: TokenUsage;
+  /** Raw transcript text used for analysis (when includeTranscript is true). */
+  transcriptText?: string;
 }
 
 /**
@@ -191,7 +195,22 @@ const SYSTEM_PROMPT = dedent`
     - Only describe what is clearly observable in the frames or explicitly stated in the transcript
     - Do not fabricate details or make unsupported assumptions
     - Return structured data matching the requested schema
-  </constraints>`;
+  </constraints>
+
+  <language_guidelines>
+    AVOID these meta-descriptive phrases that reference the medium rather than the content:
+    - "The image shows..." / "The storyboard shows..."
+    - "In this video..." / "This video features..."
+    - "The frames depict..." / "The footage shows..."
+    - "We can see..." / "You can see..."
+    - "The clip shows..." / "The scene shows..."
+
+    INSTEAD, describe the content directly:
+    - BAD: "The video shows a chef preparing a meal"
+    - GOOD: "A chef prepares a meal in a professional kitchen"
+
+    Write as if describing reality, not describing a recording of reality.
+  </language_guidelines>`;
 
 interface UserPromptContext {
   tone: ToneType;
@@ -307,7 +326,12 @@ export async function getSummaryAndTags(
   // Analyze storyboard with AI provider (signed if needed)
   const imageUrl = await getStoryboardUrl(playbackId, 640, policy === "signed" ? signingContext : undefined);
 
-  const analyzeStoryboard = async (imageDataUrl: string) => {
+  interface AnalysisResponse {
+    result: SummaryType;
+    usage: TokenUsage;
+  }
+
+  const analyzeStoryboard = async (imageDataUrl: string): Promise<AnalysisResponse> => {
     const response = await generateObject({
       model: clients.languageModel.model,
       schema: summarySchema,
@@ -327,18 +351,27 @@ export async function getSummaryAndTags(
       ],
     });
 
-    return response.object;
+    return {
+      result: response.object,
+      usage: {
+        inputTokens: response.usage.inputTokens,
+        outputTokens: response.usage.outputTokens,
+        totalTokens: response.usage.totalTokens,
+        reasoningTokens: response.usage.reasoningTokens,
+        cachedInputTokens: response.usage.cachedInputTokens,
+      },
+    };
   };
 
-  let aiAnalysis: { title?: string; description?: string; keywords?: string[] } | null = null;
+  let analysisResponse: AnalysisResponse;
 
   try {
     if (imageSubmissionMode === "base64") {
       const downloadResult = await downloadImageAsBase64(imageUrl, imageDownloadOptions);
-      aiAnalysis = await analyzeStoryboard(downloadResult.base64Data);
+      analysisResponse = await analyzeStoryboard(downloadResult.base64Data);
     } else {
       // URL-based submission with retry logic
-      aiAnalysis = await withRetry(() => analyzeStoryboard(imageUrl));
+      analysisResponse = await withRetry(() => analyzeStoryboard(imageUrl));
     }
   } catch (error: unknown) {
     throw new Error(
@@ -348,23 +381,25 @@ export async function getSummaryAndTags(
     );
   }
 
-  if (!aiAnalysis) {
+  if (!analysisResponse.result) {
     throw new Error(`Failed to analyze video content for asset ${assetId}`);
   }
 
-  if (!aiAnalysis.title) {
+  if (!analysisResponse.result.title) {
     throw new Error(`Failed to generate title for asset ${assetId}`);
   }
 
-  if (!aiAnalysis.description) {
+  if (!analysisResponse.result.description) {
     throw new Error(`Failed to generate description for asset ${assetId}`);
   }
 
   return {
     assetId,
-    title: aiAnalysis.title,
-    description: aiAnalysis.description,
-    tags: normalizeKeywords(aiAnalysis.keywords),
+    title: analysisResponse.result.title,
+    description: analysisResponse.result.description,
+    tags: normalizeKeywords(analysisResponse.result.keywords),
     storyboardUrl: imageUrl,
+    usage: analysisResponse.usage,
+    transcriptText: transcriptText || undefined,
   };
 }
