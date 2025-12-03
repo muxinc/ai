@@ -1,10 +1,12 @@
 import { Command } from "commander";
 
+import type { ChunkingStrategy } from "@mux/ai";
 import { generateVideoEmbeddings } from "@mux/ai/functions";
 
 import "../env";
 
 type Provider = "openai" | "google";
+type Strategy = "token" | "vtt";
 
 const program = new Command();
 
@@ -14,13 +16,15 @@ program
   .argument("<asset-id>", "Mux asset ID to analyze")
   .option("-l, --language <code>", "Language code for transcription", "en")
   .option("-p, --provider <provider>", "AI provider (openai, google)", "openai")
+  .option("-s, --strategy <type>", "Chunking strategy (token, vtt)", "token")
   .option("-t, --max-tokens <number>", "Maximum tokens per chunk", "500")
-  .option("-o, --overlap <number>", "Token overlap between chunks", "100")
+  .option("-o, --overlap <number>", "Overlap between chunks (tokens for token, cues for vtt)", "100")
   .action(async (assetId: string, options: {
     language: string;
     maxTokens: string;
     overlap: string;
     provider: Provider;
+    strategy: string;
   }) => {
     // Validate provider
     if (!["openai", "google"].includes(options.provider)) {
@@ -28,6 +32,13 @@ program
       process.exit(1);
     }
 
+    // Validate strategy
+    if (!["token", "vtt"].includes(options.strategy)) {
+      console.error("❌ Unsupported strategy. Choose from: token, vtt");
+      process.exit(1);
+    }
+
+    const strategy = options.strategy as Strategy;
     const maxTokens = Number.parseInt(options.maxTokens, 10);
     const overlap = Number.parseInt(options.overlap, 10);
 
@@ -44,15 +55,23 @@ program
     console.log(`🎯 Generating embeddings for asset: ${assetId}`);
     console.log(`📝 Language: ${options.language}`);
     console.log(`🤖 Provider: ${options.provider}`);
-    console.log(`📦 Chunking: ${maxTokens} tokens per chunk, ${overlap} token overlap\n`);
+    console.log(`📦 Strategy: ${strategy}`);
+
+    const overlapLabel = strategy === "vtt" ? "cues" : "tokens";
+    console.log(`📊 Chunking: ${maxTokens} tokens per chunk, ${overlap} ${overlapLabel} overlap\n`);
 
     try {
       const start = Date.now();
 
+      // Build chunking strategy based on type
+      const chunkingStrategy: ChunkingStrategy = strategy === "vtt" ?
+          { type: "vtt", maxTokens, overlapCues: overlap } :
+          { type: "token", maxTokens, overlap };
+
       const result = await generateVideoEmbeddings(assetId, {
         provider: options.provider,
         languageCode: options.language,
-        chunkingStrategy: { type: "token", maxTokens, overlap },
+        chunkingStrategy,
       });
 
       const duration = Date.now() - start;
