@@ -40,9 +40,9 @@ export interface ResolvedModel<P extends SupportedProvider = SupportedProvider> 
   model: LanguageModel;
 }
 
-const DEFAULT_LANGUAGE_MODELS: { [K in SupportedProvider]: ModelIdByProvider[K] } = {
+export const DEFAULT_LANGUAGE_MODELS: { [K in SupportedProvider]: ModelIdByProvider[K] } = {
   openai: "gpt-5-mini",
-  anthropic: "claude-sonnet-4-5",
+  anthropic: "claude-haiku-4-5",
   google: "gemini-2.5-flash",
 };
 
@@ -50,6 +50,106 @@ const DEFAULT_EMBEDDING_MODELS: { [K in SupportedEmbeddingProvider]: EmbeddingMo
   openai: "text-embedding-3-small",
   google: "gemini-embedding-001",
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Model Pricing
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Pricing is in USD per million tokens. These values are used for cost estimation
+// in evaluations and should be periodically verified against official sources.
+//
+// Sources (as of December 2025):
+// - OpenAI: https://openai.com/api/pricing
+// - Anthropic: https://www.anthropic.com/pricing
+// - Google: https://ai.google.dev/pricing
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Pricing structure for a language model.
+ * All costs are in USD per million tokens.
+ */
+export interface ModelPricing {
+  /** Cost per million input tokens (USD). */
+  inputPerMillion: number;
+  /** Cost per million output tokens (USD). */
+  outputPerMillion: number;
+  /** Cost per million cached input tokens (USD), if supported. */
+  cachedInputPerMillion?: number;
+  /** URL to the official pricing page for verification. */
+  pricingUrl: string;
+}
+
+/**
+ * Pricing data for the default language models.
+ * Used for cost estimation in evaluations and expense tracking.
+ *
+ * @remarks
+ * Prices are subject to change. Verify against official sources before production use.
+ */
+export const THIRD_PARTY_MODEL_PRICING: { [K in SupportedProvider]: ModelPricing } = {
+  // OpenAI GPT-5 Mini
+  // Reference: https://openai.com/api/pricing
+  openai: {
+    inputPerMillion: 0.25,
+    outputPerMillion: 2.00,
+    cachedInputPerMillion: 0.025,
+    pricingUrl: "https://openai.com/api/pricing",
+  },
+
+  // Anthropic Claude Haiku 4.5
+  // Reference: https://www.anthropic.com/pricing
+  anthropic: {
+    inputPerMillion: 1.00,
+    outputPerMillion: 5.00,
+    cachedInputPerMillion: 0.10, // Prompt caching read cost
+    pricingUrl: "https://www.anthropic.com/pricing",
+  },
+
+  // Google Gemini 2.5 Flash
+  // Reference: https://ai.google.dev/pricing
+  google: {
+    inputPerMillion: 0.30,
+    outputPerMillion: 2.50,
+    cachedInputPerMillion: 0.03, // Context caching price
+    pricingUrl: "https://ai.google.dev/pricing",
+  },
+};
+
+/**
+ * Calculates the estimated cost for a request based on token usage.
+ *
+ * @param provider - The AI provider used
+ * @param inputTokens - Number of input tokens consumed
+ * @param outputTokens - Number of output tokens generated
+ * @param cachedInputTokens - Number of input tokens served from cache (optional)
+ * @returns Estimated cost in USD
+ *
+ * @example
+ * ```typescript
+ * const cost = calculateCost('openai', 2000, 500);
+ * console.log(`Estimated cost: $${cost.toFixed(6)}`);
+ * ```
+ */
+export function calculateCost(
+  provider: SupportedProvider,
+  inputTokens: number,
+  outputTokens: number,
+  cachedInputTokens: number = 0,
+): number {
+  const pricing = THIRD_PARTY_MODEL_PRICING[provider];
+
+  // Adjust input tokens: cached tokens are charged at cached rate, rest at full rate
+  const uncachedInputTokens = Math.max(0, inputTokens - cachedInputTokens);
+
+  const inputCost = (uncachedInputTokens / 1_000_000) * pricing.inputPerMillion;
+  const outputCost = (outputTokens / 1_000_000) * pricing.outputPerMillion;
+  let cachedCost = 0;
+  if (pricing.cachedInputPerMillion) {
+    cachedCost = (cachedInputTokens / 1_000_000) * pricing.cachedInputPerMillion;
+  }
+
+  return inputCost + outputCost + cachedCost;
+}
 
 function requireEnv(value: string | undefined, name: string): string {
   if (!value) {
