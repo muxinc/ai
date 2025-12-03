@@ -1,16 +1,39 @@
 {
   "name": "@mux/ai",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "description": "AI library for Mux",
   "author": "Mux",
   "license": "Apache-2.0",
+  "homepage": "https://github.com/muxinc/ai#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/muxinc/mux-ai.git"
+    "url": "git+https://github.com/muxinc/ai.git"
+  },
+  "bugs": {
+    "url": "https://github.com/muxinc/ai/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   },
   "keywords": [
     "mux",
+    "video",
     "ai",
+    "llm",
+    "openai",
+    "anthropic",
+    "google",
+    "gemini",
+    "multimodal",
+    "video-analysis",
+    "summarization",
+    "moderation",
+    "captions",
+    "translation",
+    "dubbing",
+    "chapters",
+    "embeddings",
     "typescript"
   ],
   "exports": {
