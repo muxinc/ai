@@ -1,23 +1,25 @@
 # @mux/ai
 
-AI-powered video analysis library for Mux, built in TypeScript.
+A set of tools for connecting videos in your Mux account to multi-modal LLMs.
 
-## Available Tools
+## Available pre-built workflows
 
-| Workflow              | Description                                                     | Providers                 | Default Models                                                   | Input                            | Output                                   |
-| --------------------- | --------------------------------------------------------------- | ------------------------- | ---------------------------------------------------------------- | -------------------------------- | ---------------------------------------- |
-| `getSummaryAndTags`   | Generate titles, descriptions, and tags from a Mux video asset  | OpenAI, Anthropic, Google | `gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash`            | Asset ID + options               | Title, description, tags, storyboard URL |
-| `getModerationScores` | Analyze video thumbnails for inappropriate content              | OpenAI, Hive              | `omni-moderation-latest` (OpenAI) or Hive visual moderation task | Asset ID + thresholds            | Sexual/violence scores, flagged status   |
-| `hasBurnedInCaptions` | Detect burned-in captions (hardcoded subtitles) in video frames | OpenAI, Anthropic, Google | `gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash`            | Asset ID + options               | Boolean result, confidence, language     |
-| `generateChapters`    | Generate AI-powered chapter markers from video captions         | OpenAI, Anthropic, Google | `gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash`            | Asset ID + language + options    | Timestamped chapter list                 |
-| `translateCaptions`   | Translate video captions to different languages                 | OpenAI, Anthropic, Google | Provider default models                                          | Asset ID + languages + S3 config | Translated VTT + Mux track ID            |
-| `translateAudio`      | Create AI-dubbed audio tracks in different languages            | ElevenLabs only           | ElevenLabs Dubbing API                                           | Asset ID + languages + S3 config | Dubbed audio + Mux track ID              |
+| Workflow                  | Description                                                     | Providers                 | Default Models                                                     | Input                            | Output                                         |
+| ------------------------- | --------------------------------------------------------------- | ------------------------- | ------------------------------------------------------------------ | -------------------------------- | ---------------------------------------------- |
+| `getSummaryAndTags`       | Generate titles, descriptions, and tags from a Mux video asset  | OpenAI, Anthropic, Google | `gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash`              | Asset ID + options               | Title, description, tags, storyboard URL       |
+| `getModerationScores`     | Analyze video thumbnails for inappropriate content              | OpenAI, Hive              | `omni-moderation-latest` (OpenAI) or Hive visual moderation task   | Asset ID + thresholds            | Sexual/violence scores, flagged status         |
+| `hasBurnedInCaptions`     | Detect burned-in captions (hardcoded subtitles) in video frames | OpenAI, Anthropic, Google | `gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash`              | Asset ID + options               | Boolean result, confidence, language           |
+| `generateChapters`        | Generate AI-powered chapter markers from video captions         | OpenAI, Anthropic, Google | `gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash`              | Asset ID + language + options    | Timestamped chapter list, ready for Mux Player |
+| `generateVideoEmbeddings` | Generate vector embeddings for video transcript chunks          | OpenAI, Google            | `text-embedding-3-small` (OpenAI), `gemini-embedding-001` (Google) | Asset ID + chunking strategy     | Chunk embeddings + averaged embedding          |
+| `translateCaptions`       | Translate video captions to different languages                 | OpenAI, Anthropic, Google | `gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash`              | Asset ID + languages + S3 config | Translated VTT + Mux track ID                  |
+| `translateAudio`          | Create AI-dubbed audio tracks in different languages            | ElevenLabs only           | ElevenLabs Dubbing API                                             | Asset ID + languages + S3 config | Dubbed audio + Mux track ID                    |
 
 ## Features
 
 - **Cost-Effective by Default**: Uses affordable frontier models like `gpt-5-mini`, `claude-sonnet-4-5`, and `gemini-2.5-flash` to keep analysis costs low while maintaining high quality results
 - **Multi-modal Analysis**: Combines storyboard images with video transcripts
-- **Tone Control**: Normal, sassy, or professional analysis styles (summarization only)
+- **Tone Control**: Normal, sassy, or professional analysis styles
+- **Prompt Customization**: Override specific prompt sections to tune workflows to your use case
 - **Configurable Thresholds**: Custom sensitivity levels for content moderation
 - **TypeScript**: Fully typed for excellent developer experience
 - **Provider Choice**: Switch between OpenAI, Anthropic, and Google for different perspectives
@@ -257,6 +259,45 @@ const anthropicResult = await generateChapters("your-mux-asset-id", "en", {
 const googleResult = await generateChapters("your-mux-asset-id", "en", {
   provider: "google",
   model: "gemini-2.5-flash"
+});
+```
+
+### Video Embeddings
+
+```typescript
+import { generateVideoEmbeddings } from "@mux/ai/workflows";
+
+// Generate embeddings for semantic video search
+const result = await generateVideoEmbeddings("your-mux-asset-id", {
+  provider: "openai",
+  chunkingStrategy: {
+    type: "token",
+    maxTokens: 500,
+    overlap: 100
+  }
+});
+
+console.log(result.chunks); // Array of chunk embeddings with timestamps
+console.log(result.averagedEmbedding); // Single embedding for entire video
+
+// Store chunks in vector database for timestamp-accurate search
+for (const chunk of result.chunks) {
+  await vectorDB.insert({
+    id: `${result.assetId}:${chunk.chunkId}`,
+    embedding: chunk.embedding,
+    startTime: chunk.metadata.startTime,
+    endTime: chunk.metadata.endTime
+  });
+}
+
+// Use VTT-based chunking to respect cue boundaries
+const vttResult = await generateVideoEmbeddings("your-mux-asset-id", {
+  provider: "google",
+  chunkingStrategy: {
+    type: "vtt",
+    maxTokens: 500,
+    overlapCues: 2
+  }
 });
 ```
 
@@ -913,12 +954,6 @@ Mux requires a publicly accessible URL to ingest subtitle tracks. The translatio
 2. Generates a presigned URL for secure access
 3. Mux fetches the file using the presigned URL
 4. File remains in your storage for future use
-
-## Planned Features
-
-- **Additional Translation Providers**: OpenAI GPT-4 support
-- **Batch Translation**: Translate multiple assets at once
-- **Custom Translation Prompts**: Override default translation behavior
 
 ## Development
 
