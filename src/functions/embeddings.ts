@@ -30,8 +30,6 @@ export interface EmbeddingsOptions extends MuxAIOptions {
   languageCode?: string;
   /** Chunking strategy configuration (defaults to token-based with 500 tokens, 100 overlap). */
   chunkingStrategy?: ChunkingStrategy;
-  /** Whether to include averaged embedding in result (defaults to true). */
-  includeAveragedEmbedding?: boolean;
   /** Maximum number of chunks to process concurrently (defaults to 5). */
   batchSize?: number;
 }
@@ -164,7 +162,6 @@ export async function generateVideoEmbeddings(
     model,
     languageCode,
     chunkingStrategy = DEFAULT_CHUNKING_STRATEGY,
-    includeAveragedEmbedding = true,
     batchSize = DEFAULT_BATCH_SIZE,
     abortSignal,
   } = options;
@@ -243,10 +240,8 @@ export async function generateVideoEmbeddings(
     throw new Error("No embeddings generated");
   }
 
-  // Calculate averaged embedding if requested
-  const averagedEmbedding = includeAveragedEmbedding ?
-      averageEmbeddings(chunkEmbeddings.map(ce => ce.embedding)) :
-      [];
+  // Calculate averaged embedding
+  const averagedEmbedding = averageEmbeddings(chunkEmbeddings.map(ce => ce.embedding));
 
   // Calculate total tokens
   const totalTokens = chunks.reduce((sum, chunk) => sum + chunk.tokenCount, 0);

@@ -80,14 +80,14 @@ describe("embeddings Integration Tests", () => {
     });
   });
 
-  it("should handle embeddings without averaged embedding", async () => {
+  it("should always generate averaged embedding", async () => {
     const result = await generateVideoEmbeddings(assetId, {
       provider: "openai",
-      includeAveragedEmbedding: false,
     });
 
     expect(result).toBeDefined();
     expect(result.chunks.length).toBeGreaterThan(0);
-    expect(result.averagedEmbedding).toEqual([]);
+    expect(result.averagedEmbedding.length).toBeGreaterThan(0);
+    expect(result.averagedEmbedding.length).toBe(result.chunks[0].embedding.length);
   });
 });
