@@ -1,11 +1,11 @@
 import { evalite } from "evalite";
 import { reportTrace } from "evalite/traces";
 
-import { hasBurnedInCaptions } from "../../src/functions";
-import type { BurnedInCaptionsResult } from "../../src/functions/burned-in-captions";
 import { calculateCost, DEFAULT_LANGUAGE_MODELS } from "../../src/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "../../src/lib/providers";
 import type { TokenUsage } from "../../src/types";
+import { hasBurnedInCaptions } from "../../src/workflows";
+import type { BurnedInCaptionsResult } from "../../src/workflows";
 
 import "../../src/env";
 
