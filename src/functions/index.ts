@@ -1,5 +1,6 @@
 export * from "./burned-in-captions";
 export * from "./chapters";
+export * from "./embeddings";
 export * from "./moderation";
 export * from "./summarization";
 export * from "./translate-audio";

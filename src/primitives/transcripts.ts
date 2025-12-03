@@ -2,6 +2,13 @@ import type { SigningContext } from "../lib/url-signing";
 import { signUrl } from "../lib/url-signing";
 import type { AssetTextTrack, MuxAsset } from "../types";
 
+/** A single cue from a VTT file with timing info. */
+export interface VTTCue {
+  startTime: number;
+  endTime: number;
+  text: string;
+}
+
 export interface TranscriptFetchOptions {
   languageCode?: string;
   cleanTranscript?: boolean;
@@ -115,6 +122,50 @@ export function extractTimestampedTranscript(vttContent: string): string {
   return segments
     .map(segment => `[${Math.floor(segment.time)}s] ${segment.text}`)
     .join("\n");
+}
+
+/**
+ * Parses VTT content into structured cues with timing.
+ *
+ * @param vttContent - Raw VTT file content
+ * @returns Array of VTT cues with start/end times and text
+ */
+export function parseVTTCues(vttContent: string): VTTCue[] {
+  if (!vttContent.trim())
+    return [];
+
+  const lines = vttContent.split("\n");
+  const cues: VTTCue[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+
+    if (line.includes("-->")) {
+      const [startStr, endStr] = line.split(" --> ").map(s => s.trim());
+      const startTime = vttTimestampToSeconds(startStr);
+      const endTime = vttTimestampToSeconds(endStr.split(" ")[0]); // Handle cue settings
+
+      // Collect text lines until empty line or next timestamp
+      const textLines: string[] = [];
+      let j = i + 1;
+      while (j < lines.length && lines[j].trim() && !lines[j].includes("-->")) {
+        const cleanLine = lines[j].trim().replace(/<[^>]*>/g, "");
+        if (cleanLine)
+          textLines.push(cleanLine);
+        j++;
+      }
+
+      if (textLines.length > 0) {
+        cues.push({
+          startTime,
+          endTime,
+          text: textLines.join(" "),
+        });
+      }
+    }
+  }
+
+  return cues;
 }
 
 /**

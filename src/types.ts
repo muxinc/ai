@@ -58,3 +58,74 @@ export interface PlaybackAsset {
   /** The policy type of the playback ID ('public' or 'signed'). */
   policy: PlaybackPolicy;
 }
+
+/** Configuration for token-based chunking. */
+export interface TokenChunkingConfig {
+  type: "token";
+  /** Maximum tokens per chunk. */
+  maxTokens: number;
+  /** Number of overlapping tokens between chunks. */
+  overlap?: number;
+}
+
+/** Configuration for VTT-aware chunking that respects cue boundaries. */
+export interface VTTChunkingConfig {
+  type: "vtt";
+  /** Maximum tokens per chunk. */
+  maxTokens: number;
+  /** Number of cues to overlap between chunks (default: 2). */
+  overlapCues?: number;
+}
+
+/** Union type for all chunking strategy configurations. */
+export type ChunkingStrategy = TokenChunkingConfig | VTTChunkingConfig;
+
+/** A single chunk of text extracted from a transcript. */
+export interface TextChunk {
+  /** Unique identifier for this chunk. */
+  id: string;
+  /** The text content of the chunk. */
+  text: string;
+  /** Number of tokens in this chunk. */
+  tokenCount: number;
+  /** Start time in seconds (if available from timestamped transcript). */
+  startTime?: number;
+  /** End time in seconds (if available from timestamped transcript). */
+  endTime?: number;
+}
+
+/** A chunk with its embedding vector. */
+export interface ChunkEmbedding {
+  /** Reference to the chunk ID. */
+  chunkId: string;
+  /** The embedding vector. */
+  embedding: number[];
+  /** Optional metadata for this chunk. */
+  metadata: {
+    startTime?: number;
+    endTime?: number;
+    tokenCount: number;
+  };
+}
+
+/** Result of generating embeddings for a video asset. */
+export interface VideoEmbeddingsResult {
+  /** The Mux asset ID. */
+  assetId: string;
+  /** Individual chunk embeddings. */
+  chunks: ChunkEmbedding[];
+  /** Averaged embedding across all chunks. */
+  averagedEmbedding: number[];
+  /** AI provider used. */
+  provider: string;
+  /** Model used for embedding generation. */
+  model: string;
+  /** Additional metadata about the generation. */
+  metadata: {
+    totalChunks: number;
+    totalTokens: number;
+    chunkingStrategy: string;
+    embeddingDimensions: number;
+    generatedAt: string;
+  };
+}
