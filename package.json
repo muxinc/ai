@@ -30,13 +30,13 @@
       "import": "./dist/primitives/index.mjs",
       "require": "./dist/primitives/index.js"
     },
-    "./functions": {
+    "./workflows": {
       "types": {
-        "import": "./dist/functions/index.d.mts",
-        "require": "./dist/functions/index.d.ts"
+        "import": "./dist/workflows/index.d.mts",
+        "require": "./dist/workflows/index.d.ts"
       },
-      "import": "./dist/functions/index.mjs",
-      "require": "./dist/functions/index.js"
+      "import": "./dist/workflows/index.mjs",
+      "require": "./dist/workflows/index.js"
     }
   },
   "main": "./dist/index.js",

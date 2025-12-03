@@ -2,10 +2,10 @@ import Mux from "@mux/mux-node";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { env, reloadEnv } from "../../src/env";
-import { generateChapters, getModerationScores, getSummaryAndTags, hasBurnedInCaptions } from "../../src/functions";
 import type { SigningContext } from "../../src/lib/url-signing";
 import { resolveSigningContext, signPlaybackId, signUrl } from "../../src/lib/url-signing";
 import { buildTranscriptUrl, getStoryboardUrl, getThumbnailUrls } from "../../src/primitives";
+import { generateChapters, getModerationScores, getSummaryAndTags, hasBurnedInCaptions } from "../../src/workflows";
 
 import "dotenv/config";
 

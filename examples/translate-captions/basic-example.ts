@@ -1,6 +1,6 @@
 import { Command } from "commander";
 
-import { translateCaptions } from "@mux/ai/functions";
+import { translateCaptions } from "@mux/ai/workflows";
 
 import "../env";
 

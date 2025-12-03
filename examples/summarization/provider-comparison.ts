@@ -1,7 +1,7 @@
 import { Command } from "commander";
 
 import type { ToneType } from "@mux/ai";
-import { getSummaryAndTags } from "@mux/ai/functions";
+import { getSummaryAndTags } from "@mux/ai/workflows";
 
 import "../env";
 

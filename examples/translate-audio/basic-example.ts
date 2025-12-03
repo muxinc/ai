@@ -1,6 +1,6 @@
 import { Command } from "commander";
 
-import { translateAudio } from "@mux/ai/functions";
+import { translateAudio } from "@mux/ai/workflows";
 
 import "../env";
 

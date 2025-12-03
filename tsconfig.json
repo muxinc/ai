@@ -8,7 +8,7 @@
     "moduleResolution": "bundler",
     "paths": {
       "@mux/ai": ["src/index.ts"],
-      "@mux/ai/functions": ["src/functions/index.ts"],
+      "@mux/ai/workflows": ["src/workflows/index.ts"],
       "@mux/ai/primitives": ["src/primitives/index.ts"],
       "@mux/ai/types": ["src/types.ts"]
     },

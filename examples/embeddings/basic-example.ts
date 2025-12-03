@@ -1,7 +1,7 @@
 import { Command } from "commander";
 
 import type { ChunkingStrategy } from "@mux/ai";
-import { generateVideoEmbeddings } from "@mux/ai/functions";
+import { generateVideoEmbeddings } from "@mux/ai/workflows";
 
 import "../env";
 

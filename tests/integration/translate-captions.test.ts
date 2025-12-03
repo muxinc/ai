@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { translateCaptions } from "../../src/functions";
+import { translateCaptions } from "../../src/workflows";
 
 import "../../src/env";
 

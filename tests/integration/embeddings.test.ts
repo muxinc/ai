@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { generateVideoEmbeddings } from "../../src/functions";
+import { generateVideoEmbeddings } from "../../src/workflows";
 
 import "../../src/env";
 

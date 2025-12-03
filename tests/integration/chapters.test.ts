@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { generateChapters } from "../../src/functions";
+import { generateChapters } from "../../src/workflows";
 
 import "../../src/env";
 

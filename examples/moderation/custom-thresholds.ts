@@ -1,6 +1,6 @@
 import { Command } from "commander";
 
-import { getModerationScores } from "@mux/ai/functions";
+import { getModerationScores } from "@mux/ai/workflows";
 
 import "../env";
 

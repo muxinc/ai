@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { getModerationScores } from "../../src/functions";
+import { getModerationScores } from "../../src/workflows";
 
 import "../../src/env";
 

@@ -1,6 +1,6 @@
 # Summarization Examples
 
-This directory contains examples demonstrating how to use the `getSummaryAndTags` helper from `@mux/ai/functions`.
+This directory contains examples demonstrating how to use the `getSummaryAndTags` helper from `@mux/ai/workflows`.
 
 ## Setup
 
@@ -99,7 +99,7 @@ Key options for `getSummaryAndTags`:
 The `promptOverrides` option lets you customize specific sections of the prompt while keeping the rest of the defaults:
 
 ```typescript
-import { getSummaryAndTags } from "@mux/ai/functions";
+import { getSummaryAndTags } from "@mux/ai/workflows";
 
 // SEO-optimized metadata
 const seoResult = await getSummaryAndTags(assetId, {

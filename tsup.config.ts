@@ -1,7 +1,7 @@
 import { defineConfig } from "tsup";
 
 export default defineConfig({
-  entry: ["src/index.ts", "src/primitives/index.ts", "src/functions/index.ts"],
+  entry: ["src/index.ts", "src/primitives/index.ts", "src/workflows/index.ts"],
   format: ["esm", "cjs"], // Build both ESM and CommonJS
   dts: true, // Generate .d.ts files
   sourcemap: true,

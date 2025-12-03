@@ -1,6 +1,6 @@
 # Moderation Examples
 
-This directory contains examples demonstrating how to use the `getModerationScores` helper from `@mux/ai/functions`.
+This directory contains examples demonstrating how to use the `getModerationScores` helper from `@mux/ai/workflows`.
 
 ## Setup
 
