@@ -56,5 +56,5 @@ jobs:
       - name: Run linter
         run: npm run lint
 
-      - name: Publish with provenance
+      - name: Publish to npm
         run: npm publish --access public
