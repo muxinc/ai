@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { getSummaryAndTags } from "../../src/functions";
+import { getSummaryAndTags } from "../../src/workflows";
 
 import "../../src/env";
 

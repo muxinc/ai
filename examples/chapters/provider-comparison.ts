@@ -1,6 +1,6 @@
 import { Command } from "commander";
 
-import { generateChapters } from "@mux/ai/functions";
+import { generateChapters } from "@mux/ai/workflows";
 
 import "../env";
 

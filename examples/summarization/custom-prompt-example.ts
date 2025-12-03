@@ -26,8 +26,8 @@
 import { Command } from "commander";
 
 import type { ToneType } from "@mux/ai";
-import type { SummarizationPromptOverrides } from "@mux/ai/functions";
-import { getSummaryAndTags } from "@mux/ai/functions";
+import type { SummarizationPromptOverrides } from "@mux/ai/workflows";
+import { getSummaryAndTags } from "@mux/ai/workflows";
 
 import "dotenv/config";
 import "../env";

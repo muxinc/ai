@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { hasBurnedInCaptions } from "../../src/functions";
+import { hasBurnedInCaptions } from "../../src/workflows";
 
 import "../../src/env";
 

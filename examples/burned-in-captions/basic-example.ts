@@ -1,6 +1,6 @@
 import { Command } from "commander";
 
-import { hasBurnedInCaptions } from "@mux/ai/functions";
+import { hasBurnedInCaptions } from "@mux/ai/workflows";
 
 import "../env";
 

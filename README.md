@@ -4,7 +4,7 @@ AI-powered video analysis library for Mux, built in TypeScript.
 
 ## Available Tools
 
-| Function              | Description                                                     | Providers                 | Default Models                                                   | Input                            | Output                                   |
+| Workflow              | Description                                                     | Providers                 | Default Models                                                   | Input                            | Output                                   |
 | --------------------- | --------------------------------------------------------------- | ------------------------- | ---------------------------------------------------------------- | -------------------------------- | ---------------------------------------- |
 | `getSummaryAndTags`   | Generate titles, descriptions, and tags from a Mux video asset  | OpenAI, Anthropic, Google | `gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash`            | Asset ID + options               | Title, description, tags, storyboard URL |
 | `getModerationScores` | Analyze video thumbnails for inappropriate content              | OpenAI, Hive              | `omni-moderation-latest` (OpenAI) or Hive visual moderation task | Asset ID + thresholds            | Sexual/violence scores, flagged status   |
@@ -28,17 +28,17 @@ AI-powered video analysis library for Mux, built in TypeScript.
 
 This package ships with layered entry points so you can pick the right level of abstraction for your workflow:
 
-- `@mux/ai/functions` – opinionated, production-ready helpers (`getSummaryAndTags`, `generateChapters`, `translateCaptions`, etc.) that orchestrate Mux API access, transcript/storyboard gathering, and the AI provider call.
+- `@mux/ai/workflows` – opinionated, production-ready helpers (`getSummaryAndTags`, `generateChapters`, `translateCaptions`, etc.) that orchestrate Mux API access, transcript/storyboard gathering, and the AI provider call.
 - `@mux/ai/primitives` – low-level building blocks such as `fetchTranscriptForAsset`, `getStoryboardUrl`, and `getThumbnailUrls`. Use these when you need to mix our utilities into your own prompts or custom workflows.
-- `@mux/ai` – re-exports both namespaces, plus shared `types`, so you can also write `import { functions, primitives } from '@mux/ai';`.
+- `@mux/ai` – re-exports both namespaces, plus shared `types`, so you can also write `import { workflows, primitives } from '@mux/ai';`.
 
-Every helper inside `@mux/ai/functions` is composed from the primitives. That means you can start with a high-level function and gradually drop down to primitives whenever you need more control.
+Every helper inside `@mux/ai/workflows` is composed from the primitives. That means you can start with a high-level workflow and gradually drop down to primitives whenever you need more control.
 
 ```typescript
-import { getModerationScores, getSummaryAndTags } from "@mux/ai/functions";
 import { fetchTranscriptForAsset, getStoryboardUrl } from "@mux/ai/primitives";
+import { getModerationScores, getSummaryAndTags } from "@mux/ai/workflows";
 
-// Compose high-level functions for a custom workflow
+// Compose high-level workflows for a custom workflow
 export async function summarizeIfSafe(assetId: string) {
   const moderation = await getModerationScores(assetId, { provider: "openai" });
   if (moderation.exceedsThreshold) {
@@ -61,7 +61,7 @@ export async function customTranscriptAnalysis(assetId: string, playbackId: stri
 }
 ```
 
-Use whichever layer makes sense: call a function as-is, compose multiple functions together, or drop down to primitives to build a completely custom workflow.
+Use whichever layer makes sense: call a workflow as-is, compose multiple workflows together, or drop down to primitives to build a completely custom workflow.
 
 ## Installation
 
@@ -74,7 +74,7 @@ npm install @mux/ai
 ### Video Summarization
 
 ```typescript
-import { getSummaryAndTags } from "@mux/ai/functions";
+import { getSummaryAndTags } from "@mux/ai/workflows";
 
 // Uses built-in optimized prompt
 const result = await getSummaryAndTags("your-mux-asset-id", {
@@ -111,7 +111,7 @@ const seoResult = await getSummaryAndTags("your-mux-asset-id", {
 ### Content Moderation
 
 ```typescript
-import { getModerationScores } from "@mux/ai/functions";
+import { getModerationScores } from "@mux/ai/workflows";
 
 // Analyze Mux video asset for inappropriate content (OpenAI default)
 const result = await getModerationScores("your-mux-asset-id", {
@@ -143,7 +143,7 @@ const reliableResult = await getModerationScores("your-mux-asset-id", {
 ### Burned-in Caption Detection
 
 ```typescript
-import { hasBurnedInCaptions } from "@mux/ai/functions";
+import { hasBurnedInCaptions } from "@mux/ai/workflows";
 
 // Detect burned-in captions (hardcoded subtitles) in video frames
 const result = await hasBurnedInCaptions("your-mux-asset-id", {
@@ -214,7 +214,7 @@ const result = await getModerationScores(assetId, {
 ### Caption Translation
 
 ```typescript
-import { translateCaptions } from "@mux/ai/functions";
+import { translateCaptions } from "@mux/ai/workflows";
 
 // Translate existing captions to Spanish and add as new track
 const result = await translateCaptions(
@@ -235,7 +235,7 @@ console.log(result.translatedVtt); // Translated VTT content
 ### Video Chapters
 
 ```typescript
-import { generateChapters } from "@mux/ai/functions";
+import { generateChapters } from "@mux/ai/workflows";
 
 // Generate AI-powered chapters from video captions
 const result = await generateChapters("your-mux-asset-id", "en", {
@@ -263,7 +263,7 @@ const googleResult = await generateChapters("your-mux-asset-id", "en", {
 ### Audio Dubbing
 
 ```typescript
-import { translateAudio } from "@mux/ai/functions";
+import { translateAudio } from "@mux/ai/workflows";
 
 // Create AI-dubbed audio track and add to Mux asset
 // Uses the default audio track on your asset, language is auto-detected
@@ -284,7 +284,7 @@ console.log(result.presignedUrl); // S3 audio file URL
 ### Compare Summarization from Providers
 
 ```typescript
-import { getSummaryAndTags } from "@mux/ai/functions";
+import { getSummaryAndTags } from "@mux/ai/workflows";
 
 // Compare different AI providers analyzing the same Mux video asset
 const assetId = "your-mux-asset-id";
@@ -636,10 +636,10 @@ ElevenLabs supports 32+ languages with automatic language name detection via `In
 
 Customize specific sections of the summarization prompt for different use cases like SEO, social media, or technical analysis.
 
-**Tip:** Before adding overrides, read through the default summarization prompt template in `src/functions/summarization.ts` (the `summarizationPromptBuilder` config) so you have clear context on what each section does and what you’re changing.
+**Tip:** Before adding overrides, read through the default summarization prompt template in `src/workflows/summarization.ts` (the `summarizationPromptBuilder` config) so you have clear context on what each section does and what you're changing.
 
 ```typescript
-import { getSummaryAndTags } from "@mux/ai/functions";
+import { getSummaryAndTags } from "@mux/ai/workflows";
 
 // SEO-optimized metadata
 const seoResult = await getSummaryAndTags(assetId, {

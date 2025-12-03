@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { translateAudio } from "../../src/functions";
+import { translateAudio } from "../../src/workflows";
 
 import "../../src/env";
 
