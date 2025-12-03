@@ -83,7 +83,6 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run build && npm run typecheck && npm run lint",
     "example:chapters": "npx ts-node --transpile-only --require tsconfig-paths/register examples/chapters/basic-example.ts",
     "example:chapters:compare": "npx ts-node --transpile-only --require tsconfig-paths/register examples/chapters/provider-comparison.ts",
     "example:burned-in": "npx ts-node --transpile-only --require tsconfig-paths/register examples/burned-in-captions/basic-example.ts",
