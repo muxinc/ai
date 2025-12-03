@@ -6,11 +6,34 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/muxinc/mux-ai.git"
+    "url": "git+https://github.com/muxinc/ai.git"
+  },
+  "homepage": "https://github.com/muxinc/ai#readme",
+  "bugs": {
+    "url": "https://github.com/muxinc/ai/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   },
   "keywords": [
     "mux",
+    "video",
     "ai",
+    "llm",
+    "openai",
+    "anthropic",
+    "google",
+    "gemini",
+    "multimodal",
+    "video-analysis",
+    "summarization",
+    "moderation",
+    "captions",
+    "translation",
+    "dubbing",
+    "chapters",
+    "embeddings",
     "typescript"
   ],
   "exports": {
@@ -60,6 +83,7 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build && npm run typecheck && npm run lint",
     "example:chapters": "npx ts-node --transpile-only --require tsconfig-paths/register examples/chapters/basic-example.ts",
     "example:chapters:compare": "npx ts-node --transpile-only --require tsconfig-paths/register examples/chapters/provider-comparison.ts",
     "example:burned-in": "npx ts-node --transpile-only --require tsconfig-paths/register examples/burned-in-captions/basic-example.ts",
