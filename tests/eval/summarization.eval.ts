@@ -41,20 +41,24 @@ import "../../src/env";
  *    - Lowercase format (per prompt requirements)
  *    - Concrete nouns and action verbs over abstract concepts
  *
- * 4. RESPONSE INTEGRITY
+ * 4. TAGS SIMILARITY (embeddings)
+ *    - Compares generated tags to reference tags using cosine similarity
+ *    - Allows flexible phrasing - good when keywords vary but meaning aligns
+ *
+ * 5. RESPONSE INTEGRITY
  *    - All required fields populated correctly
  *    - Types match expected schema
  *    - Storyboard URL properly generated
  *
- * 5. NO FILLER PHRASES
+ * 6. NO FILLER PHRASES
  *    - Description should NOT contain "the image shows", "the video shows", etc.
  *    - Content should be described directly without meta-references to the medium
  *
- * 6. TITLE SIMILARITY (embeddings)
+ * 7. TITLE SIMILARITY (embeddings)
  *    - Compares generated title to reference title using cosine similarity
  *    - Allows flexible phrasing - good when multiple wordings are valid
  *
- * 7. DESCRIPTION SIMILARITY (embeddings)
+ * 8. DESCRIPTION SIMILARITY (embeddings)
  *    - Compares generated description to reference using cosine similarity
  *    - Allows flexible phrasing - good when multiple wordings are valid
  *
@@ -167,6 +171,8 @@ interface TestAsset {
   referenceTitle: string;
   /** Reference description for answerCorrectness evaluation */
   referenceDescription: string;
+  /** Reference tags for semantic similarity evaluation */
+  referenceTags: string[];
 }
 
 const testAssets: TestAsset[] = [
@@ -179,6 +185,18 @@ const testAssets: TestAsset[] = [
       The demonstration shows using query parameters and a simple GET request to create stills and animated GIFs.
       The presenter sits at a desk with headphones, gestures while explaining the features, and gives a thumbs-up.
       The video promotes Mux's video capabilities with the tagline 'video is fun with Mux'.`,
+    referenceTags: [
+      "mux api",
+      "thumbnail generation",
+      "gif creation",
+      "video api",
+      "developer demo",
+      "api tutorial",
+      "video stills",
+      "software demonstration",
+      "technical presentation",
+      "video processing",
+    ],
   },
 ];
 
@@ -195,6 +213,7 @@ const data = providers.flatMap(provider =>
     expected: {
       referenceTitle: asset.referenceTitle,
       referenceDescription: asset.referenceDescription,
+      referenceTags: asset.referenceTags,
     },
   })),
 );
@@ -255,6 +274,7 @@ evalite("Summarization", {
   // - Title Similarity: Is title semantically similar to reference? (embeddings)
   // - Description Quality: Is the description informative?
   // - Tags Quality: Are tags relevant, unique, and properly formatted?
+  // - Tags Similarity: Are tags semantically similar to reference? (embeddings)
   // - Response Integrity: Are all fields valid and properly formatted?
   // - No Filler Phrases: Does description avoid "the image shows" etc.?
   // - Description Similarity: Is description semantically similar to reference? (embeddings)
@@ -383,6 +403,29 @@ evalite("Summarization", {
       },
     },
 
+    // TAGS SIMILARITY: Compare tags against reference using semantic similarity
+    {
+      name: "tags-similarity",
+      description: "Evaluates tags similarity to reference using embeddings (allows flexible keyword phrasing).",
+      scorer: async ({ output, expected }: { output: EvalOutput; expected: { referenceTags: string[] } }) => {
+        const { tags } = output;
+
+        // Join tags into comma-separated strings for semantic comparison
+        const generatedTagsString = tags.join(", ");
+        const referenceTagsString = expected.referenceTags.join(", ");
+
+        const result = await answerSimilarity({
+          answer: generatedTagsString,
+          reference: referenceTagsString,
+          embeddingModel: openai.embedding("text-embedding-3-small"),
+        });
+
+        return {
+          score: result.score,
+        };
+      },
+    },
+
     // RESPONSE INTEGRITY: Schema and shape validation
     {
       name: "response-integrity",
@@ -468,7 +511,7 @@ evalite("Summarization", {
     // LATENCY: Wall clock time performance
     {
       name: "latency-performance",
-      description: `Scores latency: 1.0 for <8000ms, scaled down to 0 for >20000ms.`,
+      description: `Scores latency: 1.0 for <${LATENCY_THRESHOLD_GOOD_MS}ms, scaled down to 0 for >${LATENCY_THRESHOLD_ACCEPTABLE_MS}ms.`,
       scorer: ({ output }: { output: EvalOutput }) => {
         const { latencyMs } = output;
         if (latencyMs <= LATENCY_THRESHOLD_GOOD_MS) {
@@ -504,21 +547,43 @@ evalite("Summarization", {
     // ─────────────────────────────────────────────────────────────────────────
 
     // USAGE DATA PRESENCE: Validates that usage metrics are available
+    // This catches bugs where undefined tokens would fall back to 0, inflating cost scores
     {
       name: "usage-data-present",
-      description: "Ensures token usage data is returned for cost analysis.",
+      description: "Ensures token usage data is returned for cost analysis (inputTokens and outputTokens must be > 0).",
       scorer: ({ output }: { output: EvalOutput }) => {
-        const hasUsage = output.usage &&
-          typeof output.usage.totalTokens === "number" &&
-          output.usage.totalTokens > 0;
-        return hasUsage ? 1 : 0;
+        const { usage } = output;
+
+        // Must have usage object
+        if (!usage) {
+          return { score: 0, metadata: { reason: "No usage object returned" } };
+        }
+
+        const { inputTokens, outputTokens, totalTokens } = usage;
+
+        // inputTokens must be present and > 0 (we always send input to the model)
+        if (typeof inputTokens !== "number" || inputTokens <= 0) {
+          return { score: 0, metadata: { reason: "inputTokens missing or zero", inputTokens } };
+        }
+
+        // outputTokens must be present and > 0 (model always generates output)
+        if (typeof outputTokens !== "number" || outputTokens <= 0) {
+          return { score: 0, metadata: { reason: "outputTokens missing or zero", outputTokens } };
+        }
+
+        // totalTokens should be consistent (if present)
+        if (typeof totalTokens === "number" && totalTokens < inputTokens + outputTokens) {
+          return { score: 0.5, metadata: { reason: "totalTokens inconsistent with input + output" } };
+        }
+
+        return 1;
       },
     },
 
     // COST ANALYSIS: Estimated cost per request
     {
       name: "cost-within-budget",
-      description: `Scores cost efficiency: 1.0 for <$0.015, scaled down for higher costs.`,
+      description: `Scores cost efficiency: 1.0 for <${COST_THRESHOLD_USD}USD, scaled down for higher costs.`,
       scorer: ({ output }: { output: EvalOutput }) => {
         const { estimatedCostUsd } = output;
         if (estimatedCostUsd <= COST_THRESHOLD_USD) {
