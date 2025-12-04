@@ -1,4 +1,4 @@
-# @mux/ai    📼 🤝 🤖
+# @mux/ai 📼 🤝 🤖
 
 A typescript library for connecting videos in your Mux account to multi-modal LLMs.
 
