@@ -1,6 +1,6 @@
 # @mux/ai    📼 🤝 🤖
 
-A set of tools for connecting videos in your Mux account to multi-modal LLMs.
+A typescript library for connecting videos in your Mux account to multi-modal LLMs.
 
 ## Available pre-built workflows
 
