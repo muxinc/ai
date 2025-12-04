@@ -6,10 +6,12 @@ import { z } from "zod";
 
 import env from "../env";
 import { createWorkflowClients } from "../lib/client-factory";
+import { getLanguageCodePair, getLanguageName } from "../lib/language-codes";
+import type { LanguageCodePair, SupportedISO639_1 } from "../lib/language-codes";
 import { getPlaybackIdForAsset } from "../lib/mux-assets";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers";
 import { resolveSigningContext, signUrl } from "../lib/url-signing";
-import type { MuxAIOptions } from "../types";
+import type { MuxAIOptions, TokenUsage } from "../types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -18,12 +20,26 @@ import type { MuxAIOptions } from "../types";
 /** Output returned from `translateCaptions`. */
 export interface TranslationResult {
   assetId: string;
-  sourceLanguageCode: string;
-  targetLanguageCode: string;
+  /** Source language code (ISO 639-1 two-letter format). */
+  sourceLanguageCode: SupportedISO639_1;
+  /** Target language code (ISO 639-1 two-letter format). */
+  targetLanguageCode: SupportedISO639_1;
+  /**
+   * Source language codes in both ISO 639-1 (2-letter) and ISO 639-3 (3-letter) formats.
+   * Use `iso639_1` for browser players (BCP-47 compliant) and `iso639_3` for APIs that require it.
+   */
+  sourceLanguage: LanguageCodePair;
+  /**
+   * Target language codes in both ISO 639-1 (2-letter) and ISO 639-3 (3-letter) formats.
+   * Use `iso639_1` for browser players (BCP-47 compliant) and `iso639_3` for APIs that require it.
+   */
+  targetLanguage: LanguageCodePair;
   originalVtt: string;
   translatedVtt: string;
   uploadedTrackId?: string;
   presignedUrl?: string;
+  /** Token usage from the AI provider (for efficiency/cost analysis). */
+  usage?: TokenUsage;
 }
 
 /** Configuration accepted by `translateCaptions`. */
@@ -144,10 +160,9 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     throw new Error(`Failed to fetch VTT content: ${error instanceof Error ? error.message : "Unknown error"}`);
   }
 
-  console.log(`✅ Found VTT content for language '${fromLanguageCode}'`);
-
   // Translate VTT content using configured provider via ai-sdk
   let translatedVtt: string;
+  let usage: TokenUsage | undefined;
 
   try {
     const response = await generateObject({
@@ -163,28 +178,36 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     });
 
     translatedVtt = response.object.translation;
+    usage = {
+      inputTokens: response.usage.inputTokens,
+      outputTokens: response.usage.outputTokens,
+      totalTokens: response.usage.totalTokens,
+      reasoningTokens: response.usage.reasoningTokens,
+      cachedInputTokens: response.usage.cachedInputTokens,
+    };
   } catch (error) {
     throw new Error(`Failed to translate VTT with ${resolvedProvider}: ${error instanceof Error ? error.message : "Unknown error"}`);
   }
 
-  console.log(`\n✅ Translation completed successfully!`);
+  // Resolve language code pairs for both source and target
+  const sourceLanguage = getLanguageCodePair(fromLanguageCode);
+  const targetLanguage = getLanguageCodePair(toLanguageCode);
 
   // If uploadToMux is false, just return the translation
   if (!uploadToMux) {
-    console.log(`✅ VTT translated to ${toLanguageCode} successfully!`);
-
     return {
       assetId,
-      sourceLanguageCode: fromLanguageCode,
-      targetLanguageCode: toLanguageCode,
+      sourceLanguageCode: fromLanguageCode as SupportedISO639_1,
+      targetLanguageCode: toLanguageCode as SupportedISO639_1,
+      sourceLanguage,
+      targetLanguage,
       originalVtt: vttContent,
       translatedVtt,
+      usage,
     };
   }
 
   // Upload translated VTT to S3-compatible storage
-  console.log("📤 Uploading translated VTT to S3-compatible storage...");
-
   const s3Client = new S3Client({
     region: s3Region,
     endpoint: s3Endpoint,
@@ -213,7 +236,6 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     });
 
     await upload.done();
-    console.log(`✅ VTT uploaded successfully to: ${vttKey}`);
 
     // Generate presigned URL (valid for 1 hour)
     const getObjectCommand = new GetObjectCommand({
@@ -224,19 +246,16 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     presignedUrl = await getSignedUrl(s3Client, getObjectCommand, {
       expiresIn: 3600, // 1 hour
     });
-
-    console.log(`🔗 Generated presigned URL (expires in 1 hour)`);
   } catch (error) {
     throw new Error(`Failed to upload VTT to S3: ${error instanceof Error ? error.message : "Unknown error"}`);
   }
 
   // Add translated track to Mux asset
-  console.log("📹 Adding translated track to Mux asset...");
 
   let uploadedTrackId: string | undefined;
 
   try {
-    const languageName = new Intl.DisplayNames(["en"], { type: "language" }).of(toLanguageCode) || toLanguageCode.toUpperCase();
+    const languageName = getLanguageName(toLanguageCode);
     const trackName = `${languageName} (auto-translated)`;
 
     const trackResponse = await clients.mux.video.assets.createTrack(assetId, {
@@ -248,21 +267,20 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     });
 
     uploadedTrackId = trackResponse.id;
-    console.log(`✅ Track added to Mux asset with ID: ${uploadedTrackId}`);
-    console.log(`📋 Track name: "${trackName}"`);
   } catch (error) {
-    console.warn(`⚠️ Failed to add track to Mux asset: ${error instanceof Error ? error.message : "Unknown error"}`);
-    console.log("🔗 You can manually add the track using this presigned URL:");
-    console.log(presignedUrl);
+    console.warn(`Failed to add track to Mux asset: ${error instanceof Error ? error.message : "Unknown error"}`);
   }
 
   return {
     assetId,
-    sourceLanguageCode: fromLanguageCode,
-    targetLanguageCode: toLanguageCode,
+    sourceLanguageCode: fromLanguageCode as SupportedISO639_1,
+    targetLanguageCode: toLanguageCode as SupportedISO639_1,
+    sourceLanguage,
+    targetLanguage,
     originalVtt: vttContent,
     translatedVtt,
     uploadedTrackId,
     presignedUrl,
+    usage,
   };
 }
