@@ -46,12 +46,13 @@ import "../../src/env";
  *
  * 1. LATENCY
  *    - Wall clock time from request to response
- *    - Target: <15s for acceptable UX, <7s for good UX
- *    - Enables comparison across providers for speed optimization
+ *    - Target: <5s for good UX, <12s for acceptable UX
+ *    - Benchmark: OpenAI ~1.5-2.7s, Anthropic ~3-5s, Google ~4-11s
  *
  * 2. TOKEN EFFICIENCY
  *    - Total tokens consumed per analysis
  *    - Target: <4000 tokens for efficient operation
+ *    - Benchmark: OpenAI ~1400-1800, Google ~1500-2200, Anthropic ~2600-3200
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * EXPENSE GOALS — "How much does it cost?"
@@ -65,7 +66,8 @@ import "../../src/env";
  * 2. COST ESTIMATION
  *    - Calculate estimated USD cost per request using THIRD_PARTY_MODEL_PRICING
  *    - Compare costs across providers for budget optimization
- *    - Target: <$0.005 per request for cost-effective operation
+ *    - Target: <$0.012 per request for acceptable operation
+ *    - Benchmark: Google ~$0.0003, OpenAI ~$0.0006, Anthropic ~$0.010
  *
  * Model Pricing Sources (verify periodically):
  *    - OpenAI: https://openai.com/api/pricing
@@ -95,17 +97,26 @@ import "../../src/env";
  */
 const CONFIDENCE_THRESHOLD = 0.8;
 
-/** Maximum acceptable latency in milliseconds for "good" performance. */
-const LATENCY_THRESHOLD_GOOD_MS = 7000;
+/**
+ * Maximum acceptable latency in milliseconds for "good" performance.
+ * Benchmark: OpenAI ~1.5-2.7s, Anthropic ~3-5s
+ */
+const LATENCY_THRESHOLD_GOOD_MS = 5000;
 
-/** Maximum acceptable latency in milliseconds for "acceptable" performance. */
-const LATENCY_THRESHOLD_ACCEPTABLE_MS = 20000;
+/**
+ * Maximum acceptable latency in milliseconds for "acceptable" performance.
+ * Benchmark: Google can reach ~11s
+ */
+const LATENCY_THRESHOLD_ACCEPTABLE_MS = 12000;
 
 /** Maximum total tokens considered efficient for this task. */
 const TOKEN_THRESHOLD_EFFICIENT = 4000;
 
-/** Maximum cost per request considered acceptable (USD). */
-const COST_THRESHOLD_USD = 0.005;
+/**
+ * Maximum cost per request considered acceptable (USD).
+ * Benchmark: Google ~$0.0003, OpenAI ~$0.0006, Anthropic ~$0.010
+ */
+const COST_THRESHOLD_USD = 0.012;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -278,10 +289,10 @@ evalite("Burned-in Captions", {
 
     // LATENCY: Wall clock time performance
     // Measures: Time from request initiation to response completion
-    // Score: 1.0 for <7s, linear decline to 0.5 at 15s, continues declining toward 0 beyond 15s
+    // Score: 1.0 for <5s, linear decline to 0.5 at 12s, continues declining toward 0 beyond 12s
     {
       name: "latency-performance",
-      description: `Scores latency: 1.0 for <${LATENCY_THRESHOLD_GOOD_MS}ms, scaled down to 0 for >${LATENCY_THRESHOLD_ACCEPTABLE_MS}ms.`,
+      description: `Scores latency: 1.0 for <5000ms, scaled down to 0 for >12000ms.`,
       scorer: ({ output }: { output: EvalOutput }) => {
         const { latencyMs } = output;
         if (latencyMs <= LATENCY_THRESHOLD_GOOD_MS)
@@ -333,7 +344,7 @@ evalite("Burned-in Captions", {
     // Score: 1.0 for under threshold, scaled down for over
     {
       name: "cost-within-budget",
-      description: `Scores cost efficiency: 1.0 for <$${COST_THRESHOLD_USD}, scaled down for higher costs.`,
+      description: `Scores cost efficiency: 1.0 for <$0.012, scaled down for higher costs.`,
       scorer: ({ output }: { output: EvalOutput }) => {
         const { estimatedCostUsd } = output;
         if (estimatedCostUsd <= COST_THRESHOLD_USD)

@@ -41,8 +41,8 @@ export interface ResolvedModel<P extends SupportedProvider = SupportedProvider> 
 }
 
 export const DEFAULT_LANGUAGE_MODELS: { [K in SupportedProvider]: ModelIdByProvider[K] } = {
-  openai: "gpt-5-mini",
-  anthropic: "claude-haiku-4-5",
+  openai: "gpt-5.1",
+  anthropic: "claude-sonnet-4-5",
   google: "gemini-2.5-flash",
 };
 
@@ -87,21 +87,21 @@ export interface ModelPricing {
  * Prices are subject to change. Verify against official sources before production use.
  */
 export const THIRD_PARTY_MODEL_PRICING: { [K in SupportedProvider]: ModelPricing } = {
-  // OpenAI GPT-5 Mini
+  // OpenAI GPT-5.1
   // Reference: https://openai.com/api/pricing
   openai: {
-    inputPerMillion: 0.25,
-    outputPerMillion: 2.00,
-    cachedInputPerMillion: 0.025,
+    inputPerMillion: 1.25,
+    outputPerMillion: 10.00,
+    cachedInputPerMillion: 0.125,
     pricingUrl: "https://openai.com/api/pricing",
   },
 
-  // Anthropic Claude Haiku 4.5
+  // Anthropic Claude Sonnet 4.5
   // Reference: https://www.anthropic.com/pricing
   anthropic: {
-    inputPerMillion: 1.00,
-    outputPerMillion: 5.00,
-    cachedInputPerMillion: 0.10, // Prompt caching read cost
+    inputPerMillion: 3.00,
+    outputPerMillion: 15.00,
+    cachedInputPerMillion: 0.30, // Prompt caching read cost (≤200K tokens)
     pricingUrl: "https://www.anthropic.com/pricing",
   },
 
