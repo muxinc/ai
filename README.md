@@ -1,6 +1,12 @@
 # @mux/ai 📼 🤝 🤖
 
-A typescript library for connecting videos in your Mux account to multi-modal LLMs.
+A typescript library for connecting videos in your Mux account to multi-modal LLMs. 
+
+`@mux/ai` contains two abstractions:
+
+**Workflows** are production-ready functions that handle common video<->LLM tasks. Each workflow orchestrates the entire process: fetching video data from Mux (transcripts, thumbnails, storyboards), formatting it for AI providers, and returning structured results. Use workflows when you need battle-tested solutions for tasks like summarization, content moderation, chapter generation, or translation.
+
+**Primitives** are the low-level building blocks that workflows are composed from. They provide direct access to Mux video data (transcripts, storyboards, thumbnails) and utilities for chunking and processing text. Use primitives when you need complete control over your AI prompts or want to build custom workflows not covered by the pre-built options.
 
 ## Available pre-built workflows
 
