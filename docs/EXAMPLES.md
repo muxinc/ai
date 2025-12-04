@@ -157,6 +157,8 @@ npm run translation-only <your-asset-id> en fr [provider]
 5. Adds new subtitle track to Mux asset
 6. Track name: "{Language} (auto-translated)"
 
+> **💡 Tip:** After translation completes, verify your new subtitle tracks at `https://player.mux.com/{PLAYBACK_ID}`
+
 ## Audio Dubbing Examples
 
 - **Basic Dubbing**: Create AI-dubbed audio and upload to Mux
@@ -180,6 +182,8 @@ npm run dubbing-only <your-asset-id> fr
 7. Generates presigned URL (1-hour expiry)
 8. Adds new audio track to Mux asset
 9. Track name: "{Language} (auto-dubbed)"
+
+> **💡 Tip:** After dubbing completes, listen to your new audio tracks at `https://player.mux.com/{PLAYBACK_ID}`
 
 ## Signed Playback Examples
 
