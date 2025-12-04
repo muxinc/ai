@@ -260,6 +260,8 @@ export async function translateAudio(
     formData.append("num_speakers", numSpeakers.toString());
     formData.append("name", `Mux Asset ${assetId} - auto to ${elevenLabsLangCode}`);
 
+    console.warn(`🔍 Creating dubbing job for asset ${assetId} with language code: ${elevenLabsLangCode}`);
+
     const dubbingResponse = await fetch("https://api.elevenlabs.io/v1/dubbing", {
       method: "POST",
       headers: {
@@ -286,6 +288,7 @@ export async function translateAudio(
   let dubbingStatus: string = "dubbing";
   let pollAttempts = 0;
   const maxPollAttempts = 180; // 30 minutes at 10s intervals
+  let targetLanguages: string[] = [];
 
   while (dubbingStatus === "dubbing" && pollAttempts < maxPollAttempts) {
     await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10 seconds
@@ -304,6 +307,7 @@ export async function translateAudio(
 
       const statusData = await statusResponse.json() as any;
       dubbingStatus = statusData.status;
+      targetLanguages = statusData.target_languages ?? [];
 
       if (dubbingStatus === "failed") {
         throw new Error("ElevenLabs dubbing job failed");
@@ -337,9 +341,30 @@ export async function translateAudio(
   let dubbedAudioBuffer: ArrayBuffer;
 
   try {
-    // Get dubbed audio using fetch (since the SDK method might not be available)
-    // ElevenLabs uses ISO 639-3 (3-letter) codes for audio retrieval
-    const elevenLabsLangCode = toISO639_3(toLanguageCode);
+    // Use the language code from the ElevenLabs status response
+    // ElevenLabs returns target_languages array with the exact codes available for download
+    const requestedLangCode = toISO639_3(toLanguageCode);
+
+    // Find the matching language code from ElevenLabs response
+    // First try exact match, then try case-insensitive match
+    let elevenLabsLangCode = targetLanguages.find(
+      lang => lang === requestedLangCode,
+    ) ?? targetLanguages.find(
+      lang => lang.toLowerCase() === requestedLangCode.toLowerCase(),
+    );
+
+    // Fallback to first available target language if no match found
+    if (!elevenLabsLangCode && targetLanguages.length > 0) {
+      elevenLabsLangCode = targetLanguages[0];
+      console.warn(`⚠️ Requested language "${requestedLangCode}" not found in target_languages. Using "${elevenLabsLangCode}" instead.`);
+    }
+
+    // If still no language code, fall back to the original behavior
+    if (!elevenLabsLangCode) {
+      elevenLabsLangCode = requestedLangCode;
+      console.warn(`⚠️ No target_languages available from ElevenLabs status. Using requested language code: ${requestedLangCode}`);
+    }
+
     const audioUrl = `https://api.elevenlabs.io/v1/dubbing/${dubbingId}/audio/${elevenLabsLangCode}`;
     const audioResponse = await fetch(audioUrl, {
       headers: {
