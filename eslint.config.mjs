@@ -4,6 +4,7 @@ export default antfu({
   type: "app",
   typescript: true,
   formatters: true,
+  ignores: ["docs/**", "examples/**", "README.md"],
   stylistic: {
     indent: 2,
     semi: true,
@@ -34,7 +35,7 @@ export default antfu({
     }],
     "unicorn/filename-case": ["error", {
       case: "kebabCase",
-      ignore: ["README.md"],
+      ignore: ["README.md", "^[A-Z]+\\.md$"],
     }],
     // Cuddled else: } else { on same line
     "style/brace-style": ["error", "1tbs"],
