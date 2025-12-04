@@ -1,4 +1,4 @@
-# @mux/ai
+# 📼 🤝 🤖 @mux/ai 
 
 A set of tools for connecting videos in your Mux account to multi-modal LLMs.
 
