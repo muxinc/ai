@@ -1,6 +1,77 @@
-# @mux/ai 📼 🤝 🤖
+# `@mux/ai` 📼 🤝 🤖
 
-A typescript library for connecting videos in your Mux account to multi-modal LLMs. 
+A server-side TypeScript SDK for connecting your [Mux](https://www.mux.com) videos to a variety of hosted AI models (multi-modal LLMs, text embedding models, etc.). `@mux/ai` does this by providing:
+- easy to use, production-ready, purpose-driven, cost effective, configurable **_workflow functions_** that integrate with a variety of popular AI/LLM providers (OpenAI, Anthropic, Google).
+  - **Examples:** `generateChapters`, `getModerationScores`, `translateAudio`, `generateVideoEmbeddings`, `getSummaryAndTags`
+- convenient, parameterized, commonly needed **_primitive functions_** backed by [Mux Video](https://www.mux.com/video-api) for building your own media-based AI workflows and integrations.
+  - **Examples:** `getStoryboardUrl`, `chunkVTTCues`, `fetchTranscriptForAsset`
+
+# Usage
+
+```ts
+import { translateCaptions } from "@mux/ai/workflows";
+
+const result = await translateCaptions(
+  "your-mux-asset-id",
+  "en", // from
+  "es", // to
+  { provider: "anthropic" }
+);
+
+console.log(result.uploadedTrackId); // New Mux track ID
+```
+
+# Quick Start
+
+## Prerequisites
+
+- [`node`]() (≥ 21.0.0)
+- A Mux account and necessary [credentials](#credentials---mux) for your environment (sign up [here](https://dashboard.mux.com/signup) for free!)
+- Accounts and [credentials](#credentials---ai-providers) for any AI providers you intend to use for your workflows
+- (For some workflows only) AWS S3 and [other credentials](#credentials---other)
+
+
+
+
+## Credentials
+### Credentials - Mux
+### Credentials - AI Providers
+### Credentials - Other
+
+
+(TERSER: "A Mux Account and Mux Credentials" (link to more verbose section farther down))
+
+### Mux Access
+- A Mux Account (sign up for free [here](https://dashboard.mux.com/signup)!)
+- A Mux [access token ID + secret](https://www.mux.com/docs/core/stream-video-files#1-get-an-api-access-token) with Read+Write Mux Video and Read Mux Data permissions for API access to your preferred environment (create a new access token [here](https://dashboard.mux.com/settings/access-tokens) if you're signed in to the [dashboard](https://dashboard.mux.com))
+
+### AI API Access
+- API keys and other environment setups
+
+
+
+e.g.
+- Credentials for whatever
+
+(NOTE: vercel ai-sdk providers)
+
+
+- document perms of token
+- (signed URLs for subset/specific GET-based mux assets if/when relevant)
+- node v21 (make sure to update engines and confirm github actions versions)
+- validate deno + bun (and document if they work)
+- .env
+
+
+
+
+
+
+
+
+
+
+
 
 `@mux/ai` contains two abstractions:
 
