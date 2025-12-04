@@ -4,15 +4,15 @@ A set of tools for connecting videos in your Mux account to multi-modal LLMs.
 
 ## Available pre-built workflows
 
-| Workflow                  | Description                                                     | Providers                 | Default Models                                                     |
-| ------------------------- | --------------------------------------------------------------- | ------------------------- | ------------------------------------------------------------------ |
-| [`getSummaryAndTags`](./docs/WORKFLOWS.md#video-summarization)       | Generate titles, descriptions, and tags from a Mux video asset  | OpenAI, Anthropic, Google | `gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash`              |
-| [`getModerationScores`](./docs/WORKFLOWS.md#content-moderation)     | Analyze video thumbnails for inappropriate content              | OpenAI, Hive              | `omni-moderation-latest` (OpenAI) or Hive visual moderation task   |
-| [`hasBurnedInCaptions`](./docs/WORKFLOWS.md#burned-in-caption-detection)     | Detect burned-in captions (hardcoded subtitles) in video frames | OpenAI, Anthropic, Google | `gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash`              |
-| [`generateChapters`](./docs/WORKFLOWS.md#chapter-generation)        | Generate AI-powered chapter markers from video captions         | OpenAI, Anthropic, Google | `gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash`              |
-| [`generateVideoEmbeddings`](./docs/WORKFLOWS.md#video-embeddings) | Generate vector embeddings for video transcript chunks          | OpenAI, Google            | `text-embedding-3-small` (OpenAI), `gemini-embedding-001` (Google) |
-| [`translateCaptions`](./docs/WORKFLOWS.md#caption-translation)       | Translate video captions to different languages                 | OpenAI, Anthropic, Google | `gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash`              |
-| [`translateAudio`](./docs/WORKFLOWS.md#audio-dubbing)          | Create AI-dubbed audio tracks in different languages            | ElevenLabs only           | ElevenLabs Dubbing API                                             |
+| Workflow                                                                 | Description                                                       | Providers                 | Default Models                                                     |
+| ------------------------------------------------------------------------ | ----------------------------------------------------------------- | ------------------------- | ------------------------------------------------------------------ |
+| [`getSummaryAndTags`](./docs/WORKFLOWS.md#video-summarization)           | Generate titles, descriptions, and tags for an asset              | OpenAI, Anthropic, Google | `gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash`              |
+| [`getModerationScores`](./docs/WORKFLOWS.md#content-moderation)          | Detect inappropriate (sexual or violent) content in an asset      | OpenAI, Hive              | `omni-moderation-latest` (OpenAI) or Hive visual moderation task   |
+| [`hasBurnedInCaptions`](./docs/WORKFLOWS.md#burned-in-caption-detection) | Detect burned-in captions (hardcoded subtitles) in an asset       | OpenAI, Anthropic, Google | `gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash`              |
+| [`generateChapters`](./docs/WORKFLOWS.md#chapter-generation)             | Generate chapter markers for an asset using the transcript        | OpenAI, Anthropic, Google | `gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash`              |
+| [`generateVideoEmbeddings`](./docs/WORKFLOWS.md#video-embeddings)        | Generate vector embeddings for an asset's transcript chunks       | OpenAI, Google            | `text-embedding-3-small` (OpenAI), `gemini-embedding-001` (Google) |
+| [`translateCaptions`](./docs/WORKFLOWS.md#caption-translation)           | Translate an asset's captions into different languages            | OpenAI, Anthropic, Google | `gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash`              |
+| [`translateAudio`](./docs/WORKFLOWS.md#audio-dubbing)                    | Create AI-dubbed audio tracks in different languages for an asset | ElevenLabs only           | ElevenLabs Dubbing API                                             |
 
 ## Features
 
@@ -134,14 +134,12 @@ This package ships with layered entry points:
 - **`@mux/ai`** – Main entry point that re-exports both namespaces plus shared types
 
 ```typescript
-// High-level workflows
-import { getSummaryAndTags } from "@mux/ai/workflows";
-
+// Or import everything
+import { primitives, workflows } from "@mux/ai";
 // Low-level primitives for custom workflows
 import { fetchTranscriptForAsset, getStoryboardUrl } from "@mux/ai/primitives";
-
-// Or import everything
-import { workflows, primitives } from "@mux/ai";
+// High-level workflows
+import { getSummaryAndTags } from "@mux/ai/workflows";
 ```
 
 Every workflow is composed from primitives, so you can start high-level and drop down to primitives when you need more control.

@@ -14,12 +14,12 @@ All workflows in `@mux/ai/workflows` are composed from these primitives.
 
 ```typescript
 import {
+  chunkByTokens,
+  chunkVTTCues,
   fetchTranscriptForAsset,
   getStoryboardUrl,
   getThumbnailUrls,
-  parseVTTCues,
-  chunkByTokens,
-  chunkVTTCues
+  parseVTTCues
 } from "@mux/ai/primitives";
 ```
 
@@ -31,6 +31,7 @@ Fetches and optionally cleans transcript text from a Mux asset.
 
 ```typescript
 import Mux from "@mux/mux-node";
+
 import { fetchTranscriptForAsset } from "@mux/ai/primitives";
 
 const mux = new Mux();
@@ -48,6 +49,7 @@ console.log(result.track); // Mux track metadata
 ```
 
 **Options:**
+
 - `languageCode?: string` - Language code (defaults to first available track)
 - `cleanTranscript?: boolean` - Remove VTT timestamps and formatting (default: true)
 - `signingContext?: SigningContext` - For signed playback policies
@@ -86,6 +88,7 @@ const cues = parseVTTCues(vttContent);
 ```
 
 **Returns:** `VTTCue[]`
+
 ```typescript
 interface VTTCue {
   startTime: number; // Seconds
@@ -120,6 +123,7 @@ const storyboardUrl = await getStoryboardUrl("playback-id", 640);
 ```
 
 **Parameters:**
+
 - `playbackId: string` - Mux playback ID
 - `width?: number` - Storyboard width in pixels (default: 640)
 - `signingContext?: SigningContext` - For signed playback policies
@@ -144,6 +148,7 @@ const thumbnails = await getThumbnailUrls("playback-id", 120, {
 ```
 
 **Options:**
+
 ```typescript
 interface ThumbnailOptions {
   interval?: number; // Seconds between thumbnails (default: 10)
@@ -153,6 +158,7 @@ interface ThumbnailOptions {
 ```
 
 **Behavior:**
+
 - Videos ≤50 seconds: Generates 5 evenly-spaced thumbnails
 - Videos >50 seconds: Uses specified interval
 
@@ -178,6 +184,7 @@ const chunks = chunkByTokens(transcript, 500, 100);
 ```
 
 **Parameters:**
+
 - `text: string` - Text to chunk
 - `maxTokens: number` - Maximum tokens per chunk
 - `overlapTokens?: number` - Overlap between chunks (default: 0)
@@ -189,7 +196,7 @@ const chunks = chunkByTokens(transcript, 500, 100);
 Chunks VTT cues while preserving timing information and cue boundaries.
 
 ```typescript
-import { parseVTTCues, chunkVTTCues } from "@mux/ai/primitives";
+import { chunkVTTCues, parseVTTCues } from "@mux/ai/primitives";
 
 const cues = parseVTTCues(vttContent);
 const chunks = chunkVTTCues(cues, 500, 2);
@@ -207,11 +214,13 @@ const chunks = chunkVTTCues(cues, 500, 2);
 ```
 
 **Parameters:**
+
 - `cues: VTTCue[]` - Parsed VTT cues
 - `maxTokens: number` - Maximum tokens per chunk
 - `overlapCues?: number` - Number of cues to overlap (default: 2)
 
 **Benefits over token-based chunking:**
+
 - Respects natural speech boundaries
 - Preserves accurate timestamps for each chunk
 - Better for video search and timestamped results
@@ -275,15 +284,16 @@ const signedUrl = await buildTranscriptUrl(
 Combine primitives to create custom AI workflows:
 
 ```typescript
+import { openai } from "@ai-sdk/openai";
 import Mux from "@mux/mux-node";
+import { generateText } from "ai";
+
 import {
+  chunkVTTCues,
   fetchTranscriptForAsset,
   getStoryboardUrl,
-  parseVTTCues,
-  chunkVTTCues
+  parseVTTCues
 } from "@mux/ai/primitives";
-import { openai } from "@ai-sdk/openai";
-import { generateText } from "ai";
 
 async function customVideoAnalysis(assetId: string) {
   const mux = new Mux();
@@ -351,10 +361,11 @@ export async function summarizeIfSafe(assetId: string) {
 Drop down to primitives when you need complete control over the AI prompt and logic:
 
 ```typescript
-import Mux from "@mux/mux-node";
-import { fetchTranscriptForAsset, getStoryboardUrl } from "@mux/ai/primitives";
 import { openai } from "@ai-sdk/openai";
+import Mux from "@mux/mux-node";
 import { generateText } from "ai";
+
+import { fetchTranscriptForAsset, getStoryboardUrl } from "@mux/ai/primitives";
 
 export async function customTranscriptAnalysis(assetId: string) {
   const mux = new Mux();
@@ -394,8 +405,9 @@ export async function customTranscriptAnalysis(assetId: string) {
 Primitives work with any AI SDK, not just Vercel AI SDK:
 
 ```typescript
-import { fetchTranscriptForAsset, getStoryboardUrl } from "@mux/ai/primitives";
 import OpenAI from "openai";
+
+import { fetchTranscriptForAsset, getStoryboardUrl } from "@mux/ai/primitives";
 
 const openai = new OpenAI();
 
@@ -430,10 +442,11 @@ async function analyzeWithOpenAISDK(assetId: string) {
 Build your own workflow functions following the library patterns:
 
 ```typescript
-import Mux from "@mux/mux-node";
-import { fetchTranscriptForAsset } from "@mux/ai/primitives";
 import { openai } from "@ai-sdk/openai";
+import Mux from "@mux/mux-node";
 import { generateText } from "ai";
+
+import { fetchTranscriptForAsset } from "@mux/ai/primitives";
 
 interface SentimentResult {
   assetId: string;

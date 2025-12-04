@@ -24,12 +24,14 @@ console.log(result.tags); // Array of relevant keywords
 Choose between two methods for submitting images to AI providers:
 
 **URL Mode (Default):**
+
 - Fast initial response
 - Lower bandwidth usage
 - Relies on AI provider's image downloading
 - May encounter timeouts with slow/unreliable image sources
 
 **Base64 Mode (Recommended for Production):**
+
 - Downloads images locally with robust retry logic
 - Eliminates AI provider timeout issues
 - Better control over slow TTFB and network issues
@@ -176,11 +178,13 @@ for (const chunk of result.chunks) {
 ### Chunking Strategies
 
 **Token-based Chunking:**
+
 - Splits transcript by token count
 - Simple overlap between chunks
 - Good for general semantic search
 
 **VTT-based Chunking:**
+
 - Respects caption cue boundaries
 - Overlap measured in cues
 - Better preserves natural speech breaks
@@ -225,6 +229,7 @@ console.log(result.translatedVtt); // Translated VTT content
 Caption translation requires S3-compatible storage to host VTT files for Mux ingestion.
 
 **Supported Providers:**
+
 - **AWS S3** - Amazon's object storage
 - **DigitalOcean Spaces** - S3-compatible with CDN
 - **Cloudflare R2** - Zero egress fees
