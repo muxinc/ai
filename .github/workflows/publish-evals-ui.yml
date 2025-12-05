@@ -3,6 +3,7 @@ name: Publish Evals UI
 on:
   push:
     branches: [main]
+  workflow_dispatch: # Allows manual triggering from any branch
 
 permissions:
   contents: read
