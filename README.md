@@ -208,7 +208,7 @@ GOOGLE_GENERATIVE_AI_API_KEY=your_google_api_key
 ELEVENLABS_API_KEY=your_elevenlabs_api_key
 ```
 
-### Hive (Optional)
+### Hive
 
 **Used by:** `getModerationScores` (alternative to OpenAI moderation)
 
@@ -257,12 +257,12 @@ S3_SECRET_ACCESS_KEY=your-r2-secret-key
 | Workflow                                                                 | Description                                                       | Providers                 | Default Models                                                     | Mux Asset Requirements | Cloud Infrastructure Requirements |
 | ------------------------------------------------------------------------ | ----------------------------------------------------------------- | ------------------------- | ------------------------------------------------------------------ | ---------------------- | --------------------------------- |
 | [`getSummaryAndTags`](./docs/WORKFLOWS.md#video-summarization)<br/>[API](./docs/API.md#getsummaryandtagsassetid-options) · [Source](./src/workflows/summarization.ts) | Generate titles, descriptions, and tags for an asset              | OpenAI, Anthropic, Google | `gpt-5-mini` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-2.5-flash` (Google) | Video (required), Captions (optional) | None |
-| [`getModerationScores`](./docs/WORKFLOWS.md#content-moderation)<br/>[API](./docs/API.md#getmoderationscoresassetid-options) · [Source](./src/workflows/moderation.ts) | Detect inappropriate (sexual or violent) content in an asset      | OpenAI, Hive              | `omni-moderation-latest` (OpenAI) or Hive visual moderation task   | Video (required) | Hive API (optional) |
+| [`getModerationScores`](./docs/WORKFLOWS.md#content-moderation)<br/>[API](./docs/API.md#getmoderationscoresassetid-options) · [Source](./src/workflows/moderation.ts) | Detect inappropriate (sexual or violent) content in an asset      | OpenAI, Hive              | `omni-moderation-latest` (OpenAI) or Hive visual moderation task   | Video (required) | None |
 | [`hasBurnedInCaptions`](./docs/WORKFLOWS.md#burned-in-caption-detection)<br/>[API](./docs/API.md#hasburnedincaptionsassetid-options) · [Source](./src/workflows/burned-in-captions.ts) | Detect burned-in captions (hardcoded subtitles) in an asset       | OpenAI, Anthropic, Google | `gpt-5-mini` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-2.5-flash` (Google) | Video (required) | None |
 | [`generateChapters`](./docs/WORKFLOWS.md#chapter-generation)<br/>[API](./docs/API.md#generatechaptersassetid-languagecode-options) · [Source](./src/workflows/chapters.ts) | Generate chapter markers for an asset using the transcript        | OpenAI, Anthropic, Google | `gpt-5-mini` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-2.5-flash` (Google) | Video (required), Captions (required) | None |
 | [`generateVideoEmbeddings`](./docs/WORKFLOWS.md#video-embeddings)<br/>[API](./docs/API.md#generatevideoembeddingsassetid-options) · [Source](./src/workflows/embeddings.ts) | Generate vector embeddings for an asset's transcript chunks       | OpenAI, Google            | `text-embedding-3-small` (OpenAI), `gemini-embedding-001` (Google) | Video (required), Captions (required) | None |
 | [`translateCaptions`](./docs/WORKFLOWS.md#caption-translation)<br/>[API](./docs/API.md#translatecaptionsassetid-fromlanguagecode-tolanguagecode-options) · [Source](./src/workflows/translate-captions.ts) | Translate an asset's captions into different languages            | OpenAI, Anthropic, Google | `gpt-5-mini` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-2.5-flash` (Google) | Video (required), Captions (required) | AWS S3 (if `uploadToMux=true`) |
-| [`translateAudio`](./docs/WORKFLOWS.md#audio-dubbing)<br/>[API](./docs/API.md#translateaudioassetid-tolanguagecode-options) · [Source](./src/workflows/translate-audio.ts) | Create AI-dubbed audio tracks in different languages for an asset | ElevenLabs only           | ElevenLabs Dubbing API                                             | Video (required), Audio (required) | AWS S3 (if `uploadToMux=true`), ElevenLabs API |
+| [`translateAudio`](./docs/WORKFLOWS.md#audio-dubbing)<br/>[API](./docs/API.md#translateaudioassetid-tolanguagecode-options) · [Source](./src/workflows/translate-audio.ts) | Create AI-dubbed audio tracks in different languages for an asset | ElevenLabs only           | ElevenLabs Dubbing API                                             | Video (required), Audio (required) | AWS S3 (if `uploadToMux=true`) |
 
 ## Example Workflows
 
