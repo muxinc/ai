@@ -141,13 +141,14 @@ npm run test:eval
 Example unit test:
 
 ```typescript
-import { describe, it, expect } from 'vitest';
-import { myFunction } from '../src/myFunction';
+import { describe, expect, it } from "vitest";
 
-describe('myFunction', () => {
-  it('should do something', () => {
-    const result = myFunction('input');
-    expect(result).toBe('expected output');
+import { myFunction } from "../src/myFunction";
+
+describe("myFunction", () => {
+  it("should do something", () => {
+    const result = myFunction("input");
+    expect(result).toBe("expected output");
   });
 });
 ```
