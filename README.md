@@ -85,6 +85,121 @@ const result = await translateCaptions(
 console.log(result.uploadedTrackId); // New Mux track ID
 ```
 
+# Workflows
+
+## Available pre-built workflows
+
+| Workflow                                                                 | Description                                                       | Providers                 | Default Models                                                     | Mux Asset Requirements | Cloud Infrastructure Requirements |
+| ------------------------------------------------------------------------ | ----------------------------------------------------------------- | ------------------------- | ------------------------------------------------------------------ | ---------------------- | --------------------------------- |
+| [`getSummaryAndTags`](./docs/WORKFLOWS.md#video-summarization)<br/>[API](./docs/API.md#getsummaryandtagsassetid-options) · [Source](./src/workflows/summarization.ts) | Generate titles, descriptions, and tags for an asset              | OpenAI, Anthropic, Google | `gpt-5-mini` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-2.5-flash` (Google) | Video (required), Captions (optional) | None |
+| [`getModerationScores`](./docs/WORKFLOWS.md#content-moderation)<br/>[API](./docs/API.md#getmoderationscoresassetid-options) · [Source](./src/workflows/moderation.ts) | Detect inappropriate (sexual or violent) content in an asset      | OpenAI, Hive              | `omni-moderation-latest` (OpenAI) or Hive visual moderation task   | Video (required) | None |
+| [`hasBurnedInCaptions`](./docs/WORKFLOWS.md#burned-in-caption-detection)<br/>[API](./docs/API.md#hasburnedincaptionsassetid-options) · [Source](./src/workflows/burned-in-captions.ts) | Detect burned-in captions (hardcoded subtitles) in an asset       | OpenAI, Anthropic, Google | `gpt-5-mini` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-2.5-flash` (Google) | Video (required) | None |
+| [`generateChapters`](./docs/WORKFLOWS.md#chapter-generation)<br/>[API](./docs/API.md#generatechaptersassetid-languagecode-options) · [Source](./src/workflows/chapters.ts) | Generate chapter markers for an asset using the transcript        | OpenAI, Anthropic, Google | `gpt-5-mini` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-2.5-flash` (Google) | Video (required), Captions (required) | None |
+| [`generateVideoEmbeddings`](./docs/WORKFLOWS.md#video-embeddings)<br/>[API](./docs/API.md#generatevideoembeddingsassetid-options) · [Source](./src/workflows/embeddings.ts) | Generate vector embeddings for an asset's transcript chunks       | OpenAI, Google            | `text-embedding-3-small` (OpenAI), `gemini-embedding-001` (Google) | Video (required), Captions (required) | None |
+| [`translateCaptions`](./docs/WORKFLOWS.md#caption-translation)<br/>[API](./docs/API.md#translatecaptionsassetid-fromlanguagecode-tolanguagecode-options) · [Source](./src/workflows/translate-captions.ts) | Translate an asset's captions into different languages            | OpenAI, Anthropic, Google | `gpt-5-mini` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-2.5-flash` (Google) | Video (required), Captions (required) | AWS S3 (if `uploadToMux=true`) |
+| [`translateAudio`](./docs/WORKFLOWS.md#audio-dubbing)<br/>[API](./docs/API.md#translateaudioassetid-tolanguagecode-options) · [Source](./src/workflows/translate-audio.ts) | Create AI-dubbed audio tracks in different languages for an asset | ElevenLabs only           | ElevenLabs Dubbing API                                             | Video (required), Audio (required) | AWS S3 (if `uploadToMux=true`) |
+
+## Example Workflows
+
+### Video Summarization
+
+Generate SEO-friendly titles, descriptions, and tags from your video content:
+
+```typescript
+import { getSummaryAndTags } from "@mux/ai/workflows";
+
+const result = await getSummaryAndTags("your-asset-id", {
+  provider: "openai",
+  tone: "professional",
+  includeTranscript: true
+});
+
+console.log(result.title);        // "Getting Started with TypeScript"
+console.log(result.description);  // "A comprehensive guide to..."
+console.log(result.tags);         // ["typescript", "tutorial", "programming"]
+```
+
+### Content Moderation
+
+Automatically detect inappropriate content in videos:
+
+```typescript
+import { getModerationScores } from "@mux/ai/workflows";
+
+const result = await getModerationScores("your-asset-id", {
+  provider: "openai",
+  thresholds: { sexual: 0.7, violence: 0.8 }
+});
+
+if (result.exceedsThreshold) {
+  console.log("Content flagged for review");
+  console.log(`Max scores: ${result.maxScores}`);
+}
+```
+
+### Chapter Generation
+
+Create automatic chapter markers for better video navigation:
+
+```typescript
+import { generateChapters } from "@mux/ai/workflows";
+
+const result = await generateChapters("your-asset-id", "en", {
+  provider: "anthropic"
+});
+
+// Use with Mux Player
+player.addChapters(result.chapters);
+// [
+//   { startTime: 0, title: "Introduction" },
+//   { startTime: 45, title: "Main Content" },
+//   { startTime: 120, title: "Conclusion" }
+// ]
+```
+
+### Video Search with Embeddings
+
+Generate embeddings for semantic video search:
+
+```typescript
+import { generateVideoEmbeddings } from "@mux/ai/workflows";
+
+const result = await generateVideoEmbeddings("your-asset-id", {
+  provider: "openai",
+  languageCode: "en",
+  chunkingStrategy: {
+    type: "token",
+    maxTokens: 500,
+    overlap: 100
+  }
+});
+
+// Store embeddings in your vector database
+for (const chunk of result.chunks) {
+  await vectorDB.insert({
+    embedding: chunk.embedding,
+    metadata: {
+      assetId: result.assetId,
+      startTime: chunk.metadata.startTime,
+      endTime: chunk.metadata.endTime
+    }
+  });
+}
+```
+
+# Key Features
+
+- **Cost-Effective by Default**: Uses affordable frontier models like `gpt-5-mini`, `claude-sonnet-4-5`, and `gemini-2.5-flash` to keep analysis costs low while maintaining high quality results
+- **Multi-modal Analysis**: Combines storyboard images with video transcripts for richer understanding
+- **Tone Control**: Choose between normal, sassy, or professional analysis styles for summarization
+- **Prompt Customization**: Override specific prompt sections to tune workflows to your exact use case
+- **Configurable Thresholds**: Set custom sensitivity levels for content moderation
+- **Full TypeScript Support**: Comprehensive types for excellent developer experience and IDE autocomplete
+- **Provider Flexibility**: Switch between OpenAI, Anthropic, Google, and other providers based on your needs
+- **Composable Building Blocks**: Use primitives to fetch transcripts, thumbnails, and storyboards for custom workflows
+- **Universal Language Support**: Automatic language name detection using `Intl.DisplayNames` for all ISO 639-1 codes
+- **Production Ready**: Built-in retry logic, error handling, and edge case management
+
 # Core Concepts
 
 `@mux/ai` is built around two complementary abstractions:
@@ -248,122 +363,6 @@ S3_BUCKET=your-bucket-name
 S3_ACCESS_KEY_ID=your-r2-access-key
 S3_SECRET_ACCESS_KEY=your-r2-secret-key
 ```
-
-
-# Workflows
-
-## Available pre-built workflows
-
-| Workflow                                                                 | Description                                                       | Providers                 | Default Models                                                     | Mux Asset Requirements | Cloud Infrastructure Requirements |
-| ------------------------------------------------------------------------ | ----------------------------------------------------------------- | ------------------------- | ------------------------------------------------------------------ | ---------------------- | --------------------------------- |
-| [`getSummaryAndTags`](./docs/WORKFLOWS.md#video-summarization)<br/>[API](./docs/API.md#getsummaryandtagsassetid-options) · [Source](./src/workflows/summarization.ts) | Generate titles, descriptions, and tags for an asset              | OpenAI, Anthropic, Google | `gpt-5-mini` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-2.5-flash` (Google) | Video (required), Captions (optional) | None |
-| [`getModerationScores`](./docs/WORKFLOWS.md#content-moderation)<br/>[API](./docs/API.md#getmoderationscoresassetid-options) · [Source](./src/workflows/moderation.ts) | Detect inappropriate (sexual or violent) content in an asset      | OpenAI, Hive              | `omni-moderation-latest` (OpenAI) or Hive visual moderation task   | Video (required) | None |
-| [`hasBurnedInCaptions`](./docs/WORKFLOWS.md#burned-in-caption-detection)<br/>[API](./docs/API.md#hasburnedincaptionsassetid-options) · [Source](./src/workflows/burned-in-captions.ts) | Detect burned-in captions (hardcoded subtitles) in an asset       | OpenAI, Anthropic, Google | `gpt-5-mini` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-2.5-flash` (Google) | Video (required) | None |
-| [`generateChapters`](./docs/WORKFLOWS.md#chapter-generation)<br/>[API](./docs/API.md#generatechaptersassetid-languagecode-options) · [Source](./src/workflows/chapters.ts) | Generate chapter markers for an asset using the transcript        | OpenAI, Anthropic, Google | `gpt-5-mini` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-2.5-flash` (Google) | Video (required), Captions (required) | None |
-| [`generateVideoEmbeddings`](./docs/WORKFLOWS.md#video-embeddings)<br/>[API](./docs/API.md#generatevideoembeddingsassetid-options) · [Source](./src/workflows/embeddings.ts) | Generate vector embeddings for an asset's transcript chunks       | OpenAI, Google            | `text-embedding-3-small` (OpenAI), `gemini-embedding-001` (Google) | Video (required), Captions (required) | None |
-| [`translateCaptions`](./docs/WORKFLOWS.md#caption-translation)<br/>[API](./docs/API.md#translatecaptionsassetid-fromlanguagecode-tolanguagecode-options) · [Source](./src/workflows/translate-captions.ts) | Translate an asset's captions into different languages            | OpenAI, Anthropic, Google | `gpt-5-mini` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-2.5-flash` (Google) | Video (required), Captions (required) | AWS S3 (if `uploadToMux=true`) |
-| [`translateAudio`](./docs/WORKFLOWS.md#audio-dubbing)<br/>[API](./docs/API.md#translateaudioassetid-tolanguagecode-options) · [Source](./src/workflows/translate-audio.ts) | Create AI-dubbed audio tracks in different languages for an asset | ElevenLabs only           | ElevenLabs Dubbing API                                             | Video (required), Audio (required) | AWS S3 (if `uploadToMux=true`) |
-
-## Example Workflows
-
-### Video Summarization
-
-Generate SEO-friendly titles, descriptions, and tags from your video content:
-
-```typescript
-import { getSummaryAndTags } from "@mux/ai/workflows";
-
-const result = await getSummaryAndTags("your-asset-id", {
-  provider: "openai",
-  tone: "professional",
-  includeTranscript: true
-});
-
-console.log(result.title);        // "Getting Started with TypeScript"
-console.log(result.description);  // "A comprehensive guide to..."
-console.log(result.tags);         // ["typescript", "tutorial", "programming"]
-```
-
-### Content Moderation
-
-Automatically detect inappropriate content in videos:
-
-```typescript
-import { getModerationScores } from "@mux/ai/workflows";
-
-const result = await getModerationScores("your-asset-id", {
-  provider: "openai",
-  thresholds: { sexual: 0.7, violence: 0.8 }
-});
-
-if (result.exceedsThreshold) {
-  console.log("Content flagged for review");
-  console.log(`Max scores: ${result.maxScores}`);
-}
-```
-
-### Chapter Generation
-
-Create automatic chapter markers for better video navigation:
-
-```typescript
-import { generateChapters } from "@mux/ai/workflows";
-
-const result = await generateChapters("your-asset-id", "en", {
-  provider: "anthropic"
-});
-
-// Use with Mux Player
-player.addChapters(result.chapters);
-// [
-//   { startTime: 0, title: "Introduction" },
-//   { startTime: 45, title: "Main Content" },
-//   { startTime: 120, title: "Conclusion" }
-// ]
-```
-
-### Video Search with Embeddings
-
-Generate embeddings for semantic video search:
-
-```typescript
-import { generateVideoEmbeddings } from "@mux/ai/workflows";
-
-const result = await generateVideoEmbeddings("your-asset-id", {
-  provider: "openai",
-  languageCode: "en",
-  chunkingStrategy: {
-    type: "token",
-    maxTokens: 500,
-    overlap: 100
-  }
-});
-
-// Store embeddings in your vector database
-for (const chunk of result.chunks) {
-  await vectorDB.insert({
-    embedding: chunk.embedding,
-    metadata: {
-      assetId: result.assetId,
-      startTime: chunk.metadata.startTime,
-      endTime: chunk.metadata.endTime
-    }
-  });
-}
-```
-
-# Key Features
-
-- **Cost-Effective by Default**: Uses affordable frontier models like `gpt-5-mini`, `claude-sonnet-4-5`, and `gemini-2.5-flash` to keep analysis costs low while maintaining high quality results
-- **Multi-modal Analysis**: Combines storyboard images with video transcripts for richer understanding
-- **Tone Control**: Choose between normal, sassy, or professional analysis styles for summarization
-- **Prompt Customization**: Override specific prompt sections to tune workflows to your exact use case
-- **Configurable Thresholds**: Set custom sensitivity levels for content moderation
-- **Full TypeScript Support**: Comprehensive types for excellent developer experience and IDE autocomplete
-- **Provider Flexibility**: Switch between OpenAI, Anthropic, Google, and other providers based on your needs
-- **Composable Building Blocks**: Use primitives to fetch transcripts, thumbnails, and storyboards for custom workflows
-- **Universal Language Support**: Automatic language name detection using `Intl.DisplayNames` for all ISO 639-1 codes
-- **Production Ready**: Built-in retry logic, error handling, and edge case management
 
 # Documentation
 
