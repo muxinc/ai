@@ -77,7 +77,7 @@ npx evalite run
 npx evalite export --output ./ui-export
 ```
 
-The [Evalite UI is published to GitHub Pages](https://muxinc.github.io/ai/) on every push to `main`, providing a persistent dashboard of eval results.
+The [Evalite UI is published to GitHub Pages](https://muxinc.github.io/ai/evals/) on every push to `main`, providing a persistent dashboard of eval results.
 
 ## Eval Structure
 

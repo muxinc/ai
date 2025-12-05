@@ -47,7 +47,7 @@ jobs:
         run: npx evalite run
 
       - name: Export UI
-        run: npx evalite export --output ./ui-export
+        run: npx evalite export --output ./ui-export/evals --basePath /ai/evals/
 
       - name: Upload static UI for Pages
         uses: actions/upload-pages-artifact@v3
