@@ -3,8 +3,6 @@ name: Publish Evals UI
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]  # Remove before merge
   workflow_dispatch: # Allows manual triggering from any branch
 
 permissions:
