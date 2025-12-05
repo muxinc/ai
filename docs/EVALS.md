@@ -37,7 +37,7 @@ Not all workflows can measure all 3 E's with equal precision from day one:
 
 - **Efficiency and Expense** are always measurable. Token counts, latency, and costs are objective metrics that can establish early signals for any workflow, even before efficacy scoring is fully developed.
 
-- **Foundational model workflows** (those relying exclusively on OpenAI, Anthropic, or Google) should target all 3 E's. These workflows have predictable inputs/outputs and can leverage semantic similarity scorers for efficacy measurement.
+- **Foundational model workflows** (those relying exclusively on OpenAI, Anthropic, or Google) should target all 3 E's. These workflows have predictable inputs/outputs and can leverage scorers like semantic similarity, faithfulness (useful for translations), and others for efficacy measurement.
 
 When adding a new workflow, start with Efficiency and Expense coverage immediately, then iterate on Efficacy as you build confidence in ground truth data.
 
