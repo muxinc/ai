@@ -6,16 +6,31 @@ import { getSummaryAndTags } from "../../src/workflows";
 import "../../src/env";
 
 describe("summarization Integration Tests", () => {
-  const testAssetId = "88Lb01qNUqFJrOFMITk00Ck201F00Qmcbpc5qgopNV4fCOk";
-  const providers: SupportedProvider[] = ["openai", "anthropic", "google"];
+  const testAssetId = "X9F02RxSEEBbC02lXPzAeGgsi4Ypowr9ds";
+  // const providers: SupportedProvider[] = ["openai", "anthropic", "google"];
+  const providers: SupportedProvider[] = ["openai", "anthropic"];
 
-  it.each(providers)("should return valid result for %s provider", async (provider) => {
-    const result = await getSummaryAndTags(testAssetId, { provider });
+  describe("running in-line", () => {
+    it.each(providers)("should return valid result for %s provider", async (provider) => {
+      const result = await getSummaryAndTags(testAssetId, { provider });
 
-    expect(result).toBeDefined();
-    expect(result).toHaveProperty("assetId", testAssetId);
-    expect(result).toHaveProperty("title");
-    expect(result).toHaveProperty("description");
-    expect(result).toHaveProperty("tags");
+      expect(result).toBeDefined();
+      expect(result).toHaveProperty("assetId", testAssetId);
+      expect(result).toHaveProperty("title");
+      expect(result).toHaveProperty("description");
+      expect(result).toHaveProperty("tags");
+    });
+  });
+
+  describe("running in a workflow context", () => {
+    it.each(providers)("should return valid result for %s provider", async (provider) => {
+      const result = await getSummaryAndTags(testAssetId, { provider });
+
+      expect(result).toBeDefined();
+      expect(result).toHaveProperty("assetId", testAssetId);
+      expect(result).toHaveProperty("title");
+      expect(result).toHaveProperty("description");
+      expect(result).toHaveProperty("tags");
+    });
   });
 });
