@@ -2,7 +2,8 @@ import { generateObject } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
-import { createWorkflowClients } from "../lib/client-factory";
+import { createWorkflowConfig, type WorkflowConfig } from "../lib/client-factory";
+import { createLanguageModelFromConfig } from "../lib/providers";
 import type { ImageDownloadOptions } from "../lib/image-download";
 import { downloadImageAsBase64 } from "../lib/image-download";
 import { getPlaybackIdForAsset } from "../lib/mux-assets";
@@ -15,7 +16,6 @@ import {
   createTranscriptSection,
 } from "../lib/prompt-builder";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers";
-import { withRetry } from "../lib/retry";
 import { resolveSigningContext } from "../lib/url-signing";
 import { getStoryboardUrl } from "../primitives/storyboards";
 import { fetchTranscriptForAsset } from "../primitives/transcripts";
@@ -240,8 +240,55 @@ function buildUserPrompt({
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
 
-const DEFAULT_PROVIDER = "openai";
-const DEFAULT_TONE = "normal";
+interface AnalysisResponse {
+  result: SummaryType;
+  usage: TokenUsage;
+}
+
+async function analyzeStoryboard(
+  imageDataUrl: string,
+  workflowConfig: WorkflowConfig,
+  userPrompt: string,
+  systemPrompt: string,
+): Promise<AnalysisResponse> {
+  "use step";
+  const model = createLanguageModelFromConfig(
+    workflowConfig.provider,
+    workflowConfig.modelId,
+    workflowConfig.credentials,
+  );
+
+  const response = await generateObject({
+    model,
+    schema: summarySchema,
+    messages: [
+      {
+        role: "system",
+        content: systemPrompt,
+      },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: userPrompt },
+          { type: "image", image: imageDataUrl },
+        ],
+      },
+    ],
+  });
+
+  console.log('debuggg', response.object);
+
+  return {
+    result: response.object,
+    usage: {
+      inputTokens: response.usage.inputTokens,
+      outputTokens: response.usage.outputTokens,
+      totalTokens: response.usage.totalTokens,
+      reasoningTokens: response.usage.reasoningTokens,
+      cachedInputTokens: response.usage.cachedInputTokens,
+    },
+  };
+}
 
 function normalizeKeywords(keywords?: string[]): string[] {
   if (!Array.isArray(keywords) || keywords.length === 0) {
@@ -277,10 +324,11 @@ export async function getSummaryAndTags(
   assetId: string,
   options?: SummarizationOptions,
 ): Promise<SummaryAndTagsResult> {
+  "use workflow";
   const {
-    provider = DEFAULT_PROVIDER,
+    provider = "openai",
     model,
-    tone = DEFAULT_TONE,
+    tone = "normal",
     includeTranscript = true,
     cleanTranscript = true,
     imageSubmissionMode = "url",
@@ -289,14 +337,14 @@ export async function getSummaryAndTags(
     promptOverrides,
   } = options ?? {};
 
-  // Initialize clients with validated credentials and resolved language model
-  const clients = createWorkflowClients(
+  // Validate credentials and resolve language model
+  const config = createWorkflowConfig(
     { ...options, model },
     provider as SupportedProvider,
   );
 
   // Fetch asset data from Mux and grab playback/transcript details
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(clients.mux, assetId);
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(config.credentials, assetId);
 
   // Resolve signing context for signed playback IDs
   const signingContext = resolveSigningContext(options ?? {});
@@ -323,55 +371,30 @@ export async function getSummaryAndTags(
     promptOverrides,
   });
 
+  console.log('debuggg getStoryboardUrl');
   // Analyze storyboard with AI provider (signed if needed)
   const imageUrl = await getStoryboardUrl(playbackId, 640, policy === "signed" ? signingContext : undefined);
-
-  interface AnalysisResponse {
-    result: SummaryType;
-    usage: TokenUsage;
-  }
-
-  const analyzeStoryboard = async (imageDataUrl: string): Promise<AnalysisResponse> => {
-    const response = await generateObject({
-      model: clients.languageModel.model,
-      schema: summarySchema,
-      abortSignal,
-      messages: [
-        {
-          role: "system",
-          content: SYSTEM_PROMPT,
-        },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: userPrompt },
-            { type: "image", image: imageDataUrl },
-          ],
-        },
-      ],
-    });
-
-    return {
-      result: response.object,
-      usage: {
-        inputTokens: response.usage.inputTokens,
-        outputTokens: response.usage.outputTokens,
-        totalTokens: response.usage.totalTokens,
-        reasoningTokens: response.usage.reasoningTokens,
-        cachedInputTokens: response.usage.cachedInputTokens,
-      },
-    };
-  };
 
   let analysisResponse: AnalysisResponse;
 
   try {
     if (imageSubmissionMode === "base64") {
       const downloadResult = await downloadImageAsBase64(imageUrl, imageDownloadOptions);
-      analysisResponse = await analyzeStoryboard(downloadResult.base64Data);
+      console.log("debug about to analyzeStoryboard");
+      analysisResponse = await analyzeStoryboard(
+        downloadResult.base64Data,
+        config,
+        userPrompt,
+        SYSTEM_PROMPT,
+      );
     } else {
       // URL-based submission with retry logic
-      analysisResponse = await withRetry(() => analyzeStoryboard(imageUrl));
+      console.log("debug about to analyzeStoryboard withRetry");
+      console.log("debug imageUrl type:", typeof imageUrl);
+      console.log("debug config:", JSON.stringify(config, null, 2));
+      console.log("debug userPrompt type:", typeof userPrompt);
+      console.log("debug SYSTEM_PROMPT type:", typeof SYSTEM_PROMPT);
+      analysisResponse = await analyzeStoryboard(imageUrl, config, userPrompt, SYSTEM_PROMPT);
     }
   } catch (error: unknown) {
     throw new Error(

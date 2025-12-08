@@ -1,5 +1,5 @@
 import env from "../env";
-import { createMuxClient, validateCredentials } from "../lib/client-factory";
+import { validateCredentials } from "../lib/client-factory";
 import type { ImageDownloadOptions } from "../lib/image-download";
 import { downloadImagesAsBase64 } from "../lib/image-download";
 import { getPlaybackIdForAsset } from "../lib/mux-assets";
@@ -82,8 +82,6 @@ const DEFAULT_THRESHOLDS = {
   violence: 0.8,
 };
 
-const DEFAULT_PROVIDER = "openai";
-
 const HIVE_ENDPOINT = "https://api.thehive.ai/api/v2/task/sync";
 const HIVE_SEXUAL_CATEGORIES = [
   "general_nsfw",
@@ -127,6 +125,7 @@ async function processConcurrently<T>(
   processor: (item: any) => Promise<T>,
   maxConcurrent: number = 5,
 ): Promise<T[]> {
+  "use step";
   const results: T[] = [];
 
   for (let i = 0; i < items.length; i += maxConcurrent) {
@@ -147,6 +146,7 @@ async function requestOpenAIModeration(
   submissionMode: "url" | "base64" = "url",
   downloadOptions?: ImageDownloadOptions,
 ): Promise<ThumbnailModerationScore[]> {
+  "use step";
   const targetUrls =
     submissionMode === "base64" ?
         (await downloadImagesAsBase64(imageUrls, downloadOptions, maxConcurrent)).map(
@@ -155,6 +155,7 @@ async function requestOpenAIModeration(
         imageUrls.map(url => ({ url, image: url }));
 
   const moderate = async (entry: { url: string; image: string }): Promise<ThumbnailModerationScore> => {
+    "use step";
     try {
       const res = await fetch("https://api.openai.com/v1/moderations", {
         method: "POST",
@@ -222,6 +223,7 @@ async function requestHiveModeration(
   submissionMode: "url" | "base64" = "url",
   downloadOptions?: ImageDownloadOptions,
 ): Promise<ThumbnailModerationScore[]> {
+  "use step";
   const targets: Array<{ url: string; source: HiveModerationSource }> =
     submissionMode === "base64" ?
         (await downloadImagesAsBase64(imageUrls, downloadOptions, maxConcurrent)).map(img => ({
@@ -238,6 +240,7 @@ async function requestHiveModeration(
         }));
 
   const moderate = async (entry: { url: string; source: HiveModerationSource }): Promise<ThumbnailModerationScore> => {
+    "use step";
     try {
       const formData = new FormData();
 
@@ -299,8 +302,9 @@ export async function getModerationScores(
   assetId: string,
   options: ModerationOptions = {},
 ): Promise<ModerationResult> {
+  "use workflow";
   const {
-    provider = DEFAULT_PROVIDER,
+    provider = "openai",
     model = provider === "openai" ? "omni-moderation-latest" : undefined,
     thresholds = DEFAULT_THRESHOLDS,
     thumbnailInterval = 10,
@@ -311,10 +315,9 @@ export async function getModerationScores(
   } = options;
 
   const credentials = validateCredentials(options, provider === "openai" ? "openai" : undefined);
-  const muxClient = createMuxClient(credentials);
 
   // Fetch asset data and playback ID from Mux via helper
-  const { asset, playbackId, policy } = await getPlaybackIdForAsset(muxClient, assetId);
+  const { asset, playbackId, policy } = await getPlaybackIdForAsset(credentials, assetId);
   const duration = asset.duration || 0;
 
   // Resolve signing context for signed playback IDs

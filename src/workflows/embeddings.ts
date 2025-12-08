@@ -1,9 +1,9 @@
 import { embed } from "ai";
 
-import { createMuxClient, validateCredentials } from "../lib/client-factory";
+import { validateCredentials, type ValidatedCredentials } from "../lib/client-factory";
 import { getPlaybackIdForAsset } from "../lib/mux-assets";
 import type { EmbeddingModelIdByProvider, SupportedEmbeddingProvider } from "../lib/providers";
-import { resolveEmbeddingModel } from "../lib/providers";
+import { createEmbeddingModelFromConfig, resolveEmbeddingModel } from "../lib/providers";
 import { withRetry } from "../lib/retry";
 import { resolveSigningContext } from "../lib/url-signing";
 import { chunkText, chunkVTTCues } from "../primitives/text-chunking";
@@ -38,7 +38,6 @@ export interface EmbeddingsOptions extends MuxAIOptions {
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
 
-const DEFAULT_PROVIDER = "openai";
 const DEFAULT_CHUNKING_STRATEGY: ChunkingStrategy = {
   type: "token",
   maxTokens: 500,
@@ -77,17 +76,23 @@ function averageEmbeddings(embeddings: number[][]): number[] {
  * Generates embeddings for chunks of a video transcript in batches.
  *
  * @param chunks - Text chunks to embed
- * @param model - AI model to use for embedding generation
+ * @param provider - Embedding provider name
+ * @param modelId - Model identifier
+ * @param credentials - API credentials
  * @param batchSize - Number of chunks to process concurrently
  * @param abortSignal - Optional abort signal
  * @returns Array of chunk embeddings
  */
 async function generateChunkEmbeddings(
   chunks: TextChunk[],
-  model: any,
+  provider: SupportedEmbeddingProvider,
+  modelId: string,
+  credentials: ValidatedCredentials,
   batchSize: number,
   abortSignal?: AbortSignal,
 ): Promise<ChunkEmbedding[]> {
+  "use step";
+  const model = createEmbeddingModelFromConfig(provider, modelId, credentials);
   const results: ChunkEmbedding[] = [];
 
   // Process chunks in batches
@@ -96,6 +101,7 @@ async function generateChunkEmbeddings(
 
     const batchResults = await Promise.all(
       batch.map(async (chunk) => {
+        "use step";
         const response = await withRetry(() =>
           embed({
             model,
@@ -157,8 +163,9 @@ export async function generateVideoEmbeddings(
   assetId: string,
   options: EmbeddingsOptions = {},
 ): Promise<VideoEmbeddingsResult> {
+  "use workflow";
   const {
-    provider = DEFAULT_PROVIDER,
+    provider = "openai",
     model,
     languageCode,
     chunkingStrategy = DEFAULT_CHUNKING_STRATEGY,
@@ -166,14 +173,13 @@ export async function generateVideoEmbeddings(
     abortSignal,
   } = options;
 
-  // Validate credentials and initialize Mux client
+  // Validate credentials
   const credentials = validateCredentials(options, provider === "google" ? "google" : "openai");
-  const muxClient = createMuxClient(credentials);
   const embeddingModel = resolveEmbeddingModel({ ...options, provider, model });
 
   // Fetch asset and playback ID
   const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(
-    muxClient,
+    credentials,
     assetId,
   );
 
@@ -226,7 +232,9 @@ export async function generateVideoEmbeddings(
   try {
     chunkEmbeddings = await generateChunkEmbeddings(
       chunks,
-      embeddingModel.model,
+      embeddingModel.provider,
+      embeddingModel.modelId as string,
+      credentials,
       batchSize,
       abortSignal,
     );

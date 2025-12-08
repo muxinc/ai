@@ -61,13 +61,11 @@ export async function downloadImageAsBase64(
   url: string,
   options: ImageDownloadOptions = {},
 ): Promise<ImageDownloadResult> {
+  "use step";
   const opts = { ...DEFAULT_OPTIONS, ...options };
-  let attemptCount = 0;
-
   return pRetry(
     async () => {
-      attemptCount++;
-
+      "use step";
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), opts.timeout);
 
@@ -110,7 +108,7 @@ export async function downloadImageAsBase64(
           url,
           contentType,
           sizeBytes: buffer.length,
-          attempts: attemptCount,
+          attempts: 1,
         };
       } catch (error) {
         clearTimeout(timeoutId);
@@ -160,6 +158,7 @@ export async function downloadImagesAsBase64(
   options: ImageDownloadOptions = {},
   maxConcurrent: number = 5,
 ): Promise<ImageDownloadResult[]> {
+  "use step";
   const results: ImageDownloadResult[] = [];
 
   for (let i = 0; i < urls.length; i += maxConcurrent) {
@@ -186,6 +185,7 @@ export async function uploadImageToAnthropicFiles(
   anthropicApiKey: string,
   options: ImageDownloadOptions = {},
 ): Promise<AnthropicFileUploadResult> {
+  "use step";
   // First download the image
   const downloadResult = await downloadImageAsBase64(url, options);
 

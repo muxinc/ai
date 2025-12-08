@@ -1,5 +1,3 @@
-import Mux from "@mux/mux-node";
-
 import env from "../env";
 
 import type {
@@ -75,41 +73,29 @@ export function validateCredentials(
 }
 
 /**
- * Creates a Mux client with validated credentials
+ * Validates credentials and resolves model configuration for a workflow.
+ * Returns only serializable data suitable for passing to workflow steps.
  */
-export function createMuxClient(credentials: ValidatedCredentials): Mux {
-  if (!credentials.muxTokenId || !credentials.muxTokenSecret) {
-    throw new Error("Mux credentials are required. Provide muxTokenId and muxTokenSecret in options or set MUX_TOKEN_ID and MUX_TOKEN_SECRET environment variables.");
-  }
-  return new Mux({
-    tokenId: credentials.muxTokenId,
-    tokenSecret: credentials.muxTokenSecret,
-  });
-}
-
-/**
- * Factory for creating all necessary clients for a workflow
- */
-export interface WorkflowClients {
-  mux: Mux;
-  languageModel: ResolvedModel;
+export interface WorkflowConfig {
   credentials: ValidatedCredentials;
+  provider: SupportedProvider;
+  modelId: string;
 }
 
-export function createWorkflowClients(
+export function createWorkflowConfig(
   options: ModelRequestOptions,
   provider?: SupportedProvider,
-): WorkflowClients {
+): WorkflowConfig {
   const providerToUse = provider || options.provider || "openai";
   const credentials = validateCredentials(options, providerToUse);
-  const languageModel = resolveLanguageModel({
+  const resolved = resolveLanguageModel({
     ...options,
     provider: providerToUse,
   });
 
   return {
-    mux: createMuxClient(credentials),
-    languageModel,
     credentials,
+    provider: resolved.provider,
+    modelId: resolved.modelId as string,
   };
 }

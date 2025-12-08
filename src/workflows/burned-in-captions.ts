@@ -2,7 +2,8 @@ import { generateObject } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
-import { createWorkflowClients } from "../lib/client-factory";
+import { createWorkflowConfig, type WorkflowConfig } from "../lib/client-factory";
+import { createLanguageModelFromConfig } from "../lib/providers";
 import type { ImageDownloadOptions } from "../lib/image-download";
 import { downloadImageAsBase64 } from "../lib/image-download";
 import { getPlaybackIdForAsset } from "../lib/mux-assets";
@@ -178,14 +179,13 @@ function buildUserPrompt(promptOverrides?: BurnedInCaptionsPromptOverrides): str
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
 
-const DEFAULT_PROVIDER = "openai";
-
 export async function hasBurnedInCaptions(
   assetId: string,
   options: BurnedInCaptionsOptions = {},
 ): Promise<BurnedInCaptionsResult> {
+  "use workflow";
   const {
-    provider = DEFAULT_PROVIDER,
+    provider = "openai",
     model,
     imageSubmissionMode = "url",
     imageDownloadOptions,
@@ -196,11 +196,11 @@ export async function hasBurnedInCaptions(
   // Build the user prompt with any overrides
   const userPrompt = buildUserPrompt(promptOverrides);
 
-  const clients = createWorkflowClients(
+  const workflowConfig = createWorkflowConfig(
     { ...config, model },
     provider as SupportedProvider,
   );
-  const { playbackId, policy } = await getPlaybackIdForAsset(clients.mux, assetId);
+  const { playbackId, policy } = await getPlaybackIdForAsset(workflowConfig.credentials, assetId);
 
   // Resolve signing context for signed playback IDs
   const signingContext = resolveSigningContext(options);
@@ -218,16 +218,29 @@ export async function hasBurnedInCaptions(
     usage: TokenUsage;
   }
 
-  const analyzeStoryboard = async (imageDataUrl: string): Promise<AnalysisResponse> => {
+  const analyzeStoryboard = async (
+    imageDataUrl: string,
+    config: WorkflowConfig,
+    userPrompt: string,
+    systemPrompt: string,
+    abortSignal?: AbortSignal,
+  ): Promise<AnalysisResponse> => {
+    "use step";
+    const model = createLanguageModelFromConfig(
+      config.provider,
+      config.modelId,
+      config.credentials,
+    );
+
     const response = await generateObject({
-      model: clients.languageModel.model,
+      model,
       schema: burnedInCaptionsSchema,
-      abortSignal: options.abortSignal,
+      abortSignal,
       experimental_telemetry: { isEnabled: true },
       messages: [
         {
           role: "system",
-          content: SYSTEM_PROMPT,
+          content: systemPrompt,
         },
         {
           role: "user",
@@ -255,9 +268,21 @@ export async function hasBurnedInCaptions(
 
   if (imageSubmissionMode === "base64") {
     const downloadResult = await downloadImageAsBase64(imageUrl, imageDownloadOptions);
-    analysisResponse = await analyzeStoryboard(downloadResult.base64Data);
+    analysisResponse = await analyzeStoryboard(
+      downloadResult.base64Data,
+      workflowConfig,
+      userPrompt,
+      SYSTEM_PROMPT,
+      options.abortSignal,
+    );
   } else {
-    analysisResponse = await analyzeStoryboard(imageUrl);
+    analysisResponse = await analyzeStoryboard(
+      imageUrl,
+      workflowConfig,
+      userPrompt,
+      SYSTEM_PROMPT,
+      options.abortSignal,
+    );
   }
 
   if (!analysisResponse.result) {

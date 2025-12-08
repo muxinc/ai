@@ -1,7 +1,8 @@
 import { generateObject } from "ai";
 import { z } from "zod";
 
-import { createWorkflowClients } from "../lib/client-factory";
+import { createWorkflowConfig, type WorkflowConfig } from "../lib/client-factory";
+import { createLanguageModelFromConfig } from "../lib/providers";
 import { getPlaybackIdForAsset } from "../lib/mux-assets";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers";
 import { withRetry } from "../lib/retry";
@@ -49,8 +50,6 @@ export interface ChaptersOptions extends MuxAIOptions {
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
 
-const DEFAULT_PROVIDER = "openai";
-
 const SYSTEM_PROMPT = `Your role is to segment the following captions into chunked chapters, summarising each chapter with a title.
 
 Analyze the transcript and create logical chapter breaks based on topic changes, major transitions, or distinct sections of content. Each chapter should represent a meaningful segment of the video.
@@ -77,13 +76,14 @@ export async function generateChapters(
   languageCode: string,
   options: ChaptersOptions = {},
 ): Promise<ChaptersResult> {
-  const { provider = DEFAULT_PROVIDER, model, abortSignal } = options;
+  "use workflow";
+  const { provider = "openai", model, abortSignal } = options;
 
-  // Initialize clients with validated credentials and resolved language model
-  const clients = createWorkflowClients({ ...options, model }, provider as SupportedProvider);
+  // Validate credentials and resolve language model
+  const config = createWorkflowConfig({ ...options, model }, provider as SupportedProvider);
 
   // Fetch asset and caption track/transcript
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(clients.mux, assetId);
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(config.credentials, assetId);
 
   // Resolve signing context for signed playback IDs
   const signingContext = resolveSigningContext(options);
@@ -116,18 +116,28 @@ export async function generateChapters(
   }
 
   // Generate chapters using AI SDK
-  let chaptersData: { chapters: Chapter[] } | null = null;
+  const generateChaptersStep = async (
+    workflowConfig: WorkflowConfig,
+    timestampedTranscript: string,
+    systemPrompt: string,
+    abortSignal?: AbortSignal,
+  ) => {
+    "use step";
+    const model = createLanguageModelFromConfig(
+      workflowConfig.provider,
+      workflowConfig.modelId,
+      workflowConfig.credentials,
+    );
 
-  try {
-    const response = await withRetry(() =>
+    return await withRetry(() =>
       generateObject({
-        model: clients.languageModel.model,
+        model,
         schema: chaptersSchema,
         abortSignal,
         messages: [
           {
             role: "system",
-            content: SYSTEM_PROMPT,
+            content: systemPrompt,
           },
           {
             role: "user",
@@ -135,6 +145,17 @@ export async function generateChapters(
           },
         ],
       }),
+    );
+  };
+
+  let chaptersData: { chapters: Chapter[] } | null = null;
+
+  try {
+    const response = await generateChaptersStep(
+      config,
+      timestampedTranscript,
+      SYSTEM_PROMPT,
+      abortSignal,
     );
 
     chaptersData = response.object;

@@ -1,6 +1,7 @@
-import type { MuxAsset, PlaybackAsset, PlaybackPolicy } from "../types";
+import Mux from "@mux/mux-node";
 
-import type Mux from "@mux/mux-node";
+import type { MuxAsset, PlaybackAsset, PlaybackPolicy } from "../types";
+import type { ValidatedCredentials } from "./client-factory";
 
 /**
  * Finds a usable playback ID for the given asset.
@@ -29,9 +30,15 @@ function getPlaybackId(asset: MuxAsset): { id: string; policy: PlaybackPolicy } 
 }
 
 export async function getPlaybackIdForAsset(
-  mux: Mux,
+  credentials: ValidatedCredentials,
   assetId: string,
 ): Promise<PlaybackAsset> {
+  "use step";
+  const mux = new Mux({
+    tokenId: credentials.muxTokenId,
+    tokenSecret: credentials.muxTokenSecret,
+  });
+
   const asset = await mux.video.assets.retrieve(assetId);
   const { id: playbackId, policy } = getPlaybackId(asset);
 

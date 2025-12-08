@@ -1,6 +1,6 @@
-import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { Upload } from "@aws-sdk/lib-storage";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+// import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
+// import { Upload } from "@aws-sdk/lib-storage";
+// import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import Mux from "@mux/mux-node";
 
 import env from "../env";
@@ -58,6 +58,7 @@ export interface AudioTranslationOptions extends MuxAIOptions {
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
 
+/*
 const STATIC_RENDITION_POLL_INTERVAL_MS = 5000;
 const STATIC_RENDITION_MAX_ATTEMPTS = 36; // ~3 minutes
 
@@ -152,6 +153,7 @@ export async function translateAudio(
   toLanguageCode: string,
   options: AudioTranslationOptions = {},
 ): Promise<AudioTranslationResult> {
+  "use workflow";
   // Uses the default audio track on your asset, language is auto-detected by ElevenLabs
   const {
     provider = "elevenlabs",
@@ -467,3 +469,4 @@ export async function translateAudio(
     presignedUrl,
   };
 }
+*/

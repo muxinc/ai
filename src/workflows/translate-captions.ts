@@ -1,6 +1,6 @@
-import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { Upload } from "@aws-sdk/lib-storage";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+// import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
+// import { Upload } from "@aws-sdk/lib-storage";
+// import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { generateObject } from "ai";
 import { z } from "zod";
 
@@ -77,14 +77,14 @@ export type TranslationPayload = z.infer<typeof translationSchema>;
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
 
-const DEFAULT_PROVIDER = "openai";
-
+/*
 export async function translateCaptions<P extends SupportedProvider = SupportedProvider>(
   assetId: string,
   fromLanguageCode: string,
   toLanguageCode: string,
   options: TranslationOptions<P>,
 ): Promise<TranslationResult> {
+  "use workflow";
   const {
     provider = DEFAULT_PROVIDER,
     model,
@@ -284,3 +284,4 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     usage,
   };
 }
+*/
