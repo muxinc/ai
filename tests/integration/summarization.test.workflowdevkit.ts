@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { start } from "workflow/api";
 
 import type { SupportedProvider } from "../../src/lib/providers";
 import { getSummaryAndTags } from "../../src/workflows";
@@ -10,7 +11,8 @@ describe("summarization Integration Tests", () => {
   const providers: SupportedProvider[] = ["openai", "anthropic", "google"];
 
   it.each(providers)("should return valid result for %s provider", async (provider) => {
-    const result = await getSummaryAndTags(testAssetId, { provider });
+    const run = await start(getSummaryAndTags, [testAssetId, { provider }]);
+    const result = await run.returnValue;
 
     expect(result).toBeDefined();
     expect(result).toHaveProperty("assetId", testAssetId);
