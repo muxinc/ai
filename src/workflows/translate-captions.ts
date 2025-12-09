@@ -1,16 +1,10 @@
 // import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 // import { Upload } from "@aws-sdk/lib-storage";
 // import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { generateObject } from "ai";
 import { z } from "zod";
 
-import env from "../env";
-import { createWorkflowClients } from "../lib/client-factory";
-import { getLanguageCodePair, getLanguageName } from "../lib/language-codes";
 import type { LanguageCodePair, SupportedISO639_1 } from "../lib/language-codes";
-import { getPlaybackIdForAsset } from "../lib/mux-assets";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers";
-import { resolveSigningContext, signUrl } from "../lib/url-signing";
 import type { MuxAIOptions, TokenUsage } from "../types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -120,7 +114,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(clients.mux, assetId);
 
   // Resolve signing context for signed playback IDs
-  const signingContext = resolveSigningContext(options);
+  const signingContext = await resolveSigningContext(options);
   if (policy === "signed" && !signingContext) {
     throw new Error(
       "Signed playback ID requires signing credentials. " +

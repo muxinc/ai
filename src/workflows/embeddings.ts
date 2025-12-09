@@ -1,6 +1,7 @@
 import { embed } from "ai";
 
-import { validateCredentials, type ValidatedCredentials } from "../lib/client-factory";
+import { validateCredentials } from "../lib/client-factory";
+import type { ValidatedCredentials } from "../lib/client-factory";
 import { getPlaybackIdForAsset } from "../lib/mux-assets";
 import type { EmbeddingModelIdByProvider, SupportedEmbeddingProvider } from "../lib/providers";
 import { createEmbeddingModelFromConfig, resolveEmbeddingModel } from "../lib/providers";
@@ -174,7 +175,7 @@ export async function generateVideoEmbeddings(
   } = options;
 
   // Validate credentials
-  const credentials = validateCredentials(options, provider === "google" ? "google" : "openai");
+  const credentials = await validateCredentials(options, provider === "google" ? "google" : "openai");
   const embeddingModel = resolveEmbeddingModel({ ...options, provider, model });
 
   // Fetch asset and playback ID
@@ -184,7 +185,7 @@ export async function generateVideoEmbeddings(
   );
 
   // Resolve signing context for signed playback IDs
-  const signingContext = resolveSigningContext(options);
+  const signingContext = await resolveSigningContext(options);
   if (policy === "signed" && !signingContext) {
     throw new Error(
       "Signed playback ID requires signing credentials. " +

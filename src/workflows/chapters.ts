@@ -1,9 +1,10 @@
 import { generateObject } from "ai";
 import { z } from "zod";
 
-import { createWorkflowConfig, type WorkflowConfig } from "../lib/client-factory";
-import { createLanguageModelFromConfig } from "../lib/providers";
+import { createWorkflowConfig } from "../lib/client-factory";
+import type { WorkflowConfig } from "../lib/client-factory";
 import { getPlaybackIdForAsset } from "../lib/mux-assets";
+import { createLanguageModelFromConfig } from "../lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers";
 import { withRetry } from "../lib/retry";
 import { resolveSigningContext } from "../lib/url-signing";
@@ -80,13 +81,13 @@ export async function generateChapters(
   const { provider = "openai", model, abortSignal } = options;
 
   // Validate credentials and resolve language model
-  const config = createWorkflowConfig({ ...options, model }, provider as SupportedProvider);
+  const config = await createWorkflowConfig({ ...options, model }, provider as SupportedProvider);
 
   // Fetch asset and caption track/transcript
   const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(config.credentials, assetId);
 
   // Resolve signing context for signed playback IDs
-  const signingContext = resolveSigningContext(options);
+  const signingContext = await resolveSigningContext(options);
   if (policy === "signed" && !signingContext) {
     throw new Error(
       "Signed playback ID requires signing credentials. " +

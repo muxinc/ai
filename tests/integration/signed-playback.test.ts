@@ -65,8 +65,8 @@ describe("signed Playback Integration Tests", () => {
       reloadEnv();
     });
 
-    it("should resolve signing context from config", () => {
-      const context = resolveSigningContext({
+    it("should resolve signing context from config", async () => {
+      const context = await resolveSigningContext({
         muxSigningKey: "test-key-id",
         muxPrivateKey: "test-private-key",
       });
@@ -76,9 +76,9 @@ describe("signed Playback Integration Tests", () => {
       expect(context?.keySecret).toBe("test-private-key");
     });
 
-    it.skipIf(!hasSigningCredentials)("should resolve signing context from environment variables", () => {
+    it.skipIf(!hasSigningCredentials)("should resolve signing context from environment variables", async () => {
       // Clear config values to test env var fallback
-      const context = resolveSigningContext({});
+      const context = await resolveSigningContext({});
 
       // This will use MUX_SIGNING_KEY and MUX_PRIVATE_KEY from env
       if (hasSigningCredentials) {

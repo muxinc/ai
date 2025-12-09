@@ -2,8 +2,8 @@ import { generateObject } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
-import { createWorkflowConfig, type WorkflowConfig } from "../lib/client-factory";
-import { createLanguageModelFromConfig } from "../lib/providers";
+import { createWorkflowConfig } from "../lib/client-factory";
+import type { WorkflowConfig } from "../lib/client-factory";
 import type { ImageDownloadOptions } from "../lib/image-download";
 import { downloadImageAsBase64 } from "../lib/image-download";
 import { getPlaybackIdForAsset } from "../lib/mux-assets";
@@ -15,6 +15,7 @@ import {
   createToneSection,
   createTranscriptSection,
 } from "../lib/prompt-builder";
+import { createLanguageModelFromConfig } from "../lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers";
 import { resolveSigningContext } from "../lib/url-signing";
 import { getStoryboardUrl } from "../primitives/storyboards";
@@ -276,7 +277,7 @@ async function analyzeStoryboard(
     ],
   });
 
-  console.log('debuggg', response.object);
+  console.log("debuggg", response.object);
 
   return {
     result: response.object,
@@ -338,7 +339,7 @@ export async function getSummaryAndTags(
   } = options ?? {};
 
   // Validate credentials and resolve language model
-  const config = createWorkflowConfig(
+  const config = await createWorkflowConfig(
     { ...options, model },
     provider as SupportedProvider,
   );
@@ -347,7 +348,7 @@ export async function getSummaryAndTags(
   const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(config.credentials, assetId);
 
   // Resolve signing context for signed playback IDs
-  const signingContext = resolveSigningContext(options ?? {});
+  const signingContext = await resolveSigningContext(options ?? {});
   if (policy === "signed" && !signingContext) {
     throw new Error(
       "Signed playback ID requires signing credentials. " +
@@ -371,7 +372,7 @@ export async function getSummaryAndTags(
     promptOverrides,
   });
 
-  console.log('debuggg getStoryboardUrl');
+  console.log("debuggg getStoryboardUrl");
   // Analyze storyboard with AI provider (signed if needed)
   const imageUrl = await getStoryboardUrl(playbackId, 640, policy === "signed" ? signingContext : undefined);
 

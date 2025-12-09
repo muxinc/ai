@@ -2,13 +2,14 @@ import { generateObject } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
-import { createWorkflowConfig, type WorkflowConfig } from "../lib/client-factory";
-import { createLanguageModelFromConfig } from "../lib/providers";
+import { createWorkflowConfig } from "../lib/client-factory";
+import type { WorkflowConfig } from "../lib/client-factory";
 import type { ImageDownloadOptions } from "../lib/image-download";
 import { downloadImageAsBase64 } from "../lib/image-download";
 import { getPlaybackIdForAsset } from "../lib/mux-assets";
 import type { PromptOverrides } from "../lib/prompt-builder";
 import { createPromptBuilder } from "../lib/prompt-builder";
+import { createLanguageModelFromConfig } from "../lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers";
 import { resolveSigningContext } from "../lib/url-signing";
 import { getStoryboardUrl } from "../primitives/storyboards";
@@ -196,14 +197,14 @@ export async function hasBurnedInCaptions(
   // Build the user prompt with any overrides
   const userPrompt = buildUserPrompt(promptOverrides);
 
-  const workflowConfig = createWorkflowConfig(
+  const workflowConfig = await createWorkflowConfig(
     { ...config, model },
     provider as SupportedProvider,
   );
   const { playbackId, policy } = await getPlaybackIdForAsset(workflowConfig.credentials, assetId);
 
   // Resolve signing context for signed playback IDs
-  const signingContext = resolveSigningContext(options);
+  const signingContext = await resolveSigningContext(options);
   if (policy === "signed" && !signingContext) {
     throw new Error(
       "Signed playback ID requires signing credentials. " +

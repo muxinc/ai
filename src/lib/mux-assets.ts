@@ -1,6 +1,7 @@
 import Mux from "@mux/mux-node";
 
 import type { MuxAsset, PlaybackAsset, PlaybackPolicy } from "../types";
+
 import type { ValidatedCredentials } from "./client-factory";
 
 /**

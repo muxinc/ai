@@ -314,14 +314,14 @@ export async function getModerationScores(
     imageDownloadOptions,
   } = options;
 
-  const credentials = validateCredentials(options, provider === "openai" ? "openai" : undefined);
+  const credentials = await validateCredentials(options, provider === "openai" ? "openai" : undefined);
 
   // Fetch asset data and playback ID from Mux via helper
   const { asset, playbackId, policy } = await getPlaybackIdForAsset(credentials, assetId);
   const duration = asset.duration || 0;
 
   // Resolve signing context for signed playback IDs
-  const signingContext = resolveSigningContext(options);
+  const signingContext = await resolveSigningContext(options);
   if (policy === "signed" && !signingContext) {
     throw new Error(
       "Signed playback ID requires signing credentials. " +

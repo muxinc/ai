@@ -1,13 +1,8 @@
 // import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 // import { Upload } from "@aws-sdk/lib-storage";
 // import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import Mux from "@mux/mux-node";
 
-import env from "../env";
-import { getLanguageCodePair, toISO639_1, toISO639_3 } from "../lib/language-codes";
 import type { LanguageCodePair, SupportedISO639_1 } from "../lib/language-codes";
-import { getPlaybackIdForAsset } from "../lib/mux-assets";
-import { resolveSigningContext, signUrl } from "../lib/url-signing";
 import type { MuxAIOptions } from "../types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -202,7 +197,7 @@ export async function translateAudio(
   const { asset: initialAsset, playbackId, policy } = await getPlaybackIdForAsset(mux, assetId);
 
   // Resolve signing context for signed playback IDs
-  const signingContext = resolveSigningContext(options);
+  const signingContext = await resolveSigningContext(options);
   if (policy === "signed" && !signingContext) {
     throw new Error(
       "Signed playback ID requires signing credentials. " +

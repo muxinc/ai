@@ -2,7 +2,6 @@ import env from "../env";
 
 import type {
   ModelRequestOptions,
-  ResolvedModel,
   SupportedProvider,
 } from "./providers";
 import {
@@ -28,10 +27,11 @@ export interface ValidatedCredentials {
 /**
  * Validates and retrieves credentials from options or environment variables
  */
-export function validateCredentials(
+export async function validateCredentials(
   options: ClientCredentials,
   requiredProvider?: SupportedProvider,
-): ValidatedCredentials {
+): Promise<ValidatedCredentials> {
+  "use step";
   const muxTokenId = options.muxTokenId ?? env.MUX_TOKEN_ID;
   const muxTokenSecret = options.muxTokenSecret ?? env.MUX_TOKEN_SECRET;
   const openaiApiKey = options.openaiApiKey ?? env.OPENAI_API_KEY;
@@ -82,12 +82,13 @@ export interface WorkflowConfig {
   modelId: string;
 }
 
-export function createWorkflowConfig(
+export async function createWorkflowConfig(
   options: ModelRequestOptions,
   provider?: SupportedProvider,
-): WorkflowConfig {
+): Promise<WorkflowConfig> {
+  "use step";
   const providerToUse = provider || options.provider || "openai";
-  const credentials = validateCredentials(options, providerToUse);
+  const credentials = await validateCredentials(options, providerToUse);
   const resolved = resolveLanguageModel({
     ...options,
     provider: providerToUse,

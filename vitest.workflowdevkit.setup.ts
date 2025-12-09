@@ -1,15 +1,18 @@
-import { spawn } from 'child_process';
-import type { ChildProcess } from 'child_process';
-import { setTimeout } from 'timers/promises';
+import { spawn } from "node:child_process";
+import { setTimeout } from "node:timers/promises";
+
+import type { ChildProcess } from "node:child_process";
 
 let nitroServer: ChildProcess | null = null;
 
+const PORT = "4000";
+
 export async function setup() {
-  console.log('Starting Nitro server for workflow execution...');
+  console.log("Starting Nitro server for workflow execution...");
 
   // Start nitro dev server
-  nitroServer = spawn('npx', ['nitro', 'dev', '--port', '3000'], {
-    stdio: 'pipe',
+  nitroServer = spawn("npx", ["nitro", "dev", "--port", PORT], {
+    stdio: "pipe",
     detached: false,
     cwd: process.cwd(),
   });
@@ -17,21 +20,21 @@ export async function setup() {
   let serverReady = false;
 
   // Listen for server output
-  nitroServer.stdout?.on('data', (data) => {
+  nitroServer.stdout?.on("data", (data) => {
     const output = data.toString();
-    console.log('[nitro]', output);
+    console.log("[nitro]", output);
 
-    if (output.includes('listening') || output.includes('ready') || output.includes('Nitro')) {
+    if (output.includes("listening") || output.includes("ready") || output.includes("Nitro")) {
       serverReady = true;
     }
   });
 
-  nitroServer.stderr?.on('data', (data) => {
-    console.error('[nitro]', data.toString());
+  nitroServer.stderr?.on("data", (data) => {
+    console.error("[nitro]", data.toString());
   });
 
-  nitroServer.on('error', (error) => {
-    console.error('Failed to start Nitro server:', error);
+  nitroServer.on("error", (error) => {
+    console.error("Failed to start Nitro server:", error);
   });
 
   // Wait for server to be ready (or timeout after 15 seconds)
@@ -43,26 +46,25 @@ export async function setup() {
   // Give it an extra moment to fully initialize
   await setTimeout(2000);
 
-  console.log('Nitro server started and ready for workflow execution');
+  console.log("Nitro server started and ready for workflow execution");
 
   // Set the base URL for local workflow execution
-  process.env.WORKFLOW_LOCAL_BASE_URL = 'http://localhost:3000';
+  process.env.WORKFLOW_LOCAL_BASE_URL = `http://localhost:${PORT}`;
 }
 
 export async function teardown() {
   if (nitroServer) {
-    console.log('Stopping Nitro server...');
-    nitroServer.kill('SIGTERM');
+    console.log("Stopping Nitro server...");
+    nitroServer.kill("SIGTERM");
 
     // Give it a moment to shut down gracefully
     await setTimeout(1000);
 
     // Force kill if still running
     if (!nitroServer.killed) {
-      nitroServer.kill('SIGKILL');
+      nitroServer.kill("SIGKILL");
     }
 
     nitroServer = null;
   }
 }
-

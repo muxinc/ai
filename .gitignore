@@ -79,3 +79,4 @@ tmp/
 temp/
 
 .swc/
+.workflow-data/
