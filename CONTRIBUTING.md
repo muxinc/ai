@@ -135,7 +135,7 @@ npm run test:eval
 ### Writing Tests
 
 - **Unit tests** go in `tests/unit/` and should test individual functions in isolation
-- **Integration tests** go in `tests/integration/` and test full workflows with real API calls
+- **Integration tests** go in `tests/integration/` and test full workflows with real API calls to both Mux and LLM providers
 - **Evaluation tests** go in `tests/eval/` and use [Evalite](https://evalite.dev/) to test LLM outputs
 
 Example unit test:
@@ -186,9 +186,8 @@ npm run typecheck
 
 Git hooks are automatically set up via [Husky](https://typicode.github.io/husky/) when you run `npm install`. These hooks will:
 
-- Run linting on staged files
-- Run type checking
-- Ensure tests pass before commits
+- Run linting on staged TS(X)/JS(X) files
+- Run TypeScript type checking
 
 ### Code Style Guidelines
 
@@ -207,7 +206,9 @@ Use descriptive branch names:
 
 ```
 feature/add-new-workflow
+philcluff/fix-for-blah-blah
 fix/resolve-moderation-bug
+pc/readme-organization-cleanup
 docs/update-readme
 chore/upgrade-dependencies
 ```
@@ -261,7 +262,7 @@ When reporting bugs, please include:
 
 ### Feature Requests
 
-For feature requests, please describe:
+If you're proposing a primitive or a workflow or making any other feature requests, please describe:
 
 - **Use case**: What problem would this solve?
 - **Proposed solution**: How should it work?
@@ -270,11 +271,7 @@ For feature requests, please describe:
 
 ### Security Issues
 
-For security vulnerabilities, please **do not** open a public issue. Instead:
-
-- Email security@mux.com with details
-- We'll work with you to address the issue
-- We'll credit you in release notes (if desired)
+For security vulnerabilities, please **do not** open a public issue. Instead, submit a vulnariability report [here](https://www.mux.com/security).
 
 ## Development Workflow
 
