@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { setTimeout } from "node:timers/promises";
+import { setTimeout as delay } from "node:timers/promises";
 
 import type { ChildProcess } from "node:child_process";
 
@@ -8,6 +8,7 @@ let nitroServer: ChildProcess | null = null;
 const PORT = "4000";
 
 export async function setup() {
+  // eslint-disable-next-line no-console
   console.log("Starting Nitro server for workflow execution...");
 
   // Start nitro dev server
@@ -17,48 +18,54 @@ export async function setup() {
     cwd: process.cwd(),
   });
 
-  let serverReady = false;
+  // Use a promise to wait for server readiness
+  const serverReadyPromise = new Promise<boolean>((resolve) => {
+    const timeout = setTimeout(() => resolve(false), 15000);
 
-  // Listen for server output
-  nitroServer.stdout?.on("data", (data) => {
-    const output = data.toString();
-    console.log("[nitro]", output);
+    // Listen for server output
+    nitroServer?.stdout?.on("data", (data) => {
+      const output = data.toString();
+      // eslint-disable-next-line no-console
+      console.log("[nitro]", output);
 
-    if (output.includes("listening") || output.includes("ready") || output.includes("Nitro")) {
-      serverReady = true;
-    }
+      if (output.includes("listening") || output.includes("ready") || output.includes("Nitro")) {
+        clearTimeout(timeout);
+        resolve(true);
+      }
+    });
+
+    nitroServer?.stderr?.on("data", (data) => {
+      console.error("[nitro]", data.toString());
+    });
+
+    nitroServer?.on("error", (error) => {
+      console.error("Failed to start Nitro server:", error);
+      clearTimeout(timeout);
+      resolve(false);
+    });
   });
 
-  nitroServer.stderr?.on("data", (data) => {
-    console.error("[nitro]", data.toString());
-  });
-
-  nitroServer.on("error", (error) => {
-    console.error("Failed to start Nitro server:", error);
-  });
-
-  // Wait for server to be ready (or timeout after 15 seconds)
-  const startTime = Date.now();
-  while (!serverReady && Date.now() - startTime < 15000) {
-    await setTimeout(500);
-  }
+  await serverReadyPromise;
 
   // Give it an extra moment to fully initialize
-  await setTimeout(2000);
+  await delay(2000);
 
+  // eslint-disable-next-line no-console
   console.log("Nitro server started and ready for workflow execution");
 
   // Set the base URL for local workflow execution
+  // eslint-disable-next-line node/no-process-env
   process.env.WORKFLOW_LOCAL_BASE_URL = `http://localhost:${PORT}`;
 }
 
 export async function teardown() {
   if (nitroServer) {
+    // eslint-disable-next-line no-console
     console.log("Stopping Nitro server...");
     nitroServer.kill("SIGTERM");
 
     // Give it a moment to shut down gracefully
-    await setTimeout(1000);
+    await delay(1000);
 
     // Force kill if still running
     if (!nitroServer.killed) {
