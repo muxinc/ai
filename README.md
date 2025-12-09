@@ -205,7 +205,7 @@ for (const chunk of result.chunks) {
 
 ## Workflows
 
-**Workflows** are production-ready functions that handle complete video AI tasks end-to-end. Each workflow orchestrates the entire process: fetching video data from Mux (transcripts, thumbnails, storyboards), formatting it for AI providers, and returning structured results.
+**Workflows** are functions that handle complete video AI tasks end-to-end. Each workflow orchestrates the entire process: fetching video data from Mux (transcripts, thumbnails, storyboards), formatting it for AI providers, and returning structured results.
 
 ```typescript
 import { getSummaryAndTags } from "@mux/ai/workflows";
