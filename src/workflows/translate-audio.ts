@@ -1,8 +1,14 @@
-// import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
-// import { Upload } from "@aws-sdk/lib-storage";
-// import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { Upload } from "@aws-sdk/lib-storage";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import Mux from "@mux/mux-node";
 
+import env from "../env";
+import { validateCredentials } from "../lib/client-factory";
+import { getLanguageCodePair, toISO639_1, toISO639_3 } from "../lib/language-codes";
 import type { LanguageCodePair, SupportedISO639_1 } from "../lib/language-codes";
+import { getPlaybackIdForAsset } from "../lib/mux-assets";
+import { resolveSigningContext, signUrl } from "../lib/url-signing";
 import type { MuxAIOptions } from "../types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -53,7 +59,6 @@ export interface AudioTranslationOptions extends MuxAIOptions {
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
 
-/*
 const STATIC_RENDITION_POLL_INTERVAL_MS = 5000;
 const STATIC_RENDITION_MAX_ATTEMPTS = 36; // ~3 minutes
 
@@ -153,8 +158,6 @@ export async function translateAudio(
   const {
     provider = "elevenlabs",
     numSpeakers = 0, // 0 = auto-detect
-    muxTokenId,
-    muxTokenSecret,
     elevenLabsApiKey,
     uploadToMux = true,
   } = options;
@@ -163,9 +166,9 @@ export async function translateAudio(
     throw new Error("Only ElevenLabs provider is currently supported for audio translation");
   }
 
-  // Validate required credentials
-  const muxId = muxTokenId ?? env.MUX_TOKEN_ID;
-  const muxSecret = muxTokenSecret ?? env.MUX_TOKEN_SECRET;
+  // Validate Mux credentials
+  const credentials = await validateCredentials(options);
+
   const elevenLabsKey = elevenLabsApiKey ?? env.ELEVENLABS_API_KEY;
 
   // S3 configuration
@@ -175,10 +178,6 @@ export async function translateAudio(
   const s3AccessKeyId = options.s3AccessKeyId ?? env.S3_ACCESS_KEY_ID;
   const s3SecretAccessKey = options.s3SecretAccessKey ?? env.S3_SECRET_ACCESS_KEY;
 
-  if (!muxId || !muxSecret) {
-    throw new Error("Mux credentials are required. Provide muxTokenId and muxTokenSecret in options or set MUX_TOKEN_ID and MUX_TOKEN_SECRET environment variables.");
-  }
-
   if (!elevenLabsKey) {
     throw new Error("ElevenLabs API key is required. Provide elevenLabsApiKey in options or set ELEVENLABS_API_KEY environment variable.");
   }
@@ -187,14 +186,14 @@ export async function translateAudio(
     throw new Error("S3 configuration is required for uploading to Mux. Provide s3Endpoint, s3Bucket, s3AccessKeyId, and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.");
   }
 
-  // Initialize clients
+  // Initialize Mux client
   const mux = new Mux({
-    tokenId: muxId,
-    tokenSecret: muxSecret,
+    tokenId: credentials.muxTokenId,
+    tokenSecret: credentials.muxTokenSecret,
   });
 
   // Fetch asset data and playback ID from Mux
-  const { asset: initialAsset, playbackId, policy } = await getPlaybackIdForAsset(mux, assetId);
+  const { asset: initialAsset, playbackId, policy } = await getPlaybackIdForAsset(credentials, assetId);
 
   // Resolve signing context for signed playback IDs
   const signingContext = await resolveSigningContext(options);
@@ -464,4 +463,3 @@ export async function translateAudio(
     presignedUrl,
   };
 }
-*/

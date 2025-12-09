@@ -1,10 +1,18 @@
-// import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
-// import { Upload } from "@aws-sdk/lib-storage";
-// import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { Upload } from "@aws-sdk/lib-storage";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import Mux from "@mux/mux-node";
+import { generateObject } from "ai";
 import { z } from "zod";
 
+import env from "../env";
+import { createWorkflowConfig } from "../lib/client-factory";
+import { getLanguageCodePair, getLanguageName } from "../lib/language-codes";
 import type { LanguageCodePair, SupportedISO639_1 } from "../lib/language-codes";
+import { getPlaybackIdForAsset } from "../lib/mux-assets";
+import { createLanguageModelFromConfig } from "../lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers";
+import { resolveSigningContext, signUrl } from "../lib/url-signing";
 import type { MuxAIOptions, TokenUsage } from "../types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -71,7 +79,6 @@ export type TranslationPayload = z.infer<typeof translationSchema>;
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
 
-/*
 export async function translateCaptions<P extends SupportedProvider = SupportedProvider>(
   assetId: string,
   fromLanguageCode: string,
@@ -80,7 +87,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
 ): Promise<TranslationResult> {
   "use workflow";
   const {
-    provider = DEFAULT_PROVIDER,
+    provider = "openai",
     model,
     s3Endpoint: providedS3Endpoint,
     s3Region: providedS3Region,
@@ -88,10 +95,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     s3AccessKeyId: providedS3AccessKeyId,
     s3SecretAccessKey: providedS3SecretAccessKey,
     uploadToMux: uploadToMuxOption,
-    ...clientConfig
   } = options;
-
-  const resolvedProvider = provider;
 
   // S3 configuration
   const s3Endpoint = providedS3Endpoint ?? env.S3_ENDPOINT;
@@ -101,9 +105,10 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   const s3SecretAccessKey = providedS3SecretAccessKey ?? env.S3_SECRET_ACCESS_KEY;
   const uploadToMux = uploadToMuxOption !== false; // Default to true
 
-  const clients = createWorkflowClients(
-    { ...clientConfig, provider: resolvedProvider, model },
-    resolvedProvider,
+  // Validate credentials and resolve language model
+  const config = await createWorkflowConfig(
+    { ...options, model },
+    provider as SupportedProvider,
   );
 
   if (uploadToMux && (!s3Endpoint || !s3Bucket || !s3AccessKeyId || !s3SecretAccessKey)) {
@@ -111,7 +116,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   }
 
   // Fetch asset data and playback ID from Mux
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(clients.mux, assetId);
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(config.credentials, assetId);
 
   // Resolve signing context for signed playback IDs
   const signingContext = await resolveSigningContext(options);
@@ -159,8 +164,14 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   let usage: TokenUsage | undefined;
 
   try {
+    const languageModel = createLanguageModelFromConfig(
+      config.provider,
+      config.modelId,
+      config.credentials,
+    );
+
     const response = await generateObject({
-      model: clients.languageModel.model,
+      model: languageModel,
       schema: translationSchema,
       abortSignal: options.abortSignal,
       messages: [
@@ -180,7 +191,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
       cachedInputTokens: response.usage.cachedInputTokens,
     };
   } catch (error) {
-    throw new Error(`Failed to translate VTT with ${resolvedProvider}: ${error instanceof Error ? error.message : "Unknown error"}`);
+    throw new Error(`Failed to translate VTT with ${config.provider}: ${error instanceof Error ? error.message : "Unknown error"}`);
   }
 
   // Resolve language code pairs for both source and target
@@ -245,6 +256,10 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   }
 
   // Add translated track to Mux asset
+  const mux = new Mux({
+    tokenId: config.credentials.muxTokenId,
+    tokenSecret: config.credentials.muxTokenSecret,
+  });
 
   let uploadedTrackId: string | undefined;
 
@@ -252,7 +267,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     const languageName = getLanguageName(toLanguageCode);
     const trackName = `${languageName} (auto-translated)`;
 
-    const trackResponse = await clients.mux.video.assets.createTrack(assetId, {
+    const trackResponse = await mux.video.assets.createTrack(assetId, {
       type: "text",
       text_type: "subtitles",
       language_code: toLanguageCode,
@@ -278,4 +293,3 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     usage,
   };
 }
-*/

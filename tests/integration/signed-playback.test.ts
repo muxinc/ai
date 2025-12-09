@@ -52,13 +52,13 @@ describe("signed Playback Integration Tests", () => {
   });
 
   describe("resolveSigningContext", () => {
-    it("should return undefined when no credentials are provided", () => {
+    it("should return undefined when no credentials are provided", async () => {
       // Temporarily clear env vars to test the "no credentials" case
       vi.stubEnv("MUX_SIGNING_KEY", "");
       vi.stubEnv("MUX_PRIVATE_KEY", "");
       reloadEnv();
 
-      const context = resolveSigningContext({});
+      const context = await resolveSigningContext({});
       expect(context).toBeUndefined();
 
       vi.unstubAllEnvs();
