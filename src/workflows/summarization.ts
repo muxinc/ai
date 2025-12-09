@@ -277,8 +277,6 @@ async function analyzeStoryboard(
     ],
   });
 
-  console.log("debuggg", response.object);
-
   return {
     result: response.object,
     usage: {
@@ -372,7 +370,6 @@ export async function getSummaryAndTags(
     promptOverrides,
   });
 
-  console.log("debuggg getStoryboardUrl");
   // Analyze storyboard with AI provider (signed if needed)
   const imageUrl = await getStoryboardUrl(playbackId, 640, policy === "signed" ? signingContext : undefined);
 
@@ -381,7 +378,6 @@ export async function getSummaryAndTags(
   try {
     if (imageSubmissionMode === "base64") {
       const downloadResult = await downloadImageAsBase64(imageUrl, imageDownloadOptions);
-      console.log("debug about to analyzeStoryboard");
       analysisResponse = await analyzeStoryboard(
         downloadResult.base64Data,
         config,
@@ -390,11 +386,6 @@ export async function getSummaryAndTags(
       );
     } else {
       // URL-based submission with retry logic
-      console.log("debug about to analyzeStoryboard withRetry");
-      console.log("debug imageUrl type:", typeof imageUrl);
-      console.log("debug config:", JSON.stringify(config, null, 2));
-      console.log("debug userPrompt type:", typeof userPrompt);
-      console.log("debug SYSTEM_PROMPT type:", typeof SYSTEM_PROMPT);
       analysisResponse = await analyzeStoryboard(imageUrl, config, userPrompt, SYSTEM_PROMPT);
     }
   } catch (error: unknown) {
