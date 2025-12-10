@@ -79,4 +79,4 @@ tmp/
 temp/
 
 .swc/
-.workflow-data/
+test_server/.workflow-data

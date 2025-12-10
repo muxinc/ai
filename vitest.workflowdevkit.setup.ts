@@ -15,7 +15,7 @@ export async function setup() {
   nitroServer = spawn("npx", ["nitro", "dev", "--port", PORT], {
     stdio: "pipe",
     detached: false,
-    cwd: 'test_server',
+    cwd: "test_server",
   });
 
   // Use a promise to wait for server readiness
@@ -53,9 +53,11 @@ export async function setup() {
   // eslint-disable-next-line no-console
   console.log("Nitro server started and ready for workflow execution");
 
-  // Set the base URL for local workflow execution
+  // Set the base URL and data dir for local workflow execution
   // eslint-disable-next-line node/no-process-env
   process.env.WORKFLOW_LOCAL_BASE_URL = `http://localhost:${PORT}`;
+  // eslint-disable-next-line node/no-process-env
+  process.env.WORKFLOW_LOCAL_DATA_DIR = "./test_server/.workflow-data";
 }
 
 export async function teardown() {
