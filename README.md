@@ -6,9 +6,9 @@
 > **A TypeScript SDK for building AI-driven video workflows on the server, powered by [Mux](https://www.mux.com)!**
 
 `@mux/ai` does this by providing:
-- easy to use, purpose-driven, cost effective, configurable **_workflow functions_** that integrate with a variety of popular AI/LLM providers (OpenAI, Anthropic, Google).
+- Easy to use, purpose-driven, cost effective, configurable **_workflow functions_** that integrate with a variety of popular AI/LLM providers (OpenAI, Anthropic, Google).
   - **Examples:** [`generateChapters`](#chapter-generation), [`getModerationScores`](#content-moderation), [`generateVideoEmbeddings`](#video-search-with-embeddings), [`getSummaryAndTags`](#video-summarization)
-- convenient, parameterized, commonly needed **_primitive functions_** backed by [Mux Video](https://www.mux.com/video-api) for building your own media-based AI workflows and integrations.
+- Convenient, parameterized, commonly needed **_primitive functions_** backed by [Mux Video](https://www.mux.com/video-api) for building your own media-based AI workflows and integrations.
   - **Examples:** `getStoryboardUrl`, `chunkVTTCues`, `fetchTranscriptForAsset`
 
 # Usage
