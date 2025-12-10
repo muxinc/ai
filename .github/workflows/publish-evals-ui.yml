@@ -29,7 +29,7 @@ jobs:
 
       - run: npm install
 
-      - name: Run Evalite
+      - name: Run Evalite and Export UI
         env:
           MUX_TOKEN_ID: ${{ secrets.MUX_TOKEN_ID }}
           MUX_TOKEN_SECRET: ${{ secrets.MUX_TOKEN_SECRET }}
@@ -45,10 +45,9 @@ jobs:
           S3_BUCKET: ${{ secrets.S3_BUCKET }}
           S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
           S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
-        run: npx evalite run
-
-      - name: Export UI
-        run: npx evalite export --output=./ui-export/evals --basePath=/ai/evals
+        run: |
+          npx evalite run
+          npx evalite export --output=./ui-export/evals --basePath=/ai/evals
 
       - name: Upload static UI for Pages
         uses: actions/upload-pages-artifact@v3
