@@ -5,6 +5,7 @@ import Mux from "@mux/mux-node";
 
 import env from "../env";
 import { validateCredentials } from "../lib/client-factory";
+import type { ValidatedCredentials } from "../lib/client-factory";
 import { getLanguageCodePair, toISO639_1, toISO639_3 } from "../lib/language-codes";
 import type { LanguageCodePair, SupportedISO639_1 } from "../lib/language-codes";
 import { getPlaybackIdForAsset } from "../lib/mux-assets";
@@ -77,9 +78,14 @@ function getReadyAudioStaticRendition(asset: any) {
 
 const hasReadyAudioStaticRendition = (asset: any) => Boolean(getReadyAudioStaticRendition(asset));
 
-async function requestStaticRenditionCreation(muxClient: Mux, assetId: string) {
+async function requestStaticRenditionCreation(credentials: ValidatedCredentials, assetId: string) {
+  "use step";
+  const mux = new Mux({
+    tokenId: credentials.muxTokenId,
+    tokenSecret: credentials.muxTokenSecret,
+  });
   try {
-    await muxClient.video.assets.createStaticRendition(assetId, {
+    await mux.video.assets.createStaticRendition(assetId, {
       resolution: "audio-only",
     });
   } catch (error: any) {
@@ -100,13 +106,18 @@ async function requestStaticRenditionCreation(muxClient: Mux, assetId: string) {
 
 async function waitForAudioStaticRendition({
   assetId,
-  muxClient,
+  credentials,
   initialAsset,
 }: {
   assetId: string;
-  muxClient: any;
+  credentials: ValidatedCredentials;
   initialAsset: any;
 }): Promise<any> {
+  "use step";
+  const mux = new Mux({
+    tokenId: credentials.muxTokenId,
+    tokenSecret: credentials.muxTokenSecret,
+  });
   let currentAsset = initialAsset;
 
   if (hasReadyAudioStaticRendition(currentAsset)) {
@@ -116,16 +127,16 @@ async function waitForAudioStaticRendition({
   const status = currentAsset.static_renditions?.status ?? "not_requested";
 
   if (status === "not_requested" || status === undefined) {
-    await requestStaticRenditionCreation(muxClient, assetId);
+    await requestStaticRenditionCreation(credentials, assetId);
   } else if (status === "errored") {
-    await requestStaticRenditionCreation(muxClient, assetId);
+    await requestStaticRenditionCreation(credentials, assetId);
   } else {
     console.warn(`ℹ️ Static rendition already ${status}. Waiting for it to finish...`);
   }
 
   for (let attempt = 1; attempt <= STATIC_RENDITION_MAX_ATTEMPTS; attempt++) {
     await delay(STATIC_RENDITION_POLL_INTERVAL_MS);
-    currentAsset = await muxClient.video.assets.retrieve(assetId);
+    currentAsset = await mux.video.assets.retrieve(assetId);
 
     if (hasReadyAudioStaticRendition(currentAsset)) {
       return currentAsset;
@@ -146,6 +157,34 @@ async function waitForAudioStaticRendition({
   throw new Error(
     "Timed out waiting for the static rendition to become ready. Please try again in a moment.",
   );
+}
+
+async function createAudioTrackOnMux(
+  credentials: ValidatedCredentials,
+  assetId: string,
+  languageCode: string,
+  presignedUrl: string,
+): Promise<string> {
+  "use step";
+  const mux = new Mux({
+    tokenId: credentials.muxTokenId,
+    tokenSecret: credentials.muxTokenSecret,
+  });
+  const languageName = new Intl.DisplayNames(["en"], { type: "language" }).of(languageCode) || languageCode.toUpperCase();
+  const trackName = `${languageName} (auto-dubbed)`;
+
+  const trackResponse = await mux.video.assets.createTrack(assetId, {
+    type: "audio",
+    language_code: languageCode,
+    name: trackName,
+    url: presignedUrl,
+  });
+
+  if (!trackResponse.id) {
+    throw new Error("Failed to create audio track: no track ID returned from Mux");
+  }
+
+  return trackResponse.id;
 }
 
 export async function translateAudio(
@@ -186,12 +225,6 @@ export async function translateAudio(
     throw new Error("S3 configuration is required for uploading to Mux. Provide s3Endpoint, s3Bucket, s3AccessKeyId, and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.");
   }
 
-  // Initialize Mux client
-  const mux = new Mux({
-    tokenId: credentials.muxTokenId,
-    tokenSecret: credentials.muxTokenSecret,
-  });
-
   // Fetch asset data and playback ID from Mux
   const { asset: initialAsset, playbackId, policy } = await getPlaybackIdForAsset(credentials, assetId);
 
@@ -211,7 +244,7 @@ export async function translateAudio(
     console.warn("❌ No ready audio static rendition found. Requesting one now...");
     currentAsset = await waitForAudioStaticRendition({
       assetId,
-      muxClient: mux,
+      credentials,
       initialAsset: currentAsset,
     });
   }
@@ -434,17 +467,9 @@ export async function translateAudio(
   const muxLangCode = toISO639_1(toLanguageCode);
 
   try {
+    uploadedTrackId = await createAudioTrackOnMux(credentials, assetId, muxLangCode, presignedUrl);
     const languageName = new Intl.DisplayNames(["en"], { type: "language" }).of(muxLangCode) || muxLangCode.toUpperCase();
     const trackName = `${languageName} (auto-dubbed)`;
-
-    const trackResponse = await mux.video.assets.createTrack(assetId, {
-      type: "audio",
-      language_code: muxLangCode,
-      name: trackName,
-      url: presignedUrl,
-    });
-
-    uploadedTrackId = trackResponse.id;
     console.warn(`✅ Track added to Mux asset with ID: ${uploadedTrackId}`);
     console.warn(`📋 Track name: "${trackName}"`);
   } catch (error) {

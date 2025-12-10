@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import env from "../env";
 import { createWorkflowConfig } from "../lib/client-factory";
+import type { ValidatedCredentials } from "../lib/client-factory";
 import { getLanguageCodePair, getLanguageName } from "../lib/language-codes";
 import type { LanguageCodePair, SupportedISO639_1 } from "../lib/language-codes";
 import { getPlaybackIdForAsset } from "../lib/mux-assets";
@@ -78,6 +79,33 @@ export type TranslationPayload = z.infer<typeof translationSchema>;
 // ─────────────────────────────────────────────────────────────────────────────
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
+
+async function createTextTrackOnMux(
+  credentials: ValidatedCredentials,
+  assetId: string,
+  languageCode: string,
+  trackName: string,
+  presignedUrl: string,
+): Promise<string> {
+  "use step";
+  const mux = new Mux({
+    tokenId: credentials.muxTokenId,
+    tokenSecret: credentials.muxTokenSecret,
+  });
+  const trackResponse = await mux.video.assets.createTrack(assetId, {
+    type: "text",
+    text_type: "subtitles",
+    language_code: languageCode,
+    name: trackName,
+    url: presignedUrl,
+  });
+
+  if (!trackResponse.id) {
+    throw new Error("Failed to create text track: no track ID returned from Mux");
+  }
+
+  return trackResponse.id;
+}
 
 export async function translateCaptions<P extends SupportedProvider = SupportedProvider>(
   assetId: string,
@@ -256,26 +284,13 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   }
 
   // Add translated track to Mux asset
-  const mux = new Mux({
-    tokenId: config.credentials.muxTokenId,
-    tokenSecret: config.credentials.muxTokenSecret,
-  });
-
   let uploadedTrackId: string | undefined;
 
   try {
     const languageName = getLanguageName(toLanguageCode);
     const trackName = `${languageName} (auto-translated)`;
 
-    const trackResponse = await mux.video.assets.createTrack(assetId, {
-      type: "text",
-      text_type: "subtitles",
-      language_code: toLanguageCode,
-      name: trackName,
-      url: presignedUrl,
-    });
-
-    uploadedTrackId = trackResponse.id;
+    uploadedTrackId = await createTextTrackOnMux(config.credentials, assetId, toLanguageCode, trackName, presignedUrl);
   } catch (error) {
     console.warn(`Failed to add track to Mux asset: ${error instanceof Error ? error.message : "Unknown error"}`);
   }
