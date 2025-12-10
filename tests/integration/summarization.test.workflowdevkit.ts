@@ -12,6 +12,7 @@ describe("summarization Integration Tests", () => {
 
   it.each(providers)("should return valid result for %s provider", async (provider) => {
     const run = await start(getSummaryAndTags, [testAssetId, { provider }]);
+    console.log('debug run', run);
     const result = await run.returnValue;
 
     expect(result).toBeDefined();

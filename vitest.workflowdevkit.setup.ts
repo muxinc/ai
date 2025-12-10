@@ -15,7 +15,7 @@ export async function setup() {
   nitroServer = spawn("npx", ["nitro", "dev", "--port", PORT], {
     stdio: "pipe",
     detached: false,
-    cwd: process.cwd(),
+    cwd: 'test_server',
   });
 
   // Use a promise to wait for server readiness
