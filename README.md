@@ -1,36 +1,43 @@
-# @mux/ai 📼 🤝 🤖
+# `@mux/ai` 📼 🤝 🤖
 
-A typescript library for connecting videos in your Mux account to multi-modal LLMs. 
+[![npm version](https://badge.fury.io/js/@mux%2Fai.svg)](https://www.npmjs.com/package/@mux/ai)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-`@mux/ai` contains two abstractions:
+> **A TypeScript SDK for building AI-driven video workflows on the server, powered by [Mux](https://www.mux.com)!**
 
-**Workflows** are production-ready functions that handle common video<->LLM tasks. Each workflow orchestrates the entire process: fetching video data from Mux (transcripts, thumbnails, storyboards), formatting it for AI providers, and returning structured results. Use workflows when you need battle-tested solutions for tasks like summarization, content moderation, chapter generation, or translation.
+`@mux/ai` does this by providing:
+- easy to use, purpose-driven, cost effective, configurable **_workflow functions_** that integrate with a variety of popular AI/LLM providers (OpenAI, Anthropic, Google).
+  - **Examples:** [`generateChapters`](#chapter-generation), [`getModerationScores`](#content-moderation), [`generateVideoEmbeddings`](#video-search-with-embeddings), [`getSummaryAndTags`](#video-summarization)
+- convenient, parameterized, commonly needed **_primitive functions_** backed by [Mux Video](https://www.mux.com/video-api) for building your own media-based AI workflows and integrations.
+  - **Examples:** `getStoryboardUrl`, `chunkVTTCues`, `fetchTranscriptForAsset`
 
-**Primitives** are the low-level building blocks that workflows are composed from. They provide direct access to Mux video data (transcripts, storyboards, thumbnails) and utilities for chunking and processing text. Use primitives when you need complete control over your AI prompts or want to build custom workflows not covered by the pre-built options.
+# Usage
 
-## Available pre-built workflows
+```ts
+import { getSummaryAndTags } from "@mux/ai/workflows";
 
-| Workflow                                                                 | Description                                                       | Providers                 | Default Models                                                     |
-| ------------------------------------------------------------------------ | ----------------------------------------------------------------- | ------------------------- | ------------------------------------------------------------------ |
-| [`getSummaryAndTags`](./docs/WORKFLOWS.md#video-summarization)           | Generate titles, descriptions, and tags for an asset              | OpenAI, Anthropic, Google | `gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash`              |
-| [`getModerationScores`](./docs/WORKFLOWS.md#content-moderation)          | Detect inappropriate (sexual or violent) content in an asset      | OpenAI, Hive              | `omni-moderation-latest` (OpenAI) or Hive visual moderation task   |
-| [`hasBurnedInCaptions`](./docs/WORKFLOWS.md#burned-in-caption-detection) | Detect burned-in captions (hardcoded subtitles) in an asset       | OpenAI, Anthropic, Google | `gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash`              |
-| [`generateChapters`](./docs/WORKFLOWS.md#chapter-generation)             | Generate chapter markers for an asset using the transcript        | OpenAI, Anthropic, Google | `gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash`              |
-| [`generateVideoEmbeddings`](./docs/WORKFLOWS.md#video-embeddings)        | Generate vector embeddings for an asset's transcript chunks       | OpenAI, Google            | `text-embedding-3-small` (OpenAI), `gemini-embedding-001` (Google) |
-| [`translateCaptions`](./docs/WORKFLOWS.md#caption-translation)           | Translate an asset's captions into different languages            | OpenAI, Anthropic, Google | `gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash`              |
-| [`translateAudio`](./docs/WORKFLOWS.md#audio-dubbing)                    | Create AI-dubbed audio tracks in different languages for an asset | ElevenLabs only           | ElevenLabs Dubbing API                                             |
+const result = await getSummaryAndTags("your-asset-id", {
+  provider: "openai",
+  tone: "professional",
+  includeTranscript: true
+});
 
-## Features
+console.log(result.title);        // "Getting Started with TypeScript"
+console.log(result.description);  // "A comprehensive guide to..."
+console.log(result.tags);         // ["typescript", "tutorial", "programming"]
+```
 
-- **Cost-Effective by Default**: Uses affordable frontier models like `gpt-5-mini`, `claude-sonnet-4-5`, and `gemini-2.5-flash` to keep analysis costs low while maintaining high quality results
-- **Multi-modal Analysis**: Combines storyboard images with video transcripts
-- **Tone Control**: Normal, sassy, or professional analysis styles
-- **Prompt Customization**: Override specific prompt sections to tune workflows to your use case
-- **Configurable Thresholds**: Custom sensitivity levels for content moderation
-- **TypeScript**: Fully typed for excellent developer experience
-- **Provider Choice**: Switch between OpenAI, Anthropic, and Google for different perspectives
-- **Composable Building Blocks**: Import primitives to fetch transcripts, thumbnails, and storyboards to build bespoke flows
-- **Universal Language Support**: Automatic language name detection using `Intl.DisplayNames` for all ISO 639-1 codes
+> **⚠️ Important:** Many workflows rely on video transcripts for best results. Consider enabling [auto-generated captions](https://www.mux.com/docs/guides/add-autogenerated-captions-and-use-transcripts) on your Mux assets to unlock the full potential of transcript-based workflows like summarization, chapters, and embeddings.
+
+# Quick Start
+
+## Prerequisites
+
+- [Node.js](https://nodejs.org/en/download) (≥ 21.0.0)
+- A Mux account and necessary [credentials](#credentials---mux) for your environment (sign up [here](https://dashboard.mux.com/signup) for free!)
+- Accounts and [credentials](#credentials---ai-providers) for any AI providers you intend to use for your workflows
+- (For some workflows only) AWS S3 and [other credentials](#credentials---other)
+
 
 ## Installation
 
@@ -40,7 +47,7 @@ npm install @mux/ai
 
 ## Configuration
 
-Set environment variables:
+We support [dotenv](https://www.npmjs.com/package/dotenv), so you can simply add the following environment variables to your `.env` file:
 
 ```bash
 # Required
@@ -51,12 +58,10 @@ MUX_TOKEN_SECRET=your_mux_token_secret
 MUX_SIGNING_KEY=your_signing_key_id
 MUX_PRIVATE_KEY=your_base64_encoded_private_key
 
-# You only need to configure API keys for the AI platforms you're using
+# You only need to configure API keys for the AI platforms and workflows you're using
 OPENAI_API_KEY=your_openai_api_key
 ANTHROPIC_API_KEY=your_anthropic_api_key
 GOOGLE_GENERATIVE_AI_API_KEY=your_google_api_key
-
-# Needed for audio dubbing workflow
 ELEVENLABS_API_KEY=your_elevenlabs_api_key
 
 # S3-Compatible Storage (required for translation & audio dubbing)
@@ -77,106 +82,316 @@ const result = await getSummaryAndTags(assetId, {
 });
 ```
 
-## Quick Start
+> **💡 Tip:** If you're using `.env` in a repository or version tracking system, make sure you add this file to your `.gitignore` or equivalent to avoid unintentionally committing secure credentials.
 
-> **‼️ Important: ‼️** Most workflows rely on video transcripts for best results. Enable [auto-generated captions](https://www.mux.com/docs/guides/add-autogenerated-captions-and-use-transcripts) on your Mux assets to unlock the full potential of transcript-based workflows like summarization, chapters, and embeddings.
+# Workflows
+
+## Available pre-built workflows
+
+| Workflow                                                                 | Description                                                       | Providers                 | Default Models                                                     | Mux Asset Requirements | Cloud Infrastructure Requirements |
+| ------------------------------------------------------------------------ | ----------------------------------------------------------------- | ------------------------- | ------------------------------------------------------------------ | ---------------------- | --------------------------------- |
+| [`getSummaryAndTags`](./docs/WORKFLOWS.md#video-summarization)<br/>[API](./docs/API.md#getsummaryandtagsassetid-options) · [Source](./src/workflows/summarization.ts) | Generate titles, descriptions, and tags for an asset              | OpenAI, Anthropic, Google | `gpt-5-mini` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-2.5-flash` (Google) | Video (required), Captions (optional) | None |
+| [`getModerationScores`](./docs/WORKFLOWS.md#content-moderation)<br/>[API](./docs/API.md#getmoderationscoresassetid-options) · [Source](./src/workflows/moderation.ts) | Detect inappropriate (sexual or violent) content in an asset      | OpenAI, Hive              | `omni-moderation-latest` (OpenAI) or Hive visual moderation task   | Video (required) | None |
+| [`hasBurnedInCaptions`](./docs/WORKFLOWS.md#burned-in-caption-detection)<br/>[API](./docs/API.md#hasburnedincaptionsassetid-options) · [Source](./src/workflows/burned-in-captions.ts) | Detect burned-in captions (hardcoded subtitles) in an asset       | OpenAI, Anthropic, Google | `gpt-5-mini` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-2.5-flash` (Google) | Video (required) | None |
+| [`generateChapters`](./docs/WORKFLOWS.md#chapter-generation)<br/>[API](./docs/API.md#generatechaptersassetid-languagecode-options) · [Source](./src/workflows/chapters.ts) | Generate chapter markers for an asset using the transcript        | OpenAI, Anthropic, Google | `gpt-5-mini` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-2.5-flash` (Google) | Video (required), Captions (required) | None |
+| [`generateVideoEmbeddings`](./docs/WORKFLOWS.md#video-embeddings)<br/>[API](./docs/API.md#generatevideoembeddingsassetid-options) · [Source](./src/workflows/embeddings.ts) | Generate vector embeddings for an asset's transcript chunks       | OpenAI, Google            | `text-embedding-3-small` (OpenAI), `gemini-embedding-001` (Google) | Video (required), Captions (required) | None |
+| [`translateCaptions`](./docs/WORKFLOWS.md#caption-translation)<br/>[API](./docs/API.md#translatecaptionsassetid-fromlanguagecode-tolanguagecode-options) · [Source](./src/workflows/translate-captions.ts) | Translate an asset's captions into different languages            | OpenAI, Anthropic, Google | `gpt-5-mini` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-2.5-flash` (Google) | Video (required), Captions (required) | AWS S3 (if `uploadToMux=true`) |
+| [`translateAudio`](./docs/WORKFLOWS.md#audio-dubbing)<br/>[API](./docs/API.md#translateaudioassetid-tolanguagecode-options) · [Source](./src/workflows/translate-audio.ts) | Create AI-dubbed audio tracks in different languages for an asset | ElevenLabs only           | ElevenLabs Dubbing API                                             | Video (required), Audio (required) | AWS S3 (if `uploadToMux=true`) |
+
+## Example Workflows
 
 ### Video Summarization
+
+Generate SEO-friendly titles, descriptions, and tags from your video content:
 
 ```typescript
 import { getSummaryAndTags } from "@mux/ai/workflows";
 
-const result = await getSummaryAndTags("your-mux-asset-id", {
-  tone: "professional"
+const result = await getSummaryAndTags("your-asset-id", {
+  provider: "openai",
+  tone: "professional",
+  includeTranscript: true
 });
 
-console.log(result.title);
-console.log(result.description);
-console.log(result.tags);
+console.log(result.title);        // "Getting Started with TypeScript"
+console.log(result.description);  // "A comprehensive guide to..."
+console.log(result.tags);         // ["typescript", "tutorial", "programming"]
 ```
 
 ### Content Moderation
 
+Automatically detect inappropriate content in videos:
+
 ```typescript
 import { getModerationScores } from "@mux/ai/workflows";
 
-const result = await getModerationScores("your-mux-asset-id", {
+const result = await getModerationScores("your-asset-id", {
+  provider: "openai",
   thresholds: { sexual: 0.7, violence: 0.8 }
 });
 
-console.log(result.exceedsThreshold); // true if content flagged
+if (result.exceedsThreshold) {
+  console.log("Content flagged for review");
+  console.log(`Max scores: ${result.maxScores}`);
+}
 ```
 
-### Generate Chapters
+### Chapter Generation
+
+Create automatic chapter markers for better video navigation:
 
 ```typescript
 import { generateChapters } from "@mux/ai/workflows";
 
-const result = await generateChapters("your-mux-asset-id", "en");
+const result = await generateChapters("your-asset-id", "en", {
+  provider: "anthropic"
+});
 
 // Use with Mux Player
 player.addChapters(result.chapters);
+// [
+//   { startTime: 0, title: "Introduction" },
+//   { startTime: 45, title: "Main Content" },
+//   { startTime: 120, title: "Conclusion" }
+// ]
 ```
 
-### Translate Captions
+### Video Search with Embeddings
+
+Generate embeddings for semantic video search:
 
 ```typescript
-import { translateCaptions } from "@mux/ai/workflows";
+import { generateVideoEmbeddings } from "@mux/ai/workflows";
 
-const result = await translateCaptions(
-  "your-mux-asset-id",
-  "en", // from
-  "es", // to
-  { provider: "anthropic" }
-);
+const result = await generateVideoEmbeddings("your-asset-id", {
+  provider: "openai",
+  languageCode: "en",
+  chunkingStrategy: {
+    type: "token",
+    maxTokens: 500,
+    overlap: 100
+  }
+});
 
-console.log(result.uploadedTrackId); // New Mux track ID
+// Store embeddings in your vector database
+for (const chunk of result.chunks) {
+  await vectorDB.insert({
+    embedding: chunk.embedding,
+    metadata: {
+      assetId: result.assetId,
+      startTime: chunk.metadata.startTime,
+      endTime: chunk.metadata.endTime
+    }
+  });
+}
 ```
+
+# Key Features
+
+- **Cost-Effective by Default**: Uses affordable frontier models like `gpt-5-mini`, `claude-sonnet-4-5`, and `gemini-2.5-flash` to keep analysis costs low while maintaining high quality results
+- **Multi-modal Analysis**: Combines storyboard images with video transcripts for richer understanding
+- **Tone Control**: Choose between normal, sassy, or professional analysis styles for summarization
+- **Prompt Customization**: Override specific prompt sections to tune workflows to your exact use case
+- **Configurable Thresholds**: Set custom sensitivity levels for content moderation
+- **Full TypeScript Support**: Comprehensive types for excellent developer experience and IDE autocomplete
+- **Provider Flexibility**: Switch between OpenAI, Anthropic, Google, and other providers based on your needs
+- **Composable Building Blocks**: Use primitives to fetch transcripts, thumbnails, and storyboards for custom workflows
+- **Universal Language Support**: Automatic language name detection using `Intl.DisplayNames` for all ISO 639-1 codes
+- **Production Ready**: Built-in retry logic, error handling, and edge case management
+
+# Core Concepts
+
+`@mux/ai` is built around two complementary abstractions:
+
+## Workflows
+
+**Workflows** are functions that handle complete video AI tasks end-to-end. Each workflow orchestrates the entire process: fetching video data from Mux (transcripts, thumbnails, storyboards), formatting it for AI providers, and returning structured results.
+
+```typescript
+import { getSummaryAndTags } from "@mux/ai/workflows";
+
+const result = await getSummaryAndTags("asset-id", { provider: "openai" });
+```
+
+Use workflows when you need battle-tested solutions for common tasks like summarization, content moderation, chapter generation, or translation.
+
+## Primitives
+
+**Primitives** are low-level building blocks that give you direct access to Mux video data and utilities. They provide functions for fetching transcripts, storyboards, thumbnails, and processing text—perfect for building custom workflows.
+
+```typescript
+import { fetchTranscriptForAsset, getStoryboardUrl } from "@mux/ai/primitives";
+
+const transcript = await fetchTranscriptForAsset("asset-id", "en");
+const storyboard = getStoryboardUrl("playback-id", { width: 640 });
+```
+
+Use primitives when you need complete control over your AI prompts or want to build custom workflows not covered by the pre-built options.
 
 ## Package Structure
 
-This package ships with layered entry points:
-
-- **`@mux/ai/workflows`** – Production-ready helpers like `getSummaryAndTags` and `generateChapters`
-- **`@mux/ai/primitives`** – Low-level building blocks like `fetchTranscriptForAsset` and `getStoryboardUrl`
-- **`@mux/ai`** – Main entry point that re-exports both namespaces plus shared types
-
 ```typescript
+// Import workflows
+import { generateChapters } from "@mux/ai/workflows";
+
+// Import primitives
+import { fetchTranscriptForAsset } from "@mux/ai/primitives";
+
 // Or import everything
-import { primitives, workflows } from "@mux/ai";
-// Low-level primitives for custom workflows
-import { fetchTranscriptForAsset, getStoryboardUrl } from "@mux/ai/primitives";
-// High-level workflows
-import { getSummaryAndTags } from "@mux/ai/workflows";
+import { workflows, primitives } from "@mux/ai";
 ```
 
-Every workflow is composed from primitives, so you can start high-level and drop down to primitives when you need more control.
+# Credentials
 
-## Documentation
+You'll need to set up credentials for Mux as well as any AI provider you want to use for a particular workflow. In addition, some workflows will need other cloud-hosted access (e.g. cloud storage via AWS S3).
 
-- **[Workflows](./docs/WORKFLOWS.md)** - Detailed guide to each pre-built workflow
-- **[Primitives](./docs/PRIMITIVES.md)** - Low-level building blocks for custom workflows
-- **[API Reference](./docs/API.md)** - Complete API documentation for all functions
-- **[Examples](./docs/EXAMPLES.md)** - Running examples from the repository
+## Credentials - Mux
 
-## Development
+### Access Token (required)
+
+All workflows require a Mux API access token to interact with your video assets. If you're already logged into the dashboard, you can [create a new access token here](https://dashboard.mux.com/settings/access-tokens).
+
+**Required Permissions:**
+- **Mux Video**: Read + Write access
+- **Mux Data**: Read access
+
+These permissions cover all current workflows. You can set these when creating your token in the dashboard.
+
+> **💡 Tip:** For security reasons, consider creating a dedicated access token specifically for your AI workflows rather than reusing existing tokens.
+
+### Signing Key (conditionally required)
+
+If your Mux assets use [signed playback URLs](https://docs.mux.com/guides/secure-video-playback) for security, you'll need to provide signing credentials so `@mux/ai` can access the video data.
+
+**When needed:** Only if your assets have signed playback policies enabled and no public playback ID.
+
+**How to get:**
+1. Go to [Settings > Signing Keys](https://dashboard.mux.com/settings/signing-keys) in your Mux dashboard
+2. Create a new signing key or use an existing one
+3. Save both the **Signing Key ID** and the **Base64-encoded Private Key**
+
+**Configuration:**
+```bash
+MUX_SIGNING_KEY=your_signing_key_id
+MUX_PRIVATE_KEY=your_base64_encoded_private_key
+```
+
+## Credentials - AI Providers
+
+Different workflows support various AI providers. You only need to configure API keys for the providers you plan to use.
+
+### OpenAI
+
+**Used by:** `getSummaryAndTags`, `getModerationScores`, `hasBurnedInCaptions`, `generateChapters`, `generateVideoEmbeddings`, `translateCaptions`
+
+**Get your API key:** [OpenAI API Keys](https://platform.openai.com/api-keys)
 
 ```bash
-# Clone and install
-git clone https://github.com/muxinc/mux-ai.git
-cd mux-ai
-npm install  # Automatically sets up git hooks
-
-# Linting and type checking
-npm run lint
-npm run lint:fix
-npm run typecheck
-
-# Run tests
-npm test
+OPENAI_API_KEY=your_openai_api_key
 ```
 
-This project uses ESLint with `@antfu/eslint-config`, TypeScript strict mode, and automated pre-commit hooks.
+### Anthropic
+
+**Used by:** `getSummaryAndTags`, `hasBurnedInCaptions`, `generateChapters`, `translateCaptions`
+
+**Get your API key:** [Anthropic Console](https://console.anthropic.com/)
+
+```bash
+ANTHROPIC_API_KEY=your_anthropic_api_key
+```
+
+### Google Generative AI
+
+**Used by:** `getSummaryAndTags`, `hasBurnedInCaptions`, `generateChapters`, `generateVideoEmbeddings`, `translateCaptions`
+
+**Get your API key:** [Google AI Studio](https://aistudio.google.com/app/apikey)
+
+```bash
+GOOGLE_GENERATIVE_AI_API_KEY=your_google_api_key
+```
+
+### ElevenLabs
+
+**Used by:** `translateAudio` (audio dubbing)
+
+**Get your API key:** [ElevenLabs API Keys](https://elevenlabs.io/app/settings/api-keys)
+
+**Note:** Requires a Creator plan or higher for dubbing features.
+
+```bash
+ELEVENLABS_API_KEY=your_elevenlabs_api_key
+```
+
+### Hive
+
+**Used by:** `getModerationScores` (alternative to OpenAI moderation)
+
+**Get your API key:** [Hive Console](https://thehive.ai/)
+
+```bash
+HIVE_API_KEY=your_hive_api_key
+```
+
+## Credentials - Cloud Infrastructure
+
+### AWS S3 (or S3-compatible storage)
+
+**Required for:** `translateCaptions`, `translateAudio` (only if `uploadToMux` is true, which is the default)
+
+Translation workflows need temporary storage to upload translated files before attaching them to your Mux assets. Any S3-compatible storage service works (AWS S3, Cloudflare R2, DigitalOcean Spaces, etc.).
+
+**AWS S3 Setup:**
+1. [Create an S3 bucket](https://s3.console.aws.amazon.com/s3/home)
+2. [Create an IAM user](https://console.aws.amazon.com/iam/) with programmatic access
+3. Attach a policy with `s3:PutObject`, `s3:GetObject`, and `s3:PutObjectAcl` permissions for your bucket
+
+**Configuration:**
+```bash
+S3_ENDPOINT=https://s3.amazonaws.com  # Or your S3-compatible endpoint
+S3_REGION=us-east-1                   # Your bucket region
+S3_BUCKET=your-bucket-name
+S3_ACCESS_KEY_ID=your-access-key
+S3_SECRET_ACCESS_KEY=your-secret-key
+```
+
+**Cloudflare R2 Example:**
+```bash
+S3_ENDPOINT=https://your-account-id.r2.cloudflarestorage.com
+S3_REGION=auto
+S3_BUCKET=your-bucket-name
+S3_ACCESS_KEY_ID=your-r2-access-key
+S3_SECRET_ACCESS_KEY=your-r2-secret-key
+```
+
+# Documentation
+
+## Full Documentation
+
+- **[Workflows Guide](./docs/WORKFLOWS.md)** - Detailed guide to each pre-built workflow with examples
+- **[API Reference](./docs/API.md)** - Complete API documentation for all functions, parameters, and return types
+- **[Primitives Guide](./docs/PRIMITIVES.md)** - Low-level building blocks for custom workflows
+- **[Examples](./docs/EXAMPLES.md)** - Running examples from the repository
+
+## Additional Resources
+
+- **[Mux Video API Docs](https://docs.mux.com/guides/video)** - Learn about Mux Video features
+- **[Auto-generated Captions](https://www.mux.com/docs/guides/add-autogenerated-captions-and-use-transcripts)** - Enable transcripts for your assets
+- **[GitHub Repository](https://github.com/muxinc/ai)** - Source code, issues, and contributions
+- **[npm Package](https://www.npmjs.com/package/@mux/ai)** - Package page and version history
+
+# Contributing
+
+We welcome contributions! Whether you're fixing bugs, adding features, or improving documentation, we'd love your help.
+
+Please see our **[Contributing Guide](./CONTRIBUTING.md)** for details on:
+
+- Setting up your development environment
+- Running examples and tests
+- Code style and conventions
+- Submitting pull requests
+- Reporting issues
+
+For questions or discussions, feel free to [open an issue](https://github.com/muxinc/ai/issues).
 
 ## License
 

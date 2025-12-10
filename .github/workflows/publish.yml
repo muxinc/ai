@@ -20,8 +20,8 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
-          registry-url: "https://registry.npmjs.org"
+          node-version-file: .nvmrc
+          cache: npm
 
       - name: Update npm to latest
         run: npm install -g npm@latest
