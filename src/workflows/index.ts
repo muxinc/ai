@@ -3,5 +3,5 @@ export * from "./chapters";
 export * from "./embeddings";
 export * from "./moderation";
 export * from "./summarization";
-export * from "./translate-audio";
-export * from "./translate-captions";
+// export * from "./translate-audio";
+// export * from "./translate-captions";
