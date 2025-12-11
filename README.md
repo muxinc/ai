@@ -32,6 +32,80 @@ A typescript library for connecting videos in your Mux account to multi-modal LL
 - **Composable Building Blocks**: Import primitives to fetch transcripts, thumbnails, and storyboards to build bespoke flows
 - **Universal Language Support**: Automatic language name detection using `Intl.DisplayNames` for all ISO 639-1 codes
 
+## Automatically Compatible with Workflow DevKit / `"use workflow"`
+
+- This SDK has been built to be compatible with [Workflow DevKit](https://useworkflow.dev/).
+- [Workflow DevKit](https://useworkflow.dev/) is NOT required to use this SDK.
+- If you call a `primitive` or a `workflow` in a regular Node or Node-ish environment, then everything works like normal. You can carry on just as you would expect. For example:
+
+### Normal Node or Node-ish environment
+
+```ts
+// call a workflow
+import { getSummaryAndTags } from '@mux/ai/workflows';
+const summaryResult = await getSummaryAndTags(assetId);
+
+// call a primitive
+import { fetchTranscriptForAsset } from '@mux/ai/primitives';
+const transcriptResult = await fetchTranscriptForAsset(assetId);
+```
+
+### In a Workflow DevKit environment
+
+- If your environment is configured for [Workflow DevKit](https://useworkflow.dev/), then you are free to use the [`workflow` SDK](https://www.npmjs.com/package/workflow) to run the exported `/workflows` as workflows in the Workflow DevKit world.
+
+```ts
+import { start } from "workflow/api";
+import { getSummaryAndTags } from '@mux/ai/workflows';
+
+// This gets run async, Inspect with the
+//     Observability Dashboard: https://useworkflow.dev/docs/observability
+const run = await start(getSummaryAndTags, [assetId]);
+console.log('run', run);
+//
+// If you want to wait for this to run synchronously, then call:
+// await result = run.returnValue
+//
+```
+
+- This works because all of the exported `@mux/ai/workflows` include the `"use workflow"` directive.
+
+### Workflows can be nested
+
+```ts
+import { start } from "workflow/api";
+import { getSummaryAndTags } from '@mux/ai/workflows';
+
+async function processVideoSummary (assetId: string) {
+  'use workflow'
+
+  const summary = await getSummaryAndTags(assetId);
+  const emailResp = await emailSummaryToAdmins(summary: summary);
+
+  return { assetId, summary, emailResp }
+}
+
+async function emailSummaryToAdmins (assetId: string) {
+  'use step';
+  return { sent: true }
+}
+
+//
+// this will call the processVideoSummary workflow that is defined above
+// in that workflow, it calls `getSummaryAndTags()` workflow
+//
+const run = await start(processVideoSummary, [assetId]);
+```
+
+**Workflow DevKit features**
+
+- [Observability Dashboard](https://useworkflow.dev/docs/observability)
+- [Control Flow Patterns](https://useworkflow.dev/docs/foundations/control-flow-patterns) like Parallel Execution.
+- [Errors and Retrying](https://useworkflow.dev/docs/foundations/errors-and-retries)
+- [Hooks and Webhooks](https://useworkflow.dev/docs/foundations/hooks)
+- Patterns for building Agents with [Human in the Loop](https://useworkflow.dev/docs/ai/human-in-the-loop)
+
+
 ## Installation
 
 ```bash
@@ -161,22 +235,7 @@ Every workflow is composed from primitives, so you can start high-level and drop
 
 ## Development
 
-```bash
-# Clone and install
-git clone https://github.com/muxinc/mux-ai.git
-cd mux-ai
-npm install  # Automatically sets up git hooks
-
-# Linting and type checking
-npm run lint
-npm run lint:fix
-npm run typecheck
-
-# Run tests
-npm test
-```
-
-This project uses ESLint with `@antfu/eslint-config`, TypeScript strict mode, and automated pre-commit hooks.
+See [DEVELOPMENT](./DEVELOPMENT.md).
 
 ## License
 
