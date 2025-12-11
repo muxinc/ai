@@ -17,6 +17,7 @@ import {
 } from "../lib/prompt-builder";
 import { createLanguageModelFromConfig } from "../lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers";
+import { withRetry } from "../lib/retry";
 import { resolveSigningContext } from "../lib/url-signing";
 import { getStoryboardUrl } from "../primitives/storyboards";
 import { fetchTranscriptForAsset } from "../primitives/transcripts";
@@ -386,7 +387,7 @@ export async function getSummaryAndTags(
       );
     } else {
       // URL-based submission with retry logic
-      analysisResponse = await analyzeStoryboard(imageUrl, config, userPrompt, SYSTEM_PROMPT);
+      analysisResponse = await withRetry(() => analyzeStoryboard(imageUrl, config, userPrompt, SYSTEM_PROMPT));
     }
   } catch (error: unknown) {
     throw new Error(
