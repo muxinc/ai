@@ -17,7 +17,7 @@ export async function setup() {
   nitroServer = spawn("npx", ["nitro", "dev", "--port", PORT], {
     stdio: "pipe",
     detached: false,
-    cwd: "test_server",
+    cwd: "test-server",
     // eslint-disable-next-line node/no-process-env
     env: process.env,
   });
@@ -61,7 +61,7 @@ export async function setup() {
   // eslint-disable-next-line node/no-process-env
   process.env.WORKFLOW_LOCAL_BASE_URL = `http://localhost:${PORT}`;
   // eslint-disable-next-line node/no-process-env
-  process.env.WORKFLOW_LOCAL_DATA_DIR = "./test_server/.workflow-data";
+  process.env.WORKFLOW_LOCAL_DATA_DIR = "./test-server/.workflow-data";
 }
 
 export async function teardown() {
