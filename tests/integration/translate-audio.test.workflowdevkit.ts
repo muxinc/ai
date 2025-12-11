@@ -9,7 +9,7 @@ describe("audio Translation Integration Tests for Workflow DevKit", () => {
   it("should translate audio to French without uploading to Mux", async () => {
     const run = await start(translateAudio, [assetId, "fr", {
       provider: "elevenlabs",
-      uploadToMux: true,
+      uploadToMux: false,
     }]);
     expect(run.runId).toMatch(/^wrun_/);
     const result = await run.returnValue;
@@ -33,9 +33,7 @@ describe("audio Translation Integration Tests for Workflow DevKit", () => {
     expect(result.dubbingId.length).toBeGreaterThan(0);
 
     // Since uploadToMux is false, these should not be present
-    expect(result.uploadedTrackId).toBeDefined();
-    expect(result.uploadedTrackId.length).toBeGreaterThan(0);
-    expect(result.presignedUrl).toBeDefined();
-    expect(result.presignedUrl.length).toBeGreaterThan(0);
+    expect(result.uploadedTrackId).toBeUndefined();
+    expect(result.presignedUrl).toBeUndefined();
   }, 300000); // 5 minute timeout for ElevenLabs processing
 });
