@@ -10,9 +10,9 @@ describe("summarization Integration Tests", () => {
 
   it.each(providers)("should return a run with a runId for each provider", async (provider) => {
     const run = await start(getSummaryAndTags, [testAssetId, { provider }]);
-    const result = await run.returnValue;
-
     expect(run.runId).toMatch(/^wrun_/);
+
+    const result = await run.returnValue;
     expect(result).toHaveProperty("assetId", testAssetId);
     expect(result).toHaveProperty("title");
     expect(result).toHaveProperty("description");
