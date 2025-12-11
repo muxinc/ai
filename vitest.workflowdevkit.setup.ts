@@ -3,6 +3,8 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import type { ChildProcess } from "node:child_process";
 
+import "dotenv/config";
+
 let nitroServer: ChildProcess | null = null;
 
 const PORT = "4000";
@@ -11,11 +13,13 @@ export async function setup() {
   // eslint-disable-next-line no-console
   console.log("Starting Nitro server for workflow execution...");
 
-  // Start nitro dev server
+  // Start nitro dev server with inherited environment variables
   nitroServer = spawn("npx", ["nitro", "dev", "--port", PORT], {
     stdio: "pipe",
     detached: false,
-    cwd: process.cwd(),
+    cwd: "test-server",
+    // eslint-disable-next-line node/no-process-env
+    env: process.env,
   });
 
   // Use a promise to wait for server readiness
@@ -53,9 +57,11 @@ export async function setup() {
   // eslint-disable-next-line no-console
   console.log("Nitro server started and ready for workflow execution");
 
-  // Set the base URL for local workflow execution
+  // Set the base URL and data dir for local workflow execution
   // eslint-disable-next-line node/no-process-env
   process.env.WORKFLOW_LOCAL_BASE_URL = `http://localhost:${PORT}`;
+  // eslint-disable-next-line node/no-process-env
+  process.env.WORKFLOW_LOCAL_DATA_DIR = "./test-server/.workflow-data";
 }
 
 export async function teardown() {

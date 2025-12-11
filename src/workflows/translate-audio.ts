@@ -63,7 +63,10 @@ export interface AudioTranslationOptions extends MuxAIOptions {
 const STATIC_RENDITION_POLL_INTERVAL_MS = 5000;
 const STATIC_RENDITION_MAX_ATTEMPTS = 36; // ~3 minutes
 
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+async function sleep(ms: number): Promise<void> {
+  "use step";
+  await new Promise(resolve => setTimeout(resolve, ms));
+}
 
 function getReadyAudioStaticRendition(asset: any) {
   const files = asset.static_renditions?.files as any[] | undefined;
@@ -135,7 +138,7 @@ async function waitForAudioStaticRendition({
   }
 
   for (let attempt = 1; attempt <= STATIC_RENDITION_MAX_ATTEMPTS; attempt++) {
-    await delay(STATIC_RENDITION_POLL_INTERVAL_MS);
+    await sleep(STATIC_RENDITION_POLL_INTERVAL_MS);
     currentAsset = await mux.video.assets.retrieve(assetId);
 
     if (hasReadyAudioStaticRendition(currentAsset)) {
@@ -157,6 +160,170 @@ async function waitForAudioStaticRendition({
   throw new Error(
     "Timed out waiting for the static rendition to become ready. Please try again in a moment.",
   );
+}
+
+async function fetchAudioFromMux(audioUrl: string): Promise<ArrayBuffer> {
+  "use step";
+
+  const audioResponse = await fetch(audioUrl);
+  if (!audioResponse.ok) {
+    throw new Error(`Failed to fetch audio file: ${audioResponse.statusText}`);
+  }
+
+  return audioResponse.arrayBuffer();
+}
+
+async function createElevenLabsDubbingJob({
+  audioBuffer,
+  assetId,
+  elevenLabsLangCode,
+  elevenLabsApiKey,
+  numSpeakers,
+}: {
+  audioBuffer: ArrayBuffer;
+  assetId: string;
+  elevenLabsLangCode: string;
+  elevenLabsApiKey: string;
+  numSpeakers: number;
+}): Promise<string> {
+  "use step";
+
+  const audioBlob = new Blob([audioBuffer], { type: "audio/mp4" });
+
+  const formData = new FormData();
+  formData.append("file", audioBlob);
+  formData.append("target_lang", elevenLabsLangCode);
+  formData.append("num_speakers", numSpeakers.toString());
+  formData.append("name", `Mux Asset ${assetId} - auto to ${elevenLabsLangCode}`);
+
+  const dubbingResponse = await fetch("https://api.elevenlabs.io/v1/dubbing", {
+    method: "POST",
+    headers: {
+      "xi-api-key": elevenLabsApiKey,
+    },
+    body: formData,
+  });
+
+  if (!dubbingResponse.ok) {
+    throw new Error(`ElevenLabs API error: ${dubbingResponse.statusText}`);
+  }
+
+  const dubbingData = await dubbingResponse.json() as any;
+  return dubbingData.dubbing_id;
+}
+
+async function checkElevenLabsDubbingStatus({
+  dubbingId,
+  elevenLabsApiKey,
+}: {
+  dubbingId: string;
+  elevenLabsApiKey: string;
+}): Promise<{ status: string; targetLanguages: string[] }> {
+  "use step";
+
+  const statusResponse = await fetch(`https://api.elevenlabs.io/v1/dubbing/${dubbingId}`, {
+    headers: {
+      "xi-api-key": elevenLabsApiKey,
+    },
+  });
+
+  if (!statusResponse.ok) {
+    throw new Error(`Status check failed: ${statusResponse.statusText}`);
+  }
+
+  const statusData = await statusResponse.json() as any;
+  return {
+    status: statusData.status,
+    targetLanguages: statusData.target_languages ?? [],
+  };
+}
+
+async function downloadDubbedAudioFromElevenLabs({
+  dubbingId,
+  languageCode,
+  elevenLabsApiKey,
+}: {
+  dubbingId: string;
+  languageCode: string;
+  elevenLabsApiKey: string;
+}): Promise<ArrayBuffer> {
+  "use step";
+
+  const audioUrl = `https://api.elevenlabs.io/v1/dubbing/${dubbingId}/audio/${languageCode}`;
+  const audioResponse = await fetch(audioUrl, {
+    headers: {
+      "xi-api-key": elevenLabsApiKey,
+    },
+  });
+
+  if (!audioResponse.ok) {
+    throw new Error(`Failed to fetch dubbed audio: ${audioResponse.statusText}`);
+  }
+
+  return audioResponse.arrayBuffer();
+}
+
+async function uploadDubbedAudioToS3({
+  dubbedAudioBuffer,
+  assetId,
+  toLanguageCode,
+  s3Endpoint,
+  s3Region,
+  s3Bucket,
+  s3AccessKeyId,
+  s3SecretAccessKey,
+}: {
+  dubbedAudioBuffer: ArrayBuffer;
+  assetId: string;
+  toLanguageCode: string;
+  s3Endpoint: string;
+  s3Region: string;
+  s3Bucket: string;
+  s3AccessKeyId: string;
+  s3SecretAccessKey: string;
+}): Promise<string> {
+  "use step";
+
+  const s3Client = new S3Client({
+    region: s3Region,
+    endpoint: s3Endpoint,
+    credentials: {
+      accessKeyId: s3AccessKeyId,
+      secretAccessKey: s3SecretAccessKey,
+    },
+    forcePathStyle: true,
+  });
+
+  // Create unique key for the audio file
+  const audioKey = `audio-translations/${assetId}/auto-to-${toLanguageCode}-${Date.now()}.m4a`;
+
+  // Upload audio to S3
+  const upload = new Upload({
+    client: s3Client,
+    params: {
+      Bucket: s3Bucket,
+      Key: audioKey,
+      Body: new Uint8Array(dubbedAudioBuffer),
+      ContentType: "audio/mp4",
+    },
+  });
+
+  await upload.done();
+
+  // Generate presigned URL (valid for 1 hour)
+  const getObjectCommand = new GetObjectCommand({
+    Bucket: s3Bucket,
+    Key: audioKey,
+  });
+
+  const presignedUrl = await getSignedUrl(s3Client, getObjectCommand, {
+    expiresIn: 3600, // 1 hour
+  });
+
+  console.warn(`✅ Audio uploaded successfully to: ${audioKey}`);
+  console.warn(`🔗 Generated presigned URL (expires in 1 hour)`);
+
+  return presignedUrl;
 }
 
 async function createAudioTrackOnMux(
@@ -263,49 +430,32 @@ export async function translateAudio(
     audioUrl = await signUrl(audioUrl, playbackId, signingContext, "video");
   }
 
+  // Fetch audio from Mux
+  console.warn("🎙️ Fetching audio from Mux...");
+
+  let audioBuffer: ArrayBuffer;
+  try {
+    audioBuffer = await fetchAudioFromMux(audioUrl);
+  } catch (error) {
+    throw new Error(`Failed to fetch audio from Mux: ${error instanceof Error ? error.message : "Unknown error"}`);
+  }
+
   // Create dubbing job in ElevenLabs
   console.warn("🎙️ Creating dubbing job in ElevenLabs...");
 
+  // ElevenLabs uses ISO 639-3 (3-letter) codes, so normalize the input
+  const elevenLabsLangCode = toISO639_3(toLanguageCode);
+  console.warn(`🔍 Creating dubbing job for asset ${assetId} with language code: ${elevenLabsLangCode}`);
+
   let dubbingId: string;
-
   try {
-    // Fetch audio file and create dubbing job
-    const audioResponse = await fetch(audioUrl);
-    if (!audioResponse.ok) {
-      throw new Error(`Failed to fetch audio file: ${audioResponse.statusText}`);
-    }
-
-    const audioBuffer = await audioResponse.arrayBuffer();
-    const audioBlob = new Blob([audioBuffer], { type: "audio/mp4" });
-    const audioFile = audioBlob as any; // ElevenLabs accepts Blob
-
-    // Create dubbing job using direct HTTP request
-    // ElevenLabs uses ISO 639-3 (3-letter) codes, so normalize the input
-    const elevenLabsLangCode = toISO639_3(toLanguageCode);
-    const formData = new FormData();
-    formData.append("file", audioFile);
-    formData.append("target_lang", elevenLabsLangCode);
-    // Note: source_lang is omitted to enable automatic language detection
-    formData.append("num_speakers", numSpeakers.toString());
-    formData.append("name", `Mux Asset ${assetId} - auto to ${elevenLabsLangCode}`);
-
-    console.warn(`🔍 Creating dubbing job for asset ${assetId} with language code: ${elevenLabsLangCode}`);
-
-    const dubbingResponse = await fetch("https://api.elevenlabs.io/v1/dubbing", {
-      method: "POST",
-      headers: {
-        "xi-api-key": elevenLabsKey!,
-      },
-      body: formData,
+    dubbingId = await createElevenLabsDubbingJob({
+      audioBuffer,
+      assetId,
+      elevenLabsLangCode,
+      elevenLabsApiKey: elevenLabsKey!,
+      numSpeakers,
     });
-
-    if (!dubbingResponse.ok) {
-      throw new Error(`ElevenLabs API error: ${dubbingResponse.statusText}`);
-    }
-
-    const dubbingData = await dubbingResponse.json() as any;
-
-    dubbingId = dubbingData.dubbing_id;
     console.warn(`✅ Dubbing job created with ID: ${dubbingId}`);
   } catch (error) {
     throw new Error(`Failed to create ElevenLabs dubbing job: ${error instanceof Error ? error.message : "Unknown error"}`);
@@ -320,23 +470,16 @@ export async function translateAudio(
   let targetLanguages: string[] = [];
 
   while (dubbingStatus === "dubbing" && pollAttempts < maxPollAttempts) {
-    await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10 seconds
+    await sleep(10000); // Wait 10 seconds
     pollAttempts++;
 
     try {
-      const statusResponse = await fetch(`https://api.elevenlabs.io/v1/dubbing/${dubbingId}`, {
-        headers: {
-          "xi-api-key": elevenLabsKey!,
-        },
+      const statusResult = await checkElevenLabsDubbingStatus({
+        dubbingId,
+        elevenLabsApiKey: elevenLabsKey!,
       });
-
-      if (!statusResponse.ok) {
-        throw new Error(`Status check failed: ${statusResponse.statusText}`);
-      }
-
-      const statusData = await statusResponse.json() as any;
-      dubbingStatus = statusData.status;
-      targetLanguages = statusData.target_languages ?? [];
+      dubbingStatus = statusResult.status;
+      targetLanguages = statusResult.targetLanguages;
 
       if (dubbingStatus === "failed") {
         throw new Error("ElevenLabs dubbing job failed");
@@ -376,36 +519,29 @@ export async function translateAudio(
 
     // Find the matching language code from ElevenLabs response
     // First try exact match, then try case-insensitive match
-    let elevenLabsLangCode = targetLanguages.find(
+    let downloadLangCode = targetLanguages.find(
       lang => lang === requestedLangCode,
     ) ?? targetLanguages.find(
       lang => lang.toLowerCase() === requestedLangCode.toLowerCase(),
     );
 
     // Fallback to first available target language if no match found
-    if (!elevenLabsLangCode && targetLanguages.length > 0) {
-      elevenLabsLangCode = targetLanguages[0];
-      console.warn(`⚠️ Requested language "${requestedLangCode}" not found in target_languages. Using "${elevenLabsLangCode}" instead.`);
+    if (!downloadLangCode && targetLanguages.length > 0) {
+      downloadLangCode = targetLanguages[0];
+      console.warn(`⚠️ Requested language "${requestedLangCode}" not found in target_languages. Using "${downloadLangCode}" instead.`);
     }
 
     // If still no language code, fall back to the original behavior
-    if (!elevenLabsLangCode) {
-      elevenLabsLangCode = requestedLangCode;
+    if (!downloadLangCode) {
+      downloadLangCode = requestedLangCode;
       console.warn(`⚠️ No target_languages available from ElevenLabs status. Using requested language code: ${requestedLangCode}`);
     }
 
-    const audioUrl = `https://api.elevenlabs.io/v1/dubbing/${dubbingId}/audio/${elevenLabsLangCode}`;
-    const audioResponse = await fetch(audioUrl, {
-      headers: {
-        "xi-api-key": elevenLabsKey!,
-      },
+    dubbedAudioBuffer = await downloadDubbedAudioFromElevenLabs({
+      dubbingId,
+      languageCode: downloadLangCode,
+      elevenLabsApiKey: elevenLabsKey!,
     });
-
-    if (!audioResponse.ok) {
-      throw new Error(`Failed to fetch dubbed audio: ${audioResponse.statusText}`);
-    }
-
-    dubbedAudioBuffer = await audioResponse.arrayBuffer();
     console.warn("✅ Dubbed audio downloaded successfully!");
   } catch (error) {
     throw new Error(`Failed to download dubbed audio: ${error instanceof Error ? error.message : "Unknown error"}`);
@@ -414,47 +550,19 @@ export async function translateAudio(
   // Upload to S3-compatible storage
   console.warn("📤 Uploading dubbed audio to S3-compatible storage...");
 
-  const s3Client = new S3Client({
-    region: s3Region,
-    endpoint: s3Endpoint,
-    credentials: {
-      accessKeyId: s3AccessKeyId!,
-      secretAccessKey: s3SecretAccessKey!,
-    },
-    forcePathStyle: true,
-  });
-
-  // Create unique key for the audio file
-  const audioKey = `audio-translations/${assetId}/auto-to-${toLanguageCode}-${Date.now()}.m4a`;
-
   let presignedUrl: string;
 
   try {
-    // Upload audio to S3
-    const upload = new Upload({
-      client: s3Client,
-      params: {
-        Bucket: s3Bucket!,
-        Key: audioKey,
-        Body: new Uint8Array(dubbedAudioBuffer),
-        ContentType: "audio/mp4",
-      },
+    presignedUrl = await uploadDubbedAudioToS3({
+      dubbedAudioBuffer,
+      assetId,
+      toLanguageCode,
+      s3Endpoint: s3Endpoint!,
+      s3Region,
+      s3Bucket: s3Bucket!,
+      s3AccessKeyId: s3AccessKeyId!,
+      s3SecretAccessKey: s3SecretAccessKey!,
     });
-
-    await upload.done();
-
-    // Generate presigned URL (valid for 1 hour)
-    const getObjectCommand = new GetObjectCommand({
-      Bucket: s3Bucket!,
-      Key: audioKey,
-    });
-
-    presignedUrl = await getSignedUrl(s3Client, getObjectCommand, {
-      expiresIn: 3600, // 1 hour
-    });
-
-    console.warn(`✅ Audio uploaded successfully to: ${audioKey}`);
-    console.warn(`🔗 Generated presigned URL (expires in 1 hour)`);
   } catch (error) {
     throw new Error(`Failed to upload audio to S3: ${error instanceof Error ? error.message : "Unknown error"}`);
   }
