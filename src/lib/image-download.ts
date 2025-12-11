@@ -67,8 +67,6 @@ export async function downloadImageAsBase64(
 
   return pRetry(
     async () => {
-      "use step";
-
       attemptCount++;
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), opts.timeout);
