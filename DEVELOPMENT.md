@@ -1,6 +1,25 @@
 # Developing @mux/ai 📼 🤝 🤖
 
-This is a node SDK, published to `npm`. See the [README](./README.md) to to see the functions that are exported.
+```bash
+# Clone and install
+git clone https://github.com/muxinc/mux-ai.git
+cd mux-ai
+npm install  # Automatically sets up git hooks
+
+# Linting and type checking
+npm run lint
+npm run lint:fix
+npm run typecheck
+
+# Run tests
+npm test
+# Run the integration tests for all the workflows in a Workflow DevKit environment
+npm test:integration-workflowdevkit
+```
+
+This project uses ESLint with `@antfu/eslint-config`, TypeScript strict mode, and automated pre-commit hooks.
+
+## Workflow DevKit Compatability
 
 Also note that the functions exported in this SDK are compatible with [Workflow DevKit](https://useworkflow.dev/).
 
@@ -13,7 +32,7 @@ To keep that compatibility, we need to follow some strict guidelines.
   - This is because the input and output of each step has to be serialized, so you cannot pass in or return references to functions, instances of classes, and things like that. [See here for details on serialization](https://useworkflow.dev/docs/foundations/serialization)
 - Every top-level `"use workflow"` function MUST have an accompanying integration test
 
-**Writing Integration Tests for WorkflowDevKit**
+### Writing Integration Tests for WorkflowDevKit
 
 - Create a test file that ends in `test.workflowdevkit.ts`
 - See for example `summarization.test.workflowdevkit.ts`

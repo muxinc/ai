@@ -2,7 +2,7 @@ import { generateObject } from "ai";
 import { z } from "zod";
 
 import { createWorkflowConfig } from "../lib/client-factory";
-import type { WorkflowConfig } from "../lib/client-factory";
+import type { ValidatedCredentials } from "../lib/client-factory";
 import { getPlaybackIdForAsset } from "../lib/mux-assets";
 import { createLanguageModelFromConfig } from "../lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers";
@@ -51,6 +51,47 @@ export interface ChaptersOptions extends MuxAIOptions {
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
 
+async function generateChaptersWithAI({
+  provider,
+  modelId,
+  credentials,
+  timestampedTranscript,
+  systemPrompt,
+}: {
+  provider: SupportedProvider;
+  modelId: string;
+  credentials: ValidatedCredentials;
+  timestampedTranscript: string;
+  systemPrompt: string;
+}): Promise<ChaptersType> {
+  "use step";
+
+  const model = createLanguageModelFromConfig(
+    provider,
+    modelId,
+    credentials,
+  );
+
+  const response = await withRetry(() =>
+    generateObject({
+      model,
+      schema: chaptersSchema,
+      messages: [
+        {
+          role: "system",
+          content: systemPrompt,
+        },
+        {
+          role: "user",
+          content: timestampedTranscript,
+        },
+      ],
+    }),
+  );
+
+  return response.object;
+}
+
 const SYSTEM_PROMPT = `Your role is to segment the following captions into chunked chapters, summarising each chapter with a title.
 
 Analyze the transcript and create logical chapter breaks based on topic changes, major transitions, or distinct sections of content. Each chapter should represent a meaningful segment of the video.
@@ -78,7 +119,7 @@ export async function generateChapters(
   options: ChaptersOptions = {},
 ): Promise<ChaptersResult> {
   "use workflow";
-  const { provider = "openai", model, abortSignal } = options;
+  const { provider = "openai", model } = options;
 
   // Validate credentials and resolve language model
   const config = await createWorkflowConfig({ ...options, model }, provider as SupportedProvider);
@@ -117,49 +158,16 @@ export async function generateChapters(
   }
 
   // Generate chapters using AI SDK
-  const generateChaptersStep = async (
-    workflowConfig: WorkflowConfig,
-    timestampedTranscript: string,
-    systemPrompt: string,
-    abortSignal?: AbortSignal,
-  ) => {
-    "use step";
-    const model = createLanguageModelFromConfig(
-      workflowConfig.provider,
-      workflowConfig.modelId,
-      workflowConfig.credentials,
-    );
-
-    return await withRetry(() =>
-      generateObject({
-        model,
-        schema: chaptersSchema,
-        abortSignal,
-        messages: [
-          {
-            role: "system",
-            content: systemPrompt,
-          },
-          {
-            role: "user",
-            content: timestampedTranscript,
-          },
-        ],
-      }),
-    );
-  };
-
-  let chaptersData: { chapters: Chapter[] } | null = null;
+  let chaptersData: ChaptersType | null = null;
 
   try {
-    const response = await generateChaptersStep(
-      config,
+    chaptersData = await generateChaptersWithAI({
+      provider: config.provider,
+      modelId: config.modelId,
+      credentials: config.credentials,
       timestampedTranscript,
-      SYSTEM_PROMPT,
-      abortSignal,
-    );
-
-    chaptersData = response.object;
+      systemPrompt: SYSTEM_PROMPT,
+    });
   } catch (error) {
     throw new Error(
       `Failed to generate chapters with ${provider}: ${error instanceof Error ? error.message : "Unknown error"}`,

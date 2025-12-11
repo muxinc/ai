@@ -3,7 +3,7 @@ import dedent from "dedent";
 import { z } from "zod";
 
 import { createWorkflowConfig } from "../lib/client-factory";
-import type { WorkflowConfig } from "../lib/client-factory";
+import type { ValidatedCredentials } from "../lib/client-factory";
 import type { ImageDownloadOptions } from "../lib/image-download";
 import { downloadImageAsBase64 } from "../lib/image-download";
 import { getPlaybackIdForAsset } from "../lib/mux-assets";
@@ -180,6 +180,75 @@ function buildUserPrompt(promptOverrides?: BurnedInCaptionsPromptOverrides): str
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
 
+interface AnalysisResponse {
+  result: BurnedInCaptionsAnalysis;
+  usage: TokenUsage;
+}
+
+async function fetchImageAsBase64(
+  imageUrl: string,
+  imageDownloadOptions?: ImageDownloadOptions,
+): Promise<string> {
+  "use step";
+
+  const downloadResult = await downloadImageAsBase64(imageUrl, imageDownloadOptions);
+  return downloadResult.base64Data;
+}
+
+async function analyzeStoryboard({
+  imageDataUrl,
+  provider,
+  modelId,
+  credentials,
+  userPrompt,
+  systemPrompt,
+}: {
+  imageDataUrl: string;
+  provider: SupportedProvider;
+  modelId: string;
+  credentials: ValidatedCredentials;
+  userPrompt: string;
+  systemPrompt: string;
+}): Promise<AnalysisResponse> {
+  "use step";
+
+  const model = createLanguageModelFromConfig(
+    provider,
+    modelId,
+    credentials,
+  );
+
+  const response = await generateObject({
+    model,
+    schema: burnedInCaptionsSchema,
+    experimental_telemetry: { isEnabled: true },
+    messages: [
+      {
+        role: "system",
+        content: systemPrompt,
+      },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: userPrompt },
+          { type: "image", image: imageDataUrl },
+        ],
+      },
+    ],
+  });
+
+  return {
+    result: response.object,
+    usage: {
+      inputTokens: response.usage.inputTokens,
+      outputTokens: response.usage.outputTokens,
+      totalTokens: response.usage.totalTokens,
+      reasoningTokens: response.usage.reasoningTokens,
+      cachedInputTokens: response.usage.cachedInputTokens,
+    },
+  };
+}
+
 export async function hasBurnedInCaptions(
   assetId: string,
   options: BurnedInCaptionsOptions = {},
@@ -214,76 +283,27 @@ export async function hasBurnedInCaptions(
 
   const imageUrl = await getStoryboardUrl(playbackId, 640, policy === "signed" ? signingContext : undefined);
 
-  interface AnalysisResponse {
-    result: BurnedInCaptionsAnalysis;
-    usage: TokenUsage;
-  }
-
-  const analyzeStoryboard = async (
-    imageDataUrl: string,
-    config: WorkflowConfig,
-    userPrompt: string,
-    systemPrompt: string,
-    abortSignal?: AbortSignal,
-  ): Promise<AnalysisResponse> => {
-    "use step";
-    const model = createLanguageModelFromConfig(
-      config.provider,
-      config.modelId,
-      config.credentials,
-    );
-
-    const response = await generateObject({
-      model,
-      schema: burnedInCaptionsSchema,
-      abortSignal,
-      experimental_telemetry: { isEnabled: true },
-      messages: [
-        {
-          role: "system",
-          content: systemPrompt,
-        },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: userPrompt },
-            { type: "image", image: imageDataUrl },
-          ],
-        },
-      ],
-    });
-
-    return {
-      result: response.object,
-      usage: {
-        inputTokens: response.usage.inputTokens,
-        outputTokens: response.usage.outputTokens,
-        totalTokens: response.usage.totalTokens,
-        reasoningTokens: response.usage.reasoningTokens,
-        cachedInputTokens: response.usage.cachedInputTokens,
-      },
-    };
-  };
-
   let analysisResponse: AnalysisResponse;
 
   if (imageSubmissionMode === "base64") {
-    const downloadResult = await downloadImageAsBase64(imageUrl, imageDownloadOptions);
-    analysisResponse = await analyzeStoryboard(
-      downloadResult.base64Data,
-      workflowConfig,
+    const base64Data = await fetchImageAsBase64(imageUrl, imageDownloadOptions);
+    analysisResponse = await analyzeStoryboard({
+      imageDataUrl: base64Data,
+      provider: workflowConfig.provider,
+      modelId: workflowConfig.modelId,
+      credentials: workflowConfig.credentials,
       userPrompt,
-      SYSTEM_PROMPT,
-      options.abortSignal,
-    );
+      systemPrompt: SYSTEM_PROMPT,
+    });
   } else {
-    analysisResponse = await analyzeStoryboard(
-      imageUrl,
-      workflowConfig,
+    analysisResponse = await analyzeStoryboard({
+      imageDataUrl: imageUrl,
+      provider: workflowConfig.provider,
+      modelId: workflowConfig.modelId,
+      credentials: workflowConfig.credentials,
       userPrompt,
-      SYSTEM_PROMPT,
-      options.abortSignal,
-    );
+      systemPrompt: SYSTEM_PROMPT,
+    });
   }
 
   if (!analysisResponse.result) {
