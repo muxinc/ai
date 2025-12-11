@@ -39,6 +39,13 @@ export interface EmbeddingsOptions extends MuxAIOptions {
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
 
+const DEFAULT_CHUNKING_STRATEGY: ChunkingStrategy = {
+  type: "token",
+  maxTokens: 500,
+  overlap: 100,
+};
+const DEFAULT_BATCH_SIZE = 5;
+
 /**
  * Averages multiple embedding vectors into a single vector.
  *
@@ -141,8 +148,8 @@ export async function generateVideoEmbeddings(
     provider = "openai",
     model,
     languageCode,
-    chunkingStrategy = { type: "token", maxTokens: 500, overlap: 100 } as ChunkingStrategy,
-    batchSize = 5,
+    chunkingStrategy = DEFAULT_CHUNKING_STRATEGY,
+    batchSize = DEFAULT_BATCH_SIZE,
   } = options;
 
   // Validate credentials
