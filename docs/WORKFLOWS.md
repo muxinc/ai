@@ -339,7 +339,7 @@ import { getSummaryAndTags } from "@mux/ai/workflows";
 
 const assetId = "your-mux-asset-id";
 
-// OpenAI analysis (default: gpt-5-mini)
+// OpenAI analysis (default: gpt-5.1)
 const openaiResult = await getSummaryAndTags(assetId, {
   provider: "openai",
   tone: "professional"
@@ -368,7 +368,7 @@ Works with any workflow:
 ```typescript
 import { generateChapters } from "@mux/ai/workflows";
 
-// OpenAI (default: gpt-5-mini)
+// OpenAI (default: gpt-5.1)
 const openaiChapters = await generateChapters(assetId, "en", {
   provider: "openai"
 });
@@ -394,7 +394,7 @@ import { getSummaryAndTags } from "@mux/ai/workflows";
 // Use a more powerful model
 const result = await getSummaryAndTags(assetId, {
   provider: "openai",
-  model: "gpt-4o" // Instead of default gpt-5-mini
+  model: "gpt-4o" // Instead of default gpt-5.1
 });
 
 // Use a faster/cheaper model
@@ -404,4 +404,4 @@ const fastResult = await getSummaryAndTags(assetId, {
 });
 ```
 
-**Cost Optimization Tip:** The defaults (`gpt-5-mini`, `claude-sonnet-4-5`, `gemini-2.5-flash`) are optimized for cost/quality balance. Only upgrade to more powerful models when quality needs justify the higher cost.
+**Cost Optimization Tip:** The defaults (`gpt-5.1`, `claude-sonnet-4-5`, `gemini-2.5-flash`) are optimized for cost/quality balance. Only upgrade to more powerful models when quality needs justify the higher cost.
