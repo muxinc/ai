@@ -2,7 +2,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 
-import env from "../env";
+import env from "../env.ts";
 import type { MuxAIOptions } from "../types";
 
 import type { EmbeddingModel, LanguageModel } from "ai";

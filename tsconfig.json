@@ -13,6 +13,7 @@
       "@mux/ai/types": ["src/types.ts"]
     },
     "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
     "strict": true,
     "declaration": true,
     "declarationMap": true,
@@ -27,9 +28,6 @@
       "module": "CommonJS",
       "moduleResolution": "node"
     }
-  },
-  "tsc-alias": {
-    "resolveFullPaths": true
   },
   "include": [
     "src/**/*"
