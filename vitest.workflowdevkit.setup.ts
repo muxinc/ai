@@ -3,6 +3,8 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import type { ChildProcess } from "node:child_process";
 
+import "dotenv/config";
+
 let nitroServer: ChildProcess | null = null;
 
 const PORT = "4000";
@@ -11,11 +13,13 @@ export async function setup() {
   // eslint-disable-next-line no-console
   console.log("Starting Nitro server for workflow execution...");
 
-  // Start nitro dev server
+  // Start nitro dev server with inherited environment variables
   nitroServer = spawn("npx", ["nitro", "dev", "--port", PORT], {
     stdio: "pipe",
     detached: false,
     cwd: "test_server",
+    // eslint-disable-next-line node/no-process-env
+    env: process.env,
   });
 
   // Use a promise to wait for server readiness

@@ -13,6 +13,7 @@
       "@mux/ai/types": ["src/types.ts"]
     },
     "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
     "strict": true,
     "declaration": true,
     "declarationMap": true,
@@ -20,8 +21,7 @@
     "sourceMap": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
-    "skipLibCheck": true,
-    "allowImportingTsExtensions": true
+    "skipLibCheck": true
   },
   "ts-node": {
     "compilerOptions": {
