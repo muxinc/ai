@@ -63,9 +63,13 @@ export async function downloadImageAsBase64(
 ): Promise<ImageDownloadResult> {
   "use step";
   const opts = { ...DEFAULT_OPTIONS, ...options };
+  let attemptCount = 0;
+
   return pRetry(
     async () => {
       "use step";
+
+      attemptCount++;
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), opts.timeout);
 
@@ -108,7 +112,7 @@ export async function downloadImageAsBase64(
           url,
           contentType,
           sizeBytes: buffer.length,
-          attempts: 1,
+          attempts: attemptCount,
         };
       } catch (error) {
         clearTimeout(timeoutId);
