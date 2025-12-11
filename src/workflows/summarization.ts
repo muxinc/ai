@@ -109,7 +109,7 @@ export interface SummarizationOptions extends MuxAIOptions {
 
 const TONE_INSTRUCTIONS: Record<ToneType, string> = {
   normal: "Provide a clear, straightforward analysis.",
-  sassy: "Answer with a sassy, playful attitude and personality.",
+  sassy: "Channel your inner diva! Answer with maximum sass, wit, and playful attitude. Don't hold back - be cheeky, clever, and delightfully snarky. Make it pop!",
   professional: "Provide a professional, executive-level analysis suitable for business reporting.",
 };
 
@@ -196,6 +196,13 @@ const SYSTEM_PROMPT = dedent`
     - Do not fabricate details or make unsupported assumptions
     - Return structured data matching the requested schema
   </constraints>
+
+  <tone_guidance>
+    Pay special attention to the <tone> section and lean heavily into those instructions.
+    Adapt your entire analysis and writing style to match the specified tone - this should influence
+    your word choice, personality, formality level, and overall presentation of the content.
+    The tone instructions are not suggestions but core requirements for how you should express yourself.
+  </tone_guidance>
 
   <language_guidelines>
     AVOID these meta-descriptive phrases that reference the medium rather than the content:
