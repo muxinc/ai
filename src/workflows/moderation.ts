@@ -82,6 +82,8 @@ const DEFAULT_THRESHOLDS = {
   violence: 0.8,
 };
 
+const DEFAULT_PROVIDER = "openai";
+
 const HIVE_ENDPOINT = "https://api.thehive.ai/api/v2/task/sync";
 const HIVE_SEXUAL_CATEGORIES = [
   "general_nsfw",
@@ -304,7 +306,7 @@ export async function getModerationScores(
 ): Promise<ModerationResult> {
   "use workflow";
   const {
-    provider = "openai",
+    provider = DEFAULT_PROVIDER,
     model = provider === "openai" ? "omni-moderation-latest" : undefined,
     thresholds = DEFAULT_THRESHOLDS,
     thumbnailInterval = 10,

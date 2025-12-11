@@ -67,7 +67,14 @@ function averageEmbeddings(embeddings: number[][]): number[] {
 }
 
 /**
- * Generates embedding for a single chunk.
+ * Generates embedding for a single text chunk using the specified AI provider.
+ *
+ * @param options - Configuration object
+ * @param options.chunk - Text chunk to embed
+ * @param options.provider - AI provider for embedding generation
+ * @param options.modelId - Provider-specific model identifier
+ * @param options.credentials - Validated API credentials
+ * @returns Chunk embedding with metadata
  */
 async function generateSingleChunkEmbedding({
   chunk,
