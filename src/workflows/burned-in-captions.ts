@@ -179,6 +179,7 @@ function buildUserPrompt(promptOverrides?: BurnedInCaptionsPromptOverrides): str
 // ─────────────────────────────────────────────────────────────────────────────
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
+const DEFAULT_PROVIDER = "openai";
 
 interface AnalysisResponse {
   result: BurnedInCaptionsAnalysis;
@@ -255,7 +256,7 @@ export async function hasBurnedInCaptions(
 ): Promise<BurnedInCaptionsResult> {
   "use workflow";
   const {
-    provider = "openai",
+    provider = DEFAULT_PROVIDER,
     model,
     imageSubmissionMode = "url",
     imageDownloadOptions,
