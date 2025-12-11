@@ -39,13 +39,6 @@ export interface EmbeddingsOptions extends MuxAIOptions {
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
 
-const DEFAULT_CHUNKING_STRATEGY: ChunkingStrategy = {
-  type: "token",
-  maxTokens: 500,
-  overlap: 100,
-};
-const DEFAULT_BATCH_SIZE = 5;
-
 /**
  * Averages multiple embedding vectors into a single vector.
  *
@@ -74,59 +67,38 @@ function averageEmbeddings(embeddings: number[][]): number[] {
 }
 
 /**
- * Generates embeddings for chunks of a video transcript in batches.
- *
- * @param chunks - Text chunks to embed
- * @param provider - Embedding provider name
- * @param modelId - Model identifier
- * @param credentials - API credentials
- * @param batchSize - Number of chunks to process concurrently
- * @param abortSignal - Optional abort signal
- * @returns Array of chunk embeddings
+ * Generates embedding for a single chunk.
  */
-async function generateChunkEmbeddings(
-  chunks: TextChunk[],
-  provider: SupportedEmbeddingProvider,
-  modelId: string,
-  credentials: ValidatedCredentials,
-  batchSize: number,
-  abortSignal?: AbortSignal,
-): Promise<ChunkEmbedding[]> {
+async function generateSingleChunkEmbedding({
+  chunk,
+  provider,
+  modelId,
+  credentials,
+}: {
+  chunk: TextChunk;
+  provider: SupportedEmbeddingProvider;
+  modelId: string;
+  credentials: ValidatedCredentials;
+}): Promise<ChunkEmbedding> {
   "use step";
+
   const model = createEmbeddingModelFromConfig(provider, modelId, credentials);
-  const results: ChunkEmbedding[] = [];
+  const response = await withRetry(() =>
+    embed({
+      model,
+      value: chunk.text,
+    }),
+  );
 
-  // Process chunks in batches
-  for (let i = 0; i < chunks.length; i += batchSize) {
-    const batch = chunks.slice(i, i + batchSize);
-
-    const batchResults = await Promise.all(
-      batch.map(async (chunk) => {
-        "use step";
-        const response = await withRetry(() =>
-          embed({
-            model,
-            value: chunk.text,
-            abortSignal,
-          }),
-        );
-
-        return {
-          chunkId: chunk.id,
-          embedding: response.embedding,
-          metadata: {
-            startTime: chunk.startTime,
-            endTime: chunk.endTime,
-            tokenCount: chunk.tokenCount,
-          },
-        };
-      }),
-    );
-
-    results.push(...batchResults);
-  }
-
-  return results;
+  return {
+    chunkId: chunk.id,
+    embedding: response.embedding,
+    metadata: {
+      startTime: chunk.startTime,
+      endTime: chunk.endTime,
+      tokenCount: chunk.tokenCount,
+    },
+  };
 }
 
 /**
@@ -169,9 +141,8 @@ export async function generateVideoEmbeddings(
     provider = "openai",
     model,
     languageCode,
-    chunkingStrategy = DEFAULT_CHUNKING_STRATEGY,
-    batchSize = DEFAULT_BATCH_SIZE,
-    abortSignal,
+    chunkingStrategy = { type: "token", maxTokens: 500, overlap: 100 } as ChunkingStrategy,
+    batchSize = 5,
   } = options;
 
   // Validate credentials
@@ -228,17 +199,25 @@ export async function generateVideoEmbeddings(
     throw new Error("No chunks generated from transcript");
   }
 
-  // Generate embeddings for all chunks
-  let chunkEmbeddings: ChunkEmbedding[];
+  // Generate embeddings for all chunks (process in batches)
+  const chunkEmbeddings: ChunkEmbedding[] = [];
   try {
-    chunkEmbeddings = await generateChunkEmbeddings(
-      chunks,
-      embeddingModel.provider,
-      embeddingModel.modelId as string,
-      credentials,
-      batchSize,
-      abortSignal,
-    );
+    for (let i = 0; i < chunks.length; i += batchSize) {
+      const batch = chunks.slice(i, i + batchSize);
+
+      const batchResults = await Promise.all(
+        batch.map(chunk =>
+          generateSingleChunkEmbedding({
+            chunk,
+            provider: embeddingModel.provider,
+            modelId: embeddingModel.modelId as string,
+            credentials,
+          }),
+        ),
+      );
+
+      chunkEmbeddings.push(...batchResults);
+    }
   } catch (error) {
     throw new Error(
       `Failed to generate embeddings with ${provider}: ${error instanceof Error ? error.message : "Unknown error"}`,
