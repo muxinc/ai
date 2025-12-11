@@ -1,5 +1,6 @@
 {
   "name": "@mux/ai",
+  "type": "module",
   "version": "0.1.6",
   "description": "AI library for Mux",
   "author": "Mux",
@@ -39,31 +40,25 @@
   "exports": {
     ".": {
       "types": {
-        "import": "./dist/index.d.mts",
-        "require": "./dist/index.d.ts"
+        "import": "./dist/index.d.ts"
       },
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.js"
+      "import": "./dist/index.js"
     },
     "./primitives": {
       "types": {
-        "import": "./dist/primitives/index.d.mts",
-        "require": "./dist/primitives/index.d.ts"
+        "import": "./dist/primitives/index.d.ts"
       },
-      "import": "./dist/primitives/index.mjs",
-      "require": "./dist/primitives/index.js"
+      "import": "./dist/primitives/index.js"
     },
     "./workflows": {
       "types": {
-        "import": "./dist/workflows/index.d.mts",
-        "require": "./dist/workflows/index.d.ts"
+        "import": "./dist/workflows/index.d.ts"
       },
-      "import": "./dist/workflows/index.mjs",
-      "require": "./dist/workflows/index.js"
+      "import": "./dist/workflows/index.js"
     }
   },
   "main": "./dist/index.js",
-  "module": "./dist/index.mjs",
+  "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [
     "dist"
