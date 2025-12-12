@@ -255,7 +255,7 @@ S3_ACCESS_KEY_ID=your-access-key
 S3_SECRET_ACCESS_KEY=your-secret-key
 ```
 
-> **⚠️ Important:** For security reasons of possible use cases, we do not allow passing any credentials or other secure values via workflow options, including `S3_ACCESS_KEY_ID` or `S3_SECRET_ACCESS_KEY`
+> **⚠️ Important:** Currently, the only way to set secrets is as ENV vars. The reason for this is to avoid leaking secrets into Workflow DevKit observability tooling. `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` are considered secrets. The other values for S3: `S3_ENDPOINT`, `S3_REGION` and `S3_BUCKET` are not considered secrets. They can be passed in explicitly at runtime.
 
 
 **Why S3 Storage?**
