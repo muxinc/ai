@@ -3,7 +3,6 @@ import dedent from "dedent";
 import { z } from "zod";
 
 import { createWorkflowConfig } from "../lib/client-factory";
-import type { ValidatedCredentials } from "../lib/client-factory";
 import type { ImageDownloadOptions } from "../lib/image-download";
 import { downloadImageAsBase64 } from "../lib/image-download";
 import { getPlaybackIdForAsset } from "../lib/mux-assets";
@@ -11,7 +10,7 @@ import type { PromptOverrides } from "../lib/prompt-builder";
 import { createPromptBuilder } from "../lib/prompt-builder";
 import { createLanguageModelFromConfig } from "../lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers";
-import { resolveSigningContext } from "../lib/url-signing";
+import { getMuxSigningContextFromEnv } from "../lib/url-signing";
 import { getStoryboardUrl } from "../primitives/storyboards";
 import type { ImageSubmissionMode, MuxAIOptions, TokenUsage } from "../types";
 
@@ -200,24 +199,18 @@ async function analyzeStoryboard({
   imageDataUrl,
   provider,
   modelId,
-  credentials,
   userPrompt,
   systemPrompt,
 }: {
   imageDataUrl: string;
   provider: SupportedProvider;
   modelId: string;
-  credentials: ValidatedCredentials;
   userPrompt: string;
   systemPrompt: string;
 }): Promise<AnalysisResponse> {
   "use step";
 
-  const model = createLanguageModelFromConfig(
-    provider,
-    modelId,
-    credentials,
-  );
+  const model = createLanguageModelFromConfig(provider, modelId);
 
   const response = await generateObject({
     model,
@@ -271,10 +264,10 @@ export async function hasBurnedInCaptions(
     { ...config, model },
     provider as SupportedProvider,
   );
-  const { playbackId, policy } = await getPlaybackIdForAsset(workflowConfig.credentials, assetId);
+  const { playbackId, policy } = await getPlaybackIdForAsset(assetId);
 
   // Resolve signing context for signed playback IDs
-  const signingContext = await resolveSigningContext(options);
+  const signingContext = getMuxSigningContextFromEnv();
   if (policy === "signed" && !signingContext) {
     throw new Error(
       "Signed playback ID requires signing credentials. " +
@@ -292,7 +285,6 @@ export async function hasBurnedInCaptions(
       imageDataUrl: base64Data,
       provider: workflowConfig.provider,
       modelId: workflowConfig.modelId,
-      credentials: workflowConfig.credentials,
       userPrompt,
       systemPrompt: SYSTEM_PROMPT,
     });
@@ -301,7 +293,6 @@ export async function hasBurnedInCaptions(
       imageDataUrl: imageUrl,
       provider: workflowConfig.provider,
       modelId: workflowConfig.modelId,
-      credentials: workflowConfig.credentials,
       userPrompt,
       systemPrompt: SYSTEM_PROMPT,
     });

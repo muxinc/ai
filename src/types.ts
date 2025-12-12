@@ -1,32 +1,9 @@
 import type Mux from "@mux/mux-node";
 
 /**
- * Shared credential bag for every workflow. Each property falls back to the
- * corresponding environment variable when omitted.
- */
-export interface MuxAIConfig {
-  /** Override for the MUX_TOKEN_ID environment variable. */
-  muxTokenId?: string;
-  /** Override for the MUX_TOKEN_SECRET environment variable. */
-  muxTokenSecret?: string;
-  /** Mux signing key ID for signed playback IDs (defaults to the MUX_SIGNING_KEY environment variable). */
-  muxSigningKey?: string;
-  /** Mux signing key private key for signed playback IDs (defaults to the MUX_PRIVATE_KEY environment variable). */
-  muxPrivateKey?: string;
-  /** OpenAI API key (defaults to the OPENAI_API_KEY environment variable). */
-  openaiApiKey?: string;
-  /** Anthropic API key (defaults to the ANTHROPIC_API_KEY environment variable). */
-  anthropicApiKey?: string;
-  /** Google Generative AI API key (defaults to the GOOGLE_GENERATIVE_AI_API_KEY environment variable). */
-  googleApiKey?: string;
-  /** Hive Visual Moderation API key (defaults to the HIVE_API_KEY environment variable). */
-  hiveApiKey?: string;
-}
-
-/**
  * Base options mixed into every higher-level workflow configuration.
  */
-export interface MuxAIOptions extends MuxAIConfig {
+export interface MuxAIOptions {
   /** Optional timeout (ms) for helper utilities that support request limits. */
   timeout?: number;
   /**

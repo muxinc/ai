@@ -1,7 +1,6 @@
 import Mux from "@mux/mux-node";
 
 import env from "../env";
-import type { MuxAIConfig } from "../types";
 
 /**
  * Context required to sign URLs for signed playback IDs.
@@ -24,10 +23,9 @@ export type TokenType = "video" | "thumbnail" | "storyboard" | "gif";
  * Resolves signing context from config or environment variables.
  * Returns undefined if signing keys are not configured.
  */
-export async function resolveSigningContext(config: MuxAIConfig): Promise<SigningContext | undefined> {
-  "use step";
-  const keyId = config.muxSigningKey ?? env.MUX_SIGNING_KEY;
-  const keySecret = config.muxPrivateKey ?? env.MUX_PRIVATE_KEY;
+export function getMuxSigningContextFromEnv(): SigningContext | undefined {
+  const keyId = env.MUX_SIGNING_KEY;
+  const keySecret = env.MUX_PRIVATE_KEY;
 
   if (!keyId || !keySecret) {
     return undefined;

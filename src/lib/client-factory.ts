@@ -1,19 +1,60 @@
-import env from "../env";
+import env from "../env.ts";
 
 import type {
   ModelRequestOptions,
   SupportedProvider,
-} from "./providers";
+} from "./providers.ts";
 import {
   resolveLanguageModel,
-} from "./providers";
+} from "./providers.ts";
 
-export interface ClientCredentials {
-  muxTokenId?: string;
-  muxTokenSecret?: string;
-  openaiApiKey?: string;
-  anthropicApiKey?: string;
-  googleApiKey?: string;
+/**
+ * Gets Mux credentials from environment variables.
+ * Used internally by workflow steps to avoid passing credentials through step I/O.
+ * Throws if credentials are not available.
+ */
+export function getMuxCredentialsFromEnv(): { muxTokenId: string; muxTokenSecret: string } {
+  const muxTokenId = env.MUX_TOKEN_ID;
+  const muxTokenSecret = env.MUX_TOKEN_SECRET;
+
+  if (!muxTokenId || !muxTokenSecret) {
+    throw new Error(
+      "Mux credentials are required. Set MUX_TOKEN_ID and MUX_TOKEN_SECRET environment variables.",
+    );
+  }
+
+  return { muxTokenId, muxTokenSecret };
+}
+
+/**
+ * Gets an API key from environment variables for the specified provider.
+ * Used internally by workflow steps to avoid passing credentials through step I/O.
+ * Throws if the API key is not available.
+ */
+export function getApiKeyFromEnv(provider: "openai" | "anthropic" | "google" | "hive" | "elevenlabs"): string {
+  const envVarMap: Record<string, string | undefined> = {
+    openai: env.OPENAI_API_KEY,
+    anthropic: env.ANTHROPIC_API_KEY,
+    google: env.GOOGLE_GENERATIVE_AI_API_KEY,
+    hive: env.HIVE_API_KEY,
+    elevenlabs: env.ELEVENLABS_API_KEY,
+  };
+
+  const apiKey = envVarMap[provider];
+  if (!apiKey) {
+    const envVarNames: Record<string, string> = {
+      openai: "OPENAI_API_KEY",
+      anthropic: "ANTHROPIC_API_KEY",
+      google: "GOOGLE_GENERATIVE_AI_API_KEY",
+      hive: "HIVE_API_KEY",
+      elevenlabs: "ELEVENLABS_API_KEY",
+    };
+    throw new Error(
+      `${provider} API key is required. Set ${envVarNames[provider]} environment variable.`,
+    );
+  }
+
+  return apiKey;
 }
 
 export interface ValidatedCredentials {
@@ -25,19 +66,17 @@ export interface ValidatedCredentials {
 }
 
 /**
- * Validates and retrieves credentials from options or environment variables
+ * Validates and retrieves credentials from options or environment variables.
+ * This function is NOT a workflow step to avoid exposing credentials in step I/O.
  */
 export async function validateCredentials(
-  options: ClientCredentials,
   requiredProvider?: SupportedProvider,
 ): Promise<ValidatedCredentials> {
-  "use step";
-  const muxTokenId = options.muxTokenId ?? env.MUX_TOKEN_ID;
-  const muxTokenSecret = options.muxTokenSecret ?? env.MUX_TOKEN_SECRET;
-  const openaiApiKey = options.openaiApiKey ?? env.OPENAI_API_KEY;
-  const anthropicApiKey = options.anthropicApiKey ?? env.ANTHROPIC_API_KEY;
-  const googleApiKey =
-    options.googleApiKey ?? env.GOOGLE_GENERATIVE_AI_API_KEY;
+  const muxTokenId = env.MUX_TOKEN_ID;
+  const muxTokenSecret = env.MUX_TOKEN_SECRET;
+  const openaiApiKey = env.OPENAI_API_KEY;
+  const anthropicApiKey = env.ANTHROPIC_API_KEY;
+  const googleApiKey = env.GOOGLE_GENERATIVE_AI_API_KEY;
 
   if (!muxTokenId || !muxTokenSecret) {
     throw new Error(
@@ -72,23 +111,22 @@ export async function validateCredentials(
   };
 }
 
-/**
- * Validates credentials and resolves model configuration for a workflow.
- * Returns only serializable data suitable for passing to workflow steps.
- */
 export interface WorkflowConfig {
   credentials: ValidatedCredentials;
   provider: SupportedProvider;
   modelId: string;
 }
 
+/**
+ * Validates credentials and resolves model configuration for a workflow.
+ * This function is NOT a workflow step to avoid exposing credentials in step I/O.
+ */
 export async function createWorkflowConfig(
   options: ModelRequestOptions,
   provider?: SupportedProvider,
 ): Promise<WorkflowConfig> {
-  "use step";
   const providerToUse = provider || options.provider || "openai";
-  const credentials = await validateCredentials(options, providerToUse);
+  const credentials = await validateCredentials(providerToUse);
   const resolved = resolveLanguageModel({
     ...options,
     provider: providerToUse,

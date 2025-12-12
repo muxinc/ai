@@ -29,13 +29,6 @@ Analyzes a Mux video asset and returns AI-generated metadata.
   - `description?: string` - Override description generation guidance
   - `keywords?: string` - Override keywords generation guidance
   - `qualityGuidelines?: string` - Override quality guidelines
-- `muxTokenId?: string` - Mux API token ID
-- `muxTokenSecret?: string` - Mux API token secret
-- `muxSigningKey?: string` - Signing key ID for signed playback policies
-- `muxPrivateKey?: string` - Base64-encoded private key for signed playback policies
-- `openaiApiKey?: string` - OpenAI API key
-- `anthropicApiKey?: string` - Anthropic API key
-- `googleApiKey?: string` - Google Generative AI API key
 
 **Returns:**
 
@@ -73,7 +66,6 @@ Analyzes video thumbnails for inappropriate content using OpenAI's Moderation AP
   - `retryDelay?: number` - Base delay between retries in milliseconds (default: 1000)
   - `maxRetryDelay?: number` - Maximum delay between retries in milliseconds (default: 10000)
   - `exponentialBackoff?: boolean` - Whether to use exponential backoff (default: true)
-- `muxTokenId/muxTokenSecret?: string` - Mux credentials
 - `openaiApiKey?/hiveApiKey?` - Provider credentials
 
 **Returns:**
@@ -119,11 +111,6 @@ Analyzes video frames to detect burned-in captions (hardcoded subtitles) that ar
   - `retryDelay?: number` - Base delay between retries in milliseconds (default: 1000)
   - `maxRetryDelay?: number` - Maximum delay between retries in milliseconds (default: 10000)
   - `exponentialBackoff?: boolean` - Whether to use exponential backoff (default: true)
-- `muxTokenId?: string` - Mux API token ID
-- `muxTokenSecret?: string` - Mux API token secret
-- `openaiApiKey?: string` - OpenAI API key
-- `anthropicApiKey?: string` - Anthropic API key
-- `googleApiKey?: string` - Google Generative AI API key
 
 **Returns:**
 
@@ -164,10 +151,6 @@ Translates existing captions from one language to another and optionally adds th
 - `s3Endpoint?: string` - S3-compatible storage endpoint
 - `s3Region?: string` - S3 region (default: 'auto')
 - `s3Bucket?: string` - S3 bucket name
-- `s3AccessKeyId?: string` - S3 access key ID
-- `s3SecretAccessKey?: string` - S3 secret access key
-- `muxTokenId/muxTokenSecret?: string` - Mux credentials
-- `openaiApiKey?/anthropicApiKey?/googleApiKey?` - Provider credentials
 
 **Returns:**
 
@@ -200,11 +183,6 @@ Generates AI-powered chapter markers by analyzing video captions. Creates logica
 
 - `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
 - `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, or `gemini-2.5-flash`)
-- `muxTokenId?: string` - Mux API token ID
-- `muxTokenSecret?: string` - Mux API token secret
-- `openaiApiKey?: string` - OpenAI API key
-- `anthropicApiKey?: string` - Anthropic API key
-- `googleApiKey?: string` - Google Generative AI API key
 
 **Returns:**
 
@@ -254,10 +232,6 @@ Creates AI-dubbed audio tracks from existing video content using ElevenLabs voic
 - `s3Endpoint?: string` - S3-compatible storage endpoint
 - `s3Region?: string` - S3 region (default: 'auto')
 - `s3Bucket?: string` - S3 bucket name
-- `s3AccessKeyId?: string` - S3 access key ID
-- `s3SecretAccessKey?: string` - S3 secret access key
-- `elevenLabsApiKey?: string` - ElevenLabs API key
-- `muxTokenId/muxTokenSecret?: string` - API credentials
 
 **Returns:**
 
@@ -299,10 +273,6 @@ Generate vector embeddings for video transcript chunks for semantic video search
   - `overlap?: number` - Token overlap between chunks (for type: 'token', default: 100)
   - `overlapCues?: number` - VTT cue overlap between chunks (for type: 'vtt', default: 2)
 - `languageCode?: string` - Language code for transcript (default: 'en')
-- `muxTokenId?: string` - Mux API token ID
-- `muxTokenSecret?: string` - Mux API token secret
-- `openaiApiKey?: string` - OpenAI API key
-- `googleApiKey?: string` - Google Generative AI API key
 
 **Returns:**
 

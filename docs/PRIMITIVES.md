@@ -52,7 +52,7 @@ console.log(result.track); // Mux track metadata
 
 - `languageCode?: string` - Language code (defaults to first available track)
 - `cleanTranscript?: boolean` - Remove VTT timestamps and formatting (default: true)
-- `signingContext?: SigningContext` - For signed playback policies
+- `shouldSign?: boolean` - For signed playback policies
 
 ### `extractTextFromVTT(vttContent)`
 
@@ -111,7 +111,7 @@ const timestamped = extractTimestampedTranscript(vttContent);
 
 ## Image Primitives
 
-### `getStoryboardUrl(playbackId, width?, signingContext?)`
+### `getStoryboardUrl(playbackId, width?, shouldSign?)`
 
 Generates a Mux storyboard URL (sprite sheet of video frames).
 
@@ -126,7 +126,7 @@ const storyboardUrl = await getStoryboardUrl("playback-id", 640);
 
 - `playbackId: string` - Mux playback ID
 - `width?: number` - Storyboard width in pixels (default: 640)
-- `signingContext?: SigningContext` - For signed playback policies
+- `shouldSign?: boolean` - For signed playback policies
 
 ### `getThumbnailUrls(playbackId, duration, options?)`
 
@@ -153,7 +153,7 @@ const thumbnails = await getThumbnailUrls("playback-id", 120, {
 interface ThumbnailOptions {
   interval?: number; // Seconds between thumbnails (default: 10)
   width?: number; // Thumbnail width in pixels (default: 640)
-  signingContext?: SigningContext; // For signed playback
+  shouldSign?: boolean; // For signed playback
 }
 ```
 
@@ -273,8 +273,7 @@ const url = await buildTranscriptUrl("playback-id", "track-id");
 // With signing
 const signedUrl = await buildTranscriptUrl(
   "playback-id",
-  "track-id",
-  { signingKey: "key-id", privateKey: "base64-key" }
+  "track-id"
 );
 // URL with ?token=... appended
 ```
@@ -457,15 +456,10 @@ interface SentimentResult {
 
 export async function analyzeSentiment(
   assetId: string,
-  options?: {
-    muxTokenId?: string;
-    muxTokenSecret?: string;
-    openaiApiKey?: string;
-  }
 ): Promise<SentimentResult> {
   const mux = new Mux({
-    tokenId: options?.muxTokenId || process.env.MUX_TOKEN_ID,
-    tokenSecret: options?.muxTokenSecret || process.env.MUX_TOKEN_SECRET
+    tokenId: process.env.MUX_TOKEN_ID,
+    tokenSecret: process.env.MUX_TOKEN_SECRET
   });
 
   const asset = await mux.video.assets.retrieve(assetId);
@@ -478,7 +472,7 @@ export async function analyzeSentiment(
 
   const result = await generateText({
     model: openai("gpt-4o-mini", {
-      apiKey: options?.openaiApiKey || process.env.OPENAI_API_KEY
+      apiKey: process.env.OPENAI_API_KEY
     }),
     messages: [
       {
@@ -504,15 +498,14 @@ export async function analyzeSentiment(
 All primitives support signed playback for assets with `playback_policy: "signed"`.
 
 ```typescript
-const signingContext = {
-  signingKey: process.env.MUX_SIGNING_KEY,
-  privateKey: process.env.MUX_PRIVATE_KEY
-};
+// Primitives automatically sign URLs when shouldSign is provided and MUX_SIGNING_KEY + MUX_PRIVATE_KEY are defined in your env
+// NOTE: Make sure you validate these environment variables if you want to sign URLs. This is done automatically when using workflows
+// that have signed URL capabilities.
+const shouldSign = true;
 
-// Primitives automatically sign URLs when context provided
-const storyboardUrl = await getStoryboardUrl(playbackId, 640, signingContext);
-const thumbnails = await getThumbnailUrls(playbackId, duration, { signingContext });
-const transcript = await fetchTranscriptForAsset(asset, playbackId, { signingContext });
+const storyboardUrl = await getStoryboardUrl(playbackId, 640, shouldSign);
+const thumbnails = await getThumbnailUrls(playbackId, duration, { shouldSign });
+const transcript = await fetchTranscriptForAsset(asset, playbackId, { shouldSign });
 ```
 
 See the [signed playback examples](./EXAMPLES.md#signed-playback-examples) for more details.

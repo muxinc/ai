@@ -3,14 +3,13 @@ import { generateObject } from "ai";
 import { z } from "zod";
 
 import env from "../env";
-import { createWorkflowConfig } from "../lib/client-factory";
-import type { ValidatedCredentials } from "../lib/client-factory";
+import { createWorkflowConfig, getMuxCredentialsFromEnv } from "../lib/client-factory";
 import { getLanguageCodePair, getLanguageName } from "../lib/language-codes";
 import type { LanguageCodePair, SupportedISO639_1 } from "../lib/language-codes";
 import { getPlaybackIdForAsset } from "../lib/mux-assets";
 import { createLanguageModelFromConfig } from "../lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers";
-import { resolveSigningContext, signUrl } from "../lib/url-signing";
+import { getMuxSigningContextFromEnv, signUrl } from "../lib/url-signing";
 import type { MuxAIOptions, TokenUsage } from "../types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -54,10 +53,6 @@ export interface TranslationOptions<P extends SupportedProvider = SupportedProvi
   s3Region?: string;
   /** Bucket that will store translated VTT files. */
   s3Bucket?: string;
-  /** Access key ID used for uploads. */
-  s3AccessKeyId?: string;
-  /** Secret access key used for uploads. */
-  s3SecretAccessKey?: string;
   /**
    * When true (default) the translated VTT is uploaded to the configured
    * bucket and attached to the Mux asset.
@@ -94,7 +89,6 @@ async function translateVttWithAI({
   toLanguageCode,
   provider,
   modelId,
-  credentials,
   abortSignal,
 }: {
   vttContent: string;
@@ -102,16 +96,11 @@ async function translateVttWithAI({
   toLanguageCode: string;
   provider: SupportedProvider;
   modelId: string;
-  credentials: ValidatedCredentials;
   abortSignal?: AbortSignal;
 }): Promise<{ translatedVtt: string; usage: TokenUsage }> {
   "use step";
 
-  const languageModel = createLanguageModelFromConfig(
-    provider,
-    modelId,
-    credentials,
-  );
+  const languageModel = createLanguageModelFromConfig(provider, modelId);
 
   const response = await generateObject({
     model: languageModel,
@@ -145,8 +134,6 @@ async function uploadVttToS3({
   s3Endpoint,
   s3Region,
   s3Bucket,
-  s3AccessKeyId,
-  s3SecretAccessKey,
 }: {
   translatedVtt: string;
   assetId: string;
@@ -155,14 +142,16 @@ async function uploadVttToS3({
   s3Endpoint: string;
   s3Region: string;
   s3Bucket: string;
-  s3AccessKeyId: string;
-  s3SecretAccessKey: string;
 }): Promise<string> {
   "use step";
 
   const { S3Client, GetObjectCommand } = await import("@aws-sdk/client-s3");
   const { Upload } = await import("@aws-sdk/lib-storage");
   const { getSignedUrl } = await import("@aws-sdk/s3-request-presigner");
+
+  // asserting exists. already validated (See: translateAudio())
+  const s3AccessKeyId = env.S3_ACCESS_KEY_ID!;
+  const s3SecretAccessKey = env.S3_SECRET_ACCESS_KEY!;
 
   const s3Client = new S3Client({
     region: s3Region,
@@ -204,16 +193,16 @@ async function uploadVttToS3({
 }
 
 async function createTextTrackOnMux(
-  credentials: ValidatedCredentials,
   assetId: string,
   languageCode: string,
   trackName: string,
   presignedUrl: string,
 ): Promise<string> {
   "use step";
+  const { muxTokenId, muxTokenSecret } = getMuxCredentialsFromEnv();
   const mux = new Mux({
-    tokenId: credentials.muxTokenId,
-    tokenSecret: credentials.muxTokenSecret,
+    tokenId: muxTokenId,
+    tokenSecret: muxTokenSecret,
   });
   const trackResponse = await mux.video.assets.createTrack(assetId, {
     type: "text",
@@ -243,8 +232,6 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     s3Endpoint: providedS3Endpoint,
     s3Region: providedS3Region,
     s3Bucket: providedS3Bucket,
-    s3AccessKeyId: providedS3AccessKeyId,
-    s3SecretAccessKey: providedS3SecretAccessKey,
     uploadToMux: uploadToMuxOption,
   } = options;
 
@@ -252,8 +239,8 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   const s3Endpoint = providedS3Endpoint ?? env.S3_ENDPOINT;
   const s3Region = providedS3Region ?? env.S3_REGION ?? "auto";
   const s3Bucket = providedS3Bucket ?? env.S3_BUCKET;
-  const s3AccessKeyId = providedS3AccessKeyId ?? env.S3_ACCESS_KEY_ID;
-  const s3SecretAccessKey = providedS3SecretAccessKey ?? env.S3_SECRET_ACCESS_KEY;
+  const s3AccessKeyId = env.S3_ACCESS_KEY_ID;
+  const s3SecretAccessKey = env.S3_SECRET_ACCESS_KEY;
   const uploadToMux = uploadToMuxOption !== false; // Default to true
 
   // Validate credentials and resolve language model
@@ -267,10 +254,10 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   }
 
   // Fetch asset data and playback ID from Mux
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(config.credentials, assetId);
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId);
 
   // Resolve signing context for signed playback IDs
-  const signingContext = await resolveSigningContext(options);
+  const signingContext = getMuxSigningContextFromEnv();
   if (policy === "signed" && !signingContext) {
     throw new Error(
       "Signed playback ID requires signing credentials. " +
@@ -317,7 +304,6 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
       toLanguageCode,
       provider: config.provider,
       modelId: config.modelId,
-      credentials: config.credentials,
       abortSignal: options.abortSignal,
     });
     translatedVtt = result.translatedVtt;
@@ -356,8 +342,6 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
       s3Endpoint: s3Endpoint!,
       s3Region,
       s3Bucket: s3Bucket!,
-      s3AccessKeyId: s3AccessKeyId!,
-      s3SecretAccessKey: s3SecretAccessKey!,
     });
   } catch (error) {
     throw new Error(`Failed to upload VTT to S3: ${error instanceof Error ? error.message : "Unknown error"}`);
@@ -370,7 +354,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     const languageName = getLanguageName(toLanguageCode);
     const trackName = `${languageName} (auto-translated)`;
 
-    uploadedTrackId = await createTextTrackOnMux(config.credentials, assetId, toLanguageCode, trackName, presignedUrl);
+    uploadedTrackId = await createTextTrackOnMux(assetId, toLanguageCode, trackName, presignedUrl);
   } catch (error) {
     console.warn(`Failed to add track to Mux asset: ${error instanceof Error ? error.message : "Unknown error"}`);
   }

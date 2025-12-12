@@ -255,7 +255,7 @@ S3_ACCESS_KEY_ID=your-access-key
 S3_SECRET_ACCESS_KEY=your-secret-key
 ```
 
-Or pass directly:
+`s3Endpoint`, `s3Region` and `s3Bucket` can also be used to override the environment varialbes
 
 ```typescript
 const result = await translateCaptions(assetId, "en", "es", {
@@ -263,10 +263,11 @@ const result = await translateCaptions(assetId, "en", "es", {
   s3Endpoint: "https://your-endpoint.com",
   s3Region: "auto",
   s3Bucket: "your-bucket",
-  s3AccessKeyId: "your-key",
-  s3SecretAccessKey: "your-secret"
 });
 ```
+
+> **⚠️ Important:** Currently, the only way to set secrets is as ENV vars. The reason for this is to avoid leaking secrets into Workflow DevKit observability tooling. `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` are considered secrets. The other values for S3: `S3_ENDPOINT`, `S3_REGION` and `S3_BUCKET` are not considered secrets. They can be passed in explicitly at runtime.
+
 
 **Why S3 Storage?**
 

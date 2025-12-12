@@ -2,12 +2,11 @@ import { generateObject } from "ai";
 import { z } from "zod";
 
 import { createWorkflowConfig } from "../lib/client-factory";
-import type { ValidatedCredentials } from "../lib/client-factory";
 import { getPlaybackIdForAsset } from "../lib/mux-assets";
 import { createLanguageModelFromConfig } from "../lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers";
 import { withRetry } from "../lib/retry";
-import { resolveSigningContext } from "../lib/url-signing";
+import { getMuxSigningContextFromEnv } from "../lib/url-signing";
 import {
   extractTimestampedTranscript,
   fetchTranscriptForAsset,
@@ -54,23 +53,17 @@ export interface ChaptersOptions extends MuxAIOptions {
 async function generateChaptersWithAI({
   provider,
   modelId,
-  credentials,
   timestampedTranscript,
   systemPrompt,
 }: {
   provider: SupportedProvider;
   modelId: string;
-  credentials: ValidatedCredentials;
   timestampedTranscript: string;
   systemPrompt: string;
 }): Promise<ChaptersType> {
   "use step";
 
-  const model = createLanguageModelFromConfig(
-    provider,
-    modelId,
-    credentials,
-  );
+  const model = createLanguageModelFromConfig(provider, modelId);
 
   const response = await withRetry(() =>
     generateObject({
@@ -125,10 +118,10 @@ export async function generateChapters(
   const config = await createWorkflowConfig({ ...options, model }, provider as SupportedProvider);
 
   // Fetch asset and caption track/transcript
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(config.credentials, assetId);
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId);
 
   // Resolve signing context for signed playback IDs
-  const signingContext = await resolveSigningContext(options);
+  const signingContext = getMuxSigningContextFromEnv();
   if (policy === "signed" && !signingContext) {
     throw new Error(
       "Signed playback ID requires signing credentials. " +
@@ -139,7 +132,7 @@ export async function generateChapters(
   const transcriptResult = await fetchTranscriptForAsset(assetData, playbackId, {
     languageCode,
     cleanTranscript: false, // keep timestamps for chapter segmentation
-    signingContext: policy === "signed" ? signingContext : undefined,
+    shouldSign: policy === "signed",
   });
 
   if (!transcriptResult.track || !transcriptResult.transcriptText) {
@@ -164,7 +157,6 @@ export async function generateChapters(
     chaptersData = await generateChaptersWithAI({
       provider: config.provider,
       modelId: config.modelId,
-      credentials: config.credentials,
       timestampedTranscript,
       systemPrompt: SYSTEM_PROMPT,
     });
