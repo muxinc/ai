@@ -13,6 +13,8 @@ import {
  * Used internally by workflow steps.
  *
  * @param explicit - Credentials explicitly passed by the user (safe to use in step I/O)
+ * @param explicit.muxTokenId - Mux token ID
+ * @param explicit.muxTokenSecret - Mux token secret
  */
 export function getMuxCredentials(explicit?: { muxTokenId?: string; muxTokenSecret?: string }): { muxTokenId: string; muxTokenSecret: string } {
   const muxTokenId = explicit?.muxTokenId ?? env.MUX_TOKEN_ID;
@@ -33,6 +35,11 @@ export function getMuxCredentials(explicit?: { muxTokenId?: string; muxTokenSecr
  *
  * @param provider - The provider to get credentials for
  * @param explicit - Credentials explicitly passed by the user (safe to use in step I/O)
+ * @param explicit.openaiApiKey - OpenAI API key
+ * @param explicit.anthropicApiKey - Anthropic API key
+ * @param explicit.googleApiKey - Google API key
+ * @param explicit.hiveApiKey - Hive API key
+ * @param explicit.elevenLabsApiKey - ElevenLabs API key
  */
 export function getApiKey(
   provider: "openai" | "anthropic" | "google" | "hive" | "elevenlabs",
