@@ -12,6 +12,7 @@ export default defineConfig({
     "@aws-sdk/lib-storage",
     "@aws-sdk/s3-request-presigner",
     "@mux/mux-node",
+    "dedent",
     "dotenv",
     "ai",
     "@ai-sdk/openai",
