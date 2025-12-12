@@ -182,6 +182,7 @@ export async function buildTranscriptUrl(
   trackId: string,
   signingContext?: SigningContext,
 ): Promise<string> {
+  "use step";
   const baseUrl = `https://stream.mux.com/${playbackId}/text/${trackId}.vtt`;
 
   if (signingContext) {
@@ -196,6 +197,7 @@ export async function fetchTranscriptForAsset(
   playbackId: string,
   options: TranscriptFetchOptions = {},
 ): Promise<TranscriptResult> {
+  "use step";
   const { languageCode, cleanTranscript = true, signingContext } = options;
   const track = findCaptionTrack(asset, languageCode);
 

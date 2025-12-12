@@ -24,6 +24,7 @@ export async function getThumbnailUrls(
   duration: number,
   options: ThumbnailOptions = {},
 ): Promise<string[]> {
+  "use step";
   const { interval = 10, width = 640, signingContext } = options;
   const timestamps: number[] = [];
 

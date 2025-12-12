@@ -1,16 +1,8 @@
 /* eslint-disable node/no-process-env */
-import path from "node:path";
 
-import { config } from "dotenv";
-import { expand } from "dotenv-expand";
 import { z } from "zod";
 
-expand(config({
-  path: path.resolve(
-    process.cwd(),
-    process.env.NODE_ENV === "test" ? ".env.test" : ".env",
-  ),
-}));
+import "dotenv/config";
 
 function optionalString(description: string, message?: string) {
   return z.preprocess(

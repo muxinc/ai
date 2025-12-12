@@ -1,10 +1,7 @@
-import Mux from "@mux/mux-node";
-
 import env from "../env";
 
 import type {
   ModelRequestOptions,
-  ResolvedModel,
   SupportedProvider,
 } from "./providers";
 import {
@@ -30,10 +27,11 @@ export interface ValidatedCredentials {
 /**
  * Validates and retrieves credentials from options or environment variables
  */
-export function validateCredentials(
+export async function validateCredentials(
   options: ClientCredentials,
   requiredProvider?: SupportedProvider,
-): ValidatedCredentials {
+): Promise<ValidatedCredentials> {
+  "use step";
   const muxTokenId = options.muxTokenId ?? env.MUX_TOKEN_ID;
   const muxTokenSecret = options.muxTokenSecret ?? env.MUX_TOKEN_SECRET;
   const openaiApiKey = options.openaiApiKey ?? env.OPENAI_API_KEY;
@@ -75,41 +73,30 @@ export function validateCredentials(
 }
 
 /**
- * Creates a Mux client with validated credentials
+ * Validates credentials and resolves model configuration for a workflow.
+ * Returns only serializable data suitable for passing to workflow steps.
  */
-export function createMuxClient(credentials: ValidatedCredentials): Mux {
-  if (!credentials.muxTokenId || !credentials.muxTokenSecret) {
-    throw new Error("Mux credentials are required. Provide muxTokenId and muxTokenSecret in options or set MUX_TOKEN_ID and MUX_TOKEN_SECRET environment variables.");
-  }
-  return new Mux({
-    tokenId: credentials.muxTokenId,
-    tokenSecret: credentials.muxTokenSecret,
-  });
-}
-
-/**
- * Factory for creating all necessary clients for a workflow
- */
-export interface WorkflowClients {
-  mux: Mux;
-  languageModel: ResolvedModel;
+export interface WorkflowConfig {
   credentials: ValidatedCredentials;
+  provider: SupportedProvider;
+  modelId: string;
 }
 
-export function createWorkflowClients(
+export async function createWorkflowConfig(
   options: ModelRequestOptions,
   provider?: SupportedProvider,
-): WorkflowClients {
+): Promise<WorkflowConfig> {
+  "use step";
   const providerToUse = provider || options.provider || "openai";
-  const credentials = validateCredentials(options, providerToUse);
-  const languageModel = resolveLanguageModel({
+  const credentials = await validateCredentials(options, providerToUse);
+  const resolved = resolveLanguageModel({
     ...options,
     provider: providerToUse,
   });
 
   return {
-    mux: createMuxClient(credentials),
-    languageModel,
     credentials,
+    provider: resolved.provider,
+    modelId: resolved.modelId as string,
   };
 }

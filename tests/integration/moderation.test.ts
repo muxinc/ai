@@ -23,6 +23,9 @@ describe("moderation Integration Tests", () => {
       expect(result).toBeDefined();
       expect(result.assetId).toBe(safeAsset);
 
+      // Check that at least 1 thumbnailScore did not error
+      expect(result.thumbnailScores.filter(s => !s.error).length).toBeGreaterThan(0);
+
       // Verify structure
       expect(result).toHaveProperty("maxScores");
       expect(result).toHaveProperty("thumbnailScores");

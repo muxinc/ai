@@ -1,9 +1,8 @@
-import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { Upload } from "@aws-sdk/lib-storage";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import Mux from "@mux/mux-node";
 
 import env from "../env";
+import { validateCredentials } from "../lib/client-factory";
+import type { ValidatedCredentials } from "../lib/client-factory";
 import { getLanguageCodePair, toISO639_1, toISO639_3 } from "../lib/language-codes";
 import type { LanguageCodePair, SupportedISO639_1 } from "../lib/language-codes";
 import { getPlaybackIdForAsset } from "../lib/mux-assets";
@@ -61,7 +60,10 @@ export interface AudioTranslationOptions extends MuxAIOptions {
 const STATIC_RENDITION_POLL_INTERVAL_MS = 5000;
 const STATIC_RENDITION_MAX_ATTEMPTS = 36; // ~3 minutes
 
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+async function sleep(ms: number): Promise<void> {
+  "use step";
+  await new Promise(resolve => setTimeout(resolve, ms));
+}
 
 function getReadyAudioStaticRendition(asset: any) {
   const files = asset.static_renditions?.files as any[] | undefined;
@@ -76,9 +78,14 @@ function getReadyAudioStaticRendition(asset: any) {
 
 const hasReadyAudioStaticRendition = (asset: any) => Boolean(getReadyAudioStaticRendition(asset));
 
-async function requestStaticRenditionCreation(muxClient: Mux, assetId: string) {
+async function requestStaticRenditionCreation(credentials: ValidatedCredentials, assetId: string) {
+  "use step";
+  const mux = new Mux({
+    tokenId: credentials.muxTokenId,
+    tokenSecret: credentials.muxTokenSecret,
+  });
   try {
-    await muxClient.video.assets.createStaticRendition(assetId, {
+    await mux.video.assets.createStaticRendition(assetId, {
       resolution: "audio-only",
     });
   } catch (error: any) {
@@ -99,13 +106,18 @@ async function requestStaticRenditionCreation(muxClient: Mux, assetId: string) {
 
 async function waitForAudioStaticRendition({
   assetId,
-  muxClient,
+  credentials,
   initialAsset,
 }: {
   assetId: string;
-  muxClient: any;
+  credentials: ValidatedCredentials;
   initialAsset: any;
 }): Promise<any> {
+  "use step";
+  const mux = new Mux({
+    tokenId: credentials.muxTokenId,
+    tokenSecret: credentials.muxTokenSecret,
+  });
   let currentAsset = initialAsset;
 
   if (hasReadyAudioStaticRendition(currentAsset)) {
@@ -115,16 +127,16 @@ async function waitForAudioStaticRendition({
   const status = currentAsset.static_renditions?.status ?? "not_requested";
 
   if (status === "not_requested" || status === undefined) {
-    await requestStaticRenditionCreation(muxClient, assetId);
+    await requestStaticRenditionCreation(credentials, assetId);
   } else if (status === "errored") {
-    await requestStaticRenditionCreation(muxClient, assetId);
+    await requestStaticRenditionCreation(credentials, assetId);
   } else {
     console.warn(`ℹ️ Static rendition already ${status}. Waiting for it to finish...`);
   }
 
   for (let attempt = 1; attempt <= STATIC_RENDITION_MAX_ATTEMPTS; attempt++) {
-    await delay(STATIC_RENDITION_POLL_INTERVAL_MS);
-    currentAsset = await muxClient.video.assets.retrieve(assetId);
+    await sleep(STATIC_RENDITION_POLL_INTERVAL_MS);
+    currentAsset = await mux.video.assets.retrieve(assetId);
 
     if (hasReadyAudioStaticRendition(currentAsset)) {
       return currentAsset;
@@ -147,17 +159,212 @@ async function waitForAudioStaticRendition({
   );
 }
 
+async function fetchAudioFromMux(audioUrl: string): Promise<ArrayBuffer> {
+  "use step";
+
+  const audioResponse = await fetch(audioUrl);
+  if (!audioResponse.ok) {
+    throw new Error(`Failed to fetch audio file: ${audioResponse.statusText}`);
+  }
+
+  return audioResponse.arrayBuffer();
+}
+
+async function createElevenLabsDubbingJob({
+  audioBuffer,
+  assetId,
+  elevenLabsLangCode,
+  elevenLabsApiKey,
+  numSpeakers,
+}: {
+  audioBuffer: ArrayBuffer;
+  assetId: string;
+  elevenLabsLangCode: string;
+  elevenLabsApiKey: string;
+  numSpeakers: number;
+}): Promise<string> {
+  "use step";
+
+  const audioBlob = new Blob([audioBuffer], { type: "audio/mp4" });
+
+  const formData = new FormData();
+  formData.append("file", audioBlob);
+  formData.append("target_lang", elevenLabsLangCode);
+  formData.append("num_speakers", numSpeakers.toString());
+  formData.append("name", `Mux Asset ${assetId} - auto to ${elevenLabsLangCode}`);
+
+  const dubbingResponse = await fetch("https://api.elevenlabs.io/v1/dubbing", {
+    method: "POST",
+    headers: {
+      "xi-api-key": elevenLabsApiKey,
+    },
+    body: formData,
+  });
+
+  if (!dubbingResponse.ok) {
+    throw new Error(`ElevenLabs API error: ${dubbingResponse.statusText}`);
+  }
+
+  const dubbingData = await dubbingResponse.json() as any;
+  return dubbingData.dubbing_id;
+}
+
+async function checkElevenLabsDubbingStatus({
+  dubbingId,
+  elevenLabsApiKey,
+}: {
+  dubbingId: string;
+  elevenLabsApiKey: string;
+}): Promise<{ status: string; targetLanguages: string[] }> {
+  "use step";
+
+  const statusResponse = await fetch(`https://api.elevenlabs.io/v1/dubbing/${dubbingId}`, {
+    headers: {
+      "xi-api-key": elevenLabsApiKey,
+    },
+  });
+
+  if (!statusResponse.ok) {
+    throw new Error(`Status check failed: ${statusResponse.statusText}`);
+  }
+
+  const statusData = await statusResponse.json() as any;
+  return {
+    status: statusData.status,
+    targetLanguages: statusData.target_languages ?? [],
+  };
+}
+
+async function downloadDubbedAudioFromElevenLabs({
+  dubbingId,
+  languageCode,
+  elevenLabsApiKey,
+}: {
+  dubbingId: string;
+  languageCode: string;
+  elevenLabsApiKey: string;
+}): Promise<ArrayBuffer> {
+  "use step";
+
+  const audioUrl = `https://api.elevenlabs.io/v1/dubbing/${dubbingId}/audio/${languageCode}`;
+  const audioResponse = await fetch(audioUrl, {
+    headers: {
+      "xi-api-key": elevenLabsApiKey,
+    },
+  });
+
+  if (!audioResponse.ok) {
+    throw new Error(`Failed to fetch dubbed audio: ${audioResponse.statusText}`);
+  }
+
+  return audioResponse.arrayBuffer();
+}
+
+async function uploadDubbedAudioToS3({
+  dubbedAudioBuffer,
+  assetId,
+  toLanguageCode,
+  s3Endpoint,
+  s3Region,
+  s3Bucket,
+  s3AccessKeyId,
+  s3SecretAccessKey,
+}: {
+  dubbedAudioBuffer: ArrayBuffer;
+  assetId: string;
+  toLanguageCode: string;
+  s3Endpoint: string;
+  s3Region: string;
+  s3Bucket: string;
+  s3AccessKeyId: string;
+  s3SecretAccessKey: string;
+}): Promise<string> {
+  "use step";
+
+  const { S3Client, GetObjectCommand } = await import("@aws-sdk/client-s3");
+  const { Upload } = await import("@aws-sdk/lib-storage");
+  const { getSignedUrl } = await import("@aws-sdk/s3-request-presigner");
+
+  const s3Client = new S3Client({
+    region: s3Region,
+    endpoint: s3Endpoint,
+    credentials: {
+      accessKeyId: s3AccessKeyId,
+      secretAccessKey: s3SecretAccessKey,
+    },
+    forcePathStyle: true,
+  });
+
+  // Create unique key for the audio file
+  const audioKey = `audio-translations/${assetId}/auto-to-${toLanguageCode}-${Date.now()}.m4a`;
+
+  // Upload audio to S3
+  const upload = new Upload({
+    client: s3Client,
+    params: {
+      Bucket: s3Bucket,
+      Key: audioKey,
+      Body: new Uint8Array(dubbedAudioBuffer),
+      ContentType: "audio/mp4",
+    },
+  });
+
+  await upload.done();
+
+  // Generate presigned URL (valid for 1 hour)
+  const getObjectCommand = new GetObjectCommand({
+    Bucket: s3Bucket,
+    Key: audioKey,
+  });
+
+  const presignedUrl = await getSignedUrl(s3Client, getObjectCommand, {
+    expiresIn: 3600, // 1 hour
+  });
+
+  console.warn(`✅ Audio uploaded successfully to: ${audioKey}`);
+  console.warn(`🔗 Generated presigned URL (expires in 1 hour)`);
+
+  return presignedUrl;
+}
+
+async function createAudioTrackOnMux(
+  credentials: ValidatedCredentials,
+  assetId: string,
+  languageCode: string,
+  presignedUrl: string,
+): Promise<string> {
+  "use step";
+  const mux = new Mux({
+    tokenId: credentials.muxTokenId,
+    tokenSecret: credentials.muxTokenSecret,
+  });
+  const languageName = new Intl.DisplayNames(["en"], { type: "language" }).of(languageCode) || languageCode.toUpperCase();
+  const trackName = `${languageName} (auto-dubbed)`;
+
+  const trackResponse = await mux.video.assets.createTrack(assetId, {
+    type: "audio",
+    language_code: languageCode,
+    name: trackName,
+    url: presignedUrl,
+  });
+
+  if (!trackResponse.id) {
+    throw new Error("Failed to create audio track: no track ID returned from Mux");
+  }
+
+  return trackResponse.id;
+}
+
 export async function translateAudio(
   assetId: string,
   toLanguageCode: string,
   options: AudioTranslationOptions = {},
 ): Promise<AudioTranslationResult> {
+  "use workflow";
   // Uses the default audio track on your asset, language is auto-detected by ElevenLabs
   const {
     provider = "elevenlabs",
     numSpeakers = 0, // 0 = auto-detect
-    muxTokenId,
-    muxTokenSecret,
     elevenLabsApiKey,
     uploadToMux = true,
   } = options;
@@ -166,9 +373,9 @@ export async function translateAudio(
     throw new Error("Only ElevenLabs provider is currently supported for audio translation");
   }
 
-  // Validate required credentials
-  const muxId = muxTokenId ?? env.MUX_TOKEN_ID;
-  const muxSecret = muxTokenSecret ?? env.MUX_TOKEN_SECRET;
+  // Validate Mux credentials
+  const credentials = await validateCredentials(options);
+
   const elevenLabsKey = elevenLabsApiKey ?? env.ELEVENLABS_API_KEY;
 
   // S3 configuration
@@ -178,10 +385,6 @@ export async function translateAudio(
   const s3AccessKeyId = options.s3AccessKeyId ?? env.S3_ACCESS_KEY_ID;
   const s3SecretAccessKey = options.s3SecretAccessKey ?? env.S3_SECRET_ACCESS_KEY;
 
-  if (!muxId || !muxSecret) {
-    throw new Error("Mux credentials are required. Provide muxTokenId and muxTokenSecret in options or set MUX_TOKEN_ID and MUX_TOKEN_SECRET environment variables.");
-  }
-
   if (!elevenLabsKey) {
     throw new Error("ElevenLabs API key is required. Provide elevenLabsApiKey in options or set ELEVENLABS_API_KEY environment variable.");
   }
@@ -190,17 +393,11 @@ export async function translateAudio(
     throw new Error("S3 configuration is required for uploading to Mux. Provide s3Endpoint, s3Bucket, s3AccessKeyId, and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.");
   }
 
-  // Initialize clients
-  const mux = new Mux({
-    tokenId: muxId,
-    tokenSecret: muxSecret,
-  });
-
   // Fetch asset data and playback ID from Mux
-  const { asset: initialAsset, playbackId, policy } = await getPlaybackIdForAsset(mux, assetId);
+  const { asset: initialAsset, playbackId, policy } = await getPlaybackIdForAsset(credentials, assetId);
 
   // Resolve signing context for signed playback IDs
-  const signingContext = resolveSigningContext(options);
+  const signingContext = await resolveSigningContext(options);
   if (policy === "signed" && !signingContext) {
     throw new Error(
       "Signed playback ID requires signing credentials. " +
@@ -215,7 +412,7 @@ export async function translateAudio(
     console.warn("❌ No ready audio static rendition found. Requesting one now...");
     currentAsset = await waitForAudioStaticRendition({
       assetId,
-      muxClient: mux,
+      credentials,
       initialAsset: currentAsset,
     });
   }
@@ -234,49 +431,32 @@ export async function translateAudio(
     audioUrl = await signUrl(audioUrl, playbackId, signingContext, "video");
   }
 
+  // Fetch audio from Mux
+  console.warn("🎙️ Fetching audio from Mux...");
+
+  let audioBuffer: ArrayBuffer;
+  try {
+    audioBuffer = await fetchAudioFromMux(audioUrl);
+  } catch (error) {
+    throw new Error(`Failed to fetch audio from Mux: ${error instanceof Error ? error.message : "Unknown error"}`);
+  }
+
   // Create dubbing job in ElevenLabs
   console.warn("🎙️ Creating dubbing job in ElevenLabs...");
 
+  // ElevenLabs uses ISO 639-3 (3-letter) codes, so normalize the input
+  const elevenLabsLangCode = toISO639_3(toLanguageCode);
+  console.warn(`🔍 Creating dubbing job for asset ${assetId} with language code: ${elevenLabsLangCode}`);
+
   let dubbingId: string;
-
   try {
-    // Fetch audio file and create dubbing job
-    const audioResponse = await fetch(audioUrl);
-    if (!audioResponse.ok) {
-      throw new Error(`Failed to fetch audio file: ${audioResponse.statusText}`);
-    }
-
-    const audioBuffer = await audioResponse.arrayBuffer();
-    const audioBlob = new Blob([audioBuffer], { type: "audio/mp4" });
-    const audioFile = audioBlob as any; // ElevenLabs accepts Blob
-
-    // Create dubbing job using direct HTTP request
-    // ElevenLabs uses ISO 639-3 (3-letter) codes, so normalize the input
-    const elevenLabsLangCode = toISO639_3(toLanguageCode);
-    const formData = new FormData();
-    formData.append("file", audioFile);
-    formData.append("target_lang", elevenLabsLangCode);
-    // Note: source_lang is omitted to enable automatic language detection
-    formData.append("num_speakers", numSpeakers.toString());
-    formData.append("name", `Mux Asset ${assetId} - auto to ${elevenLabsLangCode}`);
-
-    console.warn(`🔍 Creating dubbing job for asset ${assetId} with language code: ${elevenLabsLangCode}`);
-
-    const dubbingResponse = await fetch("https://api.elevenlabs.io/v1/dubbing", {
-      method: "POST",
-      headers: {
-        "xi-api-key": elevenLabsKey!,
-      },
-      body: formData,
+    dubbingId = await createElevenLabsDubbingJob({
+      audioBuffer,
+      assetId,
+      elevenLabsLangCode,
+      elevenLabsApiKey: elevenLabsKey!,
+      numSpeakers,
     });
-
-    if (!dubbingResponse.ok) {
-      throw new Error(`ElevenLabs API error: ${dubbingResponse.statusText}`);
-    }
-
-    const dubbingData = await dubbingResponse.json() as any;
-
-    dubbingId = dubbingData.dubbing_id;
     console.warn(`✅ Dubbing job created with ID: ${dubbingId}`);
   } catch (error) {
     throw new Error(`Failed to create ElevenLabs dubbing job: ${error instanceof Error ? error.message : "Unknown error"}`);
@@ -291,23 +471,16 @@ export async function translateAudio(
   let targetLanguages: string[] = [];
 
   while (dubbingStatus === "dubbing" && pollAttempts < maxPollAttempts) {
-    await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10 seconds
+    await sleep(10000); // Wait 10 seconds
     pollAttempts++;
 
     try {
-      const statusResponse = await fetch(`https://api.elevenlabs.io/v1/dubbing/${dubbingId}`, {
-        headers: {
-          "xi-api-key": elevenLabsKey!,
-        },
+      const statusResult = await checkElevenLabsDubbingStatus({
+        dubbingId,
+        elevenLabsApiKey: elevenLabsKey!,
       });
-
-      if (!statusResponse.ok) {
-        throw new Error(`Status check failed: ${statusResponse.statusText}`);
-      }
-
-      const statusData = await statusResponse.json() as any;
-      dubbingStatus = statusData.status;
-      targetLanguages = statusData.target_languages ?? [];
+      dubbingStatus = statusResult.status;
+      targetLanguages = statusResult.targetLanguages;
 
       if (dubbingStatus === "failed") {
         throw new Error("ElevenLabs dubbing job failed");
@@ -347,36 +520,29 @@ export async function translateAudio(
 
     // Find the matching language code from ElevenLabs response
     // First try exact match, then try case-insensitive match
-    let elevenLabsLangCode = targetLanguages.find(
+    let downloadLangCode = targetLanguages.find(
       lang => lang === requestedLangCode,
     ) ?? targetLanguages.find(
       lang => lang.toLowerCase() === requestedLangCode.toLowerCase(),
     );
 
     // Fallback to first available target language if no match found
-    if (!elevenLabsLangCode && targetLanguages.length > 0) {
-      elevenLabsLangCode = targetLanguages[0];
-      console.warn(`⚠️ Requested language "${requestedLangCode}" not found in target_languages. Using "${elevenLabsLangCode}" instead.`);
+    if (!downloadLangCode && targetLanguages.length > 0) {
+      downloadLangCode = targetLanguages[0];
+      console.warn(`⚠️ Requested language "${requestedLangCode}" not found in target_languages. Using "${downloadLangCode}" instead.`);
     }
 
     // If still no language code, fall back to the original behavior
-    if (!elevenLabsLangCode) {
-      elevenLabsLangCode = requestedLangCode;
+    if (!downloadLangCode) {
+      downloadLangCode = requestedLangCode;
       console.warn(`⚠️ No target_languages available from ElevenLabs status. Using requested language code: ${requestedLangCode}`);
     }
 
-    const audioUrl = `https://api.elevenlabs.io/v1/dubbing/${dubbingId}/audio/${elevenLabsLangCode}`;
-    const audioResponse = await fetch(audioUrl, {
-      headers: {
-        "xi-api-key": elevenLabsKey!,
-      },
+    dubbedAudioBuffer = await downloadDubbedAudioFromElevenLabs({
+      dubbingId,
+      languageCode: downloadLangCode,
+      elevenLabsApiKey: elevenLabsKey!,
     });
-
-    if (!audioResponse.ok) {
-      throw new Error(`Failed to fetch dubbed audio: ${audioResponse.statusText}`);
-    }
-
-    dubbedAudioBuffer = await audioResponse.arrayBuffer();
     console.warn("✅ Dubbed audio downloaded successfully!");
   } catch (error) {
     throw new Error(`Failed to download dubbed audio: ${error instanceof Error ? error.message : "Unknown error"}`);
@@ -385,47 +551,19 @@ export async function translateAudio(
   // Upload to S3-compatible storage
   console.warn("📤 Uploading dubbed audio to S3-compatible storage...");
 
-  const s3Client = new S3Client({
-    region: s3Region,
-    endpoint: s3Endpoint,
-    credentials: {
-      accessKeyId: s3AccessKeyId!,
-      secretAccessKey: s3SecretAccessKey!,
-    },
-    forcePathStyle: true,
-  });
-
-  // Create unique key for the audio file
-  const audioKey = `audio-translations/${assetId}/auto-to-${toLanguageCode}-${Date.now()}.m4a`;
-
   let presignedUrl: string;
 
   try {
-    // Upload audio to S3
-    const upload = new Upload({
-      client: s3Client,
-      params: {
-        Bucket: s3Bucket!,
-        Key: audioKey,
-        Body: new Uint8Array(dubbedAudioBuffer),
-        ContentType: "audio/mp4",
-      },
+    presignedUrl = await uploadDubbedAudioToS3({
+      dubbedAudioBuffer,
+      assetId,
+      toLanguageCode,
+      s3Endpoint: s3Endpoint!,
+      s3Region,
+      s3Bucket: s3Bucket!,
+      s3AccessKeyId: s3AccessKeyId!,
+      s3SecretAccessKey: s3SecretAccessKey!,
     });
-
-    await upload.done();
-
-    // Generate presigned URL (valid for 1 hour)
-    const getObjectCommand = new GetObjectCommand({
-      Bucket: s3Bucket!,
-      Key: audioKey,
-    });
-
-    presignedUrl = await getSignedUrl(s3Client, getObjectCommand, {
-      expiresIn: 3600, // 1 hour
-    });
-
-    console.warn(`✅ Audio uploaded successfully to: ${audioKey}`);
-    console.warn(`🔗 Generated presigned URL (expires in 1 hour)`);
   } catch (error) {
     throw new Error(`Failed to upload audio to S3: ${error instanceof Error ? error.message : "Unknown error"}`);
   }
@@ -438,17 +576,9 @@ export async function translateAudio(
   const muxLangCode = toISO639_1(toLanguageCode);
 
   try {
+    uploadedTrackId = await createAudioTrackOnMux(credentials, assetId, muxLangCode, presignedUrl);
     const languageName = new Intl.DisplayNames(["en"], { type: "language" }).of(muxLangCode) || muxLangCode.toUpperCase();
     const trackName = `${languageName} (auto-dubbed)`;
-
-    const trackResponse = await mux.video.assets.createTrack(assetId, {
-      type: "audio",
-      language_code: muxLangCode,
-      name: trackName,
-      url: presignedUrl,
-    });
-
-    uploadedTrackId = trackResponse.id;
     console.warn(`✅ Track added to Mux asset with ID: ${uploadedTrackId}`);
     console.warn(`📋 Track name: "${trackName}"`);
   } catch (error) {

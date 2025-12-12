@@ -1,14 +1,14 @@
-import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { Upload } from "@aws-sdk/lib-storage";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import Mux from "@mux/mux-node";
 import { generateObject } from "ai";
 import { z } from "zod";
 
 import env from "../env";
-import { createWorkflowClients } from "../lib/client-factory";
+import { createWorkflowConfig } from "../lib/client-factory";
+import type { ValidatedCredentials } from "../lib/client-factory";
 import { getLanguageCodePair, getLanguageName } from "../lib/language-codes";
 import type { LanguageCodePair, SupportedISO639_1 } from "../lib/language-codes";
 import { getPlaybackIdForAsset } from "../lib/mux-assets";
+import { createLanguageModelFromConfig } from "../lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers";
 import { resolveSigningContext, signUrl } from "../lib/url-signing";
 import type { MuxAIOptions, TokenUsage } from "../types";
@@ -77,7 +77,158 @@ export type TranslationPayload = z.infer<typeof translationSchema>;
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
 
-const DEFAULT_PROVIDER = "openai";
+async function fetchVttFromMux(vttUrl: string): Promise<string> {
+  "use step";
+
+  const vttResponse = await fetch(vttUrl);
+  if (!vttResponse.ok) {
+    throw new Error(`Failed to fetch VTT file: ${vttResponse.statusText}`);
+  }
+
+  return vttResponse.text();
+}
+
+async function translateVttWithAI({
+  vttContent,
+  fromLanguageCode,
+  toLanguageCode,
+  provider,
+  modelId,
+  credentials,
+  abortSignal,
+}: {
+  vttContent: string;
+  fromLanguageCode: string;
+  toLanguageCode: string;
+  provider: SupportedProvider;
+  modelId: string;
+  credentials: ValidatedCredentials;
+  abortSignal?: AbortSignal;
+}): Promise<{ translatedVtt: string; usage: TokenUsage }> {
+  "use step";
+
+  const languageModel = createLanguageModelFromConfig(
+    provider,
+    modelId,
+    credentials,
+  );
+
+  const response = await generateObject({
+    model: languageModel,
+    schema: translationSchema,
+    abortSignal,
+    messages: [
+      {
+        role: "user",
+        content: `Translate the following VTT subtitle file from ${fromLanguageCode} to ${toLanguageCode}. Preserve all timestamps and VTT formatting exactly as they appear. Return JSON with a single key "translation" containing the translated VTT.\n\n${vttContent}`,
+      },
+    ],
+  });
+
+  return {
+    translatedVtt: response.object.translation,
+    usage: {
+      inputTokens: response.usage.inputTokens,
+      outputTokens: response.usage.outputTokens,
+      totalTokens: response.usage.totalTokens,
+      reasoningTokens: response.usage.reasoningTokens,
+      cachedInputTokens: response.usage.cachedInputTokens,
+    },
+  };
+}
+
+async function uploadVttToS3({
+  translatedVtt,
+  assetId,
+  fromLanguageCode,
+  toLanguageCode,
+  s3Endpoint,
+  s3Region,
+  s3Bucket,
+  s3AccessKeyId,
+  s3SecretAccessKey,
+}: {
+  translatedVtt: string;
+  assetId: string;
+  fromLanguageCode: string;
+  toLanguageCode: string;
+  s3Endpoint: string;
+  s3Region: string;
+  s3Bucket: string;
+  s3AccessKeyId: string;
+  s3SecretAccessKey: string;
+}): Promise<string> {
+  "use step";
+
+  const { S3Client, GetObjectCommand } = await import("@aws-sdk/client-s3");
+  const { Upload } = await import("@aws-sdk/lib-storage");
+  const { getSignedUrl } = await import("@aws-sdk/s3-request-presigner");
+
+  const s3Client = new S3Client({
+    region: s3Region,
+    endpoint: s3Endpoint,
+    credentials: {
+      accessKeyId: s3AccessKeyId,
+      secretAccessKey: s3SecretAccessKey,
+    },
+    forcePathStyle: true,
+  });
+
+  // Create unique key for the VTT file
+  const vttKey = `translations/${assetId}/${fromLanguageCode}-to-${toLanguageCode}-${Date.now()}.vtt`;
+
+  // Upload VTT to S3
+  const upload = new Upload({
+    client: s3Client,
+    params: {
+      Bucket: s3Bucket,
+      Key: vttKey,
+      Body: translatedVtt,
+      ContentType: "text/vtt",
+    },
+  });
+
+  await upload.done();
+
+  // Generate presigned URL (valid for 1 hour)
+  const getObjectCommand = new GetObjectCommand({
+    Bucket: s3Bucket,
+    Key: vttKey,
+  });
+
+  const presignedUrl = await getSignedUrl(s3Client, getObjectCommand, {
+    expiresIn: 3600, // 1 hour
+  });
+
+  return presignedUrl;
+}
+
+async function createTextTrackOnMux(
+  credentials: ValidatedCredentials,
+  assetId: string,
+  languageCode: string,
+  trackName: string,
+  presignedUrl: string,
+): Promise<string> {
+  "use step";
+  const mux = new Mux({
+    tokenId: credentials.muxTokenId,
+    tokenSecret: credentials.muxTokenSecret,
+  });
+  const trackResponse = await mux.video.assets.createTrack(assetId, {
+    type: "text",
+    text_type: "subtitles",
+    language_code: languageCode,
+    name: trackName,
+    url: presignedUrl,
+  });
+
+  if (!trackResponse.id) {
+    throw new Error("Failed to create text track: no track ID returned from Mux");
+  }
+
+  return trackResponse.id;
+}
 
 export async function translateCaptions<P extends SupportedProvider = SupportedProvider>(
   assetId: string,
@@ -85,8 +236,9 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   toLanguageCode: string,
   options: TranslationOptions<P>,
 ): Promise<TranslationResult> {
+  "use workflow";
   const {
-    provider = DEFAULT_PROVIDER,
+    provider = "openai",
     model,
     s3Endpoint: providedS3Endpoint,
     s3Region: providedS3Region,
@@ -94,10 +246,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     s3AccessKeyId: providedS3AccessKeyId,
     s3SecretAccessKey: providedS3SecretAccessKey,
     uploadToMux: uploadToMuxOption,
-    ...clientConfig
   } = options;
-
-  const resolvedProvider = provider;
 
   // S3 configuration
   const s3Endpoint = providedS3Endpoint ?? env.S3_ENDPOINT;
@@ -107,9 +256,10 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   const s3SecretAccessKey = providedS3SecretAccessKey ?? env.S3_SECRET_ACCESS_KEY;
   const uploadToMux = uploadToMuxOption !== false; // Default to true
 
-  const clients = createWorkflowClients(
-    { ...clientConfig, provider: resolvedProvider, model },
-    resolvedProvider,
+  // Validate credentials and resolve language model
+  const config = await createWorkflowConfig(
+    { ...options, model },
+    provider as SupportedProvider,
   );
 
   if (uploadToMux && (!s3Endpoint || !s3Bucket || !s3AccessKeyId || !s3SecretAccessKey)) {
@@ -117,10 +267,10 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   }
 
   // Fetch asset data and playback ID from Mux
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(clients.mux, assetId);
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(config.credentials, assetId);
 
   // Resolve signing context for signed playback IDs
-  const signingContext = resolveSigningContext(options);
+  const signingContext = await resolveSigningContext(options);
   if (policy === "signed" && !signingContext) {
     throw new Error(
       "Signed playback ID requires signing credentials. " +
@@ -148,14 +298,10 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   if (policy === "signed" && signingContext) {
     vttUrl = await signUrl(vttUrl, playbackId, signingContext, "video");
   }
-  let vttContent: string;
 
+  let vttContent: string;
   try {
-    const vttResponse = await fetch(vttUrl);
-    if (!vttResponse.ok) {
-      throw new Error(`Failed to fetch VTT file: ${vttResponse.statusText}`);
-    }
-    vttContent = await vttResponse.text();
+    vttContent = await fetchVttFromMux(vttUrl);
   } catch (error) {
     throw new Error(`Failed to fetch VTT content: ${error instanceof Error ? error.message : "Unknown error"}`);
   }
@@ -165,28 +311,19 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   let usage: TokenUsage | undefined;
 
   try {
-    const response = await generateObject({
-      model: clients.languageModel.model,
-      schema: translationSchema,
+    const result = await translateVttWithAI({
+      vttContent,
+      fromLanguageCode,
+      toLanguageCode,
+      provider: config.provider,
+      modelId: config.modelId,
+      credentials: config.credentials,
       abortSignal: options.abortSignal,
-      messages: [
-        {
-          role: "user",
-          content: `Translate the following VTT subtitle file from ${fromLanguageCode} to ${toLanguageCode}. Preserve all timestamps and VTT formatting exactly as they appear. Return JSON with a single key "translation" containing the translated VTT.\n\n${vttContent}`,
-        },
-      ],
     });
-
-    translatedVtt = response.object.translation;
-    usage = {
-      inputTokens: response.usage.inputTokens,
-      outputTokens: response.usage.outputTokens,
-      totalTokens: response.usage.totalTokens,
-      reasoningTokens: response.usage.reasoningTokens,
-      cachedInputTokens: response.usage.cachedInputTokens,
-    };
+    translatedVtt = result.translatedVtt;
+    usage = result.usage;
   } catch (error) {
-    throw new Error(`Failed to translate VTT with ${resolvedProvider}: ${error instanceof Error ? error.message : "Unknown error"}`);
+    throw new Error(`Failed to translate VTT with ${config.provider}: ${error instanceof Error ? error.message : "Unknown error"}`);
   }
 
   // Resolve language code pairs for both source and target
@@ -208,65 +345,32 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   }
 
   // Upload translated VTT to S3-compatible storage
-  const s3Client = new S3Client({
-    region: s3Region,
-    endpoint: s3Endpoint,
-    credentials: {
-      accessKeyId: s3AccessKeyId!,
-      secretAccessKey: s3SecretAccessKey!,
-    },
-    forcePathStyle: true, // Often needed for non-AWS S3 services
-  });
-
-  // Create unique key for the VTT file
-  const vttKey = `translations/${assetId}/${fromLanguageCode}-to-${toLanguageCode}-${Date.now()}.vtt`;
-
   let presignedUrl: string;
 
   try {
-    // Upload VTT to S3
-    const upload = new Upload({
-      client: s3Client,
-      params: {
-        Bucket: s3Bucket!,
-        Key: vttKey,
-        Body: translatedVtt,
-        ContentType: "text/vtt",
-      },
-    });
-
-    await upload.done();
-
-    // Generate presigned URL (valid for 1 hour)
-    const getObjectCommand = new GetObjectCommand({
-      Bucket: s3Bucket!,
-      Key: vttKey,
-    });
-
-    presignedUrl = await getSignedUrl(s3Client, getObjectCommand, {
-      expiresIn: 3600, // 1 hour
+    presignedUrl = await uploadVttToS3({
+      translatedVtt,
+      assetId,
+      fromLanguageCode,
+      toLanguageCode,
+      s3Endpoint: s3Endpoint!,
+      s3Region,
+      s3Bucket: s3Bucket!,
+      s3AccessKeyId: s3AccessKeyId!,
+      s3SecretAccessKey: s3SecretAccessKey!,
     });
   } catch (error) {
     throw new Error(`Failed to upload VTT to S3: ${error instanceof Error ? error.message : "Unknown error"}`);
   }
 
   // Add translated track to Mux asset
-
   let uploadedTrackId: string | undefined;
 
   try {
     const languageName = getLanguageName(toLanguageCode);
     const trackName = `${languageName} (auto-translated)`;
 
-    const trackResponse = await clients.mux.video.assets.createTrack(assetId, {
-      type: "text",
-      text_type: "subtitles",
-      language_code: toLanguageCode,
-      name: trackName,
-      url: presignedUrl,
-    });
-
-    uploadedTrackId = trackResponse.id;
+    uploadedTrackId = await createTextTrackOnMux(config.credentials, assetId, toLanguageCode, trackName, presignedUrl);
   } catch (error) {
     console.warn(`Failed to add track to Mux asset: ${error instanceof Error ? error.message : "Unknown error"}`);
   }

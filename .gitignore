@@ -77,3 +77,6 @@ test-run.js
 # Temporary files
 tmp/
 temp/
+
+.swc/
+test-server/.workflow-data

@@ -1,5 +1,5 @@
 import env from "../env";
-import { createMuxClient, validateCredentials } from "../lib/client-factory";
+import { validateCredentials } from "../lib/client-factory";
 import type { ImageDownloadOptions } from "../lib/image-download";
 import { downloadImagesAsBase64 } from "../lib/image-download";
 import { getPlaybackIdForAsset } from "../lib/mux-assets";
@@ -127,6 +127,7 @@ async function processConcurrently<T>(
   processor: (item: any) => Promise<T>,
   maxConcurrent: number = 5,
 ): Promise<T[]> {
+  "use step";
   const results: T[] = [];
 
   for (let i = 0; i < items.length; i += maxConcurrent) {
@@ -147,23 +148,25 @@ async function requestOpenAIModeration(
   submissionMode: "url" | "base64" = "url",
   downloadOptions?: ImageDownloadOptions,
 ): Promise<ThumbnailModerationScore[]> {
+  "use step";
   const targetUrls =
     submissionMode === "base64" ?
         (await downloadImagesAsBase64(imageUrls, downloadOptions, maxConcurrent)).map(
-          img => ({ url: img.url, image: img.base64Data }),
+          img => ({ url: img.url, image: img.base64Data, apiKey, model }),
         ) :
-        imageUrls.map(url => ({ url, image: url }));
+        imageUrls.map(url => ({ url, image: url, apiKey, model }));
 
-  const moderate = async (entry: { url: string; image: string }): Promise<ThumbnailModerationScore> => {
+  const moderate = async (entry: { url: string; image: string; apiKey: string; model: string }): Promise<ThumbnailModerationScore> => {
+    "use step";
     try {
       const res = await fetch("https://api.openai.com/v1/moderations", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`,
+          "Authorization": `Bearer ${entry.apiKey}`,
         },
         body: JSON.stringify({
-          model,
+          model: entry.model,
           input: [
             {
               type: "image_url",
@@ -222,6 +225,7 @@ async function requestHiveModeration(
   submissionMode: "url" | "base64" = "url",
   downloadOptions?: ImageDownloadOptions,
 ): Promise<ThumbnailModerationScore[]> {
+  "use step";
   const targets: Array<{ url: string; source: HiveModerationSource }> =
     submissionMode === "base64" ?
         (await downloadImagesAsBase64(imageUrls, downloadOptions, maxConcurrent)).map(img => ({
@@ -238,6 +242,7 @@ async function requestHiveModeration(
         }));
 
   const moderate = async (entry: { url: string; source: HiveModerationSource }): Promise<ThumbnailModerationScore> => {
+    "use step";
     try {
       const formData = new FormData();
 
@@ -299,6 +304,7 @@ export async function getModerationScores(
   assetId: string,
   options: ModerationOptions = {},
 ): Promise<ModerationResult> {
+  "use workflow";
   const {
     provider = DEFAULT_PROVIDER,
     model = provider === "openai" ? "omni-moderation-latest" : undefined,
@@ -310,15 +316,14 @@ export async function getModerationScores(
     imageDownloadOptions,
   } = options;
 
-  const credentials = validateCredentials(options, provider === "openai" ? "openai" : undefined);
-  const muxClient = createMuxClient(credentials);
+  const credentials = await validateCredentials(options, provider === "openai" ? "openai" : undefined);
 
   // Fetch asset data and playback ID from Mux via helper
-  const { asset, playbackId, policy } = await getPlaybackIdForAsset(muxClient, assetId);
+  const { asset, playbackId, policy } = await getPlaybackIdForAsset(credentials, assetId);
   const duration = asset.duration || 0;
 
   // Resolve signing context for signed playback IDs
-  const signingContext = resolveSigningContext(options);
+  const signingContext = await resolveSigningContext(options);
   if (policy === "signed" && !signingContext) {
     throw new Error(
       "Signed playback ID requires signing credentials. " +

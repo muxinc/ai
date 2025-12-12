@@ -2,7 +2,7 @@ import { defineConfig } from "tsup";
 
 export default defineConfig({
   entry: ["src/index.ts", "src/primitives/index.ts", "src/workflows/index.ts"],
-  format: ["esm", "cjs"], // Build both ESM and CommonJS
+  format: ["esm"], // Build ESM only
   dts: true, // Generate .d.ts files
   sourcemap: true,
   clean: true,
@@ -12,6 +12,7 @@ export default defineConfig({
     "@aws-sdk/lib-storage",
     "@aws-sdk/s3-request-presigner",
     "@mux/mux-node",
+    "dedent",
     "dotenv",
     "ai",
     "@ai-sdk/openai",

@@ -2,12 +2,14 @@ import { generateObject } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
-import { createWorkflowClients } from "../lib/client-factory";
+import { createWorkflowConfig } from "../lib/client-factory";
+import type { ValidatedCredentials } from "../lib/client-factory";
 import type { ImageDownloadOptions } from "../lib/image-download";
 import { downloadImageAsBase64 } from "../lib/image-download";
 import { getPlaybackIdForAsset } from "../lib/mux-assets";
 import type { PromptOverrides } from "../lib/prompt-builder";
 import { createPromptBuilder } from "../lib/prompt-builder";
+import { createLanguageModelFromConfig } from "../lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers";
 import { resolveSigningContext } from "../lib/url-signing";
 import { getStoryboardUrl } from "../primitives/storyboards";
@@ -177,13 +179,82 @@ function buildUserPrompt(promptOverrides?: BurnedInCaptionsPromptOverrides): str
 // ─────────────────────────────────────────────────────────────────────────────
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
-
 const DEFAULT_PROVIDER = "openai";
+
+interface AnalysisResponse {
+  result: BurnedInCaptionsAnalysis;
+  usage: TokenUsage;
+}
+
+async function fetchImageAsBase64(
+  imageUrl: string,
+  imageDownloadOptions?: ImageDownloadOptions,
+): Promise<string> {
+  "use step";
+
+  const downloadResult = await downloadImageAsBase64(imageUrl, imageDownloadOptions);
+  return downloadResult.base64Data;
+}
+
+async function analyzeStoryboard({
+  imageDataUrl,
+  provider,
+  modelId,
+  credentials,
+  userPrompt,
+  systemPrompt,
+}: {
+  imageDataUrl: string;
+  provider: SupportedProvider;
+  modelId: string;
+  credentials: ValidatedCredentials;
+  userPrompt: string;
+  systemPrompt: string;
+}): Promise<AnalysisResponse> {
+  "use step";
+
+  const model = createLanguageModelFromConfig(
+    provider,
+    modelId,
+    credentials,
+  );
+
+  const response = await generateObject({
+    model,
+    schema: burnedInCaptionsSchema,
+    experimental_telemetry: { isEnabled: true },
+    messages: [
+      {
+        role: "system",
+        content: systemPrompt,
+      },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: userPrompt },
+          { type: "image", image: imageDataUrl },
+        ],
+      },
+    ],
+  });
+
+  return {
+    result: response.object,
+    usage: {
+      inputTokens: response.usage.inputTokens,
+      outputTokens: response.usage.outputTokens,
+      totalTokens: response.usage.totalTokens,
+      reasoningTokens: response.usage.reasoningTokens,
+      cachedInputTokens: response.usage.cachedInputTokens,
+    },
+  };
+}
 
 export async function hasBurnedInCaptions(
   assetId: string,
   options: BurnedInCaptionsOptions = {},
 ): Promise<BurnedInCaptionsResult> {
+  "use workflow";
   const {
     provider = DEFAULT_PROVIDER,
     model,
@@ -196,14 +267,14 @@ export async function hasBurnedInCaptions(
   // Build the user prompt with any overrides
   const userPrompt = buildUserPrompt(promptOverrides);
 
-  const clients = createWorkflowClients(
+  const workflowConfig = await createWorkflowConfig(
     { ...config, model },
     provider as SupportedProvider,
   );
-  const { playbackId, policy } = await getPlaybackIdForAsset(clients.mux, assetId);
+  const { playbackId, policy } = await getPlaybackIdForAsset(workflowConfig.credentials, assetId);
 
   // Resolve signing context for signed playback IDs
-  const signingContext = resolveSigningContext(options);
+  const signingContext = await resolveSigningContext(options);
   if (policy === "signed" && !signingContext) {
     throw new Error(
       "Signed playback ID requires signing credentials. " +
@@ -213,51 +284,27 @@ export async function hasBurnedInCaptions(
 
   const imageUrl = await getStoryboardUrl(playbackId, 640, policy === "signed" ? signingContext : undefined);
 
-  interface AnalysisResponse {
-    result: BurnedInCaptionsAnalysis;
-    usage: TokenUsage;
-  }
-
-  const analyzeStoryboard = async (imageDataUrl: string): Promise<AnalysisResponse> => {
-    const response = await generateObject({
-      model: clients.languageModel.model,
-      schema: burnedInCaptionsSchema,
-      abortSignal: options.abortSignal,
-      experimental_telemetry: { isEnabled: true },
-      messages: [
-        {
-          role: "system",
-          content: SYSTEM_PROMPT,
-        },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: userPrompt },
-            { type: "image", image: imageDataUrl },
-          ],
-        },
-      ],
-    });
-
-    return {
-      result: response.object,
-      usage: {
-        inputTokens: response.usage.inputTokens,
-        outputTokens: response.usage.outputTokens,
-        totalTokens: response.usage.totalTokens,
-        reasoningTokens: response.usage.reasoningTokens,
-        cachedInputTokens: response.usage.cachedInputTokens,
-      },
-    };
-  };
-
   let analysisResponse: AnalysisResponse;
 
   if (imageSubmissionMode === "base64") {
-    const downloadResult = await downloadImageAsBase64(imageUrl, imageDownloadOptions);
-    analysisResponse = await analyzeStoryboard(downloadResult.base64Data);
+    const base64Data = await fetchImageAsBase64(imageUrl, imageDownloadOptions);
+    analysisResponse = await analyzeStoryboard({
+      imageDataUrl: base64Data,
+      provider: workflowConfig.provider,
+      modelId: workflowConfig.modelId,
+      credentials: workflowConfig.credentials,
+      userPrompt,
+      systemPrompt: SYSTEM_PROMPT,
+    });
   } else {
-    analysisResponse = await analyzeStoryboard(imageUrl);
+    analysisResponse = await analyzeStoryboard({
+      imageDataUrl: imageUrl,
+      provider: workflowConfig.provider,
+      modelId: workflowConfig.modelId,
+      credentials: workflowConfig.credentials,
+      userPrompt,
+      systemPrompt: SYSTEM_PROMPT,
+    });
   }
 
   if (!analysisResponse.result) {
