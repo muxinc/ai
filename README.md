@@ -72,16 +72,6 @@ S3_ACCESS_KEY_ID=your-access-key
 S3_SECRET_ACCESS_KEY=your-secret-key
 ```
 
-Or pass credentials directly to each function:
-
-```typescript
-const result = await getSummaryAndTags(assetId, {
-  muxTokenId: "your-token-id",
-  muxTokenSecret: "your-token-secret",
-  openaiApiKey: "your-openai-key"
-});
-```
-
 > **💡 Tip:** If you're using `.env` in a repository or version tracking system, make sure you add this file to your `.gitignore` or equivalent to avoid unintentionally committing secure credentials.
 
 # Workflows

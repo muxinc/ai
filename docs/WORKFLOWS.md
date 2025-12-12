@@ -255,18 +255,8 @@ S3_ACCESS_KEY_ID=your-access-key
 S3_SECRET_ACCESS_KEY=your-secret-key
 ```
 
-Or pass directly:
+> **⚠️ Important:** For security reasons of possible use cases, we do not allow passing any credentials or other secure values via workflow options, including `S3_ACCESS_KEY_ID` or `S3_SECRET_ACCESS_KEY`
 
-```typescript
-const result = await translateCaptions(assetId, "en", "es", {
-  provider: "anthropic",
-  s3Endpoint: "https://your-endpoint.com",
-  s3Region: "auto",
-  s3Bucket: "your-bucket",
-  s3AccessKeyId: "your-key",
-  s3SecretAccessKey: "your-secret"
-});
-```
 
 **Why S3 Storage?**
 
