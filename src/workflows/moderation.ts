@@ -152,21 +152,21 @@ async function requestOpenAIModeration(
   const targetUrls =
     submissionMode === "base64" ?
         (await downloadImagesAsBase64(imageUrls, downloadOptions, maxConcurrent)).map(
-          img => ({ url: img.url, image: img.base64Data }),
+          img => ({ url: img.url, image: img.base64Data, apiKey, model }),
         ) :
-        imageUrls.map(url => ({ url, image: url }));
+        imageUrls.map(url => ({ url, image: url, apiKey, model }));
 
-  const moderate = async (entry: { url: string; image: string }): Promise<ThumbnailModerationScore> => {
+  const moderate = async (entry: { url: string; image: string; apiKey: string; model: string }): Promise<ThumbnailModerationScore> => {
     "use step";
     try {
       const res = await fetch("https://api.openai.com/v1/moderations", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`,
+          "Authorization": `Bearer ${entry.apiKey}`,
         },
         body: JSON.stringify({
-          model,
+          model: entry.model,
           input: [
             {
               type: "image_url",

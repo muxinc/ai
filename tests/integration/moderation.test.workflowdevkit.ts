@@ -20,6 +20,9 @@ describe("Moderation Integration Tests for Workflow DevKit", () => {
     // Assert that the result exists
     expect(result).toBeDefined();
 
+    // Check that at least 1 thumbnailScore did not error
+    expect(result.thumbnailScores.filter(s => !s.error).length).toBeGreaterThan(0);
+
     // Verify structure
     expect(result).toHaveProperty("assetId");
     expect(result).toHaveProperty("thumbnailScores");
