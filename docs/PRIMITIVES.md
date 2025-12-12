@@ -498,9 +498,11 @@ export async function analyzeSentiment(
 All primitives support signed playback for assets with `playback_policy: "signed"`.
 
 ```typescript
-const shouldSign = !!(process.env.MUX_SIGNING_KEY && process.env.MUX_PRIVATE_KEY);
-
 // Primitives automatically sign URLs when shouldSign is provided and MUX_SIGNING_KEY + MUX_PRIVATE_KEY are defined in your env
+// NOTE: Make sure you validate these environment variables if you want to sign URLs. This is done automatically when using workflows
+// that have signed URL capabilities.
+const shouldSign = true;
+
 const storyboardUrl = await getStoryboardUrl(playbackId, 640, shouldSign);
 const thumbnails = await getThumbnailUrls(playbackId, duration, { shouldSign });
 const transcript = await fetchTranscriptForAsset(asset, playbackId, { shouldSign });
