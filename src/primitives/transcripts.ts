@@ -1,5 +1,4 @@
-import type { SigningContext } from "../lib/url-signing";
-import { signUrl } from "../lib/url-signing";
+import { getMuxSigningContextFromEnv, signUrl } from "../lib/url-signing";
 import type { AssetTextTrack, MuxAsset } from "../types";
 
 /** A single cue from a VTT file with timing info. */
@@ -13,7 +12,7 @@ export interface TranscriptFetchOptions {
   languageCode?: string;
   cleanTranscript?: boolean;
   /** Optional signing context for signed playback IDs */
-  signingContext?: SigningContext;
+  shouldSign?: boolean;
 }
 
 export interface TranscriptResult {
@@ -174,19 +173,21 @@ export function parseVTTCues(vttContent: string): VTTCue[] {
  *
  * @param playbackId - The Mux playback ID
  * @param trackId - The text track ID
- * @param signingContext - Optional signing context for signed playback IDs
+ * @param shouldSign - Flag for whether or not to use signed playback IDs
  * @returns Transcript URL (signed if context provided)
  */
 export async function buildTranscriptUrl(
   playbackId: string,
   trackId: string,
-  signingContext?: SigningContext,
+  shouldSign: boolean = false,
 ): Promise<string> {
   "use step";
   const baseUrl = `https://stream.mux.com/${playbackId}/text/${trackId}.vtt`;
 
-  if (signingContext) {
-    return signUrl(baseUrl, playbackId, signingContext, "video");
+  if (shouldSign) {
+    // NOTE: this assumes you have already validated the signing context elsewhere
+    const signingContext = getMuxSigningContextFromEnv();
+    return signUrl(baseUrl, playbackId, signingContext!, "video");
   }
 
   return baseUrl;
@@ -198,7 +199,7 @@ export async function fetchTranscriptForAsset(
   options: TranscriptFetchOptions = {},
 ): Promise<TranscriptResult> {
   "use step";
-  const { languageCode, cleanTranscript = true, signingContext } = options;
+  const { languageCode, cleanTranscript = true, shouldSign } = options;
   const track = findCaptionTrack(asset, languageCode);
 
   if (!track) {
@@ -209,7 +210,7 @@ export async function fetchTranscriptForAsset(
     return { transcriptText: "", track };
   }
 
-  const transcriptUrl = await buildTranscriptUrl(playbackId, track.id, signingContext);
+  const transcriptUrl = await buildTranscriptUrl(playbackId, track.id, shouldSign);
 
   try {
     const response = await fetch(transcriptUrl);

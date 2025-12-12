@@ -362,7 +362,7 @@ export async function getSummaryAndTags(
     includeTranscript ?
         (await fetchTranscriptForAsset(assetData, playbackId, {
           cleanTranscript,
-          signingContext: policy === "signed" ? signingContext : undefined,
+          shouldSign: policy === "signed",
         })).transcriptText :
       "";
 

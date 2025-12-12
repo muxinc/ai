@@ -132,7 +132,7 @@ export async function generateChapters(
   const transcriptResult = await fetchTranscriptForAsset(assetData, playbackId, {
     languageCode,
     cleanTranscript: false, // keep timestamps for chapter segmentation
-    signingContext: policy === "signed" ? signingContext : undefined,
+    shouldSign: policy === "signed",
   });
 
   if (!transcriptResult.track || !transcriptResult.transcriptText) {
