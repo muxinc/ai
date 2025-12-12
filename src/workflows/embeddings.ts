@@ -1,7 +1,5 @@
 import { embed } from "ai";
 
-import { validateCredentials } from "../lib/client-factory";
-import type { ValidatedCredentials } from "../lib/client-factory";
 import { getPlaybackIdForAsset } from "../lib/mux-assets";
 import type { EmbeddingModelIdByProvider, SupportedEmbeddingProvider } from "../lib/providers";
 import { createEmbeddingModelFromConfig, resolveEmbeddingModel } from "../lib/providers";
@@ -73,23 +71,20 @@ function averageEmbeddings(embeddings: number[][]): number[] {
  * @param options.chunk - Text chunk to embed
  * @param options.provider - AI provider for embedding generation
  * @param options.modelId - Provider-specific model identifier
- * @param options.credentials - Validated API credentials
  * @returns Chunk embedding with metadata
  */
 async function generateSingleChunkEmbedding({
   chunk,
   provider,
   modelId,
-  credentials,
 }: {
   chunk: TextChunk;
   provider: SupportedEmbeddingProvider;
   modelId: string;
-  credentials: ValidatedCredentials;
 }): Promise<ChunkEmbedding> {
   "use step";
 
-  const model = createEmbeddingModelFromConfig(provider, modelId, credentials);
+  const model = createEmbeddingModelFromConfig(provider, modelId);
   const response = await withRetry(() =>
     embed({
       model,
@@ -152,15 +147,10 @@ export async function generateVideoEmbeddings(
     batchSize = 5,
   } = options;
 
-  // Validate credentials
-  const credentials = await validateCredentials(options, provider === "google" ? "google" : "openai");
   const embeddingModel = resolveEmbeddingModel({ ...options, provider, model });
 
   // Fetch asset and playback ID
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(
-    credentials,
-    assetId,
-  );
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId);
 
   // Resolve signing context for signed playback IDs
   const signingContext = await resolveSigningContext(options);
@@ -218,7 +208,6 @@ export async function generateVideoEmbeddings(
             chunk,
             provider: embeddingModel.provider,
             modelId: embeddingModel.modelId as string,
-            credentials,
           }),
         ),
       );
