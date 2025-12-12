@@ -3,14 +3,13 @@ import { generateObject } from "ai";
 import { z } from "zod";
 
 import env from "../env";
-import { createWorkflowConfig } from "../lib/client-factory";
-import type { ValidatedCredentials } from "../lib/client-factory";
+import { createWorkflowConfig, getMuxCredentialsFromEnv } from "../lib/client-factory";
 import { getLanguageCodePair, getLanguageName } from "../lib/language-codes";
 import type { LanguageCodePair, SupportedISO639_1 } from "../lib/language-codes";
 import { getPlaybackIdForAsset } from "../lib/mux-assets";
 import { createLanguageModelFromConfig } from "../lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers";
-import { resolveSigningContext, signUrl } from "../lib/url-signing";
+import { getMuxSigningContextFromEnv, signUrl } from "../lib/url-signing";
 import type { MuxAIOptions, TokenUsage } from "../types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -94,7 +93,6 @@ async function translateVttWithAI({
   toLanguageCode,
   provider,
   modelId,
-  credentials,
   abortSignal,
 }: {
   vttContent: string;
@@ -102,16 +100,11 @@ async function translateVttWithAI({
   toLanguageCode: string;
   provider: SupportedProvider;
   modelId: string;
-  credentials: ValidatedCredentials;
   abortSignal?: AbortSignal;
 }): Promise<{ translatedVtt: string; usage: TokenUsage }> {
   "use step";
 
-  const languageModel = createLanguageModelFromConfig(
-    provider,
-    modelId,
-    credentials,
-  );
+  const languageModel = createLanguageModelFromConfig(provider, modelId);
 
   const response = await generateObject({
     model: languageModel,
@@ -204,16 +197,16 @@ async function uploadVttToS3({
 }
 
 async function createTextTrackOnMux(
-  credentials: ValidatedCredentials,
   assetId: string,
   languageCode: string,
   trackName: string,
   presignedUrl: string,
 ): Promise<string> {
   "use step";
+  const { muxTokenId, muxTokenSecret } = getMuxCredentialsFromEnv();
   const mux = new Mux({
-    tokenId: credentials.muxTokenId,
-    tokenSecret: credentials.muxTokenSecret,
+    tokenId: muxTokenId,
+    tokenSecret: muxTokenSecret,
   });
   const trackResponse = await mux.video.assets.createTrack(assetId, {
     type: "text",
@@ -267,10 +260,10 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   }
 
   // Fetch asset data and playback ID from Mux
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(config.credentials, assetId);
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId);
 
   // Resolve signing context for signed playback IDs
-  const signingContext = await resolveSigningContext(options);
+  const signingContext = getMuxSigningContextFromEnv();
   if (policy === "signed" && !signingContext) {
     throw new Error(
       "Signed playback ID requires signing credentials. " +
@@ -317,7 +310,6 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
       toLanguageCode,
       provider: config.provider,
       modelId: config.modelId,
-      credentials: config.credentials,
       abortSignal: options.abortSignal,
     });
     translatedVtt = result.translatedVtt;
@@ -370,7 +362,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     const languageName = getLanguageName(toLanguageCode);
     const trackName = `${languageName} (auto-translated)`;
 
-    uploadedTrackId = await createTextTrackOnMux(config.credentials, assetId, toLanguageCode, trackName, presignedUrl);
+    uploadedTrackId = await createTextTrackOnMux(assetId, toLanguageCode, trackName, presignedUrl);
   } catch (error) {
     console.warn(`Failed to add track to Mux asset: ${error instanceof Error ? error.message : "Unknown error"}`);
   }

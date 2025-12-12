@@ -161,31 +161,27 @@ function requireEnv(value: string | undefined, name: string): string {
 /**
  * Creates a language model instance from serializable config.
  * Use this in steps to instantiate models from config passed through workflow.
+ * Fetches credentials internally from environment variables to avoid exposing them in step I/O.
  */
 export function createLanguageModelFromConfig(
   provider: SupportedProvider,
   modelId: string,
-  credentials: {
-    openaiApiKey?: string;
-    anthropicApiKey?: string;
-    googleApiKey?: string;
-  },
 ): LanguageModel {
   switch (provider) {
     case "openai": {
-      const apiKey = credentials.openaiApiKey;
+      const apiKey = env.OPENAI_API_KEY;
       requireEnv(apiKey, "OPENAI_API_KEY");
       const openai = createOpenAI({ apiKey });
       return openai(modelId);
     }
     case "anthropic": {
-      const apiKey = credentials.anthropicApiKey;
+      const apiKey = env.ANTHROPIC_API_KEY;
       requireEnv(apiKey, "ANTHROPIC_API_KEY");
       const anthropic = createAnthropic({ apiKey });
       return anthropic(modelId);
     }
     case "google": {
-      const apiKey = credentials.googleApiKey;
+      const apiKey = env.GOOGLE_GENERATIVE_AI_API_KEY;
       requireEnv(apiKey, "GOOGLE_GENERATIVE_AI_API_KEY");
       const google = createGoogleGenerativeAI({ apiKey });
       return google(modelId);
@@ -200,24 +196,21 @@ export function createLanguageModelFromConfig(
 /**
  * Creates an embedding model instance from serializable config.
  * Use this in steps to instantiate embedding models from config passed through workflow.
+ * Fetches credentials internally from environment variables to avoid exposing them in step I/O.
  */
 export function createEmbeddingModelFromConfig(
   provider: SupportedEmbeddingProvider,
   modelId: string,
-  credentials: {
-    openaiApiKey?: string;
-    googleApiKey?: string;
-  },
 ): EmbeddingModel<string> {
   switch (provider) {
     case "openai": {
-      const apiKey = credentials.openaiApiKey;
+      const apiKey = env.OPENAI_API_KEY;
       requireEnv(apiKey, "OPENAI_API_KEY");
       const openai = createOpenAI({ apiKey });
       return openai.embedding(modelId);
     }
     case "google": {
-      const apiKey = credentials.googleApiKey;
+      const apiKey = env.GOOGLE_GENERATIVE_AI_API_KEY;
       requireEnv(apiKey, "GOOGLE_GENERATIVE_AI_API_KEY");
       const google = createGoogleGenerativeAI({ apiKey });
       return google.textEmbeddingModel(modelId);
@@ -240,7 +233,7 @@ export function resolveLanguageModel<P extends SupportedProvider = SupportedProv
 
   switch (provider) {
     case "openai": {
-      const apiKey = options.openaiApiKey ?? env.OPENAI_API_KEY;
+      const apiKey = env.OPENAI_API_KEY;
       requireEnv(apiKey, "OPENAI_API_KEY");
       const openai = createOpenAI({
         apiKey,
@@ -253,7 +246,7 @@ export function resolveLanguageModel<P extends SupportedProvider = SupportedProv
       };
     }
     case "anthropic": {
-      const apiKey = options.anthropicApiKey ?? env.ANTHROPIC_API_KEY;
+      const apiKey = env.ANTHROPIC_API_KEY;
       requireEnv(apiKey, "ANTHROPIC_API_KEY");
       const anthropic = createAnthropic({
         apiKey,
@@ -266,7 +259,7 @@ export function resolveLanguageModel<P extends SupportedProvider = SupportedProv
       };
     }
     case "google": {
-      const apiKey = options.googleApiKey ?? env.GOOGLE_GENERATIVE_AI_API_KEY;
+      const apiKey = env.GOOGLE_GENERATIVE_AI_API_KEY;
       requireEnv(apiKey, "GOOGLE_GENERATIVE_AI_API_KEY");
       const google = createGoogleGenerativeAI({
         apiKey,
@@ -296,7 +289,7 @@ export function resolveEmbeddingModel<P extends SupportedEmbeddingProvider = "op
 
   switch (provider) {
     case "openai": {
-      const apiKey = options.openaiApiKey ?? env.OPENAI_API_KEY;
+      const apiKey = env.OPENAI_API_KEY;
       requireEnv(apiKey, "OPENAI_API_KEY");
       const openai = createOpenAI({
         apiKey,
@@ -309,7 +302,7 @@ export function resolveEmbeddingModel<P extends SupportedEmbeddingProvider = "op
       };
     }
     case "google": {
-      const apiKey = options.googleApiKey ?? env.GOOGLE_GENERATIVE_AI_API_KEY;
+      const apiKey = env.GOOGLE_GENERATIVE_AI_API_KEY;
       requireEnv(apiKey, "GOOGLE_GENERATIVE_AI_API_KEY");
       const google = createGoogleGenerativeAI({
         apiKey,

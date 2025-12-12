@@ -1,9 +1,8 @@
-import env from "../env";
-import { validateCredentials } from "../lib/client-factory";
+import { getApiKeyFromEnv } from "../lib/client-factory";
 import type { ImageDownloadOptions } from "../lib/image-download";
 import { downloadImagesAsBase64 } from "../lib/image-download";
 import { getPlaybackIdForAsset } from "../lib/mux-assets";
-import { resolveSigningContext } from "../lib/url-signing";
+import { getMuxSigningContextFromEnv } from "../lib/url-signing";
 import { getThumbnailUrls } from "../primitives/thumbnails";
 import type { ImageSubmissionMode, MuxAIOptions } from "../types";
 
@@ -142,7 +141,6 @@ async function processConcurrently<T>(
 
 async function requestOpenAIModeration(
   imageUrls: string[],
-  apiKey: string,
   model: string,
   maxConcurrent: number = 5,
   submissionMode: "url" | "base64" = "url",
@@ -152,18 +150,19 @@ async function requestOpenAIModeration(
   const targetUrls =
     submissionMode === "base64" ?
         (await downloadImagesAsBase64(imageUrls, downloadOptions, maxConcurrent)).map(
-          img => ({ url: img.url, image: img.base64Data, apiKey, model }),
+          img => ({ url: img.url, image: img.base64Data, model }),
         ) :
-        imageUrls.map(url => ({ url, image: url, apiKey, model }));
+        imageUrls.map(url => ({ url, image: url, model }));
 
-  const moderate = async (entry: { url: string; image: string; apiKey: string; model: string }): Promise<ThumbnailModerationScore> => {
+  const moderate = async (entry: { url: string; image: string; model: string }): Promise<ThumbnailModerationScore> => {
     "use step";
+    const apiKey = getApiKeyFromEnv("openai");
     try {
       const res = await fetch("https://api.openai.com/v1/moderations", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${entry.apiKey}`,
+          "Authorization": `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
           model: entry.model,
@@ -220,7 +219,6 @@ function getHiveCategoryScores(
 
 async function requestHiveModeration(
   imageUrls: string[],
-  apiKey: string,
   maxConcurrent: number = 5,
   submissionMode: "url" | "base64" = "url",
   downloadOptions?: ImageDownloadOptions,
@@ -243,6 +241,7 @@ async function requestHiveModeration(
 
   const moderate = async (entry: { url: string; source: HiveModerationSource }): Promise<ThumbnailModerationScore> => {
     "use step";
+    const apiKey = getApiKeyFromEnv("hive");
     try {
       const formData = new FormData();
 
@@ -316,14 +315,12 @@ export async function getModerationScores(
     imageDownloadOptions,
   } = options;
 
-  const credentials = await validateCredentials(options, provider === "openai" ? "openai" : undefined);
-
   // Fetch asset data and playback ID from Mux via helper
-  const { asset, playbackId, policy } = await getPlaybackIdForAsset(credentials, assetId);
+  const { asset, playbackId, policy } = await getPlaybackIdForAsset(assetId);
   const duration = asset.duration || 0;
 
   // Resolve signing context for signed playback IDs
-  const signingContext = await resolveSigningContext(options);
+  const signingContext = getMuxSigningContextFromEnv();
   if (policy === "signed" && !signingContext) {
     throw new Error(
       "Signed playback ID requires signing credentials. " +
@@ -341,28 +338,16 @@ export async function getModerationScores(
   let thumbnailScores: ThumbnailModerationScore[];
 
   if (provider === "openai") {
-    const apiKey = credentials.openaiApiKey;
-    if (!apiKey) {
-      throw new Error("OpenAI API key is required for moderation. Set OPENAI_API_KEY or pass openaiApiKey.");
-    }
-
     thumbnailScores = await requestOpenAIModeration(
       thumbnailUrls,
-      apiKey,
       model || "omni-moderation-latest",
       maxConcurrent,
       imageSubmissionMode,
       imageDownloadOptions,
     );
   } else if (provider === "hive") {
-    const hiveApiKey = options.hiveApiKey || env.HIVE_API_KEY;
-    if (!hiveApiKey) {
-      throw new Error("Hive API key is required for moderation. Set HIVE_API_KEY or pass hiveApiKey.");
-    }
-
     thumbnailScores = await requestHiveModeration(
       thumbnailUrls,
-      hiveApiKey,
       maxConcurrent,
       imageSubmissionMode,
       imageDownloadOptions,

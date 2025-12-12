@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { env, reloadEnv } from "../../src/env";
 import type { SigningContext } from "../../src/lib/url-signing";
-import { resolveSigningContext, signPlaybackId, signUrl } from "../../src/lib/url-signing";
+import { getMuxSigningContextFromEnv, signPlaybackId, signUrl } from "../../src/lib/url-signing";
 import { buildTranscriptUrl, getStoryboardUrl, getThumbnailUrls } from "../../src/primitives";
 import { generateChapters, getModerationScores, getSummaryAndTags, hasBurnedInCaptions } from "../../src/workflows";
 
@@ -51,34 +51,23 @@ describe("signed Playback Integration Tests", () => {
     playbackId = signedPlayback.id;
   });
 
-  describe("resolveSigningContext", () => {
+  describe("getMuxSigningContextFromEnv", () => {
     it("should return undefined when no credentials are provided", async () => {
       // Temporarily clear env vars to test the "no credentials" case
       vi.stubEnv("MUX_SIGNING_KEY", "");
       vi.stubEnv("MUX_PRIVATE_KEY", "");
       reloadEnv();
 
-      const context = await resolveSigningContext({});
+      const context = getMuxSigningContextFromEnv();
       expect(context).toBeUndefined();
 
       vi.unstubAllEnvs();
       reloadEnv();
     });
 
-    it("should resolve signing context from config", async () => {
-      const context = await resolveSigningContext({
-        muxSigningKey: "test-key-id",
-        muxPrivateKey: "test-private-key",
-      });
-
-      expect(context).toBeDefined();
-      expect(context?.keyId).toBe("test-key-id");
-      expect(context?.keySecret).toBe("test-private-key");
-    });
-
     it.skipIf(!hasSigningCredentials)("should resolve signing context from environment variables", async () => {
       // Clear config values to test env var fallback
-      const context = await resolveSigningContext({});
+      const context = await getMuxSigningContextFromEnv();
 
       // This will use MUX_SIGNING_KEY and MUX_PRIVATE_KEY from env
       if (hasSigningCredentials) {
@@ -211,8 +200,6 @@ describe("signed Playback Integration Tests", () => {
         const result = await getSummaryAndTags(signedAssetId, {
           provider: "anthropic",
           tone: "normal",
-          muxSigningKey: signingKeyId,
-          muxPrivateKey: privateKey,
         });
 
         expect(result).toBeDefined();
@@ -233,9 +220,6 @@ describe("signed Playback Integration Tests", () => {
         await expect(
           getSummaryAndTags(signedAssetId, {
             provider: "anthropic",
-            // Intentionally not providing signing credentials
-            muxSigningKey: undefined,
-            muxPrivateKey: undefined,
           }),
         ).rejects.toThrow("Signed playback ID requires signing credentials");
 
@@ -248,8 +232,6 @@ describe("signed Playback Integration Tests", () => {
       it.skipIf(!canRunSignedTests)("should detect burned-in captions for signed asset", async () => {
         const result = await hasBurnedInCaptions(signedAssetId, {
           provider: "anthropic",
-          muxSigningKey: signingKeyId,
-          muxPrivateKey: privateKey,
         });
 
         expect(result).toBeDefined();
@@ -266,8 +248,6 @@ describe("signed Playback Integration Tests", () => {
         const result = await getModerationScores(signedAssetId, {
           provider: "openai",
           model: "omni-moderation-latest",
-          muxSigningKey: signingKeyId,
-          muxPrivateKey: privateKey,
         });
 
         expect(result).toBeDefined();
@@ -282,8 +262,6 @@ describe("signed Playback Integration Tests", () => {
       it.skipIf(!canRunSignedTests)("should generate chapters for signed asset", async () => {
         const result = await generateChapters(signedAssetId, "en", {
           provider: "anthropic",
-          muxSigningKey: signingKeyId,
-          muxPrivateKey: privateKey,
         });
 
         expect(result).toBeDefined();

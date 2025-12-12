@@ -3,7 +3,6 @@ import dedent from "dedent";
 import { z } from "zod";
 
 import { createWorkflowConfig } from "../lib/client-factory";
-import type { WorkflowConfig } from "../lib/client-factory";
 import type { ImageDownloadOptions } from "../lib/image-download";
 import { downloadImageAsBase64 } from "../lib/image-download";
 import { getPlaybackIdForAsset } from "../lib/mux-assets";
@@ -18,7 +17,7 @@ import {
 import { createLanguageModelFromConfig } from "../lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers";
 import { withRetry } from "../lib/retry";
-import { resolveSigningContext } from "../lib/url-signing";
+import { getMuxSigningContextFromEnv } from "../lib/url-signing";
 import { getStoryboardUrl } from "../primitives/storyboards";
 import { fetchTranscriptForAsset } from "../primitives/transcripts";
 import type { ImageSubmissionMode, MuxAIOptions, TokenUsage, ToneType } from "../types";
@@ -256,16 +255,13 @@ interface AnalysisResponse {
 
 async function analyzeStoryboard(
   imageDataUrl: string,
-  workflowConfig: WorkflowConfig,
+  provider: SupportedProvider,
+  modelId: string,
   userPrompt: string,
   systemPrompt: string,
 ): Promise<AnalysisResponse> {
   "use step";
-  const model = createLanguageModelFromConfig(
-    workflowConfig.provider,
-    workflowConfig.modelId,
-    workflowConfig.credentials,
-  );
+  const model = createLanguageModelFromConfig(provider, modelId);
 
   const response = await generateObject({
     model,
@@ -351,10 +347,10 @@ export async function getSummaryAndTags(
   );
 
   // Fetch asset data from Mux and grab playback/transcript details
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(config.credentials, assetId);
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId);
 
   // Resolve signing context for signed playback IDs
-  const signingContext = await resolveSigningContext(options ?? {});
+  const signingContext = getMuxSigningContextFromEnv();
   if (policy === "signed" && !signingContext) {
     throw new Error(
       "Signed playback ID requires signing credentials. " +
@@ -388,13 +384,14 @@ export async function getSummaryAndTags(
       const downloadResult = await downloadImageAsBase64(imageUrl, imageDownloadOptions);
       analysisResponse = await analyzeStoryboard(
         downloadResult.base64Data,
-        config,
+        config.provider,
+        config.modelId,
         userPrompt,
         SYSTEM_PROMPT,
       );
     } else {
       // URL-based submission with retry logic
-      analysisResponse = await withRetry(() => analyzeStoryboard(imageUrl, config, userPrompt, SYSTEM_PROMPT));
+      analysisResponse = await withRetry(() => analyzeStoryboard(imageUrl, config.provider, config.modelId, userPrompt, SYSTEM_PROMPT));
     }
   } catch (error: unknown) {
     throw new Error(
