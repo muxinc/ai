@@ -39,10 +39,6 @@ export interface AudioTranslationOptions extends MuxAIOptions {
   s3Region?: string;
   /** Bucket that will store dubbed audio files. */
   s3Bucket?: string;
-  /** Access key ID used for uploads. */
-  s3AccessKeyId?: string;
-  /** Secret access key used for uploads. */
-  s3SecretAccessKey?: string;
   /**
    * When true (default) the dubbed audio file is uploaded to the configured
    * bucket and attached to the Mux asset.
@@ -263,8 +259,6 @@ async function uploadDubbedAudioToS3({
   s3Endpoint,
   s3Region,
   s3Bucket,
-  s3AccessKeyId,
-  s3SecretAccessKey,
 }: {
   dubbedAudioBuffer: ArrayBuffer;
   assetId: string;
@@ -272,14 +266,16 @@ async function uploadDubbedAudioToS3({
   s3Endpoint: string;
   s3Region: string;
   s3Bucket: string;
-  s3AccessKeyId: string;
-  s3SecretAccessKey: string;
 }): Promise<string> {
   "use step";
 
   const { S3Client, GetObjectCommand } = await import("@aws-sdk/client-s3");
   const { Upload } = await import("@aws-sdk/lib-storage");
   const { getSignedUrl } = await import("@aws-sdk/s3-request-presigner");
+
+  // asserting exists. already validated (See: translateAudio())
+  const s3AccessKeyId = env.S3_ACCESS_KEY_ID!;
+  const s3SecretAccessKey = env.S3_SECRET_ACCESS_KEY!;
 
   const s3Client = new S3Client({
     region: s3Region,
@@ -375,8 +371,8 @@ export async function translateAudio(
   const s3Endpoint = options.s3Endpoint ?? env.S3_ENDPOINT;
   const s3Region = options.s3Region ?? env.S3_REGION ?? "auto";
   const s3Bucket = options.s3Bucket ?? env.S3_BUCKET;
-  const s3AccessKeyId = options.s3AccessKeyId ?? env.S3_ACCESS_KEY_ID;
-  const s3SecretAccessKey = options.s3SecretAccessKey ?? env.S3_SECRET_ACCESS_KEY;
+  const s3AccessKeyId = env.S3_ACCESS_KEY_ID;
+  const s3SecretAccessKey = env.S3_SECRET_ACCESS_KEY;
 
   if (!elevenLabsKey) {
     throw new Error("ElevenLabs API key is required. Provide elevenLabsApiKey in options or set ELEVENLABS_API_KEY environment variable.");
@@ -550,8 +546,6 @@ export async function translateAudio(
       s3Endpoint: s3Endpoint!,
       s3Region,
       s3Bucket: s3Bucket!,
-      s3AccessKeyId: s3AccessKeyId!,
-      s3SecretAccessKey: s3SecretAccessKey!,
     });
   } catch (error) {
     throw new Error(`Failed to upload audio to S3: ${error instanceof Error ? error.message : "Unknown error"}`);
