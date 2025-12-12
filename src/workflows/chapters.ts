@@ -1,10 +1,8 @@
 import { generateObject } from "ai";
 import { z } from "zod";
 
-import { createWorkflowConfig } from "../lib/client-factory";
-import type { ValidatedCredentials } from "../lib/client-factory";
+import { createWorkflowClients } from "../lib/client-factory";
 import { getPlaybackIdForAsset } from "../lib/mux-assets";
-import { createLanguageModelFromConfig } from "../lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers";
 import { withRetry } from "../lib/retry";
 import { resolveSigningContext } from "../lib/url-signing";
@@ -51,46 +49,7 @@ export interface ChaptersOptions extends MuxAIOptions {
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function generateChaptersWithAI({
-  provider,
-  modelId,
-  credentials,
-  timestampedTranscript,
-  systemPrompt,
-}: {
-  provider: SupportedProvider;
-  modelId: string;
-  credentials: ValidatedCredentials;
-  timestampedTranscript: string;
-  systemPrompt: string;
-}): Promise<ChaptersType> {
-  "use step";
-
-  const model = createLanguageModelFromConfig(
-    provider,
-    modelId,
-    credentials,
-  );
-
-  const response = await withRetry(() =>
-    generateObject({
-      model,
-      schema: chaptersSchema,
-      messages: [
-        {
-          role: "system",
-          content: systemPrompt,
-        },
-        {
-          role: "user",
-          content: timestampedTranscript,
-        },
-      ],
-    }),
-  );
-
-  return response.object;
-}
+const DEFAULT_PROVIDER = "openai";
 
 const SYSTEM_PROMPT = `Your role is to segment the following captions into chunked chapters, summarising each chapter with a title.
 
@@ -118,17 +77,16 @@ export async function generateChapters(
   languageCode: string,
   options: ChaptersOptions = {},
 ): Promise<ChaptersResult> {
-  "use workflow";
-  const { provider = "openai", model } = options;
+  const { provider = DEFAULT_PROVIDER, model, abortSignal } = options;
 
-  // Validate credentials and resolve language model
-  const config = await createWorkflowConfig({ ...options, model }, provider as SupportedProvider);
+  // Initialize clients with validated credentials and resolved language model
+  const clients = createWorkflowClients({ ...options, model }, provider as SupportedProvider);
 
   // Fetch asset and caption track/transcript
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(config.credentials, assetId);
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(clients.mux, assetId);
 
   // Resolve signing context for signed playback IDs
-  const signingContext = await resolveSigningContext(options);
+  const signingContext = resolveSigningContext(options);
   if (policy === "signed" && !signingContext) {
     throw new Error(
       "Signed playback ID requires signing credentials. " +
@@ -158,16 +116,28 @@ export async function generateChapters(
   }
 
   // Generate chapters using AI SDK
-  let chaptersData: ChaptersType | null = null;
+  let chaptersData: { chapters: Chapter[] } | null = null;
 
   try {
-    chaptersData = await generateChaptersWithAI({
-      provider: config.provider,
-      modelId: config.modelId,
-      credentials: config.credentials,
-      timestampedTranscript,
-      systemPrompt: SYSTEM_PROMPT,
-    });
+    const response = await withRetry(() =>
+      generateObject({
+        model: clients.languageModel.model,
+        schema: chaptersSchema,
+        abortSignal,
+        messages: [
+          {
+            role: "system",
+            content: SYSTEM_PROMPT,
+          },
+          {
+            role: "user",
+            content: timestampedTranscript,
+          },
+        ],
+      }),
+    );
+
+    chaptersData = response.object;
   } catch (error) {
     throw new Error(
       `Failed to generate chapters with ${provider}: ${error instanceof Error ? error.message : "Unknown error"}`,

@@ -13,7 +13,7 @@ Analyzes a Mux video asset and returns AI-generated metadata.
 
 - `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
 - `tone?: 'normal' | 'sassy' | 'professional'` - Analysis tone (default: 'normal')
-- `model?: string` - AI model to use (defaults: `gpt-5-mini`, `claude-sonnet-4-5`, or `gemini-2.5-flash`)
+- `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, or `gemini-2.5-flash`)
 - `includeTranscript?: boolean` - Include video transcript in analysis (default: true)
 - `cleanTranscript?: boolean` - Remove VTT timestamps and formatting from transcript (default: true)
 - `imageSubmissionMode?: 'url' | 'base64'` - How to submit storyboard to AI providers (default: 'url')
@@ -111,7 +111,7 @@ Analyzes video frames to detect burned-in captions (hardcoded subtitles) that ar
 **Options:**
 
 - `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
-- `model?: string` - AI model to use (defaults: `gpt-5-mini`, `claude-sonnet-4-5`, or `gemini-2.5-flash`)
+- `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, or `gemini-2.5-flash`)
 - `imageSubmissionMode?: 'url' | 'base64'` - How to submit storyboard to AI providers (default: 'url')
 - `imageDownloadOptions?: object` - Options for image download when using base64 mode
   - `timeout?: number` - Request timeout in milliseconds (default: 10000)
@@ -199,7 +199,7 @@ Generates AI-powered chapter markers by analyzing video captions. Creates logica
 **Options:**
 
 - `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
-- `model?: string` - AI model to use (defaults: `gpt-5-mini`, `claude-sonnet-4-5`, or `gemini-2.5-flash`)
+- `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, or `gemini-2.5-flash`)
 - `muxTokenId?: string` - Mux API token ID
 - `muxTokenSecret?: string` - Mux API token secret
 - `openaiApiKey?: string` - OpenAI API key

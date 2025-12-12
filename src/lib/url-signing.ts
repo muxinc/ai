@@ -24,8 +24,7 @@ export type TokenType = "video" | "thumbnail" | "storyboard" | "gif";
  * Resolves signing context from config or environment variables.
  * Returns undefined if signing keys are not configured.
  */
-export async function resolveSigningContext(config: MuxAIConfig): Promise<SigningContext | undefined> {
-  "use step";
+export function resolveSigningContext(config: MuxAIConfig): SigningContext | undefined {
   const keyId = config.muxSigningKey ?? env.MUX_SIGNING_KEY;
   const keySecret = config.muxPrivateKey ?? env.MUX_PRIVATE_KEY;
 
@@ -66,7 +65,6 @@ export async function signPlaybackId(
   type: TokenType = "video",
   params?: Record<string, string | number>,
 ): Promise<string> {
-  "use step";
   const client = createSigningClient(context);
 
   // Convert params to Record<string, string> as required by the SDK
@@ -100,7 +98,6 @@ export async function signUrl(
   type: TokenType = "video",
   params?: Record<string, string | number>,
 ): Promise<string> {
-  "use step";
   const token = await signPlaybackId(playbackId, context, type, params);
   const separator = url.includes("?") ? "&" : "?";
   return `${url}${separator}token=${token}`;

@@ -2,7 +2,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 
-import env from "../env.ts";
+import env from "../env";
 import type { MuxAIOptions } from "../types";
 
 import type { EmbeddingModel, LanguageModel } from "ai";
@@ -156,77 +156,6 @@ function requireEnv(value: string | undefined, name: string): string {
     throw new Error(`Missing ${name}. Set ${name} in your environment or pass it in options.`);
   }
   return value;
-}
-
-/**
- * Creates a language model instance from serializable config.
- * Use this in steps to instantiate models from config passed through workflow.
- */
-export function createLanguageModelFromConfig(
-  provider: SupportedProvider,
-  modelId: string,
-  credentials: {
-    openaiApiKey?: string;
-    anthropicApiKey?: string;
-    googleApiKey?: string;
-  },
-): LanguageModel {
-  switch (provider) {
-    case "openai": {
-      const apiKey = credentials.openaiApiKey;
-      requireEnv(apiKey, "OPENAI_API_KEY");
-      const openai = createOpenAI({ apiKey });
-      return openai(modelId);
-    }
-    case "anthropic": {
-      const apiKey = credentials.anthropicApiKey;
-      requireEnv(apiKey, "ANTHROPIC_API_KEY");
-      const anthropic = createAnthropic({ apiKey });
-      return anthropic(modelId);
-    }
-    case "google": {
-      const apiKey = credentials.googleApiKey;
-      requireEnv(apiKey, "GOOGLE_GENERATIVE_AI_API_KEY");
-      const google = createGoogleGenerativeAI({ apiKey });
-      return google(modelId);
-    }
-    default: {
-      const exhaustiveCheck: never = provider;
-      throw new Error(`Unsupported provider: ${exhaustiveCheck}`);
-    }
-  }
-}
-
-/**
- * Creates an embedding model instance from serializable config.
- * Use this in steps to instantiate embedding models from config passed through workflow.
- */
-export function createEmbeddingModelFromConfig(
-  provider: SupportedEmbeddingProvider,
-  modelId: string,
-  credentials: {
-    openaiApiKey?: string;
-    googleApiKey?: string;
-  },
-): EmbeddingModel<string> {
-  switch (provider) {
-    case "openai": {
-      const apiKey = credentials.openaiApiKey;
-      requireEnv(apiKey, "OPENAI_API_KEY");
-      const openai = createOpenAI({ apiKey });
-      return openai.embedding(modelId);
-    }
-    case "google": {
-      const apiKey = credentials.googleApiKey;
-      requireEnv(apiKey, "GOOGLE_GENERATIVE_AI_API_KEY");
-      const google = createGoogleGenerativeAI({ apiKey });
-      return google.textEmbeddingModel(modelId);
-    }
-    default: {
-      const exhaustiveCheck: never = provider;
-      throw new Error(`Unsupported embedding provider: ${exhaustiveCheck}`);
-    }
-  }
 }
 
 /**

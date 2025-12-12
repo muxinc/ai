@@ -52,21 +52,21 @@ describe("signed Playback Integration Tests", () => {
   });
 
   describe("resolveSigningContext", () => {
-    it("should return undefined when no credentials are provided", async () => {
+    it("should return undefined when no credentials are provided", () => {
       // Temporarily clear env vars to test the "no credentials" case
       vi.stubEnv("MUX_SIGNING_KEY", "");
       vi.stubEnv("MUX_PRIVATE_KEY", "");
       reloadEnv();
 
-      const context = await resolveSigningContext({});
+      const context = resolveSigningContext({});
       expect(context).toBeUndefined();
 
       vi.unstubAllEnvs();
       reloadEnv();
     });
 
-    it("should resolve signing context from config", async () => {
-      const context = await resolveSigningContext({
+    it("should resolve signing context from config", () => {
+      const context = resolveSigningContext({
         muxSigningKey: "test-key-id",
         muxPrivateKey: "test-private-key",
       });
@@ -76,9 +76,9 @@ describe("signed Playback Integration Tests", () => {
       expect(context?.keySecret).toBe("test-private-key");
     });
 
-    it.skipIf(!hasSigningCredentials)("should resolve signing context from environment variables", async () => {
+    it.skipIf(!hasSigningCredentials)("should resolve signing context from environment variables", () => {
       // Clear config values to test env var fallback
-      const context = await resolveSigningContext({});
+      const context = resolveSigningContext({});
 
       // This will use MUX_SIGNING_KEY and MUX_PRIVATE_KEY from env
       if (hasSigningCredentials) {

@@ -33,7 +33,7 @@ type Provider = "openai" | "anthropic" | "google";
 type Preset = "seo" | "social" | "technical" | "ecommerce";
 
 const DEFAULT_MODELS: Record<Provider, string> = {
-  openai: "gpt-5-mini",
+  openai: "gpt-5.1",
   anthropic: "claude-sonnet-4-5",
   google: "gemini-2.5-flash",
 };

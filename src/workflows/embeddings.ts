@@ -1,10 +1,9 @@
 import { embed } from "ai";
 
-import { validateCredentials } from "../lib/client-factory";
-import type { ValidatedCredentials } from "../lib/client-factory";
+import { createMuxClient, validateCredentials } from "../lib/client-factory";
 import { getPlaybackIdForAsset } from "../lib/mux-assets";
 import type { EmbeddingModelIdByProvider, SupportedEmbeddingProvider } from "../lib/providers";
-import { createEmbeddingModelFromConfig, resolveEmbeddingModel } from "../lib/providers";
+import { resolveEmbeddingModel } from "../lib/providers";
 import { withRetry } from "../lib/retry";
 import { resolveSigningContext } from "../lib/url-signing";
 import { chunkText, chunkVTTCues } from "../primitives/text-chunking";
@@ -39,6 +38,14 @@ export interface EmbeddingsOptions extends MuxAIOptions {
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
 
+const DEFAULT_PROVIDER = "openai";
+const DEFAULT_CHUNKING_STRATEGY: ChunkingStrategy = {
+  type: "token",
+  maxTokens: 500,
+  overlap: 100,
+};
+const DEFAULT_BATCH_SIZE = 5;
+
 /**
  * Averages multiple embedding vectors into a single vector.
  *
@@ -67,38 +74,52 @@ function averageEmbeddings(embeddings: number[][]): number[] {
 }
 
 /**
- * Generates embedding for a single chunk.
+ * Generates embeddings for chunks of a video transcript in batches.
+ *
+ * @param chunks - Text chunks to embed
+ * @param model - AI model to use for embedding generation
+ * @param batchSize - Number of chunks to process concurrently
+ * @param abortSignal - Optional abort signal
+ * @returns Array of chunk embeddings
  */
-async function generateSingleChunkEmbedding({
-  chunk,
-  provider,
-  modelId,
-  credentials,
-}: {
-  chunk: TextChunk;
-  provider: SupportedEmbeddingProvider;
-  modelId: string;
-  credentials: ValidatedCredentials;
-}): Promise<ChunkEmbedding> {
-  "use step";
+async function generateChunkEmbeddings(
+  chunks: TextChunk[],
+  model: any,
+  batchSize: number,
+  abortSignal?: AbortSignal,
+): Promise<ChunkEmbedding[]> {
+  const results: ChunkEmbedding[] = [];
 
-  const model = createEmbeddingModelFromConfig(provider, modelId, credentials);
-  const response = await withRetry(() =>
-    embed({
-      model,
-      value: chunk.text,
-    }),
-  );
+  // Process chunks in batches
+  for (let i = 0; i < chunks.length; i += batchSize) {
+    const batch = chunks.slice(i, i + batchSize);
 
-  return {
-    chunkId: chunk.id,
-    embedding: response.embedding,
-    metadata: {
-      startTime: chunk.startTime,
-      endTime: chunk.endTime,
-      tokenCount: chunk.tokenCount,
-    },
-  };
+    const batchResults = await Promise.all(
+      batch.map(async (chunk) => {
+        const response = await withRetry(() =>
+          embed({
+            model,
+            value: chunk.text,
+            abortSignal,
+          }),
+        );
+
+        return {
+          chunkId: chunk.id,
+          embedding: response.embedding,
+          metadata: {
+            startTime: chunk.startTime,
+            endTime: chunk.endTime,
+            tokenCount: chunk.tokenCount,
+          },
+        };
+      }),
+    );
+
+    results.push(...batchResults);
+  }
+
+  return results;
 }
 
 /**
@@ -136,27 +157,28 @@ export async function generateVideoEmbeddings(
   assetId: string,
   options: EmbeddingsOptions = {},
 ): Promise<VideoEmbeddingsResult> {
-  "use workflow";
   const {
-    provider = "openai",
+    provider = DEFAULT_PROVIDER,
     model,
     languageCode,
-    chunkingStrategy = { type: "token", maxTokens: 500, overlap: 100 } as ChunkingStrategy,
-    batchSize = 5,
+    chunkingStrategy = DEFAULT_CHUNKING_STRATEGY,
+    batchSize = DEFAULT_BATCH_SIZE,
+    abortSignal,
   } = options;
 
-  // Validate credentials
-  const credentials = await validateCredentials(options, provider === "google" ? "google" : "openai");
+  // Validate credentials and initialize Mux client
+  const credentials = validateCredentials(options, provider === "google" ? "google" : "openai");
+  const muxClient = createMuxClient(credentials);
   const embeddingModel = resolveEmbeddingModel({ ...options, provider, model });
 
   // Fetch asset and playback ID
   const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(
-    credentials,
+    muxClient,
     assetId,
   );
 
   // Resolve signing context for signed playback IDs
-  const signingContext = await resolveSigningContext(options);
+  const signingContext = resolveSigningContext(options);
   if (policy === "signed" && !signingContext) {
     throw new Error(
       "Signed playback ID requires signing credentials. " +
@@ -199,25 +221,15 @@ export async function generateVideoEmbeddings(
     throw new Error("No chunks generated from transcript");
   }
 
-  // Generate embeddings for all chunks (process in batches)
-  const chunkEmbeddings: ChunkEmbedding[] = [];
+  // Generate embeddings for all chunks
+  let chunkEmbeddings: ChunkEmbedding[];
   try {
-    for (let i = 0; i < chunks.length; i += batchSize) {
-      const batch = chunks.slice(i, i + batchSize);
-
-      const batchResults = await Promise.all(
-        batch.map(chunk =>
-          generateSingleChunkEmbedding({
-            chunk,
-            provider: embeddingModel.provider,
-            modelId: embeddingModel.modelId as string,
-            credentials,
-          }),
-        ),
-      );
-
-      chunkEmbeddings.push(...batchResults);
-    }
+    chunkEmbeddings = await generateChunkEmbeddings(
+      chunks,
+      embeddingModel.model,
+      batchSize,
+      abortSignal,
+    );
   } catch (error) {
     throw new Error(
       `Failed to generate embeddings with ${provider}: ${error instanceof Error ? error.message : "Unknown error"}`,

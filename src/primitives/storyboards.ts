@@ -17,7 +17,6 @@ export async function getStoryboardUrl(
   width: number = DEFAULT_STORYBOARD_WIDTH,
   signingContext?: SigningContext,
 ): Promise<string> {
-  "use step";
   const baseUrl = `https://image.mux.com/${playbackId}/storyboard.png`;
 
   if (signingContext) {

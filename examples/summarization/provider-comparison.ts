@@ -26,7 +26,7 @@ program
     console.log("🔍 Comparing OpenAI vs Anthropic vs Google analysis results...\n");
 
     const providers = [
-      { name: "OpenAI", provider: "openai" as const, model: "gpt-5-mini" },
+      { name: "OpenAI", provider: "openai" as const, model: "gpt-5.1" },
       { name: "Anthropic", provider: "anthropic" as const, model: "claude-sonnet-4-5" },
       { name: "Google", provider: "google" as const, model: "gemini-2.5-flash" },
     ];

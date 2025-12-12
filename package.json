@@ -69,18 +69,17 @@
     "dist"
   ],
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=21.0.0"
   },
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
-    "test": "DOTENV_CONFIG_PATH=.env.test vitest run",
-    "test:watch": "DOTENV_CONFIG_PATH=.env.test vitest",
-    "test:ui": "DOTENV_CONFIG_PATH=.env.test vitest --ui",
-    "test:integration": "DOTENV_CONFIG_PATH=.env.test vitest run tests/integration",
-    "test:integration-workflowdevkit": "DOTENV_CONFIG_PATH=.env.test vitest run --config vitest.workflowdevkit.config.ts",
-    "test:unit": "DOTENV_CONFIG_PATH=.env.test vitest run tests/unit",
-    "test:eval": "DOTENV_CONFIG_PATH=.env.test evalite serve tests/eval",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "test:integration": "vitest run tests/integration",
+    "test:unit": "vitest run tests/unit",
+    "test:eval": "evalite serve tests/eval",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc --noEmit",
@@ -123,12 +122,10 @@
     "evalite": "1.0.0-beta.2",
     "husky": "^9.1.7",
     "jest": "^29.0.0",
-    "nitro": "^3.0.1-alpha.1",
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
     "tsup": "^8.5.0",
     "typescript": "^5.0.0",
-    "vitest": "^4.0.13",
-    "workflow": "^4.0.1-beta.28"
+    "vitest": "^4.0.13"
   }
 }

@@ -2,8 +2,7 @@ import { generateObject } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
-import { createWorkflowConfig } from "../lib/client-factory";
-import type { WorkflowConfig } from "../lib/client-factory";
+import { createWorkflowClients } from "../lib/client-factory";
 import type { ImageDownloadOptions } from "../lib/image-download";
 import { downloadImageAsBase64 } from "../lib/image-download";
 import { getPlaybackIdForAsset } from "../lib/mux-assets";
@@ -15,8 +14,8 @@ import {
   createToneSection,
   createTranscriptSection,
 } from "../lib/prompt-builder";
-import { createLanguageModelFromConfig } from "../lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers";
+import { withRetry } from "../lib/retry";
 import { resolveSigningContext } from "../lib/url-signing";
 import { getStoryboardUrl } from "../primitives/storyboards";
 import { fetchTranscriptForAsset } from "../primitives/transcripts";
@@ -110,7 +109,7 @@ export interface SummarizationOptions extends MuxAIOptions {
 
 const TONE_INSTRUCTIONS: Record<ToneType, string> = {
   normal: "Provide a clear, straightforward analysis.",
-  sassy: "Answer with a sassy, playful attitude and personality.",
+  sassy: "Channel your inner diva! Answer with maximum sass, wit, and playful attitude. Don't hold back - be cheeky, clever, and delightfully snarky. Make it pop!",
   professional: "Provide a professional, executive-level analysis suitable for business reporting.",
 };
 
@@ -198,6 +197,13 @@ const SYSTEM_PROMPT = dedent`
     - Return structured data matching the requested schema
   </constraints>
 
+  <tone_guidance>
+    Pay special attention to the <tone> section and lean heavily into those instructions.
+    Adapt your entire analysis and writing style to match the specified tone - this should influence
+    your word choice, personality, formality level, and overall presentation of the content.
+    The tone instructions are not suggestions but core requirements for how you should express yourself.
+  </tone_guidance>
+
   <language_guidelines>
     AVOID these meta-descriptive phrases that reference the medium rather than the content:
     - "The image shows..." / "The storyboard shows..."
@@ -241,53 +247,8 @@ function buildUserPrompt({
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface AnalysisResponse {
-  result: SummaryType;
-  usage: TokenUsage;
-}
-
-async function analyzeStoryboard(
-  imageDataUrl: string,
-  workflowConfig: WorkflowConfig,
-  userPrompt: string,
-  systemPrompt: string,
-): Promise<AnalysisResponse> {
-  "use step";
-  const model = createLanguageModelFromConfig(
-    workflowConfig.provider,
-    workflowConfig.modelId,
-    workflowConfig.credentials,
-  );
-
-  const response = await generateObject({
-    model,
-    schema: summarySchema,
-    messages: [
-      {
-        role: "system",
-        content: systemPrompt,
-      },
-      {
-        role: "user",
-        content: [
-          { type: "text", text: userPrompt },
-          { type: "image", image: imageDataUrl },
-        ],
-      },
-    ],
-  });
-
-  return {
-    result: response.object,
-    usage: {
-      inputTokens: response.usage.inputTokens,
-      outputTokens: response.usage.outputTokens,
-      totalTokens: response.usage.totalTokens,
-      reasoningTokens: response.usage.reasoningTokens,
-      cachedInputTokens: response.usage.cachedInputTokens,
-    },
-  };
-}
+const DEFAULT_PROVIDER = "openai";
+const DEFAULT_TONE = "normal";
 
 function normalizeKeywords(keywords?: string[]): string[] {
   if (!Array.isArray(keywords) || keywords.length === 0) {
@@ -323,30 +284,29 @@ export async function getSummaryAndTags(
   assetId: string,
   options?: SummarizationOptions,
 ): Promise<SummaryAndTagsResult> {
-  "use workflow";
   const {
-    provider = "openai",
+    provider = DEFAULT_PROVIDER,
     model,
-    tone = "normal",
+    tone = DEFAULT_TONE,
     includeTranscript = true,
     cleanTranscript = true,
     imageSubmissionMode = "url",
     imageDownloadOptions,
-    abortSignal: _abortSignal,
+    abortSignal,
     promptOverrides,
   } = options ?? {};
 
-  // Validate credentials and resolve language model
-  const config = await createWorkflowConfig(
+  // Initialize clients with validated credentials and resolved language model
+  const clients = createWorkflowClients(
     { ...options, model },
     provider as SupportedProvider,
   );
 
   // Fetch asset data from Mux and grab playback/transcript details
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(config.credentials, assetId);
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(clients.mux, assetId);
 
   // Resolve signing context for signed playback IDs
-  const signingContext = await resolveSigningContext(options ?? {});
+  const signingContext = resolveSigningContext(options ?? {});
   if (policy === "signed" && !signingContext) {
     throw new Error(
       "Signed playback ID requires signing credentials. " +
@@ -373,20 +333,52 @@ export async function getSummaryAndTags(
   // Analyze storyboard with AI provider (signed if needed)
   const imageUrl = await getStoryboardUrl(playbackId, 640, policy === "signed" ? signingContext : undefined);
 
+  interface AnalysisResponse {
+    result: SummaryType;
+    usage: TokenUsage;
+  }
+
+  const analyzeStoryboard = async (imageDataUrl: string): Promise<AnalysisResponse> => {
+    const response = await generateObject({
+      model: clients.languageModel.model,
+      schema: summarySchema,
+      abortSignal,
+      messages: [
+        {
+          role: "system",
+          content: SYSTEM_PROMPT,
+        },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: userPrompt },
+            { type: "image", image: imageDataUrl },
+          ],
+        },
+      ],
+    });
+
+    return {
+      result: response.object,
+      usage: {
+        inputTokens: response.usage.inputTokens,
+        outputTokens: response.usage.outputTokens,
+        totalTokens: response.usage.totalTokens,
+        reasoningTokens: response.usage.reasoningTokens,
+        cachedInputTokens: response.usage.cachedInputTokens,
+      },
+    };
+  };
+
   let analysisResponse: AnalysisResponse;
 
   try {
     if (imageSubmissionMode === "base64") {
       const downloadResult = await downloadImageAsBase64(imageUrl, imageDownloadOptions);
-      analysisResponse = await analyzeStoryboard(
-        downloadResult.base64Data,
-        config,
-        userPrompt,
-        SYSTEM_PROMPT,
-      );
+      analysisResponse = await analyzeStoryboard(downloadResult.base64Data);
     } else {
       // URL-based submission with retry logic
-      analysisResponse = await analyzeStoryboard(imageUrl, config, userPrompt, SYSTEM_PROMPT);
+      analysisResponse = await withRetry(() => analyzeStoryboard(imageUrl));
     }
   } catch (error: unknown) {
     throw new Error(
