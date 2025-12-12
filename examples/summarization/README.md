@@ -87,7 +87,7 @@ npm run example:summarization:custom <asset-id> --preset social --title-guidance
 Key options for `getSummaryAndTags`:
 
 - `provider`: `'openai' | 'anthropic' | 'google'` (default: `'openai'`)
-- `model`: Provider-specific chat model (defaults per provider, e.g. `gpt-5-mini`)
+- `model`: Provider-specific chat model (defaults per provider, e.g. `gpt-5.1`)
 - `tone`: `'normal' | 'sassy' | 'professional'` (default: `'normal'`)
 - `includeTranscript`: Include the asset transcript when available (default: `true`)
 - `imageSubmissionMode`: `'url' | 'base64'` storyboard transport (default: `'url'`)
