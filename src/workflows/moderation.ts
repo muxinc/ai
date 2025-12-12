@@ -1,6 +1,7 @@
-import { getApiKeyFromEnv } from "../lib/client-factory";
+import { getApiKey } from "../lib/client-factory";
 import type { ImageDownloadOptions } from "../lib/image-download";
 import { downloadImagesAsBase64 } from "../lib/image-download";
+import type { ExplicitMuxCredentials } from "../lib/mux-assets";
 import { getPlaybackIdForAsset } from "../lib/mux-assets";
 import { resolveSigningContext } from "../lib/url-signing";
 import { getThumbnailUrls } from "../primitives/thumbnails";
@@ -139,12 +140,18 @@ async function processConcurrently<T>(
   return results;
 }
 
+interface ExplicitApiKey {
+  openaiApiKey?: string;
+  hiveApiKey?: string;
+}
+
 async function requestOpenAIModeration(
   imageUrls: string[],
   model: string,
   maxConcurrent: number = 5,
   submissionMode: "url" | "base64" = "url",
   downloadOptions?: ImageDownloadOptions,
+  explicitCredentials?: ExplicitApiKey,
 ): Promise<ThumbnailModerationScore[]> {
   "use step";
   const targetUrls =
@@ -156,7 +163,7 @@ async function requestOpenAIModeration(
 
   const moderate = async (entry: { url: string; image: string; model: string }): Promise<ThumbnailModerationScore> => {
     "use step";
-    const apiKey = getApiKeyFromEnv("openai");
+    const apiKey = getApiKey("openai", explicitCredentials);
     try {
       const res = await fetch("https://api.openai.com/v1/moderations", {
         method: "POST",
@@ -222,6 +229,7 @@ async function requestHiveModeration(
   maxConcurrent: number = 5,
   submissionMode: "url" | "base64" = "url",
   downloadOptions?: ImageDownloadOptions,
+  explicitCredentials?: ExplicitApiKey,
 ): Promise<ThumbnailModerationScore[]> {
   "use step";
   const targets: Array<{ url: string; source: HiveModerationSource }> =
@@ -241,7 +249,7 @@ async function requestHiveModeration(
 
   const moderate = async (entry: { url: string; source: HiveModerationSource }): Promise<ThumbnailModerationScore> => {
     "use step";
-    const apiKey = getApiKeyFromEnv("hive");
+    const apiKey = getApiKey("hive", explicitCredentials);
     try {
       const formData = new FormData();
 
@@ -315,8 +323,18 @@ export async function getModerationScores(
     imageDownloadOptions,
   } = options;
 
+  // Build explicit credentials from options (only include if explicitly passed)
+  const explicitMuxCredentials: ExplicitMuxCredentials | undefined =
+    options.muxTokenId || options.muxTokenSecret ?
+        { muxTokenId: options.muxTokenId, muxTokenSecret: options.muxTokenSecret } :
+      undefined;
+  const explicitApiCredentials: ExplicitApiKey | undefined =
+    options.openaiApiKey || options.hiveApiKey ?
+        { openaiApiKey: options.openaiApiKey, hiveApiKey: options.hiveApiKey } :
+      undefined;
+
   // Fetch asset data and playback ID from Mux via helper
-  const { asset, playbackId, policy } = await getPlaybackIdForAsset(assetId);
+  const { asset, playbackId, policy } = await getPlaybackIdForAsset(assetId, explicitMuxCredentials);
   const duration = asset.duration || 0;
 
   // Resolve signing context for signed playback IDs
@@ -344,6 +362,7 @@ export async function getModerationScores(
       maxConcurrent,
       imageSubmissionMode,
       imageDownloadOptions,
+      explicitApiCredentials,
     );
   } else if (provider === "hive") {
     thumbnailScores = await requestHiveModeration(
@@ -351,6 +370,7 @@ export async function getModerationScores(
       maxConcurrent,
       imageSubmissionMode,
       imageDownloadOptions,
+      explicitApiCredentials,
     );
   } else {
     throw new Error(`Unsupported moderation provider: ${provider}`);

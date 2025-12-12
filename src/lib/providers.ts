@@ -158,30 +158,41 @@ function requireEnv(value: string | undefined, name: string): string {
   return value;
 }
 
+/** Explicit credentials that can be passed through step I/O (user opted in). */
+export interface ExplicitCredentials {
+  openaiApiKey?: string;
+  anthropicApiKey?: string;
+  googleApiKey?: string;
+}
+
 /**
  * Creates a language model instance from serializable config.
  * Use this in steps to instantiate models from config passed through workflow.
- * Fetches credentials internally from environment variables to avoid exposing them in step I/O.
+ *
+ * @param provider - The AI provider
+ * @param modelId - The model ID
+ * @param explicit - Credentials explicitly passed by the user (safe to pass through step I/O)
  */
 export function createLanguageModelFromConfig(
   provider: SupportedProvider,
   modelId: string,
+  explicit?: ExplicitCredentials,
 ): LanguageModel {
   switch (provider) {
     case "openai": {
-      const apiKey = env.OPENAI_API_KEY;
+      const apiKey = explicit?.openaiApiKey ?? env.OPENAI_API_KEY;
       requireEnv(apiKey, "OPENAI_API_KEY");
       const openai = createOpenAI({ apiKey });
       return openai(modelId);
     }
     case "anthropic": {
-      const apiKey = env.ANTHROPIC_API_KEY;
+      const apiKey = explicit?.anthropicApiKey ?? env.ANTHROPIC_API_KEY;
       requireEnv(apiKey, "ANTHROPIC_API_KEY");
       const anthropic = createAnthropic({ apiKey });
       return anthropic(modelId);
     }
     case "google": {
-      const apiKey = env.GOOGLE_GENERATIVE_AI_API_KEY;
+      const apiKey = explicit?.googleApiKey ?? env.GOOGLE_GENERATIVE_AI_API_KEY;
       requireEnv(apiKey, "GOOGLE_GENERATIVE_AI_API_KEY");
       const google = createGoogleGenerativeAI({ apiKey });
       return google(modelId);
@@ -196,21 +207,25 @@ export function createLanguageModelFromConfig(
 /**
  * Creates an embedding model instance from serializable config.
  * Use this in steps to instantiate embedding models from config passed through workflow.
- * Fetches credentials internally from environment variables to avoid exposing them in step I/O.
+ *
+ * @param provider - The embedding provider
+ * @param modelId - The model ID
+ * @param explicit - Credentials explicitly passed by the user (safe to pass through step I/O)
  */
 export function createEmbeddingModelFromConfig(
   provider: SupportedEmbeddingProvider,
   modelId: string,
+  explicit?: ExplicitCredentials,
 ): EmbeddingModel<string> {
   switch (provider) {
     case "openai": {
-      const apiKey = env.OPENAI_API_KEY;
+      const apiKey = explicit?.openaiApiKey ?? env.OPENAI_API_KEY;
       requireEnv(apiKey, "OPENAI_API_KEY");
       const openai = createOpenAI({ apiKey });
       return openai.embedding(modelId);
     }
     case "google": {
-      const apiKey = env.GOOGLE_GENERATIVE_AI_API_KEY;
+      const apiKey = explicit?.googleApiKey ?? env.GOOGLE_GENERATIVE_AI_API_KEY;
       requireEnv(apiKey, "GOOGLE_GENERATIVE_AI_API_KEY");
       const google = createGoogleGenerativeAI({ apiKey });
       return google.textEmbeddingModel(modelId);

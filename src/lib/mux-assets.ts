@@ -2,7 +2,7 @@ import Mux from "@mux/mux-node";
 
 import type { MuxAsset, PlaybackAsset, PlaybackPolicy } from "../types";
 
-import { getMuxCredentialsFromEnv } from "./client-factory";
+import { getMuxCredentials } from "./client-factory";
 
 /**
  * Finds a usable playback ID for the given asset.
@@ -30,11 +30,18 @@ function getPlaybackId(asset: MuxAsset): { id: string; policy: PlaybackPolicy } 
   );
 }
 
+/** Explicit Mux credentials that can be passed through step I/O (user opted in). */
+export interface ExplicitMuxCredentials {
+  muxTokenId?: string;
+  muxTokenSecret?: string;
+}
+
 export async function getPlaybackIdForAsset(
   assetId: string,
+  explicitCredentials?: ExplicitMuxCredentials,
 ): Promise<PlaybackAsset> {
   "use step";
-  const { muxTokenId, muxTokenSecret } = getMuxCredentialsFromEnv();
+  const { muxTokenId, muxTokenSecret } = getMuxCredentials(explicitCredentials);
   const mux = new Mux({
     tokenId: muxTokenId,
     tokenSecret: muxTokenSecret,

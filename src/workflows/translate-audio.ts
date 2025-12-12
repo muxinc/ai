@@ -1,9 +1,10 @@
 import Mux from "@mux/mux-node";
 
 import env from "../env";
-import { getApiKeyFromEnv, getMuxCredentialsFromEnv } from "../lib/client-factory";
+import { getApiKey, getMuxCredentials } from "../lib/client-factory";
 import { getLanguageCodePair, toISO639_1, toISO639_3 } from "../lib/language-codes";
 import type { LanguageCodePair, SupportedISO639_1 } from "../lib/language-codes";
+import type { ExplicitMuxCredentials } from "../lib/mux-assets";
 import { getPlaybackIdForAsset } from "../lib/mux-assets";
 import { resolveSigningContext, signUrl } from "../lib/url-signing";
 import type { MuxAIOptions } from "../types";
@@ -77,9 +78,13 @@ function getReadyAudioStaticRendition(asset: any) {
 
 const hasReadyAudioStaticRendition = (asset: any) => Boolean(getReadyAudioStaticRendition(asset));
 
-async function requestStaticRenditionCreation(assetId: string) {
+interface ExplicitElevenLabsCredentials {
+  elevenLabsApiKey?: string;
+}
+
+async function requestStaticRenditionCreation(assetId: string, explicitCredentials?: ExplicitMuxCredentials) {
   "use step";
-  const { muxTokenId, muxTokenSecret } = getMuxCredentialsFromEnv();
+  const { muxTokenId, muxTokenSecret } = getMuxCredentials(explicitCredentials);
   const mux = new Mux({
     tokenId: muxTokenId,
     tokenSecret: muxTokenSecret,
@@ -107,12 +112,14 @@ async function requestStaticRenditionCreation(assetId: string) {
 async function waitForAudioStaticRendition({
   assetId,
   initialAsset,
+  explicitCredentials,
 }: {
   assetId: string;
   initialAsset: any;
+  explicitCredentials?: ExplicitMuxCredentials;
 }): Promise<any> {
   "use step";
-  const { muxTokenId, muxTokenSecret } = getMuxCredentialsFromEnv();
+  const { muxTokenId, muxTokenSecret } = getMuxCredentials(explicitCredentials);
   const mux = new Mux({
     tokenId: muxTokenId,
     tokenSecret: muxTokenSecret,
@@ -126,9 +133,9 @@ async function waitForAudioStaticRendition({
   const status = currentAsset.static_renditions?.status ?? "not_requested";
 
   if (status === "not_requested" || status === undefined) {
-    await requestStaticRenditionCreation(assetId);
+    await requestStaticRenditionCreation(assetId, explicitCredentials);
   } else if (status === "errored") {
-    await requestStaticRenditionCreation(assetId);
+    await requestStaticRenditionCreation(assetId, explicitCredentials);
   } else {
     console.warn(`ℹ️ Static rendition already ${status}. Waiting for it to finish...`);
   }
@@ -174,14 +181,16 @@ async function createElevenLabsDubbingJob({
   assetId,
   elevenLabsLangCode,
   numSpeakers,
+  explicitCredentials,
 }: {
   audioBuffer: ArrayBuffer;
   assetId: string;
   elevenLabsLangCode: string;
   numSpeakers: number;
+  explicitCredentials?: ExplicitElevenLabsCredentials;
 }): Promise<string> {
   "use step";
-  const elevenLabsApiKey = getApiKeyFromEnv("elevenlabs");
+  const elevenLabsApiKey = getApiKey("elevenlabs", explicitCredentials);
 
   const audioBlob = new Blob([audioBuffer], { type: "audio/mp4" });
 
@@ -209,11 +218,13 @@ async function createElevenLabsDubbingJob({
 
 async function checkElevenLabsDubbingStatus({
   dubbingId,
+  explicitCredentials,
 }: {
   dubbingId: string;
+  explicitCredentials?: ExplicitElevenLabsCredentials;
 }): Promise<{ status: string; targetLanguages: string[] }> {
   "use step";
-  const elevenLabsApiKey = getApiKeyFromEnv("elevenlabs");
+  const elevenLabsApiKey = getApiKey("elevenlabs", explicitCredentials);
 
   const statusResponse = await fetch(`https://api.elevenlabs.io/v1/dubbing/${dubbingId}`, {
     headers: {
@@ -235,12 +246,14 @@ async function checkElevenLabsDubbingStatus({
 async function downloadDubbedAudioFromElevenLabs({
   dubbingId,
   languageCode,
+  explicitCredentials,
 }: {
   dubbingId: string;
   languageCode: string;
+  explicitCredentials?: ExplicitElevenLabsCredentials;
 }): Promise<ArrayBuffer> {
   "use step";
-  const elevenLabsApiKey = getApiKeyFromEnv("elevenlabs");
+  const elevenLabsApiKey = getApiKey("elevenlabs", explicitCredentials);
 
   const audioUrl = `https://api.elevenlabs.io/v1/dubbing/${dubbingId}/audio/${languageCode}`;
   const audioResponse = await fetch(audioUrl, {
@@ -327,9 +340,10 @@ async function createAudioTrackOnMux(
   assetId: string,
   languageCode: string,
   presignedUrl: string,
+  explicitCredentials?: ExplicitMuxCredentials,
 ): Promise<string> {
   "use step";
-  const { muxTokenId, muxTokenSecret } = getMuxCredentialsFromEnv();
+  const { muxTokenId, muxTokenSecret } = getMuxCredentials(explicitCredentials);
   const mux = new Mux({
     tokenId: muxTokenId,
     tokenSecret: muxTokenSecret,
@@ -369,6 +383,14 @@ export async function translateAudio(
     throw new Error("Only ElevenLabs provider is currently supported for audio translation");
   }
 
+  // Build explicit credentials from options (only include if explicitly passed)
+  const explicitMuxCredentials: ExplicitMuxCredentials | undefined =
+    options.muxTokenId || options.muxTokenSecret ?
+        { muxTokenId: options.muxTokenId, muxTokenSecret: options.muxTokenSecret } :
+      undefined;
+  const explicitElevenLabsCredentials: ExplicitElevenLabsCredentials | undefined =
+    elevenLabsApiKey ? { elevenLabsApiKey } : undefined;
+
   const elevenLabsKey = elevenLabsApiKey ?? env.ELEVENLABS_API_KEY;
 
   // S3 configuration
@@ -387,7 +409,7 @@ export async function translateAudio(
   }
 
   // Fetch asset data and playback ID from Mux
-  const { asset: initialAsset, playbackId, policy } = await getPlaybackIdForAsset(assetId);
+  const { asset: initialAsset, playbackId, policy } = await getPlaybackIdForAsset(assetId, explicitMuxCredentials);
 
   // Resolve signing context for signed playback IDs
   const signingContext = await resolveSigningContext(options);
@@ -406,6 +428,7 @@ export async function translateAudio(
     currentAsset = await waitForAudioStaticRendition({
       assetId,
       initialAsset: currentAsset,
+      explicitCredentials: explicitMuxCredentials,
     });
   }
 
@@ -447,6 +470,7 @@ export async function translateAudio(
       assetId,
       elevenLabsLangCode,
       numSpeakers,
+      explicitCredentials: explicitElevenLabsCredentials,
     });
     console.warn(`✅ Dubbing job created with ID: ${dubbingId}`);
   } catch (error) {
@@ -468,6 +492,7 @@ export async function translateAudio(
     try {
       const statusResult = await checkElevenLabsDubbingStatus({
         dubbingId,
+        explicitCredentials: explicitElevenLabsCredentials,
       });
       dubbingStatus = statusResult.status;
       targetLanguages = statusResult.targetLanguages;
@@ -531,6 +556,7 @@ export async function translateAudio(
     dubbedAudioBuffer = await downloadDubbedAudioFromElevenLabs({
       dubbingId,
       languageCode: downloadLangCode,
+      explicitCredentials: explicitElevenLabsCredentials,
     });
     console.warn("✅ Dubbed audio downloaded successfully!");
   } catch (error) {
@@ -565,7 +591,7 @@ export async function translateAudio(
   const muxLangCode = toISO639_1(toLanguageCode);
 
   try {
-    uploadedTrackId = await createAudioTrackOnMux(assetId, muxLangCode, presignedUrl);
+    uploadedTrackId = await createAudioTrackOnMux(assetId, muxLangCode, presignedUrl, explicitMuxCredentials);
     const languageName = new Intl.DisplayNames(["en"], { type: "language" }).of(muxLangCode) || muxLangCode.toUpperCase();
     const trackName = `${languageName} (auto-dubbed)`;
     console.warn(`✅ Track added to Mux asset with ID: ${uploadedTrackId}`);

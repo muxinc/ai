@@ -8,22 +8,15 @@ import {
   resolveLanguageModel,
 } from "./providers";
 
-export interface ClientCredentials {
-  muxTokenId?: string;
-  muxTokenSecret?: string;
-  openaiApiKey?: string;
-  anthropicApiKey?: string;
-  googleApiKey?: string;
-}
-
 /**
- * Gets Mux credentials from environment variables.
- * Used internally by workflow steps to avoid passing credentials through step I/O.
- * Throws if credentials are not available.
+ * Gets Mux credentials, preferring explicit credentials over environment variables.
+ * Used internally by workflow steps.
+ *
+ * @param explicit - Credentials explicitly passed by the user (safe to use in step I/O)
  */
-export function getMuxCredentialsFromEnv(): { muxTokenId: string; muxTokenSecret: string } {
-  const muxTokenId = env.MUX_TOKEN_ID;
-  const muxTokenSecret = env.MUX_TOKEN_SECRET;
+export function getMuxCredentials(explicit?: { muxTokenId?: string; muxTokenSecret?: string }): { muxTokenId: string; muxTokenSecret: string } {
+  const muxTokenId = explicit?.muxTokenId ?? env.MUX_TOKEN_ID;
+  const muxTokenSecret = explicit?.muxTokenSecret ?? env.MUX_TOKEN_SECRET;
 
   if (!muxTokenId || !muxTokenSecret) {
     throw new Error(
@@ -35,11 +28,24 @@ export function getMuxCredentialsFromEnv(): { muxTokenId: string; muxTokenSecret
 }
 
 /**
- * Gets an API key from environment variables for the specified provider.
- * Used internally by workflow steps to avoid passing credentials through step I/O.
- * Throws if the API key is not available.
+ * Gets an API key for the specified provider, preferring explicit credentials over environment variables.
+ * Used internally by workflow steps.
+ *
+ * @param provider - The provider to get credentials for
+ * @param explicit - Credentials explicitly passed by the user (safe to use in step I/O)
  */
-export function getApiKeyFromEnv(provider: "openai" | "anthropic" | "google" | "hive" | "elevenlabs"): string {
+export function getApiKey(
+  provider: "openai" | "anthropic" | "google" | "hive" | "elevenlabs",
+  explicit?: { openaiApiKey?: string; anthropicApiKey?: string; googleApiKey?: string; hiveApiKey?: string; elevenLabsApiKey?: string },
+): string {
+  const explicitKeyMap: Record<string, string | undefined> = {
+    openai: explicit?.openaiApiKey,
+    anthropic: explicit?.anthropicApiKey,
+    google: explicit?.googleApiKey,
+    hive: explicit?.hiveApiKey,
+    elevenlabs: explicit?.elevenLabsApiKey,
+  };
+
   const envVarMap: Record<string, string | undefined> = {
     openai: env.OPENAI_API_KEY,
     anthropic: env.ANTHROPIC_API_KEY,
@@ -48,7 +54,7 @@ export function getApiKeyFromEnv(provider: "openai" | "anthropic" | "google" | "
     elevenlabs: env.ELEVENLABS_API_KEY,
   };
 
-  const apiKey = envVarMap[provider];
+  const apiKey = explicitKeyMap[provider] ?? envVarMap[provider];
   if (!apiKey) {
     const envVarNames: Record<string, string> = {
       openai: "OPENAI_API_KEY",
@@ -63,6 +69,14 @@ export function getApiKeyFromEnv(provider: "openai" | "anthropic" | "google" | "
   }
 
   return apiKey;
+}
+
+export interface ClientCredentials {
+  muxTokenId?: string;
+  muxTokenSecret?: string;
+  openaiApiKey?: string;
+  anthropicApiKey?: string;
+  googleApiKey?: string;
 }
 
 export interface ValidatedCredentials {
@@ -85,8 +99,7 @@ export async function validateCredentials(
   const muxTokenSecret = options.muxTokenSecret ?? env.MUX_TOKEN_SECRET;
   const openaiApiKey = options.openaiApiKey ?? env.OPENAI_API_KEY;
   const anthropicApiKey = options.anthropicApiKey ?? env.ANTHROPIC_API_KEY;
-  const googleApiKey =
-    options.googleApiKey ?? env.GOOGLE_GENERATIVE_AI_API_KEY;
+  const googleApiKey = options.googleApiKey ?? env.GOOGLE_GENERATIVE_AI_API_KEY;
 
   if (!muxTokenId || !muxTokenSecret) {
     throw new Error(
@@ -122,29 +135,50 @@ export async function validateCredentials(
 }
 
 export interface WorkflowConfig {
-  credentials: ValidatedCredentials;
   provider: SupportedProvider;
   modelId: string;
+  /** Credentials passed explicitly by the user (not from ENV). Safe to pass through step I/O. */
+  explicitCredentials?: Partial<ValidatedCredentials>;
 }
 
 /**
  * Validates credentials and resolves model configuration for a workflow.
  * This function is NOT a workflow step to avoid exposing credentials in step I/O.
+ *
+ * Only credentials explicitly passed in options are included in explicitCredentials.
+ * ENV-based credentials are validated but not returned (steps fetch them internally).
  */
 export async function createWorkflowConfig(
   options: ModelRequestOptions,
   provider?: SupportedProvider,
 ): Promise<WorkflowConfig> {
   const providerToUse = provider || options.provider || "openai";
-  const credentials = await validateCredentials(options, providerToUse);
+
+  // Validate that all required credentials are available (from options or ENV)
+  await validateCredentials(options, providerToUse);
+
   const resolved = resolveLanguageModel({
     ...options,
     provider: providerToUse,
   });
 
+  // Only include credentials that were explicitly passed (not from ENV)
+  // These are safe to pass through step I/O since user opted in
+  const explicitCredentials: Partial<ValidatedCredentials> = {};
+  if (options.muxTokenId)
+    explicitCredentials.muxTokenId = options.muxTokenId;
+  if (options.muxTokenSecret)
+    explicitCredentials.muxTokenSecret = options.muxTokenSecret;
+  if (options.openaiApiKey)
+    explicitCredentials.openaiApiKey = options.openaiApiKey;
+  if (options.anthropicApiKey)
+    explicitCredentials.anthropicApiKey = options.anthropicApiKey;
+  if (options.googleApiKey)
+    explicitCredentials.googleApiKey = options.googleApiKey;
+
   return {
-    credentials,
     provider: resolved.provider,
     modelId: resolved.modelId as string,
+    explicitCredentials: Object.keys(explicitCredentials).length > 0 ? explicitCredentials : undefined,
   };
 }
