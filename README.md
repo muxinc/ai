@@ -8,6 +8,7 @@
 `@mux/ai` does this by providing:
 - Easy to use, purpose-driven, cost effective, configurable **_workflow functions_** that integrate with a variety of popular AI/LLM providers (OpenAI, Anthropic, Google).
   - **Examples:** [`generateChapters`](#chapter-generation), [`getModerationScores`](#content-moderation), [`generateVideoEmbeddings`](#video-search-with-embeddings), [`getSummaryAndTags`](#video-summarization)
+  - Workflows automatically ship with `"use workflow"` [compatability with Workflow DevKit](#compatability-with-workflow-devkit)
 - Convenient, parameterized, commonly needed **_primitive functions_** backed by [Mux Video](https://www.mux.com/video-api) for building your own media-based AI workflows and integrations.
   - **Examples:** `getStoryboardUrl`, `chunkVTTCues`, `fetchTranscriptForAsset`
 
@@ -87,6 +88,58 @@ S3_SECRET_ACCESS_KEY=your-secret-key
 | [`generateVideoEmbeddings`](./docs/WORKFLOWS.md#video-embeddings)<br/>[API](./docs/API.md#generatevideoembeddingsassetid-options) · [Source](./src/workflows/embeddings.ts) | Generate vector embeddings for an asset's transcript chunks       | OpenAI, Google            | `text-embedding-3-small` (OpenAI), `gemini-embedding-001` (Google) | Video (required), Captions (required) | None |
 | [`translateCaptions`](./docs/WORKFLOWS.md#caption-translation)<br/>[API](./docs/API.md#translatecaptionsassetid-fromlanguagecode-tolanguagecode-options) · [Source](./src/workflows/translate-captions.ts) | Translate an asset's captions into different languages            | OpenAI, Anthropic, Google | `gpt-5.1` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-2.5-flash` (Google) | Video (required), Captions (required) | AWS S3 (if `uploadToMux=true`) |
 | [`translateAudio`](./docs/WORKFLOWS.md#audio-dubbing)<br/>[API](./docs/API.md#translateaudioassetid-tolanguagecode-options) · [Source](./src/workflows/translate-audio.ts) | Create AI-dubbed audio tracks in different languages for an asset | ElevenLabs only           | ElevenLabs Dubbing API                                             | Video (required), Audio (required) | AWS S3 (if `uploadToMux=true`) |
+
+## Compatability with Workflow DevKit
+
+All workflows are compatible with [Workflow DevKit](https://useworkflow.dev). The workflows in this SDK are exported with `"use workflow"` directives and `"use step"` directives in the code.
+
+If you are using Workflow DevKit in your project, then you must call workflow functions like this:
+
+```ts
+import { start } from 'workflow/api';
+import { getSummaryAndTags } from '@mux/ai/workflows';
+
+const assetId = 'YOUR_ASSET_ID';
+const run = await start(getSummaryAndTags, [assetId]);
+
+// optionally, wait for the workflow run return value:
+// const result = await run.returnValue
+```
+
+### Features of Workflow DevKit
+
+- [Observability Dashboard](https://useworkflow.dev/docs/observability)
+- [Control Flow Patterns](https://useworkflow.dev/docs/foundations/control-flow-patterns) like Parallel Execution.
+- [Errors and Retrying](https://useworkflow.dev/docs/foundations/errors-and-retries)
+- [Hooks and Webhooks](https://useworkflow.dev/docs/foundations/hooks)
+- Patterns for building Agents with [Human in the Loop](https://useworkflow.dev/docs/ai/human-in-the-loop)
+
+**Workflows can be nested**
+
+```ts
+import { start } from "workflow/api";
+import { getSummaryAndTags } from '@mux/ai/workflows';
+
+async function processVideoSummary (assetId: string) {
+  'use workflow'
+
+  const summary = await getSummaryAndTags(assetId);
+  const emailResp = await emailSummaryToAdmins(summary: summary);
+
+  return { assetId, summary, emailResp }
+}
+
+async function emailSummaryToAdmins (assetId: string) {
+  'use step';
+  return { sent: true }
+}
+
+//
+// this will call the processVideoSummary workflow that is defined above
+// in that workflow, it calls `getSummaryAndTags()` workflow
+//
+const run = await start(processVideoSummary, [assetId]);
+```
 
 ## Example Workflows
 
