@@ -153,6 +153,15 @@ describe("myFunction", () => {
 });
 ```
 
+### Writing integration tests for Workflow DevKit
+
+- Create a test file that ends in `*.test.workflowdevkit.ts`
+- See for example `summarization.test.workflowdevkit.ts`
+- There are two test commands in `package.json` one for "regular" Node, and one for Workflow DevKit
+- The files that follow this naming convention are only run in the Workflow DevKit tests
+- Write a test that calls `start(workflowName, [args..])` and test that you get a `run.runId` string back
+- Your test should call `await run.returnValue` -- and check the return value.
+
 ### Test Coverage
 
 We aim for high test coverage on core functionality. Run coverage reports with:
@@ -197,6 +206,21 @@ Git hooks are automatically set up via [Husky](https://typicode.github.io/husky/
 - Keep functions small and focused
 - Prefer explicit types over implicit ones
 - Use meaningful variable and function names
+
+### Workflow DevKit Compatability
+
+Note that the functions exported in this SDK are compatible with [Workflow DevKit](https://useworkflow.dev/).
+
+To keep that compatibility, we need to follow these guidelines.
+
+- Functions exported from `./workflows` (workflows) and `./primitives` (steps) must be `async` and contain the `"use workflow"` or `"use step"` directive, respectively, in the very first line of the function body.
+- Top-level `"use workflow"` functions must be simple functions and they cannot rely on the full Node runtime, which means the `npm` packages that it depends on is limited. [See here about the workflow environment](https://useworkflow.dev/docs/foundations/workflows-and-steps#workflow-functions)
+- `"use step"` functions do have the full Node.js runtime and access to any `npm` package.
+- Any function with `"use step"` should receive and return only primitive Javascript values.
+  - This is because the input and output of each step has to be serialized
+  - You you cannot return references to functions, instances of classes, and things like that. [See here for details on serialization](https://useworkflow.dev/docs/foundations/serialization)
+  - Be cautious about what information is returned by `"use step"` functions. The return values are logged and visibile in observability tools, so be careful not to leak secrets.
+- To ensure we maintain compatability, every top-level `"use workflow"` function must have an accompanying integration test
 
 ## Submitting Changes
 
