@@ -275,7 +275,7 @@ export async function hasBurnedInCaptions(
     );
   }
 
-  const imageUrl = await getStoryboardUrl(playbackId, 640, policy === "signed" ? signingContext : undefined);
+  const imageUrl = await getStoryboardUrl(playbackId, 640, policy === "signed");
 
   let analysisResponse: AnalysisResponse;
 

@@ -375,7 +375,7 @@ export async function getSummaryAndTags(
   });
 
   // Analyze storyboard with AI provider (signed if needed)
-  const imageUrl = await getStoryboardUrl(playbackId, 640, policy === "signed" ? signingContext : undefined);
+  const imageUrl = await getStoryboardUrl(playbackId, 640, policy === "signed");
 
   let analysisResponse: AnalysisResponse;
 

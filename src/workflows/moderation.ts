@@ -332,7 +332,7 @@ export async function getModerationScores(
   const thumbnailUrls = await getThumbnailUrls(playbackId, duration, {
     interval: thumbnailInterval,
     width: thumbnailWidth,
-    signingContext: policy === "signed" ? signingContext : undefined,
+    shouldSign: policy === "signed",
   });
 
   let thumbnailScores: ThumbnailModerationScore[];
