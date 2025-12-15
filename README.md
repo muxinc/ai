@@ -235,7 +235,7 @@ for (const chunk of result.chunks) {
 
 - **Cost-Effective by Default**: Uses affordable frontier models like `gpt-5.1`, `claude-sonnet-4-5`, and `gemini-2.5-flash` to keep analysis costs low while maintaining high quality results
 - **Multi-modal Analysis**: Combines storyboard images with video transcripts for richer understanding
-- **Tone Control**: Choose between normal, playful, or professional analysis styles for summarization
+- **Tone Control**: Choose between neutral, playful, or professional analysis styles for summarization
 - **Prompt Customization**: Override specific prompt sections to tune workflows to your exact use case
 - **Configurable Thresholds**: Set custom sensitivity levels for content moderation
 - **Full TypeScript Support**: Comprehensive types for excellent developer experience and IDE autocomplete

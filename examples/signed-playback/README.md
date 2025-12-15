@@ -56,7 +56,7 @@ npm run summarize <signed-asset-id> -- -p google -t professional --no-transcript
 
 - `-p, --provider <provider>` - AI provider: openai, anthropic, google (default: anthropic)
 - `-m, --model <model>` - Model name (overrides default for provider)
-- `-t, --tone <tone>` - Tone for summary: normal, playful, professional (default: professional)
+- `-t, --tone <tone>` - Tone for summary: neutral, playful, professional (default: professional)
 - `--no-transcript` - Exclude transcript from analysis
 
 ## How It Works

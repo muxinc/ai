@@ -48,7 +48,7 @@ npm run tones <your-asset-id>
 
 Compares three tone styles:
 
-- **Normal**: Clear, straightforward analysis
+- **Neutral**: Clear, straightforward analysis
 - **Playful**: Playful, engaging personality
 - **Professional**: Executive-level, business-appropriate
 
@@ -88,7 +88,7 @@ Key options for `getSummaryAndTags`:
 
 - `provider`: `'openai' | 'anthropic' | 'google'` (default: `'openai'`)
 - `model`: Provider-specific chat model (defaults per provider, e.g. `gpt-5.1`)
-- `tone`: `'normal' | 'playful' | 'professional'` (default: `'normal'`)
+- `tone`: `'neutral' | 'playful' | 'professional'` (default: `'neutral'`)
 - `includeTranscript`: Include the asset transcript when available (default: `true`)
 - `imageSubmissionMode`: `'url' | 'base64'` storyboard transport (default: `'url'`)
 - `promptOverrides`: Override specific sections of the prompt (see below)

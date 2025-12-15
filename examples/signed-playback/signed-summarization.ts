@@ -27,7 +27,7 @@ program
   .argument("<asset-id>", "Mux asset ID with signed playback policy")
   .option("-p, --provider <provider>", "AI provider (openai, anthropic, google)", "anthropic")
   .option("-m, --model <model>", "Model name (overrides default for provider)")
-  .option("-t, --tone <tone>", "Tone for summary (normal, playful, professional)", "professional")
+  .option("-t, --tone <tone>", "Tone for summary (neutral, playful, professional)", "professional")
   .option("--no-transcript", "Exclude transcript from analysis")
   .addHelpText("after", `
 Environment Variables:
@@ -54,8 +54,8 @@ Notes:
     }
 
     // Validate tone
-    if (!["normal", "playful", "professional"].includes(options.tone)) {
-      console.error("❌ Unsupported tone. Choose from: normal, playful, professional");
+    if (!["neutral", "playful", "professional"].includes(options.tone)) {
+      console.error("❌ Unsupported tone. Choose from: neutral, playful, professional");
       process.exit(1);
     }
 
