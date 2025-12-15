@@ -202,7 +202,7 @@ describe("signed Playback Integration Tests", () => {
       it.skipIf(!canRunSignedTests)("should generate summary for signed asset", async () => {
         const result = await getSummaryAndTags(signedAssetId, {
           provider: "anthropic",
-          tone: "normal",
+          tone: "neutral",
         });
 
         expect(result).toBeDefined();

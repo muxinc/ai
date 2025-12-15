@@ -12,7 +12,7 @@ Analyzes a Mux video asset and returns AI-generated metadata.
 **Options:**
 
 - `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
-- `tone?: 'normal' | 'sassy' | 'professional'` - Analysis tone (default: 'normal')
+- `tone?: 'neutral' | 'playful' | 'professional'` - Analysis tone (default: 'neutral')
 - `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, or `gemini-2.5-flash`)
 - `includeTranscript?: boolean` - Include video transcript in analysis (default: true)
 - `cleanTranscript?: boolean` - Remove VTT timestamps and formatting from transcript (default: true)

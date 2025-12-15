@@ -15,7 +15,7 @@ export interface MuxAIOptions {
 }
 
 /** Tone controls for the summarization helper. */
-export type ToneType = "normal" | "sassy" | "professional";
+export type ToneType = "neutral" | "playful" | "professional";
 
 /** Common transport for image-based workflows. */
 export type ImageSubmissionMode = "url" | "base64";

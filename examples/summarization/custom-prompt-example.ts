@@ -160,7 +160,7 @@ program
   .option("--keywords-guidance <text>", "Override keywords generation guidance")
   .option("-p, --provider <provider>", "AI provider (openai, anthropic, google)", "openai")
   .option("-m, --model <model>", "Model name (overrides default for provider)")
-  .option("-t, --tone <tone>", "Tone for summary (normal, sassy, professional)", "professional")
+  .option("-t, --tone <tone>", "Tone for summary (neutral, playful, professional)", "professional")
   .option("--no-transcript", "Exclude transcript from analysis")
   .action(async (assetId: string, options: {
     preset?: string;
@@ -180,8 +180,8 @@ program
     }
 
     // Validate tone
-    if (!["normal", "sassy", "professional"].includes(options.tone)) {
-      console.error("❌ Unsupported tone. Choose from: normal, sassy, professional");
+    if (!["neutral", "playful", "professional"].includes(options.tone)) {
+      console.error("❌ Unsupported tone. Choose from: neutral, playful, professional");
       process.exit(1);
     }
 

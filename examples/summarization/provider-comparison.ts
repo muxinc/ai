@@ -11,15 +11,15 @@ program
   .name("summarization-compare")
   .description("Compare summary generation across multiple AI providers")
   .argument("<asset-id>", "Mux asset ID to analyze")
-  .option("-t, --tone <tone>", "Tone for summary (normal, sassy, professional)", "normal")
+  .option("-t, --tone <tone>", "Tone for summary (neutral, playful, professional)", "neutral")
   .option("--no-transcript", "Exclude transcript from analysis")
   .action(async (assetId: string, options: {
     tone: ToneType;
     transcript: boolean;
   }) => {
     // Validate tone
-    if (!["normal", "sassy", "professional"].includes(options.tone)) {
-      console.error("❌ Unsupported tone. Choose from: normal, sassy, professional");
+    if (!["neutral", "playful", "professional"].includes(options.tone)) {
+      console.error("❌ Unsupported tone. Choose from: neutral, playful, professional");
       process.exit(1);
     }
 

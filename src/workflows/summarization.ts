@@ -87,7 +87,7 @@ export interface SummarizationOptions extends MuxAIOptions {
   provider?: SupportedProvider;
   /** Provider-specific chat model identifier. */
   model?: ModelIdByProvider[SupportedProvider];
-  /** Prompt tone shim applied to the system instruction (defaults to 'normal'). */
+  /** Prompt tone shim applied to the system instruction (defaults to 'neutral'). */
   tone?: ToneType;
   /** Fetch the transcript and send it alongside the storyboard (defaults to true). */
   includeTranscript?: boolean;
@@ -109,8 +109,8 @@ export interface SummarizationOptions extends MuxAIOptions {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const TONE_INSTRUCTIONS: Record<ToneType, string> = {
-  normal: "Provide a clear, straightforward analysis.",
-  sassy: "Channel your inner diva! Answer with maximum sass, wit, and playful attitude. Don't hold back - be cheeky, clever, and delightfully snarky. Make it pop!",
+  neutral: "Provide a clear, straightforward analysis.",
+  playful: "Channel your inner diva! Answer with maximum sass, wit, and playful attitude. Don't hold back - be cheeky, clever, and delightfully snarky. Make it pop!",
   professional: "Provide a professional, executive-level analysis suitable for business reporting.",
 };
 
@@ -331,7 +331,7 @@ export async function getSummaryAndTags(
   const {
     provider = "openai",
     model,
-    tone = "normal",
+    tone = "neutral",
     includeTranscript = true,
     cleanTranscript = true,
     imageSubmissionMode = "url",
