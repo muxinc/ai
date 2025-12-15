@@ -3,7 +3,7 @@
 [![npm version](https://badge.fury.io/js/@mux%2Fai.svg)](https://www.npmjs.com/package/@mux/ai)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-> **A TypeScript SDK for building AI-driven video workflows on the server, powered by [Mux](https://www.mux.com)!**
+> **A TypeScript toolkit for building AI-driven video workflows on the server, powered by [Mux](https://www.mux.com)!**
 
 `@mux/ai` does this by providing:
 
