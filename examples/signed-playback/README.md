@@ -61,7 +61,7 @@ npm run summarize <signed-asset-id> -- -p google -t professional --no-transcript
 
 ## How It Works
 
-When you provide signing credentials (`muxSigningKey` and `muxPrivateKey`), the library automatically:
+When signing credentials are available in environment variables (`MUX_SIGNING_KEY` and `MUX_PRIVATE_KEY`), the library automatically:
 
 1. Detects if an asset has a signed playback policy
 2. Generates JWT tokens with the correct claims:

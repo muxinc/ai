@@ -3,8 +3,6 @@ import { Command } from "commander";
 import type { ToneType } from "@mux/ai";
 import { getSummaryAndTags } from "@mux/ai/workflows";
 
-import env from "../env";
-
 type Provider = "openai" | "anthropic" | "google";
 
 const DEFAULT_MODELS: Record<Provider, string> = {
@@ -51,17 +49,12 @@ program
 
     try {
       // Uses the default prompt built into the library
+      // Credentials are automatically read from environment variables
       const result = await getSummaryAndTags(assetId, {
         tone: options.tone,
         provider: options.provider,
         model,
         includeTranscript: options.transcript,
-        // Credentials can be passed in options or via environment variables
-        muxTokenId: env.MUX_TOKEN_ID,
-        muxTokenSecret: env.MUX_TOKEN_SECRET,
-        openaiApiKey: env.OPENAI_API_KEY,
-        anthropicApiKey: env.ANTHROPIC_API_KEY,
-        googleApiKey: env.GOOGLE_GENERATIVE_AI_API_KEY,
       });
 
       console.log("📝 Title:");

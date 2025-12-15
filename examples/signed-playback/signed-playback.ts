@@ -13,13 +13,6 @@ import { Command } from "commander";
 
 import { buildTranscriptUrl, findCaptionTrack, getStoryboardUrl, getThumbnailUrls } from "@mux/ai/primitives";
 
-import env from "../env";
-
-interface SigningContext {
-  keyId: string;
-  keySecret: string;
-}
-
 const program = new Command();
 
 program
@@ -37,11 +30,11 @@ Notes:
   - Asset must have a signed playback policy
   - Create signing keys in Mux Dashboard → Settings → Signing Keys`)
   .action(async (assetId: string) => {
-    // Validate environment
-    const muxTokenId = env.MUX_TOKEN_ID;
-    const muxTokenSecret = env.MUX_TOKEN_SECRET;
-    const signingKeyId = env.MUX_SIGNING_KEY;
-    const privateKey = env.MUX_PRIVATE_KEY;
+    // Validate environment - credentials are read from ambient environment variables
+    const muxTokenId = process.env.MUX_TOKEN_ID;
+    const muxTokenSecret = process.env.MUX_TOKEN_SECRET;
+    const signingKeyId = process.env.MUX_SIGNING_KEY;
+    const privateKey = process.env.MUX_PRIVATE_KEY;
 
     if (!muxTokenId || !muxTokenSecret) {
       console.error("❌ Missing MUX_TOKEN_ID or MUX_TOKEN_SECRET");
@@ -53,11 +46,6 @@ Notes:
       console.error("   These are required for signing URLs for assets with signed playback policies.");
       process.exit(1);
     }
-
-    const signingContext: SigningContext = {
-      keyId: signingKeyId,
-      keySecret: privateKey,
-    };
 
     console.log("🔐 Signed Playback URL Test\n");
     console.log(`Asset ID: ${assetId}\n`);
@@ -103,7 +91,7 @@ Notes:
     console.log("📊 Test 1: Storyboard URL");
     console.log("─".repeat(60));
     try {
-      const storyboardUrl = await getStoryboardUrl(playbackId, 640, signingContext);
+      const storyboardUrl = await getStoryboardUrl(playbackId, 640, true);
       console.log("Generated URL:");
       console.log(`  ${storyboardUrl.substring(0, 80)}...`);
 
@@ -128,7 +116,7 @@ Notes:
       const thumbnailUrls = await getThumbnailUrls(playbackId, duration, {
         interval: 10,
         width: 640,
-        signingContext,
+        shouldSign: true,
       });
 
       console.log(`Generated ${thumbnailUrls.length} thumbnail URLs`);
@@ -157,7 +145,7 @@ Notes:
       const track = findCaptionTrack(asset);
       if (track && track.id) {
         console.log(`Found caption track: ${track.language_code} (${track.id})`);
-        const transcriptUrl = await buildTranscriptUrl(playbackId, track.id, signingContext);
+        const transcriptUrl = await buildTranscriptUrl(playbackId, track.id, true);
         console.log("Generated URL:");
         console.log(`  ${transcriptUrl.substring(0, 80)}...`);
 
