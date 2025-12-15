@@ -48,7 +48,7 @@ Demonstrates the full summarization workflow with a signed asset:
 npm run summarize <signed-asset-id>
 
 # With options:
-npm run summarize <signed-asset-id> -- --provider openai --tone sassy
+npm run summarize <signed-asset-id> -- --provider openai --tone playful
 npm run summarize <signed-asset-id> -- -p google -t professional --no-transcript
 ```
 
@@ -56,7 +56,7 @@ npm run summarize <signed-asset-id> -- -p google -t professional --no-transcript
 
 - `-p, --provider <provider>` - AI provider: openai, anthropic, google (default: anthropic)
 - `-m, --model <model>` - Model name (overrides default for provider)
-- `-t, --tone <tone>` - Tone for summary: normal, sassy, professional (default: professional)
+- `-t, --tone <tone>` - Tone for summary: normal, playful, professional (default: professional)
 - `--no-transcript` - Exclude transcript from analysis
 
 ## How It Works

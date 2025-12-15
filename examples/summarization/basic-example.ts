@@ -19,7 +19,7 @@ program
   .argument("<asset-id>", "Mux asset ID to analyze")
   .option("-p, --provider <provider>", "AI provider (openai, anthropic, google)", "openai")
   .option("-m, --model <model>", "Model name (overrides default for provider)")
-  .option("-t, --tone <tone>", "Tone for summary (normal, sassy, professional)", "normal")
+  .option("-t, --tone <tone>", "Tone for summary (normal, playful, professional)", "normal")
   .option("--no-transcript", "Exclude transcript from analysis")
   .action(async (assetId: string, options: {
     provider: Provider;
@@ -34,8 +34,8 @@ program
     }
 
     // Validate tone
-    if (!["normal", "sassy", "professional"].includes(options.tone)) {
-      console.error("❌ Unsupported tone. Choose from: normal, sassy, professional");
+    if (!["normal", "playful", "professional"].includes(options.tone)) {
+      console.error("❌ Unsupported tone. Choose from: normal, playful, professional");
       process.exit(1);
     }
 

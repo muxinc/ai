@@ -110,7 +110,7 @@ export interface SummarizationOptions extends MuxAIOptions {
 
 const TONE_INSTRUCTIONS: Record<ToneType, string> = {
   normal: "Provide a clear, straightforward analysis.",
-  sassy: "Channel your inner diva! Answer with maximum sass, wit, and playful attitude. Don't hold back - be cheeky, clever, and delightfully snarky. Make it pop!",
+  playful: "Channel your inner diva! Answer with maximum sass, wit, and playful attitude. Don't hold back - be cheeky, clever, and delightfully snarky. Make it pop!",
   professional: "Provide a professional, executive-level analysis suitable for business reporting.",
 };
 

@@ -34,7 +34,7 @@ program
     }
 
     const model = options.model || DEFAULT_MODELS[options.provider];
-    const tones: ToneType[] = ["normal", "sassy", "professional"];
+    const tones: ToneType[] = ["normal", "playful", "professional"];
 
     console.log("🎭 Demonstrating different tone variations for video analysis...\n");
     console.log(`Using ${options.provider} (${model}) with different tones.\n`);
