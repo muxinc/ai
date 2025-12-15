@@ -92,7 +92,8 @@ Key options for `getSummaryAndTags`:
 - `includeTranscript`: Include the asset transcript when available (default: `true`)
 - `imageSubmissionMode`: `'url' | 'base64'` storyboard transport (default: `'url'`)
 - `promptOverrides`: Override specific sections of the prompt (see below)
-- Credential overrides (all fall back to env vars): `muxTokenId`, `muxTokenSecret`, `openaiApiKey`, `anthropicApiKey`, `googleApiKey`
+
+All credentials are automatically read from environment variables (`MUX_TOKEN_ID`, `MUX_TOKEN_SECRET`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`).
 
 ### Using `promptOverrides`
 

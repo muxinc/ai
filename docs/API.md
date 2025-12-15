@@ -66,7 +66,8 @@ Analyzes video thumbnails for inappropriate content using OpenAI's Moderation AP
   - `retryDelay?: number` - Base delay between retries in milliseconds (default: 1000)
   - `maxRetryDelay?: number` - Maximum delay between retries in milliseconds (default: 10000)
   - `exponentialBackoff?: boolean` - Whether to use exponential backoff (default: true)
-- `openaiApiKey?/hiveApiKey?` - Provider credentials
+
+All credentials (`MUX_TOKEN_ID`, `MUX_TOKEN_SECRET`, `OPENAI_API_KEY`, `HIVE_API_KEY`) are automatically read from environment variables.
 
 **Returns:**
 

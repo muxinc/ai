@@ -90,7 +90,8 @@ Key options for `getModerationScores`:
 - `thresholds`: Custom thresholds for sexual and violence content
 - `thumbnailInterval`: Seconds between thumbnails for long videos (default: 10)
 - `thumbnailWidth`: Thumbnail width in pixels (default: 640)
-- Credential overrides: `muxTokenId`, `muxTokenSecret`, `openaiApiKey`, `hiveApiKey`
+
+All credentials are automatically read from environment variables (`MUX_TOKEN_ID`, `MUX_TOKEN_SECRET`, `OPENAI_API_KEY`, `HIVE_API_KEY`).
 
 ## What You'll Get
 

@@ -1,23 +1,22 @@
-import type { SigningContext } from "../lib/url-signing";
-import { signUrl } from "../lib/url-signing";
+import { getMuxSigningContextFromEnv, signUrl } from "../lib/url-signing";
 
 export interface ThumbnailOptions {
   /** Interval between thumbnails in seconds (default: 10) */
   interval?: number;
   /** Width of the thumbnail in pixels (default: 640) */
   width?: number;
-  /** Optional signing context for signed playback IDs */
-  signingContext?: SigningContext;
+  /** Flag for whether or not to use signed playback IDs (default: false) */
+  shouldSign?: boolean;
 }
 
 /**
  * Generates thumbnail URLs at regular intervals based on video duration.
- * If a signing context is provided, the URLs will be signed with tokens.
+ * If shouldSign is true, the URLs will be signed with tokens using credentials from environment variables.
  *
  * @param playbackId - The Mux playback ID
  * @param duration - Video duration in seconds
  * @param options - Thumbnail generation options
- * @returns Array of thumbnail URLs (signed if context provided)
+ * @returns Array of thumbnail URLs (signed if shouldSign is true)
  */
 export async function getThumbnailUrls(
   playbackId: string,
@@ -25,7 +24,7 @@ export async function getThumbnailUrls(
   options: ThumbnailOptions = {},
 ): Promise<string[]> {
   "use step";
-  const { interval = 10, width = 640, signingContext } = options;
+  const { interval = 10, width = 640, shouldSign = false } = options;
   const timestamps: number[] = [];
 
   if (duration <= 50) {
@@ -42,8 +41,10 @@ export async function getThumbnailUrls(
   const baseUrl = `https://image.mux.com/${playbackId}/thumbnail.png`;
 
   const urlPromises = timestamps.map(async (time) => {
-    if (signingContext) {
-      return signUrl(baseUrl, playbackId, signingContext, "thumbnail", { time, width });
+    if (shouldSign) {
+      // NOTE: this assumes you have already validated the signing context elsewhere
+      const signingContext = getMuxSigningContextFromEnv();
+      return signUrl(baseUrl, playbackId, signingContext!, "thumbnail", { time, width });
     }
 
     return `${baseUrl}?time=${time}&width=${width}`;

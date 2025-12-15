@@ -11,8 +11,6 @@ import { Command } from "commander";
 import type { ToneType } from "@mux/ai";
 import { getSummaryAndTags } from "@mux/ai/workflows";
 
-import env from "../env";
-
 type Provider = "openai" | "anthropic" | "google";
 
 const DEFAULT_MODELS: Record<Provider, string> = {
@@ -62,7 +60,7 @@ Notes:
     }
 
     // Check for signing credentials
-    const hasSigningCredentials = env.MUX_SIGNING_KEY && env.MUX_PRIVATE_KEY;
+    const hasSigningCredentials = process.env.MUX_SIGNING_KEY && process.env.MUX_PRIVATE_KEY;
 
     // Use provided model or default for the provider
     const model = options.model || DEFAULT_MODELS[options.provider];
@@ -81,21 +79,12 @@ Notes:
     }
 
     try {
+      // Credentials are automatically read from environment variables
       const result = await getSummaryAndTags(assetId, {
         tone: options.tone,
         provider: options.provider,
         model,
         includeTranscript: options.transcript,
-        // Mux API credentials
-        muxTokenId: env.MUX_TOKEN_ID,
-        muxTokenSecret: env.MUX_TOKEN_SECRET,
-        // Signing credentials (used automatically for signed playback IDs)
-        muxSigningKey: env.MUX_SIGNING_KEY,
-        muxPrivateKey: env.MUX_PRIVATE_KEY,
-        // AI provider credentials
-        openaiApiKey: env.OPENAI_API_KEY,
-        anthropicApiKey: env.ANTHROPIC_API_KEY,
-        googleApiKey: env.GOOGLE_GENERATIVE_AI_API_KEY,
       });
 
       console.log("─".repeat(60));

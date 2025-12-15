@@ -208,7 +208,7 @@ npm run summarize <signed-asset-id> [provider]
 3. Set `MUX_SIGNING_KEY` and `MUX_PRIVATE_KEY` environment variables
 
 **How Signed Playback Works:**
-When you provide signing credentials, the library automatically:
+When signing credentials are available in environment variables, the library automatically:
 
 - Detects if an asset has a signed playback policy
 - Generates JWT tokens with RS256 algorithm
