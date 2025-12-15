@@ -260,7 +260,7 @@ const tracks = getReadyTextTracks(asset);
 // Returns all tracks with status === "ready"
 ```
 
-### `buildTranscriptUrl(playbackId, trackId, signingContext?)`
+### `buildTranscriptUrl(playbackId, trackId, shouldSign?)`
 
 Builds a transcript URL with optional signing for secure playback.
 
@@ -270,11 +270,8 @@ import { buildTranscriptUrl } from "@mux/ai/primitives";
 const url = await buildTranscriptUrl("playback-id", "track-id");
 // "https://stream.mux.com/playback-id/text/track-id.vtt"
 
-// With signing
-const signedUrl = await buildTranscriptUrl(
-  "playback-id",
-  "track-id"
-);
+// With signing (requires MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables)
+const signedUrl = await buildTranscriptUrl("playback-id", "track-id", true);
 // URL with ?token=... appended
 ```
 
