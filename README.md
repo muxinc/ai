@@ -6,11 +6,13 @@
 > **A TypeScript SDK for building AI-driven video workflows on the server, powered by [Mux](https://www.mux.com)!**
 
 `@mux/ai` does this by providing:
-- Easy to use, purpose-driven, cost effective, configurable **_workflow functions_** that integrate with a variety of popular AI/LLM providers (OpenAI, Anthropic, Google).
-  - **Examples:** [`generateChapters`](#chapter-generation), [`getModerationScores`](#content-moderation), [`generateVideoEmbeddings`](#video-search-with-embeddings), [`getSummaryAndTags`](#video-summarization)
-  - Workflows automatically ship with `"use workflow"` [compatability with Workflow DevKit](#compatability-with-workflow-devkit)
-- Convenient, parameterized, commonly needed **_primitive functions_** backed by [Mux Video](https://www.mux.com/video-api) for building your own media-based AI workflows and integrations.
-  - **Examples:** `getStoryboardUrl`, `chunkVTTCues`, `fetchTranscriptForAsset`
+
+Easy to use, purpose-driven, cost effective, configurable **_workflow functions_** that integrate with a variety of popular AI/LLM providers (OpenAI, Anthropic, Google).
+- **Examples:** [`getSummaryAndTags`](#video-summarization), [`getModerationScores`](#content-moderation), [`hasBurnedInCaptions`](#burned-in-caption-detection), [`generateChapters`](#chapter-generation), [`generateVideoEmbeddings`](#video-search-with-embeddings), [`translateCaptions`](#caption-translation), [`translateAudio`](#audio-dubbing)
+- Workflows automatically ship with `"use workflow"` [compatability with Workflow DevKit](#compatability-with-workflow-devkit)
+
+Convenient, parameterized, commonly needed **_primitive functions_** backed by [Mux Video](https://www.mux.com/video-api) for building your own media-based AI workflows and integrations.
+- **Examples:** `getStoryboardUrl`, `chunkVTTCues`, `fetchTranscriptForAsset`
 
 # Usage
 
