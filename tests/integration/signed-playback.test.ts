@@ -25,6 +25,7 @@ describe("signed Playback Integration Tests", () => {
   const hasSigningCredentials = !!(signingKeyId && privateKey);
   const canRunSignedTests = hasSigningCredentials;
 
+  // SigningContext is only used for low-level signing function tests
   let signingContext: SigningContext;
   let playbackId: string;
   let muxClient: Mux;
@@ -33,6 +34,7 @@ describe("signed Playback Integration Tests", () => {
     if (!canRunSignedTests)
       return;
 
+    // Setup signing context for low-level signing function tests
     signingContext = {
       keyId: signingKeyId!,
       keySecret: privateKey!,
@@ -121,7 +123,7 @@ describe("signed Playback Integration Tests", () => {
   describe("primitives with Signing", () => {
     describe("getStoryboardUrl", () => {
       it.skipIf(!canRunSignedTests)("should generate signed storyboard URL", async () => {
-        const url = await getStoryboardUrl(playbackId, 640, signingContext);
+        const url = await getStoryboardUrl(playbackId, 640, true);
 
         expect(url).toContain(`https://image.mux.com/${playbackId}/storyboard.png`);
         expect(url).toContain("token=");
@@ -131,9 +133,9 @@ describe("signed Playback Integration Tests", () => {
         expect(response.ok).toBe(true);
       });
 
-      it("should return unsigned URL when no signing context provided", async () => {
+      it("should return unsigned URL when shouldSign is false", async () => {
         const testPlaybackId = "test-playback-id";
-        const url = await getStoryboardUrl(testPlaybackId, 640);
+        const url = await getStoryboardUrl(testPlaybackId, 640, false);
 
         expect(url).toBe(`https://image.mux.com/${testPlaybackId}/storyboard.png?width=640`);
         expect(url).not.toContain("token=");
@@ -145,7 +147,7 @@ describe("signed Playback Integration Tests", () => {
         const urls = await getThumbnailUrls(playbackId, 30, {
           interval: 10,
           width: 640,
-          signingContext,
+          shouldSign: true,
         });
 
         expect(urls.length).toBeGreaterThan(0);
@@ -159,11 +161,12 @@ describe("signed Playback Integration Tests", () => {
         expect(response.ok).toBe(true);
       });
 
-      it("should return unsigned URLs when no signing context provided", async () => {
+      it("should return unsigned URLs when shouldSign is false", async () => {
         const testPlaybackId = "test-playback-id";
         const urls = await getThumbnailUrls(testPlaybackId, 30, {
           interval: 10,
           width: 640,
+          shouldSign: false,
         });
 
         expect(urls.length).toBeGreaterThan(0);
@@ -177,16 +180,16 @@ describe("signed Playback Integration Tests", () => {
     describe("buildTranscriptUrl", () => {
       it.skipIf(!canRunSignedTests)("should generate signed transcript URL", async () => {
         const trackId = "test-track-id";
-        const url = await buildTranscriptUrl(playbackId, trackId, signingContext);
+        const url = await buildTranscriptUrl(playbackId, trackId, true);
 
         expect(url).toContain(`https://stream.mux.com/${playbackId}/text/${trackId}.vtt`);
         expect(url).toContain("token=");
       });
 
-      it("should return unsigned URL when no signing context provided", async () => {
+      it("should return unsigned URL when shouldSign is false", async () => {
         const testPlaybackId = "test-playback-id";
         const trackId = "test-track-id";
-        const url = await buildTranscriptUrl(testPlaybackId, trackId);
+        const url = await buildTranscriptUrl(testPlaybackId, trackId, false);
 
         expect(url).toBe(`https://stream.mux.com/${testPlaybackId}/text/${trackId}.vtt`);
         expect(url).not.toContain("token=");
