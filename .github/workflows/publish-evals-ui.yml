@@ -57,7 +57,8 @@ jobs:
 
       - name: Apply path fixes
         run: |
-          sed -i -e 's|basePath: "/",|basePath: "/ai",|g' -e 's|="/assets/|="/ai/assets/|g' ./ui-output/index.html
+          sed -i -e 's|basePath: "/",|basePath: "",|g' -e 's|="/assets/|="/ai/assets/|g' ./ui-output/index.html
+          find ./ui-output/assets -name "*.js" -exec sed -i 's|"assets/|"/ai/assets/|g' {} +
 
       - name: Upload AFTER artifact
         uses: actions/upload-artifact@v4
