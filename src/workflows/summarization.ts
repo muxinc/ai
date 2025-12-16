@@ -108,6 +108,8 @@ export interface SummarizationOptions extends MuxAIOptions {
 // Prompts
 // ─────────────────────────────────────────────────────────────────────────────
 
+const VALID_TONES = ["neutral", "playful", "professional"] as const;
+
 const TONE_INSTRUCTIONS: Record<ToneType, string> = {
   neutral: "Provide a clear, straightforward analysis.",
   playful: "Channel your inner diva! Answer with maximum sass, wit, and playful attitude. Don't hold back - be cheeky, clever, and delightfully snarky. Make it pop!",
@@ -339,6 +341,13 @@ export async function getSummaryAndTags(
     abortSignal: _abortSignal,
     promptOverrides,
   } = options ?? {};
+
+  // Validate tone parameter
+  if (!VALID_TONES.includes(tone)) {
+    throw new Error(
+      `Invalid tone "${tone}". Valid tones are: ${VALID_TONES.join(", ")}`,
+    );
+  }
 
   // Validate credentials and resolve language model
   const config = await createWorkflowConfig(
