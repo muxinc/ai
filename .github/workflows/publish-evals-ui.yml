@@ -48,7 +48,7 @@ jobs:
         run: |
           npx evalite run
           npx evalite export --output=./ui-output --basePath=/ai
-          find ./ui-output -type f -name "*.html" -o -name "*.js" -o -name "*.css" | xargs sed -i 's|//ai/|/ai/|g'
+          find ./ui-output -type f \( -name "*.html" -o -name "*.js" -o -name "*.css" \) -exec sed -i 's|//ai/|/ai/|g' {} +
 
       - name: Upload static UI for Pages
         uses: actions/upload-pages-artifact@v3
