@@ -48,8 +48,23 @@ jobs:
         run: |
           npx evalite run
           npx evalite export --output=./ui-output
+
+      - name: Upload BEFORE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-before-sed
+          path: ui-output
+
+      - name: Apply path fixes
+        run: |
           sed -i -e 's|basePath: "/",|basePath: "/ai",|g' -e 's|="/assets/|="/ai/assets/|g' ./ui-output/index.html
           find ./ui-output/assets -name "*.js" -exec sed -i 's|"assets/\([^"]*\.\(js\|css\|json\|svg\|png\|jpg\|woff\|woff2\)\)"|"/ai/assets/\1"|g' {} +
+
+      - name: Upload AFTER artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-after-sed
+          path: ui-output
 
       - name: Upload static UI for Pages
         uses: actions/upload-pages-artifact@v3
