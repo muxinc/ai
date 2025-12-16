@@ -47,14 +47,13 @@ jobs:
           S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
         run: |
           npx evalite run
-          npx evalite export --output=./evalite-output
-          mkdir -p ./pages-deploy/ai
-          cp -r ./evalite-output/* ./pages-deploy/ai/
+          npx evalite export --output=./ui-output --basePath=/ai
+          find ./ui-output -type f -name "*.html" -o -name "*.js" -o -name "*.css" | xargs sed -i 's|//ai/|/ai/|g'
 
       - name: Upload static UI for Pages
         uses: actions/upload-pages-artifact@v3
         with:
-          path: pages-deploy
+          path: ui-output
 
       - name: Deploy to GitHub Pages
         id: deployment
