@@ -47,8 +47,8 @@ jobs:
           S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
         run: |
           npx evalite run
-          npx evalite export --output=./ui-output --basePath=/ai
-          find ./ui-output -type f \( -name "*.html" -o -name "*.js" -o -name "*.css" \) -exec sed -i 's|//ai/|/ai/|g' {} +
+          npx evalite export --output=./ui-output
+          sed -i 's|basePath: "/",|basePath: "/ai",|g' ./ui-output/index.html
 
       - name: Upload static UI for Pages
         uses: actions/upload-pages-artifact@v3
