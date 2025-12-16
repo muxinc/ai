@@ -48,9 +48,8 @@ jobs:
         run: |
           npx evalite run
           npx evalite export --output=./ui-output
-          sed -i 's|basePath: "/",|basePath: "/ai",|g' ./ui-output/index.html
-          sed -i 's|href="/assets/|href="/ai/assets/|g' ./ui-output/index.html
-          sed -i 's|src="/assets/|src="/ai/assets/|g' ./ui-output/index.html
+          sed -i -e 's|basePath: "/",|basePath: "/ai",|g' -e 's|="/assets/|="/ai/assets/|g' ./ui-output/index.html
+          find ./ui-output/assets -name "*.js" -exec sed -i 's|"assets/\([^"]*\.\(js\|css\|json\|svg\|png\|jpg\|woff\|woff2\)\)"|"/ai/assets/\1"|g' {} +
 
       - name: Upload static UI for Pages
         uses: actions/upload-pages-artifact@v3
