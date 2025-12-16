@@ -3,6 +3,8 @@ name: Publish Evals UI
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main] # TODO: Remove after testing
   workflow_dispatch: # Allows manual triggering from any branch
 
 permissions:
@@ -47,13 +49,27 @@ jobs:
           S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
         run: |
           npx evalite run
-          npx evalite export --output=./ui-output
+          npx evalite export --output=./ui-output --base=/ai/
+
+      - name: Fix SPA routing for GitHub Pages
+        run: |
+          # Copy index.html to 404.html so GitHub Pages serves the SPA for all routes
+          cp ui-output/index.html ui-output/404.html
+
+      - name: Verify export (debug)
+        run: |
+          echo "=== Exported files ==="
+          ls -la ui-output/
+          echo "=== Checking base path in index.html ==="
+          head -50 ui-output/index.html
 
       - name: Upload static UI for Pages
+        if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
         with:
           path: ui-output
 
       - name: Deploy to GitHub Pages
+        if: github.event_name != 'pull_request'
         id: deployment
         uses: actions/deploy-pages@v4
