@@ -19,9 +19,8 @@ concurrency:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    # Only use the github-pages environment when actually deploying (not on PRs)
+    environment: ${{ github.event_name != 'pull_request' && 'github-pages' || null }}
     steps:
       - uses: actions/checkout@v4
 
@@ -62,6 +61,13 @@ jobs:
           ls -la ui-output/
           echo "=== Checking base path in index.html ==="
           head -50 ui-output/index.html
+
+      - name: Upload build artifact for PR inspection
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: evalite-ui-preview
+          path: ui-output/
 
       - name: Upload static UI for Pages
         if: github.event_name != 'pull_request'
