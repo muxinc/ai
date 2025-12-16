@@ -2,7 +2,7 @@ name: Publish Evals UI
 
 on:
   push:
-    branches: [main, pc/fix-eval-hosting]
+    branches: [main]
   workflow_dispatch: # Allows manual triggering from any branch
 
 permissions:
