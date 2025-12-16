@@ -47,7 +47,7 @@ jobs:
           S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
         run: |
           npx evalite run
-          npx evalite export --output=./evalite-output --basePath=/ai/evals
+          npx evalite export --output=./evalite-output --basePath=/evals
           mkdir -p ui-export/evals
           cp -r evalite-output/* ui-export/evals/
 
