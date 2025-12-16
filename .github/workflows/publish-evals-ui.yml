@@ -2,7 +2,7 @@ name: Publish Evals UI
 
 on:
   push:
-    branches: [main]
+    branches: [main, pc/fix-evals-yet-again]
   workflow_dispatch: # Allows manual triggering from any branch
 
 permissions:
@@ -47,7 +47,7 @@ jobs:
           S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
         run: |
           npx evalite run
-          npx evalite export --output=./ui-output
+          npx evalite export --output=./ui-output --basePath=/ai
 
       - name: Upload static UI for Pages
         uses: actions/upload-pages-artifact@v3
