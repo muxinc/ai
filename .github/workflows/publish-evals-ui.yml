@@ -49,7 +49,7 @@ jobs:
           S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
         run: |
           npx evalite run
-          npx evalite export --output=./ui-output
+          npx evalite export --basePath=/${{ github.event.repository.name }} --output=./ui-output
 
       - name: Upload static UI for Pages
         uses: actions/upload-pages-artifact@v3
