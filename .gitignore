@@ -24,6 +24,10 @@ build/
 *.swo
 *~
 
+#cursor
+.cursor/*
+/branch-explained.md
+
 # OS generated files
 .DS_Store
 .DS_Store?
