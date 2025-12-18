@@ -43,7 +43,7 @@ export interface ResolvedModel<P extends SupportedProvider = SupportedProvider> 
 export const DEFAULT_LANGUAGE_MODELS: { [K in SupportedProvider]: ModelIdByProvider[K] } = {
   openai: "gpt-5.1",
   anthropic: "claude-sonnet-4-5",
-  google: "gemini-2.5-flash",
+  google: "gemini-3-flash-preview",
 };
 
 const DEFAULT_EMBEDDING_MODELS: { [K in SupportedEmbeddingProvider]: EmbeddingModelIdByProvider[K] } = {
@@ -105,12 +105,12 @@ export const THIRD_PARTY_MODEL_PRICING: { [K in SupportedProvider]: ModelPricing
     pricingUrl: "https://www.anthropic.com/pricing",
   },
 
-  // Google Gemini 2.5 Flash
+  // Google Gemini 3 Flash Preview
   // Reference: https://ai.google.dev/pricing
   google: {
-    inputPerMillion: 0.30,
-    outputPerMillion: 2.50,
-    cachedInputPerMillion: 0.03, // Context caching price
+    inputPerMillion: 0.50,
+    outputPerMillion: 3.00,
+    cachedInputPerMillion: 0.05, // Context caching price
     pricingUrl: "https://ai.google.dev/pricing",
   },
 };

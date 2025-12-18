@@ -209,7 +209,7 @@ Evals calculate estimated costs using provider pricing for the default models:
 |----------|-------|----------------------|------------------------|
 | OpenAI | gpt-5.1 | $1.25 | $10.00 |
 | Anthropic | claude-sonnet-4-5 | $3.00 | $15.00 |
-| Google | gemini-2.5-flash | $0.30 | $2.50 |
+| Google | gemini-3-flash-preview | $0.50 | $3.00 |
 
 Pricing sources (verify periodically):
 - [OpenAI Pricing](https://openai.com/api/pricing)

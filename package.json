@@ -1,7 +1,7 @@
 {
   "name": "@mux/ai",
   "type": "module",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "AI library for Mux",
   "author": "Mux",
   "license": "Apache-2.0",
@@ -96,7 +96,7 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.45",
-    "@ai-sdk/google": "^2.0.40",
+    "@ai-sdk/google": "^2.0.48",
     "@ai-sdk/openai": "^2.0.71",
     "@aws-sdk/client-s3": "^3.0.0",
     "@aws-sdk/lib-storage": "^3.0.0",

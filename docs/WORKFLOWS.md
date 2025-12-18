@@ -223,7 +223,7 @@ const result = await translateCaptions(
   "es", // to language
   {
     provider: "google",
-    model: "gemini-2.5-flash"
+    model: "gemini-3-flash-preview"
   }
 );
 
@@ -354,7 +354,7 @@ const anthropicResult = await getSummaryAndTags(assetId, {
   tone: "professional"
 });
 
-// Google Gemini analysis (default: gemini-2.5-flash)
+// Google Gemini analysis (default: gemini-3-flash-preview)
 const googleResult = await getSummaryAndTags(assetId, {
   provider: "google",
   tone: "professional"
@@ -381,7 +381,7 @@ const anthropicChapters = await generateChapters(assetId, "en", {
   provider: "anthropic"
 });
 
-// Google (default: gemini-2.5-flash)
+// Google (default: gemini-3-flash-preview)
 const googleChapters = await generateChapters(assetId, "en", {
   provider: "google"
 });
@@ -407,4 +407,4 @@ const fastResult = await getSummaryAndTags(assetId, {
 });
 ```
 
-**Cost Optimization Tip:** The defaults (`gpt-5.1`, `claude-sonnet-4-5`, `gemini-2.5-flash`) are optimized for cost/quality balance. Only upgrade to more powerful models when quality needs justify the higher cost.
+**Cost Optimization Tip:** The defaults (`gpt-5.1`, `claude-sonnet-4-5`, `gemini-3-flash-preview`) are optimized for cost/quality balance. Only upgrade to more powerful models when quality needs justify the higher cost.
