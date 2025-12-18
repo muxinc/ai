@@ -1,12 +1,11 @@
-import env from "../env.ts";
-
+import env from "@mux/ai/env";
 import type {
   ModelRequestOptions,
   SupportedProvider,
-} from "./providers.ts";
+} from "@mux/ai/lib/providers";
 import {
   resolveLanguageModel,
-} from "./providers.ts";
+} from "@mux/ai/lib/providers";
 
 /**
  * Gets Mux credentials from environment variables.

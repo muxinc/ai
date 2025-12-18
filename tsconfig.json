@@ -10,10 +10,10 @@
       "@mux/ai": ["src/index.ts"],
       "@mux/ai/workflows": ["src/workflows/index.ts"],
       "@mux/ai/primitives": ["src/primitives/index.ts"],
-      "@mux/ai/types": ["src/types.ts"]
+      "@mux/ai/types": ["src/types.ts"],
+      "@mux/ai/*": ["src/*"]
     },
     "resolveJsonModule": true,
-    "allowImportingTsExtensions": true,
     "strict": true,
     "declaration": true,
     "declarationMap": true,
@@ -28,6 +28,9 @@
       "module": "CommonJS",
       "moduleResolution": "node"
     }
+  },
+  "tsc-alias": {
+    "resolveFullPaths": true
   },
   "include": [
     "src/**/*"

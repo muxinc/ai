@@ -1,19 +1,19 @@
 import { embed } from "ai";
 
-import { getPlaybackIdForAsset } from "../lib/mux-assets";
-import type { EmbeddingModelIdByProvider, SupportedEmbeddingProvider } from "../lib/providers";
-import { createEmbeddingModelFromConfig, resolveEmbeddingModel } from "../lib/providers";
-import { withRetry } from "../lib/retry";
-import { getMuxSigningContextFromEnv } from "../lib/url-signing";
-import { chunkText, chunkVTTCues } from "../primitives/text-chunking";
-import { fetchTranscriptForAsset, getReadyTextTracks, parseVTTCues } from "../primitives/transcripts";
+import { getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
+import type { EmbeddingModelIdByProvider, SupportedEmbeddingProvider } from "@mux/ai/lib/providers";
+import { createEmbeddingModelFromConfig, resolveEmbeddingModel } from "@mux/ai/lib/providers";
+import { withRetry } from "@mux/ai/lib/retry";
+import { getMuxSigningContextFromEnv } from "@mux/ai/lib/url-signing";
+import { chunkText, chunkVTTCues } from "@mux/ai/primitives/text-chunking";
+import { fetchTranscriptForAsset, getReadyTextTracks, parseVTTCues } from "@mux/ai/primitives/transcripts";
 import type {
   ChunkEmbedding,
   ChunkingStrategy,
   MuxAIOptions,
   TextChunk,
   VideoEmbeddingsResult,
-} from "../types";
+} from "@mux/ai/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types

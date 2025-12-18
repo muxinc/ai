@@ -2,17 +2,17 @@ import { generateObject } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
-import { createWorkflowConfig } from "../lib/client-factory";
-import type { ImageDownloadOptions } from "../lib/image-download";
-import { downloadImageAsBase64 } from "../lib/image-download";
-import { getPlaybackIdForAsset } from "../lib/mux-assets";
-import type { PromptOverrides } from "../lib/prompt-builder";
-import { createPromptBuilder } from "../lib/prompt-builder";
-import { createLanguageModelFromConfig } from "../lib/providers";
-import type { ModelIdByProvider, SupportedProvider } from "../lib/providers";
-import { getMuxSigningContextFromEnv } from "../lib/url-signing";
-import { getStoryboardUrl } from "../primitives/storyboards";
-import type { ImageSubmissionMode, MuxAIOptions, TokenUsage } from "../types";
+import { createWorkflowConfig } from "@mux/ai/lib/client-factory";
+import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
+import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
+import { getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
+import type { PromptOverrides } from "@mux/ai/lib/prompt-builder";
+import { createPromptBuilder } from "@mux/ai/lib/prompt-builder";
+import { createLanguageModelFromConfig } from "@mux/ai/lib/providers";
+import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
+import { getMuxSigningContextFromEnv } from "@mux/ai/lib/url-signing";
+import { getStoryboardUrl } from "@mux/ai/primitives/storyboards";
+import type { ImageSubmissionMode, MuxAIOptions, TokenUsage } from "@mux/ai/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types

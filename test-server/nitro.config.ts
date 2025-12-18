@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url";
+
 import { defineNitroConfig } from "nitro/config";
 
 /*
@@ -8,6 +10,12 @@ import { defineNitroConfig } from "nitro/config";
 export default defineNitroConfig({
   modules: ["workflow/nitro"],
   compatibilityDate: "2024-01-01",
-  rootDir: "./",
-  serverDir: "./",
+  alias: {
+    "@mux/ai/workflows": fileURLToPath(new URL("../src/workflows/index.ts", import.meta.url)),
+    "@mux/ai/primitives": fileURLToPath(new URL("../src/primitives/index.ts", import.meta.url)),
+    "@mux/ai/types": fileURLToPath(new URL("../src/types.ts", import.meta.url)),
+    "@mux/ai/env": fileURLToPath(new URL("../src/env.ts", import.meta.url)),
+    "@mux/ai/lib": fileURLToPath(new URL("../src/lib", import.meta.url)),
+    "@mux/ai": fileURLToPath(new URL("../src/index.ts", import.meta.url)),
+  },
 });

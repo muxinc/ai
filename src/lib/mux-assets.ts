@@ -1,8 +1,7 @@
 import Mux from "@mux/mux-node";
 
-import type { MuxAsset, PlaybackAsset, PlaybackPolicy } from "../types";
-
-import { getMuxCredentialsFromEnv } from "./client-factory";
+import { getMuxCredentialsFromEnv } from "@mux/ai/lib/client-factory";
+import type { MuxAsset, PlaybackAsset, PlaybackPolicy } from "@mux/ai/types";
 
 /**
  * Finds a usable playback ID for the given asset.

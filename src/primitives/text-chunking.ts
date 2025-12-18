@@ -1,6 +1,5 @@
-import type { ChunkingStrategy, TextChunk } from "../types";
-
-import type { VTTCue } from "./transcripts";
+import type { VTTCue } from "@mux/ai/primitives/transcripts";
+import type { ChunkingStrategy, TextChunk } from "@mux/ai/types";
 
 /**
  * Simple token counter that approximates tokens by word count.
