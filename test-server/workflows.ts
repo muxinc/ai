@@ -1,2 +1,2 @@
-// Re-export workflows from parent directory for nitro to discover
-export * from "../src/workflows";
+// Re-export workflows from compiled dist for nitro to discover
+export * from "../dist/workflows";
