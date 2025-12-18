@@ -1,4 +1,4 @@
-import { execSync, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 
 import type { ChildProcess } from "node:child_process";
@@ -10,11 +10,6 @@ let nitroServer: ChildProcess | null = null;
 const PORT = "4000";
 
 export async function setup() {
-  // Keep a fresh build handy before starting Nitro (helps catch build regressions)
-  // eslint-disable-next-line no-console
-  console.log("Building project before starting Nitro server...");
-  execSync("npm run build", { stdio: "inherit" });
-
   // eslint-disable-next-line no-console
   console.log("Starting Nitro server for workflow execution...");
 
