@@ -1,10 +1,10 @@
-import { getApiKeyFromEnv } from "../lib/client-factory";
-import type { ImageDownloadOptions } from "../lib/image-download";
-import { downloadImagesAsBase64 } from "../lib/image-download";
-import { getPlaybackIdForAsset } from "../lib/mux-assets";
-import { getMuxSigningContextFromEnv } from "../lib/url-signing";
-import { getThumbnailUrls } from "../primitives/thumbnails";
-import type { ImageSubmissionMode, MuxAIOptions } from "../types";
+import { getApiKeyFromEnv } from "@mux/ai/lib/client-factory";
+import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
+import { downloadImagesAsBase64 } from "@mux/ai/lib/image-download";
+import { getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
+import { getMuxSigningContextFromEnv } from "@mux/ai/lib/url-signing";
+import { getThumbnailUrls } from "@mux/ai/primitives/thumbnails";
+import type { ImageSubmissionMode, MuxAIOptions } from "@mux/ai/types";
 
 import type { Buffer } from "node:buffer";
 

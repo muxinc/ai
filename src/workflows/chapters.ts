@@ -1,18 +1,18 @@
 import { generateObject } from "ai";
 import { z } from "zod";
 
-import { createWorkflowConfig } from "../lib/client-factory";
-import { getPlaybackIdForAsset } from "../lib/mux-assets";
-import { createLanguageModelFromConfig } from "../lib/providers";
-import type { ModelIdByProvider, SupportedProvider } from "../lib/providers";
-import { withRetry } from "../lib/retry";
-import { getMuxSigningContextFromEnv } from "../lib/url-signing";
+import { createWorkflowConfig } from "@mux/ai/lib/client-factory";
+import { getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
+import { createLanguageModelFromConfig } from "@mux/ai/lib/providers";
+import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
+import { withRetry } from "@mux/ai/lib/retry";
+import { getMuxSigningContextFromEnv } from "@mux/ai/lib/url-signing";
 import {
   extractTimestampedTranscript,
   fetchTranscriptForAsset,
   getReadyTextTracks,
-} from "../primitives/transcripts";
-import type { MuxAIOptions } from "../types";
+} from "@mux/ai/primitives/transcripts";
+import type { MuxAIOptions } from "@mux/ai/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types

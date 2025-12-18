@@ -1,4 +1,4 @@
-import { getMuxSigningContextFromEnv, signUrl } from "../lib/url-signing";
+import { getMuxSigningContextFromEnv, signUrl } from "@mux/ai/lib/url-signing";
 
 export const DEFAULT_STORYBOARD_WIDTH = 640;
 

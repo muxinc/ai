@@ -1,12 +1,12 @@
 import Mux from "@mux/mux-node";
 
-import env from "../env";
-import { getApiKeyFromEnv, getMuxCredentialsFromEnv } from "../lib/client-factory";
-import { getLanguageCodePair, toISO639_1, toISO639_3 } from "../lib/language-codes";
-import type { LanguageCodePair, SupportedISO639_1 } from "../lib/language-codes";
-import { getPlaybackIdForAsset } from "../lib/mux-assets";
-import { getMuxSigningContextFromEnv, signUrl } from "../lib/url-signing";
-import type { MuxAIOptions } from "../types";
+import env from "@mux/ai/env";
+import { getApiKeyFromEnv, getMuxCredentialsFromEnv } from "@mux/ai/lib/client-factory";
+import { getLanguageCodePair, toISO639_1, toISO639_3 } from "@mux/ai/lib/language-codes";
+import type { LanguageCodePair, SupportedISO639_1 } from "@mux/ai/lib/language-codes";
+import { getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
+import { getMuxSigningContextFromEnv, signUrl } from "@mux/ai/lib/url-signing";
+import type { MuxAIOptions } from "@mux/ai/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types

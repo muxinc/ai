@@ -2,15 +2,15 @@ import Mux from "@mux/mux-node";
 import { generateObject } from "ai";
 import { z } from "zod";
 
-import env from "../env";
-import { createWorkflowConfig, getMuxCredentialsFromEnv } from "../lib/client-factory";
-import { getLanguageCodePair, getLanguageName } from "../lib/language-codes";
-import type { LanguageCodePair, SupportedISO639_1 } from "../lib/language-codes";
-import { getPlaybackIdForAsset } from "../lib/mux-assets";
-import { createLanguageModelFromConfig } from "../lib/providers";
-import type { ModelIdByProvider, SupportedProvider } from "../lib/providers";
-import { getMuxSigningContextFromEnv, signUrl } from "../lib/url-signing";
-import type { MuxAIOptions, TokenUsage } from "../types";
+import env from "@mux/ai/env";
+import { createWorkflowConfig, getMuxCredentialsFromEnv } from "@mux/ai/lib/client-factory";
+import { getLanguageCodePair, getLanguageName } from "@mux/ai/lib/language-codes";
+import type { LanguageCodePair, SupportedISO639_1 } from "@mux/ai/lib/language-codes";
+import { getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
+import { createLanguageModelFromConfig } from "@mux/ai/lib/providers";
+import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
+import { getMuxSigningContextFromEnv, signUrl } from "@mux/ai/lib/url-signing";
+import type { MuxAIOptions, TokenUsage } from "@mux/ai/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types

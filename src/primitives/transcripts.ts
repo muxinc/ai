@@ -1,5 +1,5 @@
-import { getMuxSigningContextFromEnv, signUrl } from "../lib/url-signing";
-import type { AssetTextTrack, MuxAsset } from "../types";
+import { getMuxSigningContextFromEnv, signUrl } from "@mux/ai/lib/url-signing";
+import type { AssetTextTrack, MuxAsset } from "@mux/ai/types";
 
 /** A single cue from a VTT file with timing info. */
 export interface VTTCue {

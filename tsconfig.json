@@ -10,7 +10,8 @@
       "@mux/ai": ["src/index.ts"],
       "@mux/ai/workflows": ["src/workflows/index.ts"],
       "@mux/ai/primitives": ["src/primitives/index.ts"],
-      "@mux/ai/types": ["src/types.ts"]
+      "@mux/ai/types": ["src/types.ts"],
+      "@mux/ai/*": ["src/*"]
     },
     "resolveJsonModule": true,
     "strict": true,

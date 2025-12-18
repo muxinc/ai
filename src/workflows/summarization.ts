@@ -2,25 +2,25 @@ import { generateObject } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
-import { createWorkflowConfig } from "../lib/client-factory";
-import type { ImageDownloadOptions } from "../lib/image-download";
-import { downloadImageAsBase64 } from "../lib/image-download";
-import { getPlaybackIdForAsset } from "../lib/mux-assets";
+import { createWorkflowConfig } from "@mux/ai/lib/client-factory";
+import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
+import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
+import { getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
 import type {
   PromptOverrides,
-} from "../lib/prompt-builder";
+} from "@mux/ai/lib/prompt-builder";
 import {
   createPromptBuilder,
   createToneSection,
   createTranscriptSection,
-} from "../lib/prompt-builder";
-import { createLanguageModelFromConfig } from "../lib/providers";
-import type { ModelIdByProvider, SupportedProvider } from "../lib/providers";
-import { withRetry } from "../lib/retry";
-import { getMuxSigningContextFromEnv } from "../lib/url-signing";
-import { getStoryboardUrl } from "../primitives/storyboards";
-import { fetchTranscriptForAsset } from "../primitives/transcripts";
-import type { ImageSubmissionMode, MuxAIOptions, TokenUsage, ToneType } from "../types";
+} from "@mux/ai/lib/prompt-builder";
+import { createLanguageModelFromConfig } from "@mux/ai/lib/providers";
+import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
+import { withRetry } from "@mux/ai/lib/retry";
+import { getMuxSigningContextFromEnv } from "@mux/ai/lib/url-signing";
+import { getStoryboardUrl } from "@mux/ai/primitives/storyboards";
+import { fetchTranscriptForAsset } from "@mux/ai/primitives/transcripts";
+import type { ImageSubmissionMode, MuxAIOptions, TokenUsage, ToneType } from "@mux/ai/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types

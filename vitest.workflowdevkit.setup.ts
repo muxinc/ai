@@ -10,7 +10,7 @@ let nitroServer: ChildProcess | null = null;
 const PORT = "4000";
 
 export async function setup() {
-  // Build the project first so nitro can use compiled dist/
+  // Keep a fresh build handy before starting Nitro (helps catch build regressions)
   // eslint-disable-next-line no-console
   console.log("Building project before starting Nitro server...");
   execSync("npm run build", { stdio: "inherit" });
