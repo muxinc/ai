@@ -67,17 +67,20 @@ npx evalite serve summarization.eval.ts
 
 ### CI/CD
 
-Evals run automatically on every push to `main` and on pull requests:
+Evals run automatically on pushes to `main` (or via manual workflow dispatch). The CI job executes the evals, exports the json output, and posts the raw results to the Evalite API used by `evaluating-mux-ai`:
 
 ```bash
-# Run evals once and exit (CI mode)
-npx evalite run
+# Run evals and write evalite-results.json
+npx tsx scripts/export-evalite-results.ts
 
-# Export static UI for artifacts
-npx evalite export --output ./ui-export
+# Export static UI output (optional)
+npx evalite export --output ./ui-output
+
+# Post results to the API (deletes evalite-results.json on success)
+npx tsx scripts/post-evalite-results.ts
 ```
 
-The [Evalite UI is published to GitHub Pages](https://muxinc.github.io/ai/evals/) on every push to `main`, providing a persistent dashboard of eval results.
+The post step requires `EVALITE_RESULTS_ENDPOINT` (full URL to `/api/evalite-results`) and uses `EVALITE_INGEST_SECRET` as the shared secret header.
 
 ## Eval Structure
 
@@ -221,4 +224,3 @@ Pricing sources (verify periodically):
 - [Evalite Documentation](https://v1.evalite.dev/)
 - [Evalite CLI Reference](https://v1.evalite.dev/api/cli/)
 - [CI/CD Integration Guide](https://v1.evalite.dev/tips/run-evals-on-ci-cd)
-
