@@ -81,6 +81,7 @@ test-run.js
 # Temporary files
 tmp/
 temp/
+evalite-results.json
 
 .swc/
 test-server/.workflow-data
