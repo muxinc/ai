@@ -12,5 +12,5 @@ jobs:
       # Pin to the commit for version v1.0.2:
       - uses: deepakputhraya/action-pr-title@3864bebc79c5f829d25dd42d3c6579d040b0ef16
         with:
-          regex: '^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test){1}(\([\w\-\.]+\))?(!)?: ([\w ])+([\s\S]*)$'
+          regex: '^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([\w\-\.]+\))?(!)?: [\w]+.*$'
           min_length: 5
