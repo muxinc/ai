@@ -29,6 +29,15 @@ function getPlaybackId(asset: MuxAsset): { id: string; policy: PlaybackPolicy } 
   );
 }
 
+/**
+ * Determines if an asset is audio-only by checking if it has any video tracks.
+ * Returns true if the asset has no video tracks, false otherwise.
+ */
+export function isAudioOnlyAsset(asset: MuxAsset): boolean {
+  const hasVideoTrack = asset.tracks?.some(track => track.type === "video");
+  return !hasVideoTrack;
+}
+
 export async function getPlaybackIdForAsset(
   assetId: string,
   credentials?: WorkflowCredentialsInput,
