@@ -5,7 +5,7 @@ import { z } from "zod";
 import { createWorkflowConfig } from "@mux/ai/lib/client-factory";
 import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
-import { getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
+import { getPlaybackIdForAsset, isAudioOnlyAsset } from "@mux/ai/lib/mux-assets";
 import type {
   PromptOverrides,
 } from "@mux/ai/lib/prompt-builder";
@@ -46,8 +46,8 @@ export interface SummaryAndTagsResult {
   description: string;
   /** Up to 10 keywords extracted by the model. */
   tags: string[];
-  /** Storyboard image URL that was analyzed. */
-  storyboardUrl: string;
+  /** Storyboard image URL that was analyzed (undefined for audio-only assets). */
+  storyboardUrl?: string;
   /** Token usage from the AI provider (for efficiency/cost analysis). */
   usage?: TokenUsage;
   /** Raw transcript text used for analysis (when includeTranscript is true). */
@@ -166,6 +166,56 @@ const summarizationPromptBuilder = createPromptBuilder<SummarizationPromptSectio
   sectionOrder: ["task", "title", "description", "keywords", "qualityGuidelines"],
 });
 
+/**
+ * Prompt builder for audio-only content.
+ * Focuses on transcript analysis without visual references.
+ */
+const audioOnlyPromptBuilder = createPromptBuilder<SummarizationPromptSections>({
+  template: {
+    task: {
+      tag: "task",
+      content: "Analyze the transcript and generate metadata that captures the essence of the audio content.",
+    },
+    title: {
+      tag: "title_requirements",
+      content: dedent`
+        A short, compelling headline that immediately communicates the subject or topic.
+        Aim for brevity - typically under 10 words. Think of how a podcast title or audio description would read.
+        Start with the primary subject, action, or topic - never begin with "An audio of" or similar phrasing.
+        Use active, specific language.`,
+    },
+    description: {
+      tag: "description_requirements",
+      content: dedent`
+        A concise summary (2-4 sentences) that describes the audio content.
+        Cover the main topics, speakers, themes, and any notable progression in the discussion or narration.
+        Write in present tense. Be specific about what is discussed or presented rather than making assumptions.
+        Focus on the spoken content and any key insights, dialogue, or narrative elements.`,
+    },
+    keywords: {
+      tag: "keywords_requirements",
+      content: dedent`
+        Specific, searchable terms (up to 10) that capture:
+        - Primary topics and themes
+        - Speakers or presenters (if named)
+        - Key concepts and terminology
+        - Content type (interview, lecture, music, etc.)
+        - Genre or style (if applicable)
+        Prefer concrete nouns and relevant terms over abstract concepts.
+        Use lowercase. Avoid redundant or overly generic terms like "audio" or "content".`,
+    },
+    qualityGuidelines: {
+      tag: "quality_guidelines",
+      content: dedent`
+        - Analyze the full transcript to understand context and themes
+        - Be precise: use specific terminology when mentioned
+        - Capture the narrative: what is introduced, discussed, and concluded
+        - Balance brevity with informativeness`,
+    },
+  },
+  sectionOrder: ["task", "title", "description", "keywords", "qualityGuidelines"],
+});
+
 const SYSTEM_PROMPT = dedent`
   <role>
     You are a video content analyst specializing in storyboard interpretation and multimodal analysis.
@@ -222,11 +272,65 @@ const SYSTEM_PROMPT = dedent`
     Write as if describing reality, not describing a recording of reality.
   </language_guidelines>`;
 
+const AUDIO_ONLY_SYSTEM_PROMPT = dedent`
+  <role>
+    You are an audio content analyst specializing in transcript analysis and metadata generation.
+  </role>
+
+  <context>
+    You receive transcript text from audio-only content (podcasts, audiobooks, music, etc.).
+    Your task is to analyze the spoken/audio content and generate accurate, searchable metadata.
+  </context>
+
+  <transcript_guidance>
+    - Carefully analyze the entire transcript to understand themes, topics, and key points
+    - Extract key terminology, names, concepts, and specific language used
+    - Identify the content type (interview, lecture, music, narration, etc.)
+    - Note the tone, style, and any distinctive characteristics of the audio
+    - Consider the intended audience and context based on language and content
+  </transcript_guidance>
+
+  <capabilities>
+    - Extract meaning and themes from spoken/audio content
+    - Identify subjects, topics, speakers, and narrative structure
+    - Generate accurate, searchable metadata from audio-based content
+    - Understand context and intent from transcript alone
+  </capabilities>
+
+  <constraints>
+    - Only describe what is explicitly stated or strongly implied in the transcript
+    - Do not fabricate details or make unsupported assumptions
+    - Return structured data matching the requested schema
+    - Focus entirely on audio/spoken content - there are no visual elements
+  </constraints>
+
+  <tone_guidance>
+    Pay special attention to the <tone> section and lean heavily into those instructions.
+    Adapt your entire analysis and writing style to match the specified tone - this should influence
+    your word choice, personality, formality level, and overall presentation of the content.
+    The tone instructions are not suggestions but core requirements for how you should express yourself.
+  </tone_guidance>
+
+  <language_guidelines>
+    AVOID these meta-descriptive phrases that reference the medium rather than the content:
+    - "The audio shows..." / "The transcript shows..."
+    - "In this recording..." / "This audio features..."
+    - "The speaker says..." / "We can hear..."
+    - "The clip contains..." / "The recording shows..."
+
+    INSTEAD, describe the content directly:
+    - BAD: "The audio features a discussion about climate change"
+    - GOOD: "A panel discusses climate change impacts and solutions"
+
+    Write as if describing reality, not describing a recording of reality.
+  </language_guidelines>`;
+
 interface UserPromptContext {
   tone: ToneType;
   transcriptText?: string;
   isCleanTranscript?: boolean;
   promptOverrides?: SummarizationPromptOverrides;
+  isAudioOnly?: boolean;
 }
 
 function buildUserPrompt({
@@ -234,6 +338,7 @@ function buildUserPrompt({
   transcriptText,
   isCleanTranscript = true,
   promptOverrides,
+  isAudioOnly = false,
 }: UserPromptContext): string {
   // Build dynamic context sections
   const contextSections = [createToneSection(TONE_INSTRUCTIONS[tone])];
@@ -243,7 +348,9 @@ function buildUserPrompt({
     contextSections.push(createTranscriptSection(transcriptText, format));
   }
 
-  return summarizationPromptBuilder.buildWithContext(promptOverrides, contextSections);
+  // Use audio-only prompt builder for audio-only assets
+  const promptBuilder = isAudioOnly ? audioOnlyPromptBuilder : summarizationPromptBuilder;
+  return promptBuilder.buildWithContext(promptOverrides, contextSections);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -279,6 +386,42 @@ async function analyzeStoryboard(
           { type: "text", text: userPrompt },
           { type: "image", image: imageDataUrl },
         ],
+      },
+    ],
+  });
+
+  return {
+    result: response.object,
+    usage: {
+      inputTokens: response.usage.inputTokens,
+      outputTokens: response.usage.outputTokens,
+      totalTokens: response.usage.totalTokens,
+      reasoningTokens: response.usage.reasoningTokens,
+      cachedInputTokens: response.usage.cachedInputTokens,
+    },
+  };
+}
+
+async function analyzeAudioOnly(
+  provider: SupportedProvider,
+  modelId: string,
+  userPrompt: string,
+  systemPrompt: string,
+): Promise<AnalysisResponse> {
+  "use step";
+  const model = createLanguageModelFromConfig(provider, modelId);
+
+  const response = await generateObject({
+    model,
+    schema: summarySchema,
+    messages: [
+      {
+        role: "system",
+        content: systemPrompt,
+      },
+      {
+        role: "user",
+        content: userPrompt,
       },
     ],
   });
@@ -358,6 +501,16 @@ export async function getSummaryAndTags(
   // Fetch asset data from Mux and grab playback/transcript details
   const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId);
 
+  // Detect if asset is audio-only
+  const isAudioOnly = isAudioOnlyAsset(assetData);
+
+  // Audio-only assets require transcripts since there's no visual content
+  if (isAudioOnly && !includeTranscript) {
+    throw new Error(
+      "Audio-only assets require transcripts for analysis. Set includeTranscript to true or use a video asset.",
+    );
+  }
+
   // Resolve signing context for signed playback IDs
   const signingContext = getMuxSigningContextFromEnv();
   if (policy === "signed" && !signingContext) {
@@ -375,36 +528,59 @@ export async function getSummaryAndTags(
         })).transcriptText :
       "";
 
+  // Validate audio-only assets have transcripts
+  if (isAudioOnly && !transcriptText) {
+    throw new Error(
+      "Audio-only asset does not have a transcript. A transcript is required for audio-only analysis.",
+    );
+  }
+
   // Build the user prompt with all context and any overrides
   const userPrompt = buildUserPrompt({
     tone,
     transcriptText,
     isCleanTranscript: cleanTranscript,
     promptOverrides,
+    isAudioOnly,
   });
 
-  // Analyze storyboard with AI provider (signed if needed)
-  const imageUrl = await getStoryboardUrl(playbackId, 640, policy === "signed");
-
   let analysisResponse: AnalysisResponse;
+  let imageUrl: string | undefined;
+
+  // Choose system prompt and analysis method based on asset type
+  const systemPrompt = isAudioOnly ? AUDIO_ONLY_SYSTEM_PROMPT : SYSTEM_PROMPT;
 
   try {
-    if (imageSubmissionMode === "base64") {
-      const downloadResult = await downloadImageAsBase64(imageUrl, imageDownloadOptions);
-      analysisResponse = await analyzeStoryboard(
-        downloadResult.base64Data,
+    if (isAudioOnly) {
+      // Audio-only analysis: skip storyboard, analyze transcript only
+      analysisResponse = await analyzeAudioOnly(
         config.provider,
         config.modelId,
         userPrompt,
-        SYSTEM_PROMPT,
+        systemPrompt,
       );
     } else {
-      // URL-based submission with retry logic
-      analysisResponse = await withRetry(() => analyzeStoryboard(imageUrl, config.provider, config.modelId, userPrompt, SYSTEM_PROMPT));
+      // Video analysis: fetch storyboard and analyze with visual content
+      imageUrl = await getStoryboardUrl(playbackId, 640, policy === "signed");
+
+      if (imageSubmissionMode === "base64") {
+        const downloadResult = await downloadImageAsBase64(imageUrl, imageDownloadOptions);
+        analysisResponse = await analyzeStoryboard(
+          downloadResult.base64Data,
+          config.provider,
+          config.modelId,
+          userPrompt,
+          systemPrompt,
+        );
+      } else {
+        // URL-based submission with retry logic
+        analysisResponse = await withRetry(() => analyzeStoryboard(imageUrl!, config.provider, config.modelId, userPrompt, systemPrompt));
+      }
     }
   } catch (error: unknown) {
+    const contentType = isAudioOnly ? "audio" : "video";
     throw new Error(
-      `Failed to analyze video content with ${provider}: ${
+      `Failed to analyze ${contentType} content with ${provider}: ${
         error instanceof Error ? error.message : "Unknown error"
       }`,
     );
@@ -427,7 +603,7 @@ export async function getSummaryAndTags(
     title: analysisResponse.result.title,
     description: analysisResponse.result.description,
     tags: normalizeKeywords(analysisResponse.result.keywords),
-    storyboardUrl: imageUrl,
+    storyboardUrl: imageUrl, // undefined for audio-only assets
     usage: analysisResponse.usage,
     transcriptText: transcriptText || undefined,
   };
