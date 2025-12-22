@@ -101,6 +101,7 @@ interface EvaliteEnvelope {
   githubRunAttempt?: number;
   status: "completed";
   evaliteVersion?: string;
+  packageVersion?: string;
   results: unknown;
   insights: {
     generatedAt: string;
@@ -607,6 +608,14 @@ program
       const resultsPath = path.resolve(process.cwd(), "evalite-results.json");
       const raw = await readFile(resultsPath, "utf8");
       const results = JSON.parse(raw) as unknown;
+      const packageJsonPath = path.resolve(process.cwd(), "package.json");
+      const packageJsonRaw = await readFile(packageJsonPath, "utf8");
+      const packageJson = JSON.parse(packageJsonRaw) as {
+        version?: string;
+        devDependencies?: Record<string, string>;
+      };
+      const packageVersion = packageJson.version;
+      const evaliteVersion = packageJson.devDependencies?.evalite;
       const suites = isRecord(results) && Array.isArray(results.suites) ?
           (results.suites as EvaliteSuite[]) :
           [];
@@ -620,7 +629,8 @@ program
         githubRunId: process.env.GITHUB_RUN_ID ? Number(process.env.GITHUB_RUN_ID) : undefined,
         githubRunAttempt: process.env.GITHUB_RUN_ATTEMPT ? Number(process.env.GITHUB_RUN_ATTEMPT) : undefined,
         status: "completed",
-        evaliteVersion: process.env.EVALITE_VERSION,
+        evaliteVersion,
+        packageVersion,
         results,
         insights: {
           generatedAt: new Date().toISOString(),
