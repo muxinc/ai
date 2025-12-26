@@ -185,6 +185,14 @@ evalite("Chapters", {
     const result = await generateChapters(assetId, languageCode, { provider });
     const latencyMs = performance.now() - startTime;
 
+    console.warn(
+      `[chapters][${provider}] ${assetId}`,
+      result.chapters.map(chapter => ({
+        startTime: chapter.startTime,
+        title: chapter.title,
+      })),
+    );
+
     const usage = result.usage ?? {};
     const estimatedCostUsd = calculateCost(
       provider,

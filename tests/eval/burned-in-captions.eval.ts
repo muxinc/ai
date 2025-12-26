@@ -188,6 +188,15 @@ evalite("Burned-in Captions", {
     const result = await hasBurnedInCaptions(assetId, { provider });
     const latencyMs = performance.now() - startTime;
 
+    console.warn(
+      `[burned-in-captions][${provider}] ${assetId}`,
+      {
+        hasBurnedInCaptions: result.hasBurnedInCaptions,
+        confidence: result.confidence,
+        detectedLanguage: result.detectedLanguage,
+      },
+    );
+
     const usage = result.usage ?? {};
     const estimatedCostUsd = calculateCost(
       provider,
