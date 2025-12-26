@@ -78,7 +78,7 @@ describe("secondsToTimestamp", () => {
 describe("extractTextFromVTT", () => {
   it("extracts transcript text from timestamped lines", () => {
     const vttLines = [
-      "[0s] Hey, what's up everybody, I'm Victor Boutte, a senior software engineer over at Wistia.",
+      "[0s] Hey, what's up everybody, I'm Victor Boutté, a software engineer over at Mux.",
       "[5s] And recently I gave a talk at a local meetup here in Orlando, Florida about adding determinism",
       "[10s] into agents' solutions with state machines.",
       "[13s] Now, it's no surprise that agents are still very new to the scene and everybody's trying",
@@ -207,7 +207,7 @@ describe("extractTextFromVTT", () => {
     const result = extractTextFromVTT(vttContent);
 
     expect(result).toBe(vttLines.join(" "));
-    expect(result).toContain("[0s] Hey, what's up everybody, I'm Victor Boutet, a senior software engineer over at Wistia.");
+    expect(result).toContain("[0s] Hey, what's up everybody, I'm Victor Boutté, a software engineer over at Mux.");
     expect(result).toContain("[504s] and it gives me a great excuse to show off some of the fun stuff that I'm working on.");
     expect(result.includes("\n")).toBe(false);
   });
