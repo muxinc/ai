@@ -100,7 +100,7 @@ const LATENCY_THRESHOLD_GOOD_MS = 8000;
 const LATENCY_THRESHOLD_ACCEPTABLE_MS = 20000;
 
 /** Maximum total tokens considered efficient for this task. */
-const TOKEN_THRESHOLD_EFFICIENT = 4000;
+const TOKEN_THRESHOLD_EFFICIENT = 5000;
 
 /** Maximum cost per request considered acceptable (USD). */
 const COST_THRESHOLD_USD = 0.015;
