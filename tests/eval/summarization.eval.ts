@@ -232,6 +232,15 @@ evalite("Summarization", {
     });
     const latencyMs = performance.now() - startTime;
 
+    console.warn(
+      `[summarization][${provider}] ${assetId}`,
+      {
+        title: result.title,
+        description: result.description,
+        tags: result.tags,
+      },
+    );
+
     const usage = result.usage ?? {};
     const estimatedCostUsd = calculateCost(
       provider,
