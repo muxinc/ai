@@ -1,38 +1,28 @@
-name: Publish Evals UI
+name: Publish Evalite Results
 
 on:
   push:
     branches: [main]
   workflow_dispatch: # Allows manual triggering from any branch
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: pages
-  cancel-in-progress: true
-
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version-file: .nvmrc
+          cache: npm
 
       - run: npm install
 
-      - name: Run Evalite and Export UI
+      - name: Run Evalite and Export Results
         env:
           MUX_TOKEN_ID: ${{ secrets.MUX_TOKEN_ID }}
           MUX_TOKEN_SECRET: ${{ secrets.MUX_TOKEN_SECRET }}
+          EVALITE_INGEST_SECRET: ${{ secrets.EVALITE_INGEST_SECRET }}
           MUX_SIGNING_KEY: ${{ secrets.MUX_SIGNING_KEY }}
           MUX_PRIVATE_KEY: ${{ secrets.MUX_PRIVATE_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -45,15 +35,10 @@ jobs:
           S3_BUCKET: ${{ secrets.S3_BUCKET }}
           S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
           S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
+          EVALITE_RESULTS_ENDPOINT: ${{ secrets.EVALITE_RESULTS_ENDPOINT }}
         run: |
-          npx evalite run
-          npx evalite export --output=./ui-output
+          npm run evalite:post-results:production
 
-      - name: Upload static UI for Pages
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: ui-output
-
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Cleanup Evalite Results File
+        if: always()
+        run: rm -f evalite-results.json
