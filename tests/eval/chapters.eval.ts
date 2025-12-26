@@ -1,4 +1,5 @@
 import { openai } from "@ai-sdk/openai";
+import dedent from "dedent";
 import { evalite } from "evalite";
 import { answerSimilarity } from "evalite/scorers";
 import { reportTrace } from "evalite/traces";
@@ -8,6 +9,7 @@ import type { ModelIdByProvider, SupportedProvider } from "../../src/lib/provide
 import type { TokenUsage } from "../../src/types";
 import { generateChapters } from "../../src/workflows";
 import type { ChaptersResult } from "../../src/workflows";
+import type { ChaptersPromptOverrides } from "../../src/workflows/chapters";
 
 import "../../src/env";
 
@@ -41,6 +43,9 @@ import "../../src/env";
  * 5. CHAPTER OUTLINE SIMILARITY (embeddings)
  *    - Compares each generated chapter title to the closest reference chapter using cosine similarity
  *    - Allows flexible phrasing and slight timing variations
+ *
+ * 6. PROMPT OVERRIDE COMPLIANCE
+ *    - When overrides request an exact chapter count, the output should match it
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * EFFICIENCY GOALS — "How fast and scalable is it?"
@@ -126,7 +131,20 @@ interface TestAsset {
   minChapters: number;
   maxChapters: number;
   referenceChapters: string[];
+  promptOverrides?: ChaptersPromptOverrides;
+  exactChapterCount?: number;
 }
+
+const referenceChapters = [
+  "Intro And Talk Context",
+  "Defining Agents Vs Workflows",
+  "Accountability Agent Example",
+  "Designing The State Machine",
+  "Planning And Task Routing",
+  "LLMs, Memory And Tools",
+  "Execution Loop And Completion",
+  "Benefits, Evaluation And Wrapup",
+];
 
 const testAssets: TestAsset[] = [
   {
@@ -134,16 +152,23 @@ const testAssets: TestAsset[] = [
     languageCode: "en",
     minChapters: 3,
     maxChapters: 8,
-    referenceChapters: [
-      "0:00 - Intro And Talk Context",
-      "0:35 - Defining Agents Vs Workflows",
-      "1:26 - Accountability Agent Example",
-      "2:21 - Designing The State Machine",
-      "3:41 - Planning And Task Routing",
-      "4:25 - LLMs, Memory And Tools",
-      "5:22 - Execution Loop And Completion",
-      "6:37 - Benefits, Evaluation And Wrapup",
-    ],
+    referenceChapters,
+  },
+  // with prompt override for exactly 3 chapters
+  {
+    assetId: "1XIUcA9k02nqRxCLpjHGzMYNIopCdSogkYrs98CThBrc",
+    languageCode: "en",
+    minChapters: 3,
+    maxChapters: 8,
+    referenceChapters,
+    promptOverrides: {
+      chapterGuidelines: dedent`
+        - Create exactly 3 chapters
+        - Use start times in seconds (not HH:MM:SS)
+        - Chapter start times should be non-decreasing
+        - Do not include text before or after the JSON`,
+    },
+    exactChapterCount: 3,
   },
 ];
 
@@ -160,12 +185,14 @@ const data = providers.flatMap(provider =>
       assetId: asset.assetId,
       provider,
       languageCode: asset.languageCode,
+      promptOverrides: asset.promptOverrides,
     },
     expected: {
       languageCode: asset.languageCode,
       minChapters: asset.minChapters,
       maxChapters: asset.maxChapters,
       referenceChapters: asset.referenceChapters,
+      exactChapterCount: asset.exactChapterCount,
     },
   })),
 );
@@ -180,9 +207,9 @@ function getReferenceChapterCount(assetId: string) {
 
 evalite("Chapters", {
   data,
-  task: async ({ assetId, provider, languageCode }): Promise<EvalOutput> => {
+  task: async ({ assetId, provider, languageCode, promptOverrides }): Promise<EvalOutput> => {
     const startTime = performance.now();
-    const result = await generateChapters(assetId, languageCode, { provider });
+    const result = await generateChapters(assetId, languageCode, { provider, promptOverrides });
     const latencyMs = performance.now() - startTime;
 
     console.warn(
@@ -285,6 +312,24 @@ evalite("Chapters", {
         const penalty = span > 0 ? distance / span : 1;
 
         return Math.max(0, 1 - penalty);
+      },
+    },
+
+    {
+      name: "prompt-override-chapter-count",
+      description: "Ensures chapter count matches prompt override when an exact count is requested.",
+      scorer: ({
+        output,
+        expected,
+      }: {
+        output: EvalOutput;
+        expected: { exactChapterCount?: number };
+      }) => {
+        if (typeof expected.exactChapterCount !== "number") {
+          return 1;
+        }
+
+        return output.chapters.length === expected.exactChapterCount ? 1 : 0;
       },
     },
 
