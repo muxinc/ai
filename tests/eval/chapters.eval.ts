@@ -121,6 +121,42 @@ interface EvalOutput extends ChaptersResult {
   estimatedCostUsd: number;
 }
 
+async function scoreChapterSimilarity(output: EvalOutput, referenceChapters: string[]) {
+  const referenceTitles = referenceChapters
+    .map(chapter => chapter.replace(/^\s*\d{1,2}:\d{2}\s*-\s*/u, "").trim())
+    .filter(Boolean);
+  const generatedTitles = output.chapters
+    .map(chapter => chapter.title.trim())
+    .filter(Boolean);
+
+  // We don't require the same number of chapters as the reference. Instead, each generated
+  // chapter title is compared to all reference titles, and we keep the best match per title.
+  if (referenceTitles.length === 0 || generatedTitles.length === 0) {
+    return 0;
+  }
+
+  const embeddingModel = openai.embedding("text-embedding-3-small");
+  const perChapterScores = await Promise.all(
+    generatedTitles.map(async (title) => {
+      const comparisons = await Promise.all(
+        referenceTitles.map(reference =>
+          answerSimilarity({
+            answer: title,
+            reference,
+            embeddingModel,
+          }),
+        ),
+      );
+      // Reward the closest semantic match for each generated chapter.
+      return Math.max(...comparisons.map(result => result.score));
+    }),
+  );
+
+  // Average similarity across generated chapters to get the final score.
+  const totalScore = perChapterScores.reduce((sum, score) => sum + score, 0);
+  return totalScore / perChapterScores.length;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Test Assets
 // ─────────────────────────────────────────────────────────────────────────────
@@ -416,44 +452,33 @@ evalite("Chapters", {
         expected,
       }: {
         output: EvalOutput;
-        expected: { referenceChapters: string[] };
+        expected: { referenceChapters: string[]; exactChapterCount?: number };
       }) => {
-        const referenceTitles = expected.referenceChapters
-          .map(chapter => chapter.replace(/^\s*\d{1,2}:\d{2}\s*-\s*/u, "").trim())
-          .filter(Boolean);
-        const generatedTitles = output.chapters
-          .map(chapter => chapter.title.trim())
-          .filter(Boolean);
-
-        // We don't require the same number of chapters as the reference. Instead, each generated
-        // chapter title is compared to all reference titles, and we keep the best match per title.
-        if (referenceTitles.length === 0 || generatedTitles.length === 0) {
-          return { score: 0 };
+        if (typeof expected.exactChapterCount === "number") {
+          return 1;
         }
 
-        const embeddingModel = openai.embedding("text-embedding-3-small");
-        const perChapterScores = await Promise.all(
-          generatedTitles.map(async (title) => {
-            const comparisons = await Promise.all(
-              referenceTitles.map(reference =>
-                answerSimilarity({
-                  answer: title,
-                  reference,
-                  embeddingModel,
-                }),
-              ),
-            );
-            // Reward the closest semantic match for each generated chapter.
-            return Math.max(...comparisons.map(result => result.score));
-          }),
-        );
+        const score = await scoreChapterSimilarity(output, expected.referenceChapters);
+        return { score };
+      },
+    },
 
-        // Average similarity across generated chapters to get the final score.
-        const totalScore = perChapterScores.reduce((sum, score) => sum + score, 0);
+    {
+      name: "prompt-override-chapter-similarity",
+      description: "Cross-checks prompt override chapters against the reference using embeddings.",
+      scorer: async ({
+        output,
+        expected,
+      }: {
+        output: EvalOutput;
+        expected: { referenceChapters: string[]; exactChapterCount?: number };
+      }) => {
+        if (typeof expected.exactChapterCount !== "number") {
+          return 1;
+        }
 
-        return {
-          score: totalScore / perChapterScores.length,
-        };
+        const score = await scoreChapterSimilarity(output, expected.referenceChapters);
+        return { score };
       },
     },
 
