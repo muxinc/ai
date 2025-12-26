@@ -1,4 +1,6 @@
+import { openai } from "@ai-sdk/openai";
 import { evalite } from "evalite";
+import { answerSimilarity } from "evalite/scorers";
 import { reportTrace } from "evalite/traces";
 
 import { calculateCost, DEFAULT_LANGUAGE_MODELS } from "../../src/lib/providers";
@@ -35,6 +37,10 @@ import "../../src/env";
  * 4. TITLE QUALITY
  *    - Titles are concise and descriptive (length bounds)
  *    - Titles contain letter characters (not just numbers/symbols)
+ *
+ * 5. CHAPTER OUTLINE SIMILARITY (embeddings)
+ *    - Compares each generated chapter title to the closest reference chapter using cosine similarity
+ *    - Allows flexible phrasing and slight timing variations
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * EFFICIENCY GOALS — "How fast and scalable is it?"
@@ -119,14 +125,25 @@ interface TestAsset {
   languageCode: string;
   minChapters: number;
   maxChapters: number;
+  referenceChapters: string[];
 }
 
 const testAssets: TestAsset[] = [
   {
-    assetId: "88Lb01qNUqFJrOFMITk00Ck201F00Qmcbpc5qgopNV4fCOk",
+    assetId: "1XIUcA9k02nqRxCLpjHGzMYNIopCdSogkYrs98CThBrc",
     languageCode: "en",
     minChapters: 3,
     maxChapters: 8,
+    referenceChapters: [
+      "0:00 - Intro And Talk Context",
+      "0:35 - Defining Agents Vs Workflows",
+      "1:26 - Accountability Agent Example",
+      "2:21 - Designing The State Machine",
+      "3:41 - Planning And Task Routing",
+      "4:25 - LLMs, Memory And Tools",
+      "5:22 - Execution Loop And Completion",
+      "6:37 - Benefits, Evaluation And Wrapup",
+    ],
   },
 ];
 
@@ -148,9 +165,14 @@ const data = providers.flatMap(provider =>
       languageCode: asset.languageCode,
       minChapters: asset.minChapters,
       maxChapters: asset.maxChapters,
+      referenceChapters: asset.referenceChapters,
     },
   })),
 );
+
+function getReferenceChapterCount(assetId: string) {
+  return testAssets.find(asset => asset.assetId === assetId)?.referenceChapters.length ?? 0;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Evaluation
@@ -319,6 +341,55 @@ evalite("Chapters", {
       },
     },
 
+    {
+      name: "chapter-similarity",
+      description: "Scores each generated chapter against the closest reference chapter using embeddings.",
+      scorer: async ({
+        output,
+        expected,
+      }: {
+        output: EvalOutput;
+        expected: { referenceChapters: string[] };
+      }) => {
+        const referenceTitles = expected.referenceChapters
+          .map(chapter => chapter.replace(/^\s*\d{1,2}:\d{2}\s*-\s*/u, "").trim())
+          .filter(Boolean);
+        const generatedTitles = output.chapters
+          .map(chapter => chapter.title.trim())
+          .filter(Boolean);
+
+        // We don't require the same number of chapters as the reference. Instead, each generated
+        // chapter title is compared to all reference titles, and we keep the best match per title.
+        if (referenceTitles.length === 0 || generatedTitles.length === 0) {
+          return { score: 0 };
+        }
+
+        const embeddingModel = openai.embedding("text-embedding-3-small");
+        const perChapterScores = await Promise.all(
+          generatedTitles.map(async (title) => {
+            const comparisons = await Promise.all(
+              referenceTitles.map(reference =>
+                answerSimilarity({
+                  answer: title,
+                  reference,
+                  embeddingModel,
+                }),
+              ),
+            );
+            // Reward the closest semantic match for each generated chapter.
+            return Math.max(...comparisons.map(result => result.score));
+          }),
+        );
+
+        // Average similarity across generated chapters to get the final score.
+        const totalScore = perChapterScores.reduce((sum, score) => sum + score, 0);
+
+        return {
+          score: totalScore / perChapterScores.length,
+        };
+      },
+    },
+
     // ─────────────────────────────────────────────────────────────────────────
     // EFFICIENCY SCORERS
     // ─────────────────────────────────────────────────────────────────────────
@@ -406,6 +477,8 @@ evalite("Chapters", {
       { label: "Provider", value: output.provider },
       { label: "Model", value: output.model },
       { label: "Chapters", value: output.chapters.length },
+      { label: "Reference Chapters", value: getReferenceChapterCount(input.assetId) },
+      { label: "Similarity Model", value: "text-embedding-3-small" },
       { label: "First Start", value: firstChapter ? `${firstChapter.startTime}s` : "n/a" },
       { label: "Last Start", value: lastChapter ? `${lastChapter.startTime}s` : "n/a" },
       { label: "Latency", value: `${Math.round(output.latencyMs)}ms` },
