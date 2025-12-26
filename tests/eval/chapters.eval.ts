@@ -270,7 +270,21 @@ evalite("Chapters", {
         expected: { minChapters: number; maxChapters: number };
       }) => {
         const count = output.chapters.length;
-        return count >= expected.minChapters && count <= expected.maxChapters ? 1 : 0;
+        const { minChapters, maxChapters } = expected;
+
+        // Keep the prompt guidance (3-8) as the ideal range, but soften penalties
+        // when a model produces a sensible outline that's slightly outside the bounds.
+        if (count >= minChapters && count <= maxChapters) {
+          return 1;
+        }
+
+        const distance = count < minChapters ?
+          minChapters - count :
+          count - maxChapters;
+        const span = maxChapters - minChapters;
+        const penalty = span > 0 ? distance / span : 1;
+
+        return Math.max(0, 1 - penalty);
       },
     },
 
