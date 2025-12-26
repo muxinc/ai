@@ -1,5 +1,6 @@
 import { Command } from "commander";
 
+import { secondsToTimestamp } from "@mux/ai/primitives";
 import { generateChapters } from "@mux/ai/workflows";
 
 import "../env";
@@ -37,9 +38,7 @@ program
         console.log(`  Generated chapters: ${result.chapters.length}`);
         console.log("  Chapter breakdown:");
         result.chapters.forEach((chapter, index) => {
-          const minutes = Math.floor(chapter.startTime / 60);
-          const seconds = Math.floor(chapter.startTime % 60);
-          console.log(`    ${index + 1}. ${minutes}:${seconds.toString().padStart(2, "0")} - ${chapter.title}`);
+          console.log(`    ${index + 1}. ${secondsToTimestamp(chapter.startTime)} - ${chapter.title}`);
         });
         console.log();
 
