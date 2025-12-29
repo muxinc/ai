@@ -34,6 +34,7 @@ const EnvSchema = z.object({
     "Mux burned-in captions asset ID used by integration tests.",
     "Mux burned-in captions test asset id",
   ),
+  MUX_TEST_ASSET_ID_AUDIO_ONLY: optionalString("Mux test asset ID for audio-only assets.", "Mux test asset id for audio-only assets for testing"),
 
   // AI Providers
   OPENAI_API_KEY: optionalString("OpenAI API key for OpenAI-backed workflows.", "OpenAI API key"),
