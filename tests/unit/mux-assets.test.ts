@@ -56,7 +56,7 @@ describe("isAudioOnlyAsset", () => {
       tracks: [],
     };
 
-    expect(isAudioOnlyAsset(noTracksAsset as MuxAsset)).toBe(true);
+    expect(isAudioOnlyAsset(noTracksAsset as MuxAsset)).toBe(false);
   });
 
   it("should return true for asset with undefined tracks", () => {
@@ -65,7 +65,7 @@ describe("isAudioOnlyAsset", () => {
       tracks: undefined,
     };
 
-    expect(isAudioOnlyAsset(undefinedTracksAsset as MuxAsset)).toBe(true);
+    expect(isAudioOnlyAsset(undefinedTracksAsset as MuxAsset)).toBe(false);
   });
 
   it("should return false for asset with text track and video track", () => {

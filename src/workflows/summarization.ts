@@ -507,7 +507,7 @@ export async function getSummaryAndTags(
   // Audio-only assets require transcripts since there's no visual content
   if (isAudioOnly && !includeTranscript) {
     throw new Error(
-      "Audio-only assets require transcripts for analysis. Set includeTranscript to true or use a video asset.",
+      "Audio-only assets require a transcript. Set includeTranscript: true and ensure the asset has a ready text track (captions/subtitles).",
     );
   }
 
@@ -525,15 +525,9 @@ export async function getSummaryAndTags(
         (await fetchTranscriptForAsset(assetData, playbackId, {
           cleanTranscript,
           shouldSign: policy === "signed",
+          required: isAudioOnly,
         })).transcriptText :
       "";
-
-  // Validate audio-only assets have transcripts
-  if (isAudioOnly && !transcriptText) {
-    throw new Error(
-      "Audio-only asset does not have a transcript. A transcript is required for audio-only analysis.",
-    );
-  }
 
   // Build the user prompt with all context and any overrides
   const userPrompt = buildUserPrompt({
