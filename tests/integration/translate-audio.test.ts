@@ -1,11 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { translateAudio } from "../../src/workflows";
-
-import "../../src/env";
+import { muxTestAssets } from "../helpers/mux-test-assets";
 
 describe("audio Translation Integration Tests", () => {
-  const assetId = "88Lb01qNUqFJrOFMITk00Ck201F00Qmcbpc5qgopNV4fCOk";
+  const assetId = muxTestAssets.assetId;
 
   it("should translate audio to French without uploading to Mux", async () => {
     const result = await translateAudio(assetId, "fr", {

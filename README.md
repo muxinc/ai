@@ -436,6 +436,8 @@ Please see our **[Contributing Guide](./CONTRIBUTING.md)** for details on:
 - Submitting pull requests
 - Reporting issues
 
+> **Note on integration tests:** The integration suite runs against real Mux assets. If you want to run `npm run test:integration` with your own Mux credentials, you’ll also need to set Mux test asset IDs (see `env.test.example`, the “Integration test assets (Mux)” section in `CONTRIBUTING.md`, and `tests/helpers/mux-test-assets.ts` for the expected test asset IDs).
+
 For questions or discussions, feel free to [open an issue](https://github.com/muxinc/ai/issues).
 
 ## License

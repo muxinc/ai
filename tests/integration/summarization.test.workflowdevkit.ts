@@ -3,9 +3,10 @@ import { start } from "workflow/api";
 
 import type { SupportedProvider } from "../../src/lib/providers";
 import { getSummaryAndTags } from "../../src/workflows";
+import { muxTestAssets } from "../helpers/mux-test-assets";
 
 describe("summarization Integration Tests", () => {
-  const testAssetId = "88Lb01qNUqFJrOFMITk00Ck201F00Qmcbpc5qgopNV4fCOk";
+  const testAssetId = muxTestAssets.assetId;
   const providers: SupportedProvider[] = ["openai", "anthropic", "google"];
 
   it.each(providers)("should return a run with a runId for each provider", async (provider) => {

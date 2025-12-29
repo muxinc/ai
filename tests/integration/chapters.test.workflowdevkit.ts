@@ -3,9 +3,10 @@ import { start } from "workflow/api";
 
 import type { SupportedProvider } from "../../src/lib/providers";
 import { generateChapters } from "../../src/workflows";
+import { muxTestAssets } from "../helpers/mux-test-assets";
 
 describe("Chapters Integration Tests for Workflow DevKit", () => {
-  const assetId = "88Lb01qNUqFJrOFMITk00Ck201F00Qmcbpc5qgopNV4fCOk";
+  const assetId = muxTestAssets.assetId;
   const providers: SupportedProvider[] = ["openai", "anthropic", "google"];
 
   it.each(providers)("should generate chapters with %s provider", async (provider) => {
