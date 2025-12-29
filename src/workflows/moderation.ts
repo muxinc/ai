@@ -1,8 +1,10 @@
 import { getApiKeyFromEnv } from "@mux/ai/lib/client-factory";
 import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImagesAsBase64 } from "@mux/ai/lib/image-download";
-import { getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
+import { getPlaybackIdForAsset, isAudioOnlyAsset } from "@mux/ai/lib/mux-assets";
+import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
 import { getThumbnailUrls } from "@mux/ai/primitives/thumbnails";
+import { fetchTranscriptForAsset, getReadyTextTracks } from "@mux/ai/primitives/transcripts";
 import type { ImageSubmissionMode, MuxAIOptions, WorkflowCredentialsInput } from "@mux/ai/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -20,6 +22,10 @@ export interface ThumbnailModerationScore {
 /** Aggregated moderation payload returned from `getModerationScores`. */
 export interface ModerationResult {
   assetId: string;
+  /** Whether moderation ran on thumbnails (video) or transcript text (audio-only). */
+  mode: "thumbnails" | "transcript";
+  /** Convenience flag so callers can understand why `thumbnailScores` may contain a transcript entry. */
+  isAudioOnly: boolean;
   thumbnailScores: ThumbnailModerationScore[];
   maxScores: {
     sexual: number;
@@ -52,6 +58,11 @@ export interface ModerationOptions extends MuxAIOptions {
   provider?: ModerationProvider;
   /** OpenAI moderation model identifier (defaults to 'omni-moderation-latest'). */
   model?: string;
+  /**
+   * Optional transcript language code used when moderating audio-only assets.
+   * If omitted, the first ready text track will be used.
+   */
+  languageCode?: string;
   /** Override the default sexual/violence thresholds (0-1). */
   thresholds?: {
     sexual?: number;
@@ -209,6 +220,96 @@ async function requestOpenAIModeration(
   return processConcurrently(targetUrls, moderateImageWithOpenAI, maxConcurrent);
 }
 
+async function requestOpenAITextModeration(
+  text: string,
+  model: string,
+  url: string,
+  credentials?: WorkflowCredentialsInput,
+): Promise<ThumbnailModerationScore> {
+  "use step";
+  const apiKey = await getApiKeyFromEnv("openai", credentials);
+  try {
+    const res = await fetch("https://api.openai.com/v1/moderations", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        input: text,
+      }),
+    });
+
+    const json: any = await res.json();
+    if (!res.ok) {
+      throw new Error(
+        `OpenAI moderation error: ${res.status} ${res.statusText} - ${JSON.stringify(json)}`,
+      );
+    }
+
+    const categoryScores = json.results?.[0]?.category_scores || {};
+
+    return {
+      url,
+      sexual: categoryScores.sexual || 0,
+      violence: categoryScores.violence || 0,
+      error: false,
+    };
+  } catch (error) {
+    console.error("OpenAI text moderation failed:", error);
+    return {
+      url,
+      sexual: 0,
+      violence: 0,
+      error: true,
+    };
+  }
+}
+
+function chunkTextByUtf16CodeUnits(text: string, maxUnits: number): string[] {
+  if (!text.trim()) {
+    return [];
+  }
+  if (text.length <= maxUnits) {
+    return [text];
+  }
+  const chunks: string[] = [];
+  for (let i = 0; i < text.length; i += maxUnits) {
+    const chunk = text.slice(i, i + maxUnits).trim();
+    if (chunk) {
+      chunks.push(chunk);
+    }
+  }
+  return chunks;
+}
+
+async function requestOpenAITranscriptModeration(
+  transcriptText: string,
+  model: string,
+  maxConcurrent: number = 5,
+  credentials?: WorkflowCredentialsInput,
+): Promise<ThumbnailModerationScore[]> {
+  "use step";
+  // OpenAI supports larger inputs, but chunking avoids pathological single-request sizes and
+  // mirrors our "max over segments" behavior used for thumbnail moderation.
+  const chunks = chunkTextByUtf16CodeUnits(transcriptText, 10_000);
+  if (!chunks.length) {
+    return [
+      { url: "transcript:0", sexual: 0, violence: 0, error: true },
+    ];
+  }
+  const targets = chunks.map((chunk, idx) => ({
+    chunk,
+    url: `transcript:${idx}`,
+  }));
+  return processConcurrently(
+    targets,
+    async entry => requestOpenAITextModeration(entry.chunk, model, entry.url, credentials),
+    maxConcurrent,
+  );
+}
+
 function getHiveCategoryScores(
   classes: NonNullable<HiveModerationOutput["classes"]>,
   categoryNames: string[],
@@ -306,8 +407,14 @@ async function requestHiveModeration(
 }
 
 /**
- * Moderate a Mux asset's thumbnails.
+ * Moderate a Mux asset.
+ * - Video assets: moderates storyboard thumbnails (image moderation)
+ * - Audio-only assets: moderates transcript text (text moderation)
+ *
+ * Provider notes:
  * - provider 'openai' uses OpenAI's hosted moderation endpoint (requires OPENAI_API_KEY)
+ *   Ref: https://platform.openai.com/docs/guides/moderation
+ * - provider 'hive' uses Hive's moderation API for thumbnails only (requires HIVE_API_KEY)
  */
 export async function getModerationScores(
   assetId: string,
@@ -317,6 +424,7 @@ export async function getModerationScores(
   const {
     provider = DEFAULT_PROVIDER,
     model = provider === "openai" ? "omni-moderation-latest" : undefined,
+    languageCode,
     thresholds = DEFAULT_THRESHOLDS,
     thumbnailInterval = 10,
     thumbnailWidth = 640,
@@ -329,36 +437,83 @@ export async function getModerationScores(
   // Fetch asset data and playback ID from Mux via helper
   const { asset, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
   const duration = asset.duration || 0;
+  const isAudioOnly = isAudioOnlyAsset(asset);
 
-  // Generate thumbnail URLs (signed if needed)
-  const thumbnailUrls = await getThumbnailUrls(playbackId, duration, {
-    interval: thumbnailInterval,
-    width: thumbnailWidth,
-    shouldSign: policy === "signed",
-    credentials,
-  });
+  // Resolve signing context for signed playback IDs
+  const signingContext = await resolveMuxSigningContext(credentials);
+  if (policy === "signed" && !signingContext) {
+    throw new Error(
+      "Signed playback ID requires signing credentials. " +
+      "Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
+    );
+  }
 
   let thumbnailScores: ThumbnailModerationScore[];
+  let mode: ModerationResult["mode"] = "thumbnails";
 
-  if (provider === "openai") {
-    thumbnailScores = await requestOpenAIModeration(
-      thumbnailUrls,
-      model || "omni-moderation-latest",
-      maxConcurrent,
-      imageSubmissionMode,
-      imageDownloadOptions,
+  if (isAudioOnly) {
+    mode = "transcript";
+    const readyTextTracks = getReadyTextTracks(asset);
+    let transcriptResult = await fetchTranscriptForAsset(asset, playbackId, {
+      languageCode,
+      cleanTranscript: true,
+      shouldSign: policy === "signed",
       credentials,
-    );
-  } else if (provider === "hive") {
-    thumbnailScores = await requestHiveModeration(
-      thumbnailUrls,
-      maxConcurrent,
-      imageSubmissionMode,
-      imageDownloadOptions,
-      credentials,
-    );
+      required: true,
+    });
+
+    // Audio-only assets may have a single ready text track that isn't "subtitles" (e.g. transcripts).
+    // If a language-specific subtitle wasn't found but there's exactly one track, fall back to it.
+    if (!transcriptResult.track && readyTextTracks.length === 1) {
+      transcriptResult = await fetchTranscriptForAsset(asset, playbackId, {
+        cleanTranscript: true,
+        shouldSign: policy === "signed",
+        credentials,
+        required: true,
+      });
+    }
+
+    if (provider === "openai") {
+      thumbnailScores = await requestOpenAITranscriptModeration(
+        transcriptResult.transcriptText,
+        model || "omni-moderation-latest",
+        maxConcurrent,
+        credentials,
+      );
+    } else if (provider === "hive") {
+      throw new Error("Hive does not support transcript moderation in this workflow. Use provider: 'openai' for audio-only assets.");
+    } else {
+      throw new Error(`Unsupported moderation provider: ${provider}`);
+    }
   } else {
-    throw new Error(`Unsupported moderation provider: ${provider}`);
+    // Generate thumbnail URLs (signed if needed)
+    const thumbnailUrls = await getThumbnailUrls(playbackId, duration, {
+      interval: thumbnailInterval,
+      width: thumbnailWidth,
+      shouldSign: policy === "signed",
+      credentials,
+    });
+
+    if (provider === "openai") {
+      thumbnailScores = await requestOpenAIModeration(
+        thumbnailUrls,
+        model || "omni-moderation-latest",
+        maxConcurrent,
+        imageSubmissionMode,
+        imageDownloadOptions,
+        credentials,
+      );
+    } else if (provider === "hive") {
+      thumbnailScores = await requestHiveModeration(
+        thumbnailUrls,
+        maxConcurrent,
+        imageSubmissionMode,
+        imageDownloadOptions,
+        credentials,
+      );
+    } else {
+      throw new Error(`Unsupported moderation provider: ${provider}`);
+    }
   }
 
   // Find highest scores across all thumbnails
@@ -369,6 +524,8 @@ export async function getModerationScores(
 
   return {
     assetId,
+    mode,
+    isAudioOnly,
     thumbnailScores,
     maxScores: {
       sexual: maxSexual,

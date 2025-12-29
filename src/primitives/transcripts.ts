@@ -14,6 +14,13 @@ export interface TranscriptFetchOptions {
   /** Optional signing context for signed playback IDs */
   shouldSign?: boolean;
   credentials?: WorkflowCredentialsInput;
+  /**
+   * When true, throws if no usable transcript can be retrieved (no ready text track,
+   * missing track id, fetch error, or empty transcript).
+   *
+   * Default behavior is non-fatal and returns an empty `transcriptText`.
+   */
+  required?: boolean;
 }
 
 export interface TranscriptResult {
@@ -218,14 +225,32 @@ export async function fetchTranscriptForAsset(
   options: TranscriptFetchOptions = {},
 ): Promise<TranscriptResult> {
   "use step";
-  const { languageCode, cleanTranscript = true, shouldSign, credentials } = options;
+  const {
+    languageCode,
+    cleanTranscript = true,
+    shouldSign,
+    credentials,
+    required = false,
+  } = options;
   const track = findCaptionTrack(asset, languageCode);
 
   if (!track) {
+    if (required) {
+      const availableLanguages = getReadyTextTracks(asset)
+        .map(t => t.language_code)
+        .filter(Boolean)
+        .join(", ");
+      throw new Error(
+        `No transcript track found${languageCode ? ` for language '${languageCode}'` : ""}. Available languages: ${availableLanguages || "none"}`,
+      );
+    }
     return { transcriptText: "" };
   }
 
   if (!track.id) {
+    if (required) {
+      throw new Error("Transcript track is missing an id");
+    }
     return { transcriptText: "", track };
   }
 
@@ -234,14 +259,26 @@ export async function fetchTranscriptForAsset(
   try {
     const response = await fetch(transcriptUrl);
     if (!response.ok) {
+      if (required) {
+        throw new Error(`Failed to fetch transcript (HTTP ${response.status})`);
+      }
       return { transcriptText: "", transcriptUrl, track };
     }
 
     const rawVtt = await response.text();
     const transcriptText = cleanTranscript ? extractTextFromVTT(rawVtt) : rawVtt;
 
+    if (required && !transcriptText.trim()) {
+      throw new Error("Transcript is empty");
+    }
+
     return { transcriptText, transcriptUrl, track };
   } catch (error) {
+    if (required) {
+      throw new Error(
+        `Failed to fetch transcript: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
+    }
     console.warn("Failed to fetch transcript:", error);
     return { transcriptText: "", transcriptUrl, track };
   }

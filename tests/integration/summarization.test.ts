@@ -69,7 +69,7 @@ describe("summarization Integration Tests", () => {
           provider,
           includeTranscript: false,
         }),
-      ).rejects.toThrow("Audio-only assets require transcripts for analysis");
+      ).rejects.toThrow("Audio-only assets require a transcript");
     });
 
     it("should work with different tones for audio-only", async () => {

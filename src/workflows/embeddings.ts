@@ -1,9 +1,10 @@
 import { embed } from "ai";
 
-import { getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
+import { getPlaybackIdForAsset, isAudioOnlyAsset } from "@mux/ai/lib/mux-assets";
 import type { EmbeddingModelIdByProvider, SupportedEmbeddingProvider } from "@mux/ai/lib/providers";
 import { createEmbeddingModelFromConfig, resolveEmbeddingModelConfig } from "@mux/ai/lib/providers";
 import { withRetry } from "@mux/ai/lib/retry";
+import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
 import { chunkText, chunkVTTCues } from "@mux/ai/primitives/text-chunking";
 import { fetchTranscriptForAsset, getReadyTextTracks, parseVTTCues } from "@mux/ai/primitives/transcripts";
 import type {
@@ -19,7 +20,7 @@ import type {
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Configuration accepted by `generateVideoEmbeddings`. */
+/** Configuration accepted by `generateEmbeddings`. */
 export interface EmbeddingsOptions extends MuxAIOptions {
   /** AI provider used to generate embeddings (defaults to 'openai'). */
   provider?: SupportedEmbeddingProvider;
@@ -32,6 +33,9 @@ export interface EmbeddingsOptions extends MuxAIOptions {
   /** Maximum number of chunks to process concurrently (defaults to 5). */
   batchSize?: number;
 }
+
+/** Alias for embedding results (supports video or audio transcripts). */
+export type EmbeddingsResult = VideoEmbeddingsResult;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Implementation
@@ -107,21 +111,21 @@ async function generateSingleChunkEmbedding({
 }
 
 /**
- * Generates vector embeddings for a video asset's transcript.
+ * Generates vector embeddings for a media asset's transcript.
  *
  * This function:
- * 1. Fetches the video transcript from Mux
+ * 1. Fetches the transcript from Mux
  * 2. Chunks the transcript according to the specified strategy
  * 3. Generates embeddings for each chunk using the specified AI provider
  * 4. Returns both individual chunk embeddings and an averaged embedding
  *
  * @param assetId - Mux asset ID
  * @param options - Configuration options
- * @returns Video embeddings result with chunks and averaged embedding
+ * @returns Embeddings result with chunks and averaged embedding
  *
  * @example
  * ```typescript
- * const embeddings = await generateVideoEmbeddings("asset-id", {
+ * const embeddings = await generateEmbeddings("asset-id", {
  *   provider: "openai",
  *   chunkingStrategy: { type: "token", maxTokens: 500, overlap: 100 },
  * });
@@ -137,11 +141,10 @@ async function generateSingleChunkEmbedding({
  * }
  * ```
  */
-export async function generateVideoEmbeddings(
+async function generateEmbeddingsInternal(
   assetId: string,
   options: EmbeddingsOptions = {},
-): Promise<VideoEmbeddingsResult> {
-  "use workflow";
+): Promise<EmbeddingsResult> {
   const {
     provider = "openai",
     model,
@@ -155,21 +158,46 @@ export async function generateVideoEmbeddings(
 
   // Fetch asset and playback ID
   const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
+  const isAudioOnly = isAudioOnlyAsset(assetData);
+
+  // Resolve signing context for signed playback IDs
+  const signingContext = await resolveMuxSigningContext(credentials);
+  if (policy === "signed" && !signingContext) {
+    throw new Error(
+      "Signed playback ID requires signing credentials. " +
+      "Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
+    );
+  }
 
   // Fetch transcript (raw VTT for VTT strategy, cleaned text otherwise)
+  const readyTextTracks = getReadyTextTracks(assetData);
   const useVttChunking = chunkingStrategy.type === "vtt";
-  const transcriptResult = await fetchTranscriptForAsset(assetData, playbackId, {
+  let transcriptResult = await fetchTranscriptForAsset(assetData, playbackId, {
     languageCode,
     cleanTranscript: !useVttChunking,
     shouldSign: policy === "signed",
     credentials,
   });
 
+  if (isAudioOnly && !transcriptResult.track && readyTextTracks.length === 1) {
+    transcriptResult = await fetchTranscriptForAsset(assetData, playbackId, {
+      cleanTranscript: !useVttChunking,
+      shouldSign: policy === "signed",
+      credentials,
+    });
+  }
+
   if (!transcriptResult.track || !transcriptResult.transcriptText) {
-    const availableLanguages = getReadyTextTracks(assetData)
+    const availableLanguages = readyTextTracks
       .map(t => t.language_code)
       .filter(Boolean)
       .join(", ");
+    if (isAudioOnly) {
+      throw new Error(
+        `No transcript track found${languageCode ? ` for language '${languageCode}'` : ""}. ` +
+        `Audio-only assets require a transcript. Available languages: ${availableLanguages || "none"}`,
+      );
+    }
     throw new Error(
       `No caption track found${languageCode ? ` for language '${languageCode}'` : ""}. Available languages: ${availableLanguages || "none"}`,
     );
@@ -241,4 +269,24 @@ export async function generateVideoEmbeddings(
       generatedAt: new Date().toISOString(),
     },
   };
+}
+
+export async function generateEmbeddings(
+  assetId: string,
+  options: EmbeddingsOptions = {},
+): Promise<EmbeddingsResult> {
+  "use workflow";
+  return generateEmbeddingsInternal(assetId, options);
+}
+
+/**
+ * @deprecated Use {@link generateEmbeddings} instead. This name will be removed in a future release.
+ */
+export async function generateVideoEmbeddings(
+  assetId: string,
+  options: EmbeddingsOptions = {},
+): Promise<EmbeddingsResult> {
+  "use workflow";
+  console.warn("generateVideoEmbeddings is deprecated. Use generateEmbeddings instead.");
+  return generateEmbeddingsInternal(assetId, options);
 }

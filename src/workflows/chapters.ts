@@ -2,12 +2,13 @@ import { generateObject } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
-import { getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
+import { getPlaybackIdForAsset, isAudioOnlyAsset } from "@mux/ai/lib/mux-assets";
 import type { PromptOverrides, PromptSection } from "@mux/ai/lib/prompt-builder";
 import { createPromptBuilder } from "@mux/ai/lib/prompt-builder";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
 import { withRetry } from "@mux/ai/lib/retry";
+import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
 import {
   extractTimestampedTranscript,
   fetchTranscriptForAsset,
@@ -143,27 +144,56 @@ async function generateChaptersWithAI({
 // Prompts
 // ─────────────────────────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = dedent`
-  <role>
-    You are a video editor and transcript analyst specializing in segmenting content into logical chapters.
-  </role>
+/**
+ * Sections of the chaptering system prompt that can be overridden.
+ * Use these to customize the AI's persona and constraints.
+ */
+export type ChapterSystemPromptSections = "role" | "context" | "constraints" | "qualityGuidelines";
 
-  <context>
-    You receive a timestamped transcript with lines in the form "[12s] Caption text".
-    Use those timestamps as anchors to determine chapter start times in seconds.
-  </context>
+/**
+ * Prompt builder for the chaptering system prompt.
+ * Sections can be individually overridden for different content types.
+ */
+const chapterSystemPromptBuilder = createPromptBuilder<ChapterSystemPromptSections>({
+  template: {
+    role: {
+      tag: "role",
+      content: "You are a video editor and transcript analyst specializing in segmenting content into logical chapters.",
+    },
+    context: {
+      tag: "context",
+      content: dedent`
+        You receive a timestamped transcript with lines in the form "[12s] Caption text".
+        Use those timestamps as anchors to determine chapter start times in seconds.`,
+    },
+    constraints: {
+      tag: "constraints",
+      content: dedent`
+        - Only use information present in the transcript
+        - Return structured data that matches the requested JSON schema
+        - Do not add commentary or extra text outside the JSON`,
+    },
+    qualityGuidelines: {
+      tag: "quality_guidelines",
+      content: dedent`
+        - Create chapters at topic shifts or clear transitions
+        - Keep chapter titles concise and descriptive
+        - Ensure the first chapter starts at 0 seconds`,
+    },
+  },
+  sectionOrder: ["role", "context", "constraints", "qualityGuidelines"],
+});
 
-  <constraints>
-    - Only use information present in the transcript
-    - Return structured data that matches the requested JSON schema
-    - Do not add commentary or extra text outside the JSON
-  </constraints>
-
-  <quality_guidelines>
-    - Create chapters at topic shifts or clear transitions
-    - Keep chapter titles concise and descriptive
-    - Ensure the first chapter starts at 0 seconds
-  </quality_guidelines>`;
+/**
+ * System prompt overrides for audio-only assets.
+ * Adjusts the role and context to be audio-focused rather than video-focused.
+ */
+const AUDIO_ONLY_SYSTEM_PROMPT_OVERRIDES: Partial<Record<ChapterSystemPromptSections, string>> = {
+  role: "You are an audio editor and transcript analyst specializing in segmenting content into logical chapters.",
+  context: dedent`
+    You receive a timestamped transcript from audio-only content with lines in the form "[12s] Transcript text".
+    Use those timestamps as anchors to determine chapter start times in seconds.`,
+};
 
 /**
  * Prompt builder for the chaptering user prompt.
@@ -260,18 +290,38 @@ export async function generateChapters(
     provider: provider as SupportedProvider,
   });
 
-  // Fetch asset and caption track/transcript
+  // Fetch asset and transcript
   const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
+  const isAudioOnly = isAudioOnlyAsset(assetData);
 
-  const transcriptResult = await fetchTranscriptForAsset(assetData, playbackId, {
+  // Resolve signing context for signed playback IDs
+  const signingContext = await resolveMuxSigningContext(credentials);
+  if (policy === "signed" && !signingContext) {
+    throw new Error(
+      "Signed playback ID requires signing credentials. " +
+      "Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
+    );
+  }
+
+  const readyTextTracks = getReadyTextTracks(assetData);
+  let transcriptResult = await fetchTranscriptForAsset(assetData, playbackId, {
     languageCode,
     cleanTranscript: false, // keep timestamps for chapter segmentation
     shouldSign: policy === "signed",
     credentials,
   });
 
+  if (isAudioOnly && !transcriptResult.track && readyTextTracks.length === 1) {
+    transcriptResult = await fetchTranscriptForAsset(assetData, playbackId, {
+      cleanTranscript: false, // keep timestamps for chapter segmentation
+      shouldSign: policy === "signed",
+      credentials,
+      required: true,
+    });
+  }
+
   if (!transcriptResult.track || !transcriptResult.transcriptText) {
-    const availableLanguages = getReadyTextTracks(assetData)
+    const availableLanguages = readyTextTracks
       .map(t => t.language_code)
       .filter(Boolean)
       .join(", ");
@@ -282,7 +332,8 @@ export async function generateChapters(
 
   const timestampedTranscript = extractTimestampedTranscript(transcriptResult.transcriptText);
   if (!timestampedTranscript) {
-    throw new Error("No usable content found in caption track");
+    const contentLabel = isAudioOnly ? "transcript" : "caption track";
+    throw new Error(`No usable content found in ${contentLabel}`);
   }
 
   const userPrompt = buildUserPrompt({
@@ -296,11 +347,14 @@ export async function generateChapters(
   let chaptersData: { chapters: ChaptersType; usage: TokenUsage } | null = null;
 
   try {
+    const systemPrompt = isAudioOnly ?
+        chapterSystemPromptBuilder.build(AUDIO_ONLY_SYSTEM_PROMPT_OVERRIDES) :
+        chapterSystemPromptBuilder.build();
     chaptersData = await generateChaptersWithAI({
       provider: modelConfig.provider,
       modelId: modelConfig.modelId,
       userPrompt,
-      systemPrompt: SYSTEM_PROMPT,
+      systemPrompt,
       credentials,
     });
   } catch (error) {
