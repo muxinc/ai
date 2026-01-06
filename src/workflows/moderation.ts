@@ -139,6 +139,55 @@ async function processConcurrently<T>(
   return results;
 }
 
+async function moderateImageWithOpenAI(entry: { url: string; image: string; model: string }): Promise<ThumbnailModerationScore> {
+  "use step";
+  const apiKey = getApiKeyFromEnv("openai");
+  try {
+    const res = await fetch("https://api.openai.com/v1/moderations", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: entry.model,
+        input: [
+          {
+            type: "image_url",
+            image_url: {
+              url: entry.image,
+            },
+          },
+        ],
+      }),
+    });
+
+    const json: any = await res.json();
+    if (!res.ok) {
+      throw new Error(
+        `OpenAI moderation error: ${res.status} ${res.statusText} - ${JSON.stringify(json)}`,
+      );
+    }
+
+    const categoryScores = json.results?.[0]?.category_scores || {};
+
+    return {
+      url: entry.url,
+      sexual: categoryScores.sexual || 0,
+      violence: categoryScores.violence || 0,
+      error: false,
+    };
+  } catch (error) {
+    console.error("OpenAI moderation failed:", error);
+    return {
+      url: entry.url,
+      sexual: 0,
+      violence: 0,
+      error: true,
+    };
+  }
+}
+
 async function requestOpenAIModeration(
   imageUrls: string[],
   model: string,
@@ -154,56 +203,7 @@ async function requestOpenAIModeration(
         ) :
         imageUrls.map(url => ({ url, image: url, model }));
 
-  const moderate = async (entry: { url: string; image: string; model: string }): Promise<ThumbnailModerationScore> => {
-    "use step";
-    const apiKey = getApiKeyFromEnv("openai");
-    try {
-      const res = await fetch("https://api.openai.com/v1/moderations", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: entry.model,
-          input: [
-            {
-              type: "image_url",
-              image_url: {
-                url: entry.image,
-              },
-            },
-          ],
-        }),
-      });
-
-      const json: any = await res.json();
-      if (!res.ok) {
-        throw new Error(
-          `OpenAI moderation error: ${res.status} ${res.statusText} - ${JSON.stringify(json)}`,
-        );
-      }
-
-      const categoryScores = json.results?.[0]?.category_scores || {};
-
-      return {
-        url: entry.url,
-        sexual: categoryScores.sexual || 0,
-        violence: categoryScores.violence || 0,
-        error: false,
-      };
-    } catch (error) {
-      console.error("OpenAI moderation failed:", error);
-      return {
-        url: entry.url,
-        sexual: 0,
-        violence: 0,
-        error: true,
-      };
-    }
-  };
-
-  return processConcurrently(targetUrls, moderate, maxConcurrent);
+  return processConcurrently(targetUrls, moderateImageWithOpenAI, maxConcurrent);
 }
 
 function getHiveCategoryScores(
@@ -215,6 +215,59 @@ function getHiveCategoryScores(
   );
   const scores = categoryNames.map(category => scoreMap[category] || 0);
   return Math.max(...scores, 0);
+}
+
+async function moderateImageWithHive(entry: { url: string; source: HiveModerationSource }): Promise<ThumbnailModerationScore> {
+  "use step";
+  const apiKey = getApiKeyFromEnv("hive");
+  try {
+    const formData = new FormData();
+
+    if (entry.source.kind === "url") {
+      formData.append("url", entry.source.value);
+    } else {
+      const extension = entry.source.contentType.split("/")[1] || "jpg";
+      const blob = new Blob([entry.source.buffer], {
+        type: entry.source.contentType,
+      });
+      formData.append("media", blob, `thumbnail.${extension}`);
+    }
+
+    const res = await fetch(HIVE_ENDPOINT, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Token ${apiKey}`,
+      },
+      body: formData,
+    });
+
+    const json: any = await res.json().catch(() => undefined);
+    if (!res.ok) {
+      throw new Error(
+        `Hive moderation error: ${res.status} ${res.statusText} - ${JSON.stringify(json)}`,
+      );
+    }
+
+    // Extract scores from Hive response
+    // Hive returns scores in status[0].response.output[0].classes as array of {class, score}
+    const classes = json?.status?.[0]?.response?.output?.[0]?.classes || [];
+
+    return {
+      url: entry.url,
+      sexual: getHiveCategoryScores(classes, HIVE_SEXUAL_CATEGORIES),
+      violence: getHiveCategoryScores(classes, HIVE_VIOLENCE_CATEGORIES),
+      error: false,
+    };
+  } catch (error) {
+    console.error("Hive moderation failed:", error);
+    return {
+      url: entry.url,
+      sexual: 0,
+      violence: 0,
+      error: true,
+    };
+  }
 }
 
 async function requestHiveModeration(
@@ -239,60 +292,7 @@ async function requestHiveModeration(
           source: { kind: "url", value: url },
         }));
 
-  const moderate = async (entry: { url: string; source: HiveModerationSource }): Promise<ThumbnailModerationScore> => {
-    "use step";
-    const apiKey = getApiKeyFromEnv("hive");
-    try {
-      const formData = new FormData();
-
-      if (entry.source.kind === "url") {
-        formData.append("url", entry.source.value);
-      } else {
-        const extension = entry.source.contentType.split("/")[1] || "jpg";
-        const blob = new Blob([entry.source.buffer], {
-          type: entry.source.contentType,
-        });
-        formData.append("media", blob, `thumbnail.${extension}`);
-      }
-
-      const res = await fetch(HIVE_ENDPOINT, {
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-          Authorization: `Token ${apiKey}`,
-        },
-        body: formData,
-      });
-
-      const json: any = await res.json().catch(() => undefined);
-      if (!res.ok) {
-        throw new Error(
-          `Hive moderation error: ${res.status} ${res.statusText} - ${JSON.stringify(json)}`,
-        );
-      }
-
-      // Extract scores from Hive response
-      // Hive returns scores in status[0].response.output[0].classes as array of {class, score}
-      const classes = json?.status?.[0]?.response?.output?.[0]?.classes || [];
-
-      return {
-        url: entry.url,
-        sexual: getHiveCategoryScores(classes, HIVE_SEXUAL_CATEGORIES),
-        violence: getHiveCategoryScores(classes, HIVE_VIOLENCE_CATEGORIES),
-        error: false,
-      };
-    } catch (error) {
-      console.error("Hive moderation failed:", error);
-      return {
-        url: entry.url,
-        sexual: 0,
-        violence: 0,
-        error: true,
-      };
-    }
-  };
-
-  return processConcurrently(targets, moderate, maxConcurrent);
+  return processConcurrently(targets, moderateImageWithHive, maxConcurrent);
 }
 
 /**
