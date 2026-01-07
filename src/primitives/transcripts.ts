@@ -94,7 +94,7 @@ export function vttTimestampToSeconds(timestamp: string): number {
  * Returns M:SS for durations under an hour, H:MM:SS for an hour or more.
  *
  * @param seconds - The number of seconds to convert
- * @returns A formatted timestamp string (e.g., "2:05" or "1:02:05")
+ * @returns A formatted timestamp string (e.g., "2:05" or "01:02:05")
  */
 export function secondsToTimestamp(seconds: number): string {
   const rounded = Math.max(0, Math.floor(seconds));
@@ -103,7 +103,7 @@ export function secondsToTimestamp(seconds: number): string {
   const remainingSeconds = rounded % 60;
 
   if (hours > 0) {
-    return `${hours}:${minutes.toString().padStart(2, "0")}:${remainingSeconds.toString().padStart(2, "0")}`;
+    return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${remainingSeconds.toString().padStart(2, "0")}`;
   }
   return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
 }

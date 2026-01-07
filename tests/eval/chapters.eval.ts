@@ -122,8 +122,11 @@ interface EvalOutput extends ChaptersResult {
 }
 
 async function scoreChapterSimilarity(output: EvalOutput, referenceChapters: string[]) {
+  // Reference chapters may come as plain titles or with timestamp prefixes.
+  // Strip optional timestamp prefix to extract just the title for comparison.
+  // Matches formats from secondsToTimestamp(): "M:SS - " or "HH:MM:SS - "
   const referenceTitles = referenceChapters
-    .map(chapter => chapter.replace(/^\s*\d{1,2}:\d{2}\s*-\s*/u, "").trim())
+    .map(chapter => chapter.replace(/^\s*(?:\d{1,2}:\d{2}:\d{2}|\d{1,2}:\d{2})\s*-\s*/u, "").trim())
     .filter(Boolean);
   const generatedTitles = output.chapters
     .map(chapter => chapter.title.trim())
@@ -371,7 +374,7 @@ evalite("Chapters", {
 
     {
       name: "start-time-ordering",
-      description: "Ensures chapters are chronological and start at 0.",
+      description: "Ensures chapters are in chronological order and there are no duplicate start times.",
       scorer: ({ output }: { output: EvalOutput }) => {
         const { chapters } = output;
         if (chapters.length === 0) {

@@ -58,10 +58,10 @@ describe("secondsToTimestamp", () => {
     expect(secondsToTimestamp(59.999)).toBe("0:59");
   });
 
-  it("handles values over an hour with H:MM:SS format", () => {
-    expect(secondsToTimestamp(3600)).toBe("1:00:00");
-    expect(secondsToTimestamp(3661)).toBe("1:01:01");
-    expect(secondsToTimestamp(7325)).toBe("2:02:05");
+  it("handles values over an hour with HH:MM:SS format", () => {
+    expect(secondsToTimestamp(3600)).toBe("01:00:00");
+    expect(secondsToTimestamp(3661)).toBe("01:01:01");
+    expect(secondsToTimestamp(7325)).toBe("02:02:05");
   });
 
   it("handles exact minute boundaries", () => {

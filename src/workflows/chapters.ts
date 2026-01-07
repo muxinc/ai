@@ -79,6 +79,16 @@ export interface ChaptersOptions extends MuxAIOptions {
    * Useful for customizing chaptering criteria for specific use cases.
    */
   promptOverrides?: ChaptersPromptOverrides;
+  /**
+   * Minimum number of chapters to generate per hour of content.
+   * Defaults to 3.
+   */
+  minChaptersPerHour?: number;
+  /**
+   * Maximum number of chapters to generate per hour of content.
+   * Defaults to 8.
+   */
+  maxChaptersPerHour?: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -177,13 +187,11 @@ const chaptersPromptBuilder = createPromptBuilder<ChaptersPromptSections>({
           ]
         }`,
     },
+    // Note: chapterGuidelines is dynamically generated in buildUserPrompt()
+    // based on minChaptersPerHour/maxChaptersPerHour options
     chapterGuidelines: {
       tag: "chapter_guidelines",
-      content: dedent`
-        - Create 3-8 chapters depending on content length and natural breaks
-        - Use start times in seconds (not HH:MM:SS)
-        - Chapter start times should be non-decreasing
-        - Do not include text before or after the JSON`,
+      content: "", // Placeholder - always overridden with dynamic content
     },
     titleGuidelines: {
       tag: "title_guidelines",
@@ -199,9 +207,13 @@ const chaptersPromptBuilder = createPromptBuilder<ChaptersPromptSections>({
 function buildUserPrompt({
   timestampedTranscript,
   promptOverrides,
+  minChaptersPerHour = 3,
+  maxChaptersPerHour = 8,
 }: {
   timestampedTranscript: string;
   promptOverrides?: ChaptersPromptOverrides;
+  minChaptersPerHour?: number;
+  maxChaptersPerHour?: number;
 }): string {
   const contextSections: PromptSection[] = [
     {
@@ -211,7 +223,20 @@ function buildUserPrompt({
     },
   ];
 
-  return chaptersPromptBuilder.buildWithContext(promptOverrides, contextSections);
+  // Build dynamic chapter guidelines with configurable min/max per hour
+  const dynamicChapterGuidelines = dedent`
+    - Create at least ${minChaptersPerHour} and at most ${maxChaptersPerHour} chapters per hour of content
+    - Use start times in seconds (not HH:MM:SS)
+    - Chapter start times should be non-decreasing
+    - Do not include text before or after the JSON`;
+
+  // Merge with any user-provided overrides (user overrides take precedence)
+  const mergedOverrides: ChaptersPromptOverrides = {
+    chapterGuidelines: dynamicChapterGuidelines,
+    ...promptOverrides,
+  };
+
+  return chaptersPromptBuilder.buildWithContext(mergedOverrides, contextSections);
 }
 
 export async function generateChapters(
@@ -220,7 +245,13 @@ export async function generateChapters(
   options: ChaptersOptions = {},
 ): Promise<ChaptersResult> {
   "use workflow";
-  const { provider = "openai", model, promptOverrides } = options;
+  const {
+    provider = "openai",
+    model,
+    promptOverrides,
+    minChaptersPerHour,
+    maxChaptersPerHour,
+  } = options;
 
   // Validate credentials and resolve language model
   const config = await createWorkflowConfig({ ...options, model }, provider as SupportedProvider);
@@ -258,7 +289,12 @@ export async function generateChapters(
     throw new Error("No usable content found in caption track");
   }
 
-  const userPrompt = buildUserPrompt({ timestampedTranscript, promptOverrides });
+  const userPrompt = buildUserPrompt({
+    timestampedTranscript,
+    promptOverrides,
+    minChaptersPerHour,
+    maxChaptersPerHour,
+  });
 
   // Generate chapters using AI SDK
   let chaptersData: { chapters: ChaptersType; usage: TokenUsage } | null = null;
