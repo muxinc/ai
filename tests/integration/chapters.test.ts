@@ -1,11 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { generateChapters } from "../../src/workflows";
-
-import "../../src/env";
+import { muxTestAssets } from "../helpers/mux-test-assets";
 
 describe("chapters Integration Tests", () => {
-  const assetId = "88Lb01qNUqFJrOFMITk00Ck201F00Qmcbpc5qgopNV4fCOk";
+  const assetId = muxTestAssets.assetId;
   const languageCode = "en";
 
   it("should generate chapters with OpenAI provider", async () => {

@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { getModerationScores } from "../../src/workflows";
-
-import "../../src/env";
+import { muxTestAssets } from "../helpers/mux-test-assets";
 
 describe("moderation Integration Tests", () => {
-  const safeAsset = "88Lb01qNUqFJrOFMITk00Ck201F00Qmcbpc5qgopNV4fCOk";
-  const violentAsset = "zYHICEOEbVJIdEfbZZ0048501iJjg9T4SgY00oPVWOaHNU";
+  const safeAsset = muxTestAssets.assetId;
+  const violentAsset = muxTestAssets.violentAssetId;
 
   // Define reasonable thresholds for classification
   const VIOLENCE_THRESHOLD = 0.5;

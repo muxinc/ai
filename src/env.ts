@@ -27,6 +27,17 @@ const EnvSchema = z.object({
   MUX_SIGNING_KEY: optionalString("Mux signing key ID for signed playback URLs.", "Used to sign playback URLs"),
   MUX_PRIVATE_KEY: optionalString("Mux signing private key for signed playback URLs.", "Used to sign playback URLs"),
 
+  // Test-only helpers (used by this repo's integration tests)
+  MUX_TEST_ASSET_ID: optionalString("Mux asset ID used by integration tests.", "Mux test asset id"),
+  MUX_TEST_ASSET_ID_VIOLENT: optionalString("Mux violent asset ID used by integration tests.", "Mux violent test asset id"),
+  MUX_TEST_ASSET_ID_BURNED_IN_CAPTIONS: optionalString(
+    "Mux burned-in captions asset ID used by integration tests.",
+    "Mux burned-in captions test asset id",
+  ),
+  MUX_TEST_ASSET_ID_AUDIO_ONLY: optionalString("Mux test asset ID for audio-only assets.", "Mux test asset id for audio-only assets for testing"),
+  MUX_TEST_ASSET_ID_VIOLENT_AUDIO_ONLY: optionalString("Mux test asset ID for audio-only assets with violent content.", "Mux test asset id for audio-only assets with violent content for testing"),
+
+  // AI Providers
   OPENAI_API_KEY: optionalString("OpenAI API key for OpenAI-backed workflows.", "OpenAI API key"),
   ANTHROPIC_API_KEY: optionalString("Anthropic API key for Claude-backed workflows.", "Anthropic API key"),
   GOOGLE_GENERATIVE_AI_API_KEY: optionalString("Google Generative AI API key for Gemini-backed workflows.", "Google Generative AI API key"),
@@ -34,6 +45,7 @@ const EnvSchema = z.object({
   ELEVENLABS_API_KEY: optionalString("ElevenLabs API key for audio translation.", "ElevenLabs API key"),
   HIVE_API_KEY: optionalString("Hive Visual Moderation API key.", "Hive API key"),
 
+  // S3-Compatible Storage (required for translation & audio dubbing)
   S3_ENDPOINT: optionalString("S3-compatible endpoint for uploads.", "S3 endpoint"),
   S3_REGION: optionalString("S3 region (defaults to 'auto' when omitted)."),
   S3_BUCKET: optionalString("Bucket used for caption and audio uploads.", "S3 bucket"),

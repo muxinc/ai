@@ -3,9 +3,10 @@ import { start } from "workflow/api";
 
 import type { SupportedProvider } from "../../src/lib/providers";
 import { hasBurnedInCaptions } from "../../src/workflows";
+import { muxTestAssets } from "../helpers/mux-test-assets";
 
 describe("Burned-in Captions Integration Tests for Workflow DevKit", () => {
-  const assetId = "88Lb01qNUqFJrOFMITk00Ck201F00Qmcbpc5qgopNV4fCOk";
+  const assetId = muxTestAssets.burnedInCaptionsAssetId;
   const providers: SupportedProvider[] = ["openai", "anthropic", "google"];
 
   it.each(providers)("should detect burned-in captions with %s provider", async (provider) => {

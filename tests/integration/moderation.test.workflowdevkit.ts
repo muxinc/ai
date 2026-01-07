@@ -3,9 +3,10 @@ import { start } from "workflow/api";
 
 import type { ModerationProvider } from "../../src/workflows";
 import { getModerationScores } from "../../src/workflows";
+import { muxTestAssets } from "../helpers/mux-test-assets";
 
 describe("Moderation Integration Tests for Workflow DevKit", () => {
-  const assetId = "88Lb01qNUqFJrOFMITk00Ck201F00Qmcbpc5qgopNV4fCOk";
+  const assetId = muxTestAssets.assetId;
   const providers: ModerationProvider[] = ["openai"];
 
   it.each(providers)("should get moderation scores with %s provider", async (provider) => {

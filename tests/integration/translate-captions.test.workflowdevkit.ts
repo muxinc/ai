@@ -3,9 +3,10 @@ import { start } from "workflow/api";
 
 import type { SupportedProvider } from "../../src/lib/providers";
 import { translateCaptions } from "../../src/workflows";
+import { muxTestAssets } from "../helpers/mux-test-assets";
 
 describe("Caption Translation Integration Tests for Workflow DevKit", () => {
-  const assetId = "88Lb01qNUqFJrOFMITk00Ck201F00Qmcbpc5qgopNV4fCOk";
+  const assetId = muxTestAssets.assetId;
   const providers: SupportedProvider[] = ["openai", "anthropic", "google"];
 
   it.each(providers)("should translate captions to French with %s provider without uploading to Mux", async (provider) => {

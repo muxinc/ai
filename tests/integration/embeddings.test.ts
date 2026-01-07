@@ -1,11 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { generateVideoEmbeddings } from "../../src/workflows";
-
-import "../../src/env";
+import { muxTestAssets } from "../helpers/mux-test-assets";
 
 describe("embeddings Integration Tests", () => {
-  const assetId = "88Lb01qNUqFJrOFMITk00Ck201F00Qmcbpc5qgopNV4fCOk";
+  const assetId = muxTestAssets.assetId;
 
   it("should generate embeddings with OpenAI provider", async () => {
     const result = await generateVideoEmbeddings(assetId, {

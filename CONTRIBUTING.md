@@ -42,14 +42,15 @@ npm install
 ### Environment Configuration
 
 ```bash
-# Copy the example environment file
-cp .env.example .env
+# Copy the example test environment file
+cp env.test.example .env.test
 
-# Edit .env with your credentials
+# Edit .env.test with your credentials
 # You'll need:
 # - Mux credentials (MUX_TOKEN_ID, MUX_TOKEN_SECRET)
 # - At least one AI provider API key (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)
 # - S3 credentials if testing translation workflows
+# - Mux test asset IDs (MUX_TEST_ASSET_ID, etc.) if running integration tests with your own Mux env
 ```
 
 > **💡 Tip:** You don't need all credentials—only those for the workflows you're testing.
@@ -131,6 +132,21 @@ npm run test:integration
 # Run LLM evaluation tests
 npm run test:eval
 ```
+
+### Integration test assets (Mux)
+
+Integration tests call real Mux + AI provider APIs, so they require:
+
+- **Mux credentials**: `MUX_TOKEN_ID`, `MUX_TOKEN_SECRET`
+- **Assets that exist in the same Mux environment as those credentials**
+
+By default, the repo’s integration tests use Mux-owned demo assets (hard-coded defaults). If you’re using your own Mux credentials, override the asset IDs via env vars in `.env.test`:
+
+- **`MUX_TEST_ASSET_ID`**: General-purpose asset used by most workflow integration tests (recommended: has an English transcript/captions track).
+- **`MUX_TEST_ASSET_ID_VIOLENT`**: Asset likely to score above the violence threshold in moderation tests.
+- **`MUX_TEST_ASSET_ID_BURNED_IN_CAPTIONS`**: Asset with clearly visible burned-in (hardcoded) captions.
+
+For the canonical list of env vars + what each test asset is expected to represent, see `tests/helpers/mux-test-assets.ts`.
 
 ### Writing Tests
 

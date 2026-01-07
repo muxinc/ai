@@ -2,11 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import type { SupportedProvider } from "../../src/lib/providers";
 import { translateCaptions } from "../../src/workflows";
-
-import "../../src/env";
+import { muxTestAssets } from "../helpers/mux-test-assets";
 
 describe("translateCaptions Integration Tests", () => {
-  const testAssetId = "88Lb01qNUqFJrOFMITk00Ck201F00Qmcbpc5qgopNV4fCOk";
+  const testAssetId = muxTestAssets.assetId;
   const providers: SupportedProvider[] = ["openai", "anthropic", "google"];
 
   it.each(providers)("should return valid result for %s provider", async (provider) => {
