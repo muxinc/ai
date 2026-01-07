@@ -113,7 +113,7 @@ interface EvaliteEnvelope {
   };
 }
 
-function execGit(command: string) {
+function exec(command: string) {
   return execSync(command, { encoding: "utf8" }).trim();
 }
 
@@ -128,7 +128,7 @@ function resolveRepo() {
   }
 
   try {
-    const remote = execGit("git config --get remote.origin.url");
+    const remote = exec("git config --get remote.origin.url");
     const parsed = parseRepoFromRemote(remote);
     if (parsed) {
       return parsed;
@@ -146,7 +146,7 @@ function resolveSha() {
   }
 
   try {
-    return execGit("git rev-parse HEAD");
+    return exec("git rev-parse HEAD");
   } catch {
     return null;
   }
@@ -162,7 +162,7 @@ function resolveRef() {
   }
 
   try {
-    return execGit("git rev-parse --abbrev-ref HEAD");
+    return exec("git rev-parse --abbrev-ref HEAD");
   } catch {
     return null;
   }
