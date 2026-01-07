@@ -67,17 +67,22 @@ npx evalite serve summarization.eval.ts
 
 ### CI/CD
 
-Evals run automatically on pushes to `main` (or via manual workflow dispatch). The CI job executes the evals, exports the json output, and posts the raw results to the Evalite API used by `evaluating-mux-ai`:
+Evals run automatically on pushes to `main` (or via manual workflow dispatch). The CI job executes the evals, exports the JSON output, and posts the raw results to the Evalite API used by `evaluating-mux-ai`.
+
+**For local development/testing:**
 
 ```bash
-# Run evals and write evalite-results.json
-npx tsx scripts/export-evalite-results.ts
+# Run evals and export results as a dry run (inspect without publishing)
+npm run evalite:post-results:dev
+```
 
-# Export static UI output (optional)
-npx evalite export --output ./ui-output
+**For production (internal maintainers only):**
 
-# Post results to the API (deletes evalite-results.json on success)
-npx tsx scripts/post-evalite-results.ts
+> ⚠️ The production script posts results to the live Evalite dashboard and is not intended for OSS contributors. It requires internal credentials and should only be run by project maintainers.
+
+```bash
+# Run evals, export results, and post to production endpoint
+npm run evalite:post-results:production
 ```
 
 The post step requires `EVALITE_RESULTS_ENDPOINT` (full URL to `/api/evalite-results`) and uses `EVALITE_INGEST_SECRET` as the shared secret header.
