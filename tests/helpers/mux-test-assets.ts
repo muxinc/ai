@@ -22,4 +22,7 @@ export const muxTestAssets = {
 
   /** Recommended: an asset with clearly visible burned-in captions. */
   burnedInCaptionsAssetId: env.MUX_TEST_ASSET_ID_BURNED_IN_CAPTIONS ?? "atuutlT45YbyucKU15u0100p45fG2CoXfJOd02VWMg4m004",
+  burnedInCaptionsAssetId2: env.MUX_TEST_ASSET_ID_BURNED_IN_CAPTIONS_2 ?? "gEvCHSJRioaSMHtsJxT4DA02ee3xbgVL02sDGZJuqt01vs",
+  /** Recommended: an asset without burned-in captions. */
+  withoutBurnedInCaptionsAssetId: env.MUX_TEST_ASSET_ID_WITHOUT_BURNED_IN_CAPTIONS ?? "gIRjPqMSRcdk200kIKvsUo2K4JQr6UjNg7qKZc02egCcM",
 } as const;

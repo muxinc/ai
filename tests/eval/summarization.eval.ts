@@ -9,6 +9,7 @@ import type { ModelIdByProvider, SupportedProvider } from "../../src/lib/provide
 import type { TokenUsage } from "../../src/types";
 import { getSummaryAndTags, SUMMARY_KEYWORD_LIMIT } from "../../src/workflows";
 import type { SummaryAndTagsResult } from "../../src/workflows";
+import { muxTestAssets } from "../helpers/mux-test-assets";
 
 import "../../src/env";
 
@@ -178,7 +179,7 @@ interface TestAsset {
 const testAssets: TestAsset[] = [
   {
     // Mux thumbnail and GIF demo video
-    assetId: "88Lb01qNUqFJrOFMITk00Ck201F00Qmcbpc5qgopNV4fCOk",
+    assetId: muxTestAssets.assetId,
     referenceTitle: "Mux API thumbnail and GIF demo",
     referenceDescription: dedent`
       A presenter demonstrates how to use the Mux API to grab thumbnails and GIFs from video.

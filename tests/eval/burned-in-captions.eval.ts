@@ -6,6 +6,7 @@ import type { ModelIdByProvider, SupportedProvider } from "../../src/lib/provide
 import type { TokenUsage } from "../../src/types";
 import { hasBurnedInCaptions } from "../../src/workflows";
 import type { BurnedInCaptionsResult } from "../../src/workflows";
+import { muxTestAssets } from "../helpers/mux-test-assets";
 
 import "../../src/env";
 
@@ -146,13 +147,13 @@ interface EvalOutput extends BurnedInCaptionsResult {
 
 /** Videos with clear burned-in captions (should detect: true, confidence: >0.8) */
 const assetsWithCaptions = [
-  "atuutlT45YbyucKU15u0100p45fG2CoXfJOd02VWMg4m004",
-  "gEvCHSJRioaSMHtsJxT4DA02ee3xbgVL02sDGZJuqt01vs",
+  muxTestAssets.burnedInCaptionsAssetId,
+  muxTestAssets.burnedInCaptionsAssetId2,
 ];
 
 /** Videos without burned-in captions (should detect: false) */
 const assetsWithoutCaptions = [
-  "gIRjPqMSRcdk200kIKvsUo2K4JQr6UjNg7qKZc02egCcM",
+  muxTestAssets.withoutBurnedInCaptionsAssetId,
 ];
 
 /** AI providers to test for cross-provider consistency. */

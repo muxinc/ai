@@ -9,6 +9,7 @@ import type { ModelIdByProvider, SupportedProvider } from "../../src/lib/provide
 import type { TokenUsage } from "../../src/types";
 import { translateCaptions } from "../../src/workflows";
 import type { TranslationResult } from "../../src/workflows";
+import { muxTestAssets } from "../helpers/mux-test-assets";
 
 import "../../src/env";
 
@@ -161,7 +162,7 @@ interface TestAsset {
 const testAssets: TestAsset[] = [
   // Spanish translation
   {
-    assetId: "88Lb01qNUqFJrOFMITk00Ck201F00Qmcbpc5qgopNV4fCOk",
+    assetId: muxTestAssets.assetId,
     sourceLanguage: "en",
     targetLanguage: "es",
     expectedSourceISO639_3: "eng",
@@ -170,7 +171,7 @@ const testAssets: TestAsset[] = [
   },
   // French translation
   {
-    assetId: "88Lb01qNUqFJrOFMITk00Ck201F00Qmcbpc5qgopNV4fCOk",
+    assetId: muxTestAssets.assetId,
     sourceLanguage: "en",
     targetLanguage: "fr",
     expectedSourceISO639_3: "eng",
@@ -179,7 +180,7 @@ const testAssets: TestAsset[] = [
   },
   // Japanese translation
   {
-    assetId: "88Lb01qNUqFJrOFMITk00Ck201F00Qmcbpc5qgopNV4fCOk",
+    assetId: muxTestAssets.assetId,
     sourceLanguage: "en",
     targetLanguage: "ja",
     expectedSourceISO639_3: "eng",
