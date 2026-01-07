@@ -3,6 +3,8 @@ import { execSync } from "node:child_process";
 import { readFile, unlink } from "node:fs/promises";
 import path from "node:path";
 
+import { anthropic } from "@ai-sdk/anthropic";
+import { google } from "@ai-sdk/google";
 import { openai } from "@ai-sdk/openai";
 import { generateObject } from "ai";
 import { Command } from "commander";
@@ -10,6 +12,10 @@ import dedent from "dedent";
 import { z } from "zod";
 
 import env from "../src/env";
+import { DEFAULT_LANGUAGE_MODELS } from "../src/lib/providers";
+import type { SupportedProvider } from "../src/lib/providers";
+
+import type { LanguageModel } from "ai";
 
 interface EvaliteSuite {
   name?: string;
@@ -171,6 +177,8 @@ function resolveRef() {
 interface Options {
   dryRun: boolean;
   keepFile: boolean;
+  provider?: SupportedProvider;
+  model?: string;
 }
 
 const WORKFLOW_MATCHERS = [
@@ -494,9 +502,69 @@ function computeWorkflowStats(suite: EvaliteSuite, workflowKey: string): Workflo
   };
 }
 
-async function generateWorkflowInsights(suites: EvaliteSuite[]) {
-  const model = openai("gpt-5.1");
+interface ResolvedModel {
+  model: LanguageModel;
+  provider: string;
+  modelId: string;
+}
+
+interface InsightsModelOptions {
+  provider?: SupportedProvider;
+  model?: string;
+}
+
+function resolveInsightsModel(options: InsightsModelOptions = {}): ResolvedModel {
+  const { provider: preferredProvider, model: preferredModel } = options;
+
+  // If a specific provider is requested, use it (will fail if credentials missing)
+  if (preferredProvider) {
+    const modelId = preferredModel ?? DEFAULT_LANGUAGE_MODELS[preferredProvider];
+    switch (preferredProvider) {
+      case "openai":
+        if (!env.OPENAI_API_KEY) {
+          throw new Error("OPENAI_API_KEY is required when using --provider openai");
+        }
+        return { model: openai(modelId), provider: "openai", modelId };
+      case "anthropic":
+        if (!env.ANTHROPIC_API_KEY) {
+          throw new Error("ANTHROPIC_API_KEY is required when using --provider anthropic");
+        }
+        return { model: anthropic(modelId), provider: "anthropic", modelId };
+      case "google":
+        if (!env.GOOGLE_GENERATIVE_AI_API_KEY) {
+          throw new Error("GOOGLE_GENERATIVE_AI_API_KEY is required when using --provider google");
+        }
+        return { model: google(modelId), provider: "google", modelId };
+    }
+  }
+
+  // Auto-detect: use the first available provider
+  if (env.OPENAI_API_KEY) {
+    const modelId = preferredModel ?? DEFAULT_LANGUAGE_MODELS.openai;
+    return { model: openai(modelId), provider: "openai", modelId };
+  }
+
+  if (env.ANTHROPIC_API_KEY) {
+    const modelId = preferredModel ?? DEFAULT_LANGUAGE_MODELS.anthropic;
+    return { model: anthropic(modelId), provider: "anthropic", modelId };
+  }
+
+  if (env.GOOGLE_GENERATIVE_AI_API_KEY) {
+    const modelId = preferredModel ?? DEFAULT_LANGUAGE_MODELS.google;
+    return { model: google(modelId), provider: "google", modelId };
+  }
+
+  throw new Error(
+    "Missing AI provider credentials. Set one of: OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY.",
+  );
+}
+
+async function generateWorkflowInsights(suites: EvaliteSuite[], options: InsightsModelOptions = {}) {
+  const { model, provider, modelId } = resolveInsightsModel(options);
   const insights: WorkflowInsightPayload[] = [];
+
+  console.warn(`🤖 Generating insights using ${provider}/${modelId}`);
+
   const systemPrompt = dedent`
     <role>
       You are an analyst summarizing AI evaluation results for engineering stakeholders.
@@ -518,6 +586,7 @@ async function generateWorkflowInsights(suites: EvaliteSuite[]) {
     }
 
     const stats = computeWorkflowStats(suite, workflowKey);
+
     const userPrompt = dedent`
       <task>
         Write a concise evaluation summary for the workflow using the metrics JSON.
@@ -574,7 +643,7 @@ async function generateWorkflowInsights(suites: EvaliteSuite[]) {
   }
 
   return {
-    model: { provider: "openai", modelId: "gpt-5.1" },
+    model: { provider, modelId },
     insights,
   };
 }
@@ -586,6 +655,8 @@ program
   .description("Post evalite results to the configured endpoint")
   .option("-d, --dry-run", "Print the payload without posting to the endpoint", false)
   .option("-k, --keep-file", "Skip deleting evalite-results.json after posting", false)
+  .option("-p, --provider <provider>", "AI provider for insights generation (openai, anthropic, google)")
+  .option("-m, --model <model>", "Model ID to use for insights generation (defaults to provider's default)")
   .action(async (options: Options) => {
     try {
       const endpoint = env.EVALITE_RESULTS_ENDPOINT;
@@ -620,7 +691,10 @@ program
           (results.suites as EvaliteSuite[]) :
           [];
 
-      const { model, insights } = await generateWorkflowInsights(suites);
+      const { model, insights } = await generateWorkflowInsights(suites, {
+        provider: options.provider,
+        model: options.model,
+      });
 
       const payload: EvaliteEnvelope = {
         repo,
