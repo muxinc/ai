@@ -9,6 +9,8 @@ import env from "../../src/env";
  * - MUX_TEST_ASSET_ID
  * - MUX_TEST_ASSET_ID_VIOLENT
  * - MUX_TEST_ASSET_ID_BURNED_IN_CAPTIONS
+ * - MUX_TEST_ASSET_ID_BURNED_IN_CAPTIONS_2
+ * - MUX_TEST_ASSET_ID_WITHOUT_BURNED_IN_CAPTIONS
  */
 export const muxTestAssets = {
   /**
