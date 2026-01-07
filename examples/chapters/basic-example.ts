@@ -1,5 +1,6 @@
 import { Command } from "commander";
 
+import { secondsToTimestamp } from "@mux/ai/primitives";
 import { generateChapters } from "@mux/ai/workflows";
 
 import "../env";
@@ -33,6 +34,9 @@ program
 
       const result = await generateChapters(assetId, options.language, {
         provider: options.provider,
+        promptOverrides: {
+          titleGuidelines: "Use concise titles under 6 words.",
+        },
       });
 
       const duration = Date.now() - start;
@@ -43,9 +47,7 @@ program
 
       console.log("📋 Chapter List:");
       result.chapters.forEach((chapter, i) => {
-        const minutes = Math.floor(chapter.startTime / 60);
-        const seconds = Math.floor(chapter.startTime % 60);
-        console.log(`  ${i + 1}. ${minutes}:${seconds.toString().padStart(2, "0")} - ${chapter.title}`);
+        console.log(`  ${i + 1}. ${secondsToTimestamp(chapter.startTime)} - ${chapter.title}`);
       });
 
       console.log("\n🎬 Mux Player Format:");
