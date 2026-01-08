@@ -7,6 +7,7 @@ describe("moderation Integration Tests", () => {
   const safeAsset = muxTestAssets.assetId;
   const violentAsset = muxTestAssets.violentAssetId;
   const safeAudioOnlyAssetId = muxTestAssets.audioOnlyAssetId;
+  const violentAudioOnlyAssetId = muxTestAssets.violentAudioOnlyAssetId;
 
   // Define reasonable thresholds for classification
   const VIOLENCE_THRESHOLD = 0.5;
@@ -131,6 +132,26 @@ describe("moderation Integration Tests", () => {
       expect(result.thumbnailScores[0].url.startsWith("transcript:")).toBe(true);
       expect(typeof result.thumbnailScores[0].sexual).toBe("number");
       expect(typeof result.thumbnailScores[0].violence).toBe("number");
+    });
+
+    it("should detect violent audio-only content for OpenAI", async () => {
+      const result = await getModerationScores(violentAudioOnlyAssetId, {
+        provider: "openai",
+        model: "omni-moderation-latest",
+      });
+
+      expect(result).toBeDefined();
+      expect(result.assetId).toBe(violentAudioOnlyAssetId);
+      expect(result.mode).toBe("transcript");
+      expect(result.isAudioOnly).toBe(true);
+
+      expect(Array.isArray(result.thumbnailScores)).toBe(true);
+      expect(result.thumbnailScores.length).toBeGreaterThan(0);
+      expect(result.thumbnailScores.filter(s => !s.error).length).toBeGreaterThan(0);
+      expect(result.thumbnailScores[0].url.startsWith("transcript:")).toBe(true);
+
+      // Assert violent content is detected
+      expect(result.maxScores.violence).toBeGreaterThan(VIOLENCE_THRESHOLD);
     });
   });
 });
