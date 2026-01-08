@@ -447,7 +447,7 @@ export async function getModerationScores(
   if (policy === "signed" && !signingContext) {
     throw new Error(
       "Signed playback ID requires signing credentials. " +
-      "Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
+      "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
     );
   }
 
