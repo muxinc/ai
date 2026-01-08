@@ -33,6 +33,7 @@ const EnvSchema = z.object({
 
   // Test-only helpers (used by this repo's integration tests)
   MUX_TEST_ASSET_ID: optionalString("Mux asset ID used by integration tests.", "Mux test asset id"),
+  MUX_TEST_ASSET_ID_CHAPTERS: optionalString("Mux asset ID used by integration tests for chapters.", "Mux test asset id for chapters"),
   MUX_TEST_ASSET_ID_VIOLENT: optionalString("Mux violent asset ID used by integration tests.", "Mux violent test asset id"),
   MUX_TEST_ASSET_ID_BURNED_IN_CAPTIONS: optionalString(
     "Mux burned-in captions asset ID used by integration tests.",

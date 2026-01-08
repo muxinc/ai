@@ -11,8 +11,6 @@ import { translateCaptions } from "../../src/workflows";
 import type { TranslationResult } from "../../src/workflows";
 import { muxTestAssets } from "../helpers/mux-test-assets";
 
-import "../../src/env";
-
 /**
  * Caption Translation Evaluation
  *

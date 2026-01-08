@@ -8,8 +8,6 @@ import { hasBurnedInCaptions } from "../../src/workflows";
 import type { BurnedInCaptionsResult } from "../../src/workflows";
 import { muxTestAssets } from "../helpers/mux-test-assets";
 
-import "../../src/env";
-
 /**
  * Burned-in Captions Detection Evaluation
  *

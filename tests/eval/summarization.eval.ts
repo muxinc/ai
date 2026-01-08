@@ -11,8 +11,6 @@ import { getSummaryAndTags, SUMMARY_KEYWORD_LIMIT } from "../../src/workflows";
 import type { SummaryAndTagsResult } from "../../src/workflows";
 import { muxTestAssets } from "../helpers/mux-test-assets";
 
-import "../../src/env";
-
 /**
  * Summarization Evaluation
  *
