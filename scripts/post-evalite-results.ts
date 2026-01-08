@@ -176,6 +176,7 @@ function resolveRef() {
 
 const WORKFLOW_MATCHERS = [
   { key: "burned_in_captions", regex: /burned[- ]in[- ]captions/i },
+  { key: "chapters", regex: /chapters?/i },
   { key: "translate_captions", regex: /translate[- ]captions/i },
   { key: "summarization", regex: /summarization/i },
 ] as const;
@@ -728,6 +729,13 @@ program
         allSuites;
 
       if (options.workflows && options.workflows.length > 0) {
+        const presentKeys = new Set(
+          suites.map(suite => resolveWorkflowKey(suite)).filter(Boolean) as WorkflowKey[],
+        );
+        const missing = options.workflows.filter(key => !presentKeys.has(key));
+        if (missing.length > 0) {
+          throw new Error(`Requested workflow(s) not found in evalite-results.json: ${missing.join(", ")}`);
+        }
         console.warn(`📋 Filtering results to workflows: ${options.workflows.join(", ")}`);
       }
 
