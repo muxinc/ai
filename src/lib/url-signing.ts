@@ -1,6 +1,8 @@
 import Mux from "@mux/mux-node";
 
 import env from "@mux/ai/env";
+import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
+import type { WorkflowCredentialsInput } from "@mux/ai/types";
 
 /**
  * Context required to sign URLs for signed playback IDs.
@@ -94,12 +96,20 @@ export async function signPlaybackId(
 export async function signUrl(
   url: string,
   playbackId: string,
-  context: SigningContext,
+  context?: SigningContext,
   type: TokenType = "video",
   params?: Record<string, string | number>,
+  credentials?: WorkflowCredentialsInput,
 ): Promise<string> {
   "use step";
-  const token = await signPlaybackId(playbackId, context, type, params);
+  const resolvedContext = context ?? await resolveMuxSigningContext(credentials);
+  if (!resolvedContext) {
+    throw new Error(
+      "Signed playback ID requires signing credentials. " +
+      "Provide muxSigningKey and muxPrivateKey in credentials or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
+    );
+  }
+  const token = await signPlaybackId(playbackId, resolvedContext, type, params);
   const separator = url.includes("?") ? "&" : "?";
   return `${url}${separator}token=${token}`;
 }

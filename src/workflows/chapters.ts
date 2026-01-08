@@ -2,20 +2,18 @@ import { generateObject } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
-import { createWorkflowConfig } from "@mux/ai/lib/client-factory";
 import { getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
 import type { PromptOverrides, PromptSection } from "@mux/ai/lib/prompt-builder";
 import { createPromptBuilder } from "@mux/ai/lib/prompt-builder";
-import { createLanguageModelFromConfig } from "@mux/ai/lib/providers";
+import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
 import { withRetry } from "@mux/ai/lib/retry";
-import { getMuxSigningContextFromEnv } from "@mux/ai/lib/url-signing";
 import {
   extractTimestampedTranscript,
   fetchTranscriptForAsset,
   getReadyTextTracks,
 } from "@mux/ai/primitives/transcripts";
-import type { MuxAIOptions, TokenUsage } from "@mux/ai/types";
+import type { MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "@mux/ai/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -100,15 +98,17 @@ async function generateChaptersWithAI({
   modelId,
   userPrompt,
   systemPrompt,
+  credentials,
 }: {
   provider: SupportedProvider;
   modelId: string;
   userPrompt: string;
   systemPrompt: string;
+  credentials?: WorkflowCredentialsInput;
 }): Promise<{ chapters: ChaptersType; usage: TokenUsage }> {
   "use step";
 
-  const model = createLanguageModelFromConfig(provider, modelId);
+  const model = await createLanguageModelFromConfig(provider, modelId, credentials);
 
   const response = await withRetry(() =>
     generateObject({
@@ -251,27 +251,23 @@ export async function generateChapters(
     promptOverrides,
     minChaptersPerHour,
     maxChaptersPerHour,
+    credentials,
   } = options;
 
-  // Validate credentials and resolve language model
-  const config = await createWorkflowConfig({ ...options, model }, provider as SupportedProvider);
+  const modelConfig = resolveLanguageModelConfig({
+    ...options,
+    model,
+    provider: provider as SupportedProvider,
+  });
 
   // Fetch asset and caption track/transcript
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId);
-
-  // Resolve signing context for signed playback IDs
-  const signingContext = getMuxSigningContextFromEnv();
-  if (policy === "signed" && !signingContext) {
-    throw new Error(
-      "Signed playback ID requires signing credentials. " +
-      "Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
-    );
-  }
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
 
   const transcriptResult = await fetchTranscriptForAsset(assetData, playbackId, {
     languageCode,
     cleanTranscript: false, // keep timestamps for chapter segmentation
     shouldSign: policy === "signed",
+    credentials,
   });
 
   if (!transcriptResult.track || !transcriptResult.transcriptText) {
@@ -301,10 +297,11 @@ export async function generateChapters(
 
   try {
     chaptersData = await generateChaptersWithAI({
-      provider: config.provider,
-      modelId: config.modelId,
+      provider: modelConfig.provider,
+      modelId: modelConfig.modelId,
       userPrompt,
       systemPrompt: SYSTEM_PROMPT,
+      credentials,
     });
   } catch (error) {
     throw new Error(

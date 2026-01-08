@@ -1,4 +1,5 @@
-import { getMuxSigningContextFromEnv, signUrl } from "@mux/ai/lib/url-signing";
+import { signUrl } from "@mux/ai/lib/url-signing";
+import type { WorkflowCredentialsInput } from "@mux/ai/types";
 
 export interface ThumbnailOptions {
   /** Interval between thumbnails in seconds (default: 10) */
@@ -7,6 +8,8 @@ export interface ThumbnailOptions {
   width?: number;
   /** Flag for whether or not to use signed playback IDs (default: false) */
   shouldSign?: boolean;
+  /** Workflow credentials for signing (optional). */
+  credentials?: WorkflowCredentialsInput;
 }
 
 /**
@@ -24,7 +27,7 @@ export async function getThumbnailUrls(
   options: ThumbnailOptions = {},
 ): Promise<string[]> {
   "use step";
-  const { interval = 10, width = 640, shouldSign = false } = options;
+  const { interval = 10, width = 640, shouldSign = false, credentials } = options;
   const timestamps: number[] = [];
 
   if (duration <= 50) {
@@ -42,9 +45,7 @@ export async function getThumbnailUrls(
 
   const urlPromises = timestamps.map(async (time) => {
     if (shouldSign) {
-      // NOTE: this assumes you have already validated the signing context elsewhere
-      const signingContext = getMuxSigningContextFromEnv();
-      return signUrl(baseUrl, playbackId, signingContext!, "thumbnail", { time, width });
+      return signUrl(baseUrl, playbackId, undefined, "thumbnail", { time, width }, credentials);
     }
 
     return `${baseUrl}?time=${time}&width=${width}`;

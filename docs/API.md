@@ -67,7 +67,7 @@ Analyzes video thumbnails for inappropriate content using OpenAI's Moderation AP
   - `maxRetryDelay?: number` - Maximum delay between retries in milliseconds (default: 10000)
   - `exponentialBackoff?: boolean` - Whether to use exponential backoff (default: true)
 
-All credentials (`MUX_TOKEN_ID`, `MUX_TOKEN_SECRET`, `OPENAI_API_KEY`, `HIVE_API_KEY`) are automatically read from environment variables.
+Credentials (`MUX_TOKEN_ID`, `MUX_TOKEN_SECRET`, `OPENAI_API_KEY`, `HIVE_API_KEY`) are read from environment variables by default. For Workflow Dev Kit multi-tenant usage, pass encrypted `credentials` in options (see README).
 
 **Returns:**
 

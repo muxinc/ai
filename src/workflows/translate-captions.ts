@@ -3,14 +3,14 @@ import { generateObject } from "ai";
 import { z } from "zod";
 
 import env from "@mux/ai/env";
-import { createWorkflowConfig, getMuxCredentialsFromEnv } from "@mux/ai/lib/client-factory";
+import { getMuxCredentialsFromEnv } from "@mux/ai/lib/client-factory";
 import { getLanguageCodePair, getLanguageName } from "@mux/ai/lib/language-codes";
 import type { LanguageCodePair, SupportedISO639_1 } from "@mux/ai/lib/language-codes";
 import { getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
-import { createLanguageModelFromConfig } from "@mux/ai/lib/providers";
+import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
-import { getMuxSigningContextFromEnv, signUrl } from "@mux/ai/lib/url-signing";
-import type { MuxAIOptions, TokenUsage } from "@mux/ai/types";
+import { buildTranscriptUrl } from "@mux/ai/primitives/transcripts";
+import type { MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "@mux/ai/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -90,6 +90,7 @@ async function translateVttWithAI({
   provider,
   modelId,
   abortSignal,
+  credentials,
 }: {
   vttContent: string;
   fromLanguageCode: string;
@@ -97,10 +98,11 @@ async function translateVttWithAI({
   provider: SupportedProvider;
   modelId: string;
   abortSignal?: AbortSignal;
+  credentials?: WorkflowCredentialsInput;
 }): Promise<{ translatedVtt: string; usage: TokenUsage }> {
   "use step";
 
-  const languageModel = createLanguageModelFromConfig(provider, modelId);
+  const languageModel = await createLanguageModelFromConfig(provider, modelId, credentials);
 
   const response = await generateObject({
     model: languageModel,
@@ -197,9 +199,10 @@ async function createTextTrackOnMux(
   languageCode: string,
   trackName: string,
   presignedUrl: string,
+  credentials?: WorkflowCredentialsInput,
 ): Promise<string> {
   "use step";
-  const { muxTokenId, muxTokenSecret } = getMuxCredentialsFromEnv();
+  const { muxTokenId, muxTokenSecret } = await getMuxCredentialsFromEnv(credentials);
   const mux = new Mux({
     tokenId: muxTokenId,
     tokenSecret: muxTokenSecret,
@@ -233,6 +236,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     s3Region: providedS3Region,
     s3Bucket: providedS3Bucket,
     uploadToMux: uploadToMuxOption,
+    credentials,
   } = options;
 
   // S3 configuration
@@ -243,27 +247,18 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   const s3SecretAccessKey = env.S3_SECRET_ACCESS_KEY;
   const uploadToMux = uploadToMuxOption !== false; // Default to true
 
-  // Validate credentials and resolve language model
-  const config = await createWorkflowConfig(
-    { ...options, model },
-    provider as SupportedProvider,
-  );
+  const modelConfig = resolveLanguageModelConfig({
+    ...options,
+    model,
+    provider: provider as SupportedProvider,
+  });
 
   if (uploadToMux && (!s3Endpoint || !s3Bucket || !s3AccessKeyId || !s3SecretAccessKey)) {
     throw new Error("S3 configuration is required for uploading to Mux. Provide s3Endpoint, s3Bucket, s3AccessKeyId, and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.");
   }
 
   // Fetch asset data and playback ID from Mux
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId);
-
-  // Resolve signing context for signed playback IDs
-  const signingContext = getMuxSigningContextFromEnv();
-  if (policy === "signed" && !signingContext) {
-    throw new Error(
-      "Signed playback ID requires signing credentials. " +
-      "Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
-    );
-  }
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
 
   // Find text track with the source language
   if (!assetData.tracks) {
@@ -276,15 +271,12 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     track.language_code === fromLanguageCode,
   );
 
-  if (!sourceTextTrack) {
+  if (!sourceTextTrack?.id) {
     throw new Error(`No ready text track found with language code '${fromLanguageCode}' for this asset`);
   }
 
   // Fetch the VTT file content (signed if needed)
-  let vttUrl = `https://stream.mux.com/${playbackId}/text/${sourceTextTrack.id}.vtt`;
-  if (policy === "signed" && signingContext) {
-    vttUrl = await signUrl(vttUrl, playbackId, signingContext, "video");
-  }
+  const vttUrl = await buildTranscriptUrl(playbackId, sourceTextTrack.id, policy === "signed", credentials);
 
   let vttContent: string;
   try {
@@ -302,14 +294,15 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
       vttContent,
       fromLanguageCode,
       toLanguageCode,
-      provider: config.provider,
-      modelId: config.modelId,
+      provider: modelConfig.provider,
+      modelId: modelConfig.modelId,
       abortSignal: options.abortSignal,
+      credentials,
     });
     translatedVtt = result.translatedVtt;
     usage = result.usage;
   } catch (error) {
-    throw new Error(`Failed to translate VTT with ${config.provider}: ${error instanceof Error ? error.message : "Unknown error"}`);
+    throw new Error(`Failed to translate VTT with ${modelConfig.provider}: ${error instanceof Error ? error.message : "Unknown error"}`);
   }
 
   // Resolve language code pairs for both source and target
@@ -354,7 +347,13 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     const languageName = getLanguageName(toLanguageCode);
     const trackName = `${languageName} (auto-translated)`;
 
-    uploadedTrackId = await createTextTrackOnMux(assetId, toLanguageCode, trackName, presignedUrl);
+    uploadedTrackId = await createTextTrackOnMux(
+      assetId,
+      toLanguageCode,
+      trackName,
+      presignedUrl,
+      credentials,
+    );
   } catch (error) {
     console.warn(`Failed to add track to Mux asset: ${error instanceof Error ? error.message : "Unknown error"}`);
   }

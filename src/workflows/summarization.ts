@@ -2,7 +2,6 @@ import { generateObject } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
-import { createWorkflowConfig } from "@mux/ai/lib/client-factory";
 import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
 import { getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
@@ -14,13 +13,18 @@ import {
   createToneSection,
   createTranscriptSection,
 } from "@mux/ai/lib/prompt-builder";
-import { createLanguageModelFromConfig } from "@mux/ai/lib/providers";
+import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
 import { withRetry } from "@mux/ai/lib/retry";
-import { getMuxSigningContextFromEnv } from "@mux/ai/lib/url-signing";
 import { getStoryboardUrl } from "@mux/ai/primitives/storyboards";
 import { fetchTranscriptForAsset } from "@mux/ai/primitives/transcripts";
-import type { ImageSubmissionMode, MuxAIOptions, TokenUsage, ToneType } from "@mux/ai/types";
+import type {
+  ImageSubmissionMode,
+  MuxAIOptions,
+  TokenUsage,
+  ToneType,
+  WorkflowCredentialsInput,
+} from "@mux/ai/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -261,9 +265,10 @@ async function analyzeStoryboard(
   modelId: string,
   userPrompt: string,
   systemPrompt: string,
+  credentials?: WorkflowCredentialsInput,
 ): Promise<AnalysisResponse> {
   "use step";
-  const model = createLanguageModelFromConfig(provider, modelId);
+  const model = await createLanguageModelFromConfig(provider, modelId, credentials);
 
   const response = await generateObject({
     model,
@@ -340,6 +345,7 @@ export async function getSummaryAndTags(
     imageDownloadOptions,
     abortSignal: _abortSignal,
     promptOverrides,
+    credentials,
   } = options ?? {};
 
   // Validate tone parameter
@@ -349,29 +355,21 @@ export async function getSummaryAndTags(
     );
   }
 
-  // Validate credentials and resolve language model
-  const config = await createWorkflowConfig(
-    { ...options, model },
-    provider as SupportedProvider,
-  );
+  const modelConfig = resolveLanguageModelConfig({
+    ...options,
+    model,
+    provider: provider as SupportedProvider,
+  });
 
   // Fetch asset data from Mux and grab playback/transcript details
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId);
-
-  // Resolve signing context for signed playback IDs
-  const signingContext = getMuxSigningContextFromEnv();
-  if (policy === "signed" && !signingContext) {
-    throw new Error(
-      "Signed playback ID requires signing credentials. " +
-      "Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
-    );
-  }
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
 
   const transcriptText =
     includeTranscript ?
         (await fetchTranscriptForAsset(assetData, playbackId, {
           cleanTranscript,
           shouldSign: policy === "signed",
+          credentials,
         })).transcriptText :
       "";
 
@@ -384,7 +382,7 @@ export async function getSummaryAndTags(
   });
 
   // Analyze storyboard with AI provider (signed if needed)
-  const imageUrl = await getStoryboardUrl(playbackId, 640, policy === "signed");
+  const imageUrl = await getStoryboardUrl(playbackId, 640, policy === "signed", credentials);
 
   let analysisResponse: AnalysisResponse;
 
@@ -393,14 +391,23 @@ export async function getSummaryAndTags(
       const downloadResult = await downloadImageAsBase64(imageUrl, imageDownloadOptions);
       analysisResponse = await analyzeStoryboard(
         downloadResult.base64Data,
-        config.provider,
-        config.modelId,
+        modelConfig.provider,
+        modelConfig.modelId,
         userPrompt,
         SYSTEM_PROMPT,
+        credentials,
       );
     } else {
       // URL-based submission with retry logic
-      analysisResponse = await withRetry(() => analyzeStoryboard(imageUrl, config.provider, config.modelId, userPrompt, SYSTEM_PROMPT));
+      analysisResponse = await withRetry(() =>
+        analyzeStoryboard(
+          imageUrl,
+          modelConfig.provider,
+          modelConfig.modelId,
+          userPrompt,
+          SYSTEM_PROMPT,
+          credentials,
+        ));
     }
   } catch (error: unknown) {
     throw new Error(

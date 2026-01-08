@@ -268,7 +268,9 @@ const result = await translateCaptions(assetId, "en", "es", {
 });
 ```
 
-> **⚠️ Important:** Currently, the only way to set secrets is as ENV vars. The reason for this is to avoid leaking secrets into Workflow DevKit observability tooling. `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` are considered secrets. The other values for S3: `S3_ENDPOINT`, `S3_REGION` and `S3_BUCKET` are not considered secrets. They can be passed in explicitly at runtime.
+> **⚠️ Important:** Workflow Dev Kit serializes workflow inputs/outputs. Do not pass plaintext secrets as workflow args.
+> Use the `encryptForWorkflow` helper and pass `credentials` to workflows when running multi-tenant.
+> `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` must still be set as ENV vars on the execution host.
 
 
 **Why S3 Storage?**

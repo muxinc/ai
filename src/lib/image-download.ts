@@ -1,6 +1,21 @@
-import { Buffer } from "node:buffer";
-
 import pRetry, { AbortError } from "p-retry";
+
+const BASE64_CHUNK_SIZE = 0x8000;
+
+function bytesToBase64(bytes: Uint8Array): string {
+  if (bytes.length === 0) {
+    return "";
+  }
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += BASE64_CHUNK_SIZE) {
+    const chunk = bytes.subarray(i, i + BASE64_CHUNK_SIZE);
+    binary += String.fromCharCode(...chunk);
+  }
+  if (typeof globalThis.btoa !== "function") {
+    throw new TypeError("Base64 encoder is not available in this environment.");
+  }
+  return globalThis.btoa(binary);
+}
 
 export interface ImageDownloadOptions {
   /** Request timeout in milliseconds (default: 10000) */
@@ -18,8 +33,8 @@ export interface ImageDownloadOptions {
 export interface ImageDownloadResult {
   /** Base64 encoded image data with data URI prefix (e.g., "data:image/png;base64,iVBORw0K...") */
   base64Data: string;
-  /** Raw image buffer for multipart/form-data uploads */
-  buffer: Buffer;
+  /** Raw image bytes for multipart/form-data uploads */
+  buffer: Uint8Array;
   /** Original image URL */
   url: string;
   /** Content type of the downloaded image */
@@ -95,14 +110,14 @@ export async function downloadImageAsBase64(
         }
 
         const arrayBuffer = await response.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
+        const buffer = new Uint8Array(arrayBuffer);
 
         if (buffer.length === 0) {
           throw new AbortError("Downloaded image is empty");
         }
 
         // Convert to base64 with data URI prefix
-        const base64Data = `data:${contentType};base64,${buffer.toString("base64")}`;
+        const base64Data = `data:${contentType};base64,${bytesToBase64(buffer)}`;
 
         return {
           base64Data,

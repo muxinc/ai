@@ -6,54 +6,30 @@ import type {
 import {
   resolveLanguageModel,
 } from "@mux/ai/lib/providers";
+import { resolveMuxCredentials, resolveProviderApiKey } from "@mux/ai/lib/workflow-credentials";
+import type { WorkflowCredentialsInput } from "@mux/ai/types";
 
 /**
- * Gets Mux credentials from environment variables.
+ * Gets Mux credentials from workflow credentials or environment variables.
  * Used internally by workflow steps to avoid passing credentials through step I/O.
  * Throws if credentials are not available.
  */
-export function getMuxCredentialsFromEnv(): { muxTokenId: string; muxTokenSecret: string } {
-  const muxTokenId = env.MUX_TOKEN_ID;
-  const muxTokenSecret = env.MUX_TOKEN_SECRET;
-
-  if (!muxTokenId || !muxTokenSecret) {
-    throw new Error(
-      "Mux credentials are required. Set MUX_TOKEN_ID and MUX_TOKEN_SECRET environment variables.",
-    );
-  }
-
-  return { muxTokenId, muxTokenSecret };
+export async function getMuxCredentialsFromEnv(
+  credentials?: WorkflowCredentialsInput,
+): Promise<{ muxTokenId: string; muxTokenSecret: string }> {
+  return resolveMuxCredentials(credentials);
 }
 
 /**
- * Gets an API key from environment variables for the specified provider.
+ * Gets an API key from workflow credentials or environment variables for the specified provider.
  * Used internally by workflow steps to avoid passing credentials through step I/O.
  * Throws if the API key is not available.
  */
-export function getApiKeyFromEnv(provider: "openai" | "anthropic" | "google" | "hive" | "elevenlabs"): string {
-  const envVarMap: Record<string, string | undefined> = {
-    openai: env.OPENAI_API_KEY,
-    anthropic: env.ANTHROPIC_API_KEY,
-    google: env.GOOGLE_GENERATIVE_AI_API_KEY,
-    hive: env.HIVE_API_KEY,
-    elevenlabs: env.ELEVENLABS_API_KEY,
-  };
-
-  const apiKey = envVarMap[provider];
-  if (!apiKey) {
-    const envVarNames: Record<string, string> = {
-      openai: "OPENAI_API_KEY",
-      anthropic: "ANTHROPIC_API_KEY",
-      google: "GOOGLE_GENERATIVE_AI_API_KEY",
-      hive: "HIVE_API_KEY",
-      elevenlabs: "ELEVENLABS_API_KEY",
-    };
-    throw new Error(
-      `${provider} API key is required. Set ${envVarNames[provider]} environment variable.`,
-    );
-  }
-
-  return apiKey;
+export async function getApiKeyFromEnv(
+  provider: "openai" | "anthropic" | "google" | "hive" | "elevenlabs",
+  credentials?: WorkflowCredentialsInput,
+): Promise<string> {
+  return resolveProviderApiKey(provider, credentials);
 }
 
 export interface ValidatedCredentials {

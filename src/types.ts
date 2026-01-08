@@ -1,3 +1,5 @@
+import type { Encrypted } from "@mux/ai/lib/workflow-crypto";
+
 import type Mux from "@mux/mux-node";
 
 /**
@@ -12,7 +14,31 @@ export interface MuxAIOptions {
    * cancelled where supported.
    */
   abortSignal?: AbortSignal;
+  /**
+   * Optional credentials for workflow execution.
+   * Use encryptForWorkflow when running in Workflow Dev Kit environments.
+   */
+  credentials?: WorkflowCredentialsInput;
 }
+
+/**
+ * Plaintext workflow credentials. Avoid passing these to Workflow Dev Kit start()
+ * unless you are not using workflow serialization.
+ */
+export interface WorkflowCredentials {
+  muxTokenId?: string;
+  muxTokenSecret?: string;
+  muxSigningKey?: string;
+  muxPrivateKey?: string;
+  openaiApiKey?: string;
+  anthropicApiKey?: string;
+  googleApiKey?: string;
+  hiveApiKey?: string;
+  elevenLabsApiKey?: string;
+}
+
+/** Credentials that are safe to serialize across workflow boundaries. */
+export type WorkflowCredentialsInput = WorkflowCredentials | Encrypted<WorkflowCredentials>;
 
 /** Tone controls for the summarization helper. */
 export type ToneType = "neutral" | "playful" | "professional";

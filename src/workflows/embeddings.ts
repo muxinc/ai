@@ -2,9 +2,8 @@ import { embed } from "ai";
 
 import { getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
 import type { EmbeddingModelIdByProvider, SupportedEmbeddingProvider } from "@mux/ai/lib/providers";
-import { createEmbeddingModelFromConfig, resolveEmbeddingModel } from "@mux/ai/lib/providers";
+import { createEmbeddingModelFromConfig, resolveEmbeddingModelConfig } from "@mux/ai/lib/providers";
 import { withRetry } from "@mux/ai/lib/retry";
-import { getMuxSigningContextFromEnv } from "@mux/ai/lib/url-signing";
 import { chunkText, chunkVTTCues } from "@mux/ai/primitives/text-chunking";
 import { fetchTranscriptForAsset, getReadyTextTracks, parseVTTCues } from "@mux/ai/primitives/transcripts";
 import type {
@@ -13,6 +12,7 @@ import type {
   MuxAIOptions,
   TextChunk,
   VideoEmbeddingsResult,
+  WorkflowCredentialsInput,
 } from "@mux/ai/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -71,20 +71,23 @@ function averageEmbeddings(embeddings: number[][]): number[] {
  * @param options.chunk - Text chunk to embed
  * @param options.provider - AI provider for embedding generation
  * @param options.modelId - Provider-specific model identifier
+ * @param options.credentials - Optional workflow credentials for API access
  * @returns Chunk embedding with metadata
  */
 async function generateSingleChunkEmbedding({
   chunk,
   provider,
   modelId,
+  credentials,
 }: {
   chunk: TextChunk;
   provider: SupportedEmbeddingProvider;
   modelId: string;
+  credentials?: WorkflowCredentialsInput;
 }): Promise<ChunkEmbedding> {
   "use step";
 
-  const model = createEmbeddingModelFromConfig(provider, modelId);
+  const model = await createEmbeddingModelFromConfig(provider, modelId, credentials);
   const response = await withRetry(() =>
     embed({
       model,
@@ -145,21 +148,13 @@ export async function generateVideoEmbeddings(
     languageCode,
     chunkingStrategy = { type: "token", maxTokens: 500, overlap: 100 } as ChunkingStrategy,
     batchSize = 5,
+    credentials,
   } = options;
 
-  const embeddingModel = resolveEmbeddingModel({ ...options, provider, model });
+  const embeddingModel = resolveEmbeddingModelConfig({ ...options, provider, model });
 
   // Fetch asset and playback ID
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId);
-
-  // Resolve signing context for signed playback IDs
-  const signingContext = getMuxSigningContextFromEnv();
-  if (policy === "signed" && !signingContext) {
-    throw new Error(
-      "Signed playback ID requires signing credentials. " +
-      "Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
-    );
-  }
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
 
   // Fetch transcript (raw VTT for VTT strategy, cleaned text otherwise)
   const useVttChunking = chunkingStrategy.type === "vtt";
@@ -167,6 +162,7 @@ export async function generateVideoEmbeddings(
     languageCode,
     cleanTranscript: !useVttChunking,
     shouldSign: policy === "signed",
+    credentials,
   });
 
   if (!transcriptResult.track || !transcriptResult.transcriptText) {
@@ -208,6 +204,7 @@ export async function generateVideoEmbeddings(
             chunk,
             provider: embeddingModel.provider,
             modelId: embeddingModel.modelId as string,
+            credentials,
           }),
         ),
       );
