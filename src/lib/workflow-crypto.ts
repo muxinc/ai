@@ -6,8 +6,8 @@
  * for forward compatibility.
  */
 
-import { Buffer } from "node:buffer";
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+const BASE64_CHUNK_SIZE = 0x8000;
+const BASE64_ALPHABET_RE = /^[A-Z0-9+/]+={0,2}$/i;
 
 // Encryption parameters (AES-256-GCM with standard IV/tag sizes)
 const WORKFLOW_ENCRYPTION_VERSION = 1;
@@ -39,35 +39,74 @@ export interface EncryptedPayload {
 /** Branded type that preserves the original type information for decryption */
 export type Encrypted<T> = EncryptedPayload & { __type?: T };
 
-/** Converts key to Buffer and validates it's exactly 32 bytes (256 bits) */
-function normalizeKey(key: Buffer | string): Buffer {
-  const keyBuffer = typeof key === "string" ? Buffer.from(key, "base64") : Buffer.from(key);
-
-  if (keyBuffer.length !== 32) {
-    throw new Error("Invalid workflow secret key. Expected 32-byte base64 value.");
+function getWebCrypto(): NonNullable<typeof globalThis.crypto> {
+  const webCrypto = globalThis.crypto;
+  if (!webCrypto || !webCrypto.subtle || typeof webCrypto.getRandomValues !== "function") {
+    throw new Error("Web Crypto API is required in workflow functions.");
   }
-
-  return keyBuffer;
+  return webCrypto;
 }
 
-/** Decodes a base64 field from the payload with descriptive error messages */
-function decodeBase64(value: string, label: string): Buffer {
+function bytesToBase64(bytes: Uint8Array): string {
+  if (bytes.length === 0) {
+    return "";
+  }
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += BASE64_CHUNK_SIZE) {
+    const chunk = bytes.subarray(i, i + BASE64_CHUNK_SIZE);
+    binary += String.fromCharCode(...chunk);
+  }
+  if (typeof globalThis.btoa !== "function") {
+    throw new TypeError("Base64 encoder is not available in this environment.");
+  }
+  return globalThis.btoa(binary);
+}
+
+function base64ToBytes(value: string, label: string): Uint8Array {
   if (!value) {
     throw new Error(`Invalid encrypted payload: missing ${label}.`);
   }
-
-  let buffer: Buffer;
+  const normalized = value.length % 4 === 0 ? value : value + "=".repeat(4 - (value.length % 4));
+  if (!BASE64_ALPHABET_RE.test(normalized)) {
+    throw new Error(`Invalid encrypted payload: ${label} is not base64.`);
+  }
+  if (typeof globalThis.atob !== "function") {
+    throw new TypeError("Base64 decoder is not available in this environment.");
+  }
+  let binary: string;
   try {
-    buffer = Buffer.from(value, "base64");
+    binary = globalThis.atob(normalized);
   } catch {
     throw new Error(`Invalid encrypted payload: ${label} is not base64.`);
   }
-
-  if (buffer.length === 0) {
+  if (!binary) {
     throw new Error(`Invalid encrypted payload: ${label} is empty.`);
   }
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
 
-  return buffer;
+/** Converts key to bytes and validates it's exactly 32 bytes (256 bits) */
+function normalizeKey(key: Uint8Array | string): Uint8Array {
+  let keyBytes: Uint8Array;
+  if (typeof key === "string") {
+    try {
+      keyBytes = base64ToBytes(key, "key");
+    } catch {
+      throw new Error("Invalid workflow secret key. Expected 32-byte base64 value.");
+    }
+  } else {
+    keyBytes = new Uint8Array(key);
+  }
+
+  if (keyBytes.length !== 32) {
+    throw new Error("Invalid workflow secret key. Expected 32-byte base64 value.");
+  }
+
+  return keyBytes;
 }
 
 /** Type guard to check if a value is a valid encrypted payload structure */
@@ -96,8 +135,8 @@ function assertEncryptedPayload(payload: EncryptedPayload): void {
     throw new Error("Invalid encrypted payload: unsupported algorithm.");
   }
 
-  const iv = decodeBase64(payload.iv, "iv");
-  const tag = decodeBase64(payload.tag, "tag");
+  const iv = base64ToBytes(payload.iv, "iv");
+  const tag = base64ToBytes(payload.tag, "tag");
 
   if (iv.length !== IV_LENGTH_BYTES) {
     throw new Error("Invalid encrypted payload: iv length mismatch.");
@@ -107,31 +146,33 @@ function assertEncryptedPayload(payload: EncryptedPayload): void {
     throw new Error("Invalid encrypted payload: tag length mismatch.");
   }
 
-  decodeBase64(payload.ciphertext, "ciphertext");
+  base64ToBytes(payload.ciphertext, "ciphertext");
 }
 
 /**
  * Encrypts a value for secure transport to a workflow.
  *
  * @param value - Any JSON-serializable value (typically WorkflowCredentials)
- * @param key - 32-byte secret key (base64 string or Buffer)
+ * @param key - 32-byte secret key (base64 string or Uint8Array)
  * @param keyId - Optional key identifier for rotation support (stored in plaintext)
  * @returns Encrypted payload with metadata, safe to pass through untrusted channels
  *
  * @example
  * // Without key ID
- * const encrypted = encryptForWorkflow(credentials, secretKey);
+ * const encrypted = await encryptForWorkflow(credentials, secretKey);
  *
  * // With key ID for rotation support
- * const encrypted = encryptForWorkflow(credentials, secretKey, "key-2024-01");
+ * const encrypted = await encryptForWorkflow(credentials, secretKey, "key-2024-01");
  */
-export function encryptForWorkflow<T>(
+export async function encryptForWorkflow<T>(
   value: T,
-  key: Buffer | string,
+  key: Uint8Array | string,
   keyId?: string,
-): Encrypted<T> {
-  const keyBuffer = normalizeKey(key);
-  const iv = randomBytes(IV_LENGTH_BYTES); // Fresh IV for each encryption
+): Promise<Encrypted<T>> {
+  const keyBytes = normalizeKey(key);
+  const webCrypto = getWebCrypto();
+  const iv = new Uint8Array(IV_LENGTH_BYTES);
+  webCrypto.getRandomValues(iv); // Fresh IV for each encryption
 
   let serialized: string;
   try {
@@ -140,20 +181,31 @@ export function encryptForWorkflow<T>(
     throw new Error("Failed to serialize value for encryption.");
   }
 
-  const cipher = createCipheriv(WORKFLOW_ENCRYPTION_ALGORITHM, keyBuffer, iv);
-  const ciphertext = Buffer.concat([
-    cipher.update(serialized, "utf8"),
-    cipher.final(),
-  ]);
-  const tag = cipher.getAuthTag(); // GCM auth tag for tamper detection
+  const encoder = new TextEncoder();
+  const plaintext = encoder.encode(serialized);
+  const cryptoKey = await webCrypto.subtle.importKey(
+    "raw",
+    keyBytes,
+    { name: "AES-GCM" },
+    false,
+    ["encrypt"],
+  );
+  const encrypted = await webCrypto.subtle.encrypt(
+    { name: "AES-GCM", iv, tagLength: AUTH_TAG_LENGTH_BYTES * 8 },
+    cryptoKey,
+    plaintext,
+  );
+  const encryptedBytes = new Uint8Array(encrypted);
+  const tag = encryptedBytes.slice(encryptedBytes.length - AUTH_TAG_LENGTH_BYTES);
+  const ciphertext = encryptedBytes.slice(0, encryptedBytes.length - AUTH_TAG_LENGTH_BYTES);
 
   return {
     v: WORKFLOW_ENCRYPTION_VERSION,
     alg: WORKFLOW_ENCRYPTION_ALGORITHM,
     ...(keyId !== undefined && { kid: keyId }),
-    iv: iv.toString("base64"),
-    tag: tag.toString("base64"),
-    ciphertext: ciphertext.toString("base64"),
+    iv: bytesToBase64(iv),
+    tag: bytesToBase64(tag),
+    ciphertext: bytesToBase64(ciphertext),
   };
 }
 
@@ -169,31 +221,49 @@ export function encryptForWorkflow<T>(
  * // With key rotation: read kid to look up the correct key
  * const keyId = payload.kid ?? "default";
  * const key = keyStore.get(keyId);
- * const credentials = decryptFromWorkflow(payload, key);
+ * const credentials = await decryptFromWorkflow(payload, key);
  */
-export function decryptFromWorkflow<T>(payload: EncryptedPayload, key: Buffer | string): T {
+export async function decryptFromWorkflow<T>(
+  payload: EncryptedPayload,
+  key: Uint8Array | string,
+): Promise<T> {
   if (!isEncryptedPayload(payload)) {
     throw new Error("Invalid encrypted payload.");
   }
 
   assertEncryptedPayload(payload);
 
-  const keyBuffer = normalizeKey(key);
-  const iv = decodeBase64(payload.iv, "iv");
-  const tag = decodeBase64(payload.tag, "tag");
-  const ciphertext = decodeBase64(payload.ciphertext, "ciphertext");
+  const keyBytes = normalizeKey(key);
+  const iv = base64ToBytes(payload.iv, "iv");
+  const tag = base64ToBytes(payload.tag, "tag");
+  const ciphertext = base64ToBytes(payload.ciphertext, "ciphertext");
 
-  let plaintext: Buffer;
+  const webCrypto = getWebCrypto();
+  const cryptoKey = await webCrypto.subtle.importKey(
+    "raw",
+    keyBytes,
+    { name: "AES-GCM" },
+    false,
+    ["decrypt"],
+  );
+  const combined = new Uint8Array(ciphertext.length + tag.length);
+  combined.set(ciphertext);
+  combined.set(tag, ciphertext.length);
+
+  let plaintext: ArrayBuffer;
   try {
-    const decipher = createDecipheriv(WORKFLOW_ENCRYPTION_ALGORITHM, keyBuffer, iv);
-    decipher.setAuthTag(tag); // Verifies integrity before returning plaintext
-    plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+    plaintext = await webCrypto.subtle.decrypt(
+      { name: "AES-GCM", iv, tagLength: AUTH_TAG_LENGTH_BYTES * 8 },
+      cryptoKey,
+      combined,
+    );
   } catch {
     throw new Error("Failed to decrypt workflow payload.");
   }
 
   try {
-    return JSON.parse(plaintext.toString("utf8")) as T;
+    const decoder = new TextDecoder();
+    return JSON.parse(decoder.decode(plaintext)) as T;
   } catch {
     throw new Error("Failed to parse decrypted payload.");
   }

@@ -5,8 +5,6 @@ import { getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
 import { getThumbnailUrls } from "@mux/ai/primitives/thumbnails";
 import type { ImageSubmissionMode, MuxAIOptions, WorkflowCredentialsInput } from "@mux/ai/types";
 
-import type { Buffer } from "node:buffer";
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -39,7 +37,7 @@ export type ModerationProvider = "openai" | "hive";
 
 export type HiveModerationSource =
   | { kind: "url"; value: string } |
-  { kind: "file"; buffer: Buffer; contentType: string };
+  { kind: "file"; buffer: Uint8Array; contentType: string };
 
 export interface HiveModerationOutput {
   classes?: Array<{

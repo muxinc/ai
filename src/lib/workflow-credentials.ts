@@ -89,7 +89,10 @@ export async function resolveWorkflowCredentials(
   // Handle encrypted payloads by decrypting them first
   if (isEncryptedPayload(credentials)) {
     try {
-      const decrypted = decryptFromWorkflow<WorkflowCredentials>(credentials, getWorkflowSecretKeyFromEnv());
+      const decrypted = await decryptFromWorkflow<WorkflowCredentials>(
+        credentials,
+        getWorkflowSecretKeyFromEnv(),
+      );
       return { ...resolved, ...decrypted };
     } catch {
       throw new Error("Failed to decrypt workflow credentials.");
