@@ -10,8 +10,7 @@ import type { TokenUsage } from "../../src/types";
 import { generateChapters } from "../../src/workflows";
 import type { ChaptersResult } from "../../src/workflows";
 import type { ChaptersPromptOverrides } from "../../src/workflows/chapters";
-
-import "../../src/env";
+import { muxTestAssets } from "../helpers/mux-test-assets";
 
 /**
  * Chapters Evaluation
@@ -187,7 +186,7 @@ const referenceChapters = [
 
 const testAssets: TestAsset[] = [
   {
-    assetId: "1XIUcA9k02nqRxCLpjHGzMYNIopCdSogkYrs98CThBrc",
+    assetId: muxTestAssets.chaptersAssetId,
     languageCode: "en",
     minChapters: 3,
     maxChapters: 8,
@@ -195,7 +194,7 @@ const testAssets: TestAsset[] = [
   },
   // with prompt override for exactly 3 chapters
   {
-    assetId: "1XIUcA9k02nqRxCLpjHGzMYNIopCdSogkYrs98CThBrc",
+    assetId: muxTestAssets.chaptersAssetId,
     languageCode: "en",
     minChapters: 3,
     maxChapters: 8,
