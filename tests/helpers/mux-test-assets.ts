@@ -7,6 +7,7 @@ import env from "../../src/env";
  * against your own Mux environment by setting env vars in `.env.test`:
  *
  * - MUX_TEST_ASSET_ID
+ * - MUX_TEST_ASSET_ID_CHAPTERS
  * - MUX_TEST_ASSET_ID_VIOLENT
  * - MUX_TEST_ASSET_ID_BURNED_IN_CAPTIONS
  * - MUX_TEST_ASSET_ID_BURNED_IN_CAPTIONS_2
