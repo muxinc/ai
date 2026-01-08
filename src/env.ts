@@ -23,6 +23,10 @@ const EnvSchema = z.object({
 
   MUX_TOKEN_ID: requiredString("Mux access token ID.", "Required to access Mux APIs"),
   MUX_TOKEN_SECRET: requiredString("Mux access token secret.", "Required to access Mux APIs"),
+  EVALITE_INGEST_SECRET: optionalString(
+    "Shared secret for posting Evalite results.",
+    "Evalite ingest secret",
+  ),
 
   MUX_SIGNING_KEY: optionalString("Mux signing key ID for signed playback URLs.", "Used to sign playback URLs"),
   MUX_PRIVATE_KEY: optionalString("Mux signing private key for signed playback URLs.", "Used to sign playback URLs"),
@@ -51,6 +55,11 @@ const EnvSchema = z.object({
   S3_BUCKET: optionalString("Bucket used for caption and audio uploads.", "S3 bucket"),
   S3_ACCESS_KEY_ID: optionalString("Access key ID for S3-compatible uploads.", "S3 access key id"),
   S3_SECRET_ACCESS_KEY: optionalString("Secret access key for S3-compatible uploads.", "S3 secret access key"),
+
+  EVALITE_RESULTS_ENDPOINT: optionalString(
+    "Full URL for posting Evalite results (e.g., https://example.com/api/evalite-results).",
+    "Evalite results endpoint",
+  ),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
