@@ -9,12 +9,7 @@ Examples demonstrating how to use the `askQuestions` workflow to answer yes/no q
 npm install
 ```
 
-2. Create a `.env` file with your credentials:
-```bash
-cp .env.example .env
-```
-
-3. Add your API keys to the `.env` file:
+2. Set the required environment variables:
    - `OPENAI_API_KEY` - Your OpenAI API key
    - `MUX_TOKEN_ID` - Your Mux API token ID
    - `MUX_TOKEN_SECRET` - Your Mux API token secret

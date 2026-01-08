@@ -265,7 +265,7 @@ export async function askQuestions(
 ): Promise<AskQuestionsResult> {
   "use workflow";
 
-  // 1. VALIDATE INPUT
+  // Validate questions array is non-empty
   if (!questions || questions.length === 0) {
     throw new Error("At least one question must be provided");
   }
@@ -279,7 +279,6 @@ export async function askQuestions(
     }
   });
 
-  // 2. EXTRACT AND VALIDATE OPTIONS
   const {
     provider = "openai",
     model,
@@ -298,25 +297,24 @@ export async function askQuestions(
     );
   }
 
-  // 3. VALIDATE CREDENTIALS AND RESOLVE MODEL
+  // Validate credentials and resolve language model
   const config = await createWorkflowConfig(
     { ...options, model },
     provider,
   );
 
-  // 4. FETCH ASSET DATA AND PLAYBACK ID
+  // Fetch asset data and playback ID from Mux
   const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId);
 
-  // 5. HANDLE SIGNED PLAYBACK IDs
+  // Resolve signing context for signed playback IDs
   const signingContext = getMuxSigningContextFromEnv();
   if (policy === "signed" && !signingContext) {
     throw new Error(
       "Signed playback ID requires signing credentials. " +
-      "Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
+      "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
     );
   }
 
-  // 6. FETCH TRANSCRIPT (IF REQUESTED)
   const transcriptText =
     includeTranscript ?
         (await fetchTranscriptForAsset(assetData, playbackId, {
@@ -325,17 +323,16 @@ export async function askQuestions(
         })).transcriptText :
       "";
 
-  // 7. BUILD USER PROMPT
+  // Build the user prompt with questions and optional transcript
   const userPrompt = buildUserPrompt(questions, transcriptText, cleanTranscript);
 
-  // 8. GET STORYBOARD URL
+  // Generate storyboard URL (signed if needed)
   const imageUrl = await getStoryboardUrl(
     playbackId,
     storyboardWidth,
     policy === "signed",
   );
 
-  // 9. ANALYZE WITH AI
   let analysisResponse: AnalysisResponse;
 
   try {
@@ -368,7 +365,6 @@ export async function askQuestions(
     );
   }
 
-  // 10. VALIDATE RESPONSE
   if (!analysisResponse.result?.answers) {
     throw new Error(`Failed to get answers for asset ${assetId}`);
   }
@@ -380,7 +376,6 @@ export async function askQuestions(
     );
   }
 
-  // 11. RETURN STRUCTURED RESULT
   return {
     assetId,
     answers: analysisResponse.result.answers,
