@@ -64,6 +64,8 @@ export interface ModerationOptions extends MuxAIOptions {
   thumbnailInterval?: number;
   /** Width of storyboard thumbnails in pixels (defaults to 640). */
   thumbnailWidth?: number;
+  /** Maximum number of thumbnails to sample (defaults to unlimited). When set, samples are evenly distributed with first and last frames pinned. */
+  maxSamples?: number;
   /** Max concurrent moderation requests (defaults to 5). */
   maxConcurrent?: number;
   /** Transport used for thumbnails (defaults to 'url'). */
@@ -310,6 +312,7 @@ export async function getModerationScores(
     thresholds = DEFAULT_THRESHOLDS,
     thumbnailInterval = 10,
     thumbnailWidth = 640,
+    maxSamples,
     maxConcurrent = 5,
     imageSubmissionMode = "url",
     imageDownloadOptions,
@@ -333,6 +336,7 @@ export async function getModerationScores(
     interval: thumbnailInterval,
     width: thumbnailWidth,
     shouldSign: policy === "signed",
+    maxSamples,
   });
 
   let thumbnailScores: ThumbnailModerationScore[];
