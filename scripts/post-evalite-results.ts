@@ -174,18 +174,22 @@ function resolveRef() {
   }
 }
 
-interface Options {
-  dryRun: boolean;
-  keepFile: boolean;
-  provider?: SupportedProvider;
-  model?: string;
-}
-
 const WORKFLOW_MATCHERS = [
   { key: "burned_in_captions", regex: /burned[- ]in[- ]captions/i },
   { key: "translate_captions", regex: /translate[- ]captions/i },
   { key: "summarization", regex: /summarization/i },
 ] as const;
+
+type WorkflowKey = typeof WORKFLOW_MATCHERS[number]["key"];
+const VALID_WORKFLOW_KEYS: WorkflowKey[] = WORKFLOW_MATCHERS.map(m => m.key);
+
+interface Options {
+  dryRun: boolean;
+  keepFile: boolean;
+  provider?: SupportedProvider;
+  model?: string;
+  workflows?: WorkflowKey[];
+}
 
 const WorkflowInsightSchema = z.object({
   summaryMarkdown: z.string().min(1),
@@ -197,7 +201,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-function resolveWorkflowKey(suite: EvaliteSuite): string | null {
+function resolveWorkflowKey(suite: EvaliteSuite): WorkflowKey | null {
   const haystack = `${suite.name ?? ""} ${suite.filepath ?? ""}`.toLowerCase();
   for (const matcher of WORKFLOW_MATCHERS) {
     if (matcher.regex.test(haystack)) {
@@ -508,12 +512,13 @@ interface ResolvedModel {
   modelId: string;
 }
 
-interface InsightsModelOptions {
+interface GenerateInsightsOptions {
   provider?: SupportedProvider;
   model?: string;
+  workflows?: WorkflowKey[];
 }
 
-function resolveInsightsModel(options: InsightsModelOptions = {}): ResolvedModel {
+function resolveInsightsModel(options: GenerateInsightsOptions = {}): ResolvedModel {
   const { provider: preferredProvider, model: preferredModel } = options;
 
   // If a specific provider is requested, use it (will fail if credentials missing)
@@ -559,11 +564,15 @@ function resolveInsightsModel(options: InsightsModelOptions = {}): ResolvedModel
   );
 }
 
-async function generateWorkflowInsights(suites: EvaliteSuite[], options: InsightsModelOptions = {}) {
+async function generateWorkflowInsights(suites: EvaliteSuite[], options: GenerateInsightsOptions = {}) {
   const { model, provider, modelId } = resolveInsightsModel(options);
+  const { workflows: workflowFilter } = options;
   const insights: WorkflowInsightPayload[] = [];
 
   console.warn(`🤖 Generating insights using ${provider}/${modelId}`);
+  if (workflowFilter && workflowFilter.length > 0) {
+    console.warn(`📋 Filtering to workflows: ${workflowFilter.join(", ")}`);
+  }
 
   const systemPrompt = dedent`
     <role>
@@ -582,6 +591,11 @@ async function generateWorkflowInsights(suites: EvaliteSuite[], options: Insight
   for (const suite of suites) {
     const workflowKey = resolveWorkflowKey(suite);
     if (!workflowKey) {
+      continue;
+    }
+
+    // Skip if filtering is active and this workflow isn't in the filter list
+    if (workflowFilter && workflowFilter.length > 0 && !workflowFilter.includes(workflowKey)) {
       continue;
     }
 
@@ -650,6 +664,15 @@ async function generateWorkflowInsights(suites: EvaliteSuite[], options: Insight
 
 const program = new Command();
 
+function parseWorkflows(value: string): WorkflowKey[] {
+  const keys = value.split(",").map(k => k.trim()).filter(Boolean);
+  const invalid = keys.filter(k => !VALID_WORKFLOW_KEYS.includes(k as WorkflowKey));
+  if (invalid.length > 0) {
+    throw new Error(`Invalid workflow key(s): ${invalid.join(", ")}. Valid keys: ${VALID_WORKFLOW_KEYS.join(", ")}`);
+  }
+  return keys as WorkflowKey[];
+}
+
 program
   .name("post-evalite-results")
   .description("Post evalite results to the configured endpoint")
@@ -657,6 +680,11 @@ program
   .option("-k, --keep-file", "Skip deleting evalite-results.json after posting", false)
   .option("-p, --provider <provider>", "AI provider for insights generation (openai, anthropic, google)")
   .option("-m, --model <model>", "Model ID to use for insights generation (defaults to provider's default)")
+  .option(
+    "-w, --workflows <keys>",
+    `Comma-separated workflow keys to generate insights for (default: all). Valid: ${VALID_WORKFLOW_KEYS.join(", ")}`,
+    parseWorkflows,
+  )
   .action(async (options: Options) => {
     try {
       const endpoint = env.EVALITE_RESULTS_ENDPOINT;
@@ -687,14 +715,32 @@ program
       };
       const packageVersion = packageJson.version;
       const evaliteVersion = packageJson.devDependencies?.evalite;
-      const suites = isRecord(results) && Array.isArray(results.suites) ?
+      const allSuites = isRecord(results) && Array.isArray(results.suites) ?
           (results.suites as EvaliteSuite[]) :
           [];
+
+      // Filter suites if workflow filter is provided
+      const suites = options.workflows && options.workflows.length > 0 ?
+          allSuites.filter((suite) => {
+            const key = resolveWorkflowKey(suite);
+            return key && options.workflows!.includes(key);
+          }) :
+        allSuites;
+
+      if (options.workflows && options.workflows.length > 0) {
+        console.warn(`📋 Filtering results to workflows: ${options.workflows.join(", ")}`);
+      }
 
       const { model, insights } = await generateWorkflowInsights(suites, {
         provider: options.provider,
         model: options.model,
+        workflows: options.workflows,
       });
+
+      // Build filtered results object if workflow filter is active
+      const filteredResults = options.workflows && options.workflows.length > 0 && isRecord(results) ?
+          { ...results, suites } :
+        results;
 
       const payload: EvaliteEnvelope = {
         repo,
@@ -705,7 +751,7 @@ program
         status: "completed",
         evaliteVersion,
         packageVersion,
-        results,
+        results: filteredResults,
         insights: {
           generatedAt: new Date().toISOString(),
           model,
