@@ -1,5 +1,5 @@
-import { getMuxSigningContextFromEnv, signUrl } from "@mux/ai/lib/url-signing";
-import type { AssetTextTrack, MuxAsset } from "@mux/ai/types";
+import { signUrl } from "@mux/ai/lib/url-signing";
+import type { AssetTextTrack, MuxAsset, WorkflowCredentialsInput } from "@mux/ai/types";
 
 /** A single cue from a VTT file with timing info. */
 export interface VTTCue {
@@ -13,6 +13,7 @@ export interface TranscriptFetchOptions {
   cleanTranscript?: boolean;
   /** Optional signing context for signed playback IDs */
   shouldSign?: boolean;
+  credentials?: WorkflowCredentialsInput;
 }
 
 export interface TranscriptResult {
@@ -199,14 +200,13 @@ export async function buildTranscriptUrl(
   playbackId: string,
   trackId: string,
   shouldSign: boolean = false,
+  credentials?: WorkflowCredentialsInput,
 ): Promise<string> {
   "use step";
   const baseUrl = `https://stream.mux.com/${playbackId}/text/${trackId}.vtt`;
 
   if (shouldSign) {
-    // NOTE: this assumes you have already validated the signing context elsewhere
-    const signingContext = getMuxSigningContextFromEnv();
-    return signUrl(baseUrl, playbackId, signingContext!, "video");
+    return signUrl(baseUrl, playbackId, undefined, "video", undefined, credentials);
   }
 
   return baseUrl;
@@ -218,7 +218,7 @@ export async function fetchTranscriptForAsset(
   options: TranscriptFetchOptions = {},
 ): Promise<TranscriptResult> {
   "use step";
-  const { languageCode, cleanTranscript = true, shouldSign } = options;
+  const { languageCode, cleanTranscript = true, shouldSign, credentials } = options;
   const track = findCaptionTrack(asset, languageCode);
 
   if (!track) {
@@ -229,7 +229,7 @@ export async function fetchTranscriptForAsset(
     return { transcriptText: "", track };
   }
 
-  const transcriptUrl = await buildTranscriptUrl(playbackId, track.id, shouldSign);
+  const transcriptUrl = await buildTranscriptUrl(playbackId, track.id, shouldSign, credentials);
 
   try {
     const response = await fetch(transcriptUrl);

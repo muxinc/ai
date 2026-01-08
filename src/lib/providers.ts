@@ -3,7 +3,8 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 
 import env from "@mux/ai/env";
-import type { MuxAIOptions } from "@mux/ai/types";
+import { resolveProviderApiKey } from "@mux/ai/lib/workflow-credentials";
+import type { MuxAIOptions, WorkflowCredentialsInput } from "@mux/ai/types";
 
 import type { EmbeddingModel, LanguageModel } from "ai";
 
@@ -50,6 +51,24 @@ const DEFAULT_EMBEDDING_MODELS: { [K in SupportedEmbeddingProvider]: EmbeddingMo
   openai: "text-embedding-3-small",
   google: "gemini-embedding-001",
 };
+
+export function resolveLanguageModelConfig<P extends SupportedProvider = SupportedProvider>(
+  options: ModelRequestOptions<P> = {},
+): { provider: P; modelId: ModelIdByProvider[P] } {
+  const provider = options.provider || ("openai" as P);
+  const modelId = (options.model || DEFAULT_LANGUAGE_MODELS[provider]) as ModelIdByProvider[P];
+
+  return { provider, modelId };
+}
+
+export function resolveEmbeddingModelConfig<P extends SupportedEmbeddingProvider = "openai">(
+  options: MuxAIOptions & { provider?: P; model?: EmbeddingModelIdByProvider[P] } = {},
+): { provider: P; modelId: EmbeddingModelIdByProvider[P] } {
+  const provider = options.provider || ("openai" as P);
+  const modelId = (options.model || DEFAULT_EMBEDDING_MODELS[provider]) as EmbeddingModelIdByProvider[P];
+
+  return { provider, modelId };
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Model Pricing
@@ -163,26 +182,24 @@ function requireEnv(value: string | undefined, name: string): string {
  * Use this in steps to instantiate models from config passed through workflow.
  * Fetches credentials internally from environment variables to avoid exposing them in step I/O.
  */
-export function createLanguageModelFromConfig(
+export async function createLanguageModelFromConfig(
   provider: SupportedProvider,
   modelId: string,
-): LanguageModel {
+  credentials?: WorkflowCredentialsInput,
+): Promise<LanguageModel> {
   switch (provider) {
     case "openai": {
-      const apiKey = env.OPENAI_API_KEY;
-      requireEnv(apiKey, "OPENAI_API_KEY");
+      const apiKey = await resolveProviderApiKey("openai", credentials);
       const openai = createOpenAI({ apiKey });
       return openai(modelId);
     }
     case "anthropic": {
-      const apiKey = env.ANTHROPIC_API_KEY;
-      requireEnv(apiKey, "ANTHROPIC_API_KEY");
+      const apiKey = await resolveProviderApiKey("anthropic", credentials);
       const anthropic = createAnthropic({ apiKey });
       return anthropic(modelId);
     }
     case "google": {
-      const apiKey = env.GOOGLE_GENERATIVE_AI_API_KEY;
-      requireEnv(apiKey, "GOOGLE_GENERATIVE_AI_API_KEY");
+      const apiKey = await resolveProviderApiKey("google", credentials);
       const google = createGoogleGenerativeAI({ apiKey });
       return google(modelId);
     }
@@ -198,20 +215,19 @@ export function createLanguageModelFromConfig(
  * Use this in steps to instantiate embedding models from config passed through workflow.
  * Fetches credentials internally from environment variables to avoid exposing them in step I/O.
  */
-export function createEmbeddingModelFromConfig(
+export async function createEmbeddingModelFromConfig(
   provider: SupportedEmbeddingProvider,
   modelId: string,
-): EmbeddingModel<string> {
+  credentials?: WorkflowCredentialsInput,
+): Promise<EmbeddingModel<string>> {
   switch (provider) {
     case "openai": {
-      const apiKey = env.OPENAI_API_KEY;
-      requireEnv(apiKey, "OPENAI_API_KEY");
+      const apiKey = await resolveProviderApiKey("openai", credentials);
       const openai = createOpenAI({ apiKey });
       return openai.embedding(modelId);
     }
     case "google": {
-      const apiKey = env.GOOGLE_GENERATIVE_AI_API_KEY;
-      requireEnv(apiKey, "GOOGLE_GENERATIVE_AI_API_KEY");
+      const apiKey = await resolveProviderApiKey("google", credentials);
       const google = createGoogleGenerativeAI({ apiKey });
       return google.textEmbeddingModel(modelId);
     }

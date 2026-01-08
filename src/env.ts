@@ -11,6 +11,7 @@ function optionalString(description: string, message?: string) {
   ).describe(description);
 }
 
+// eslint-disable-next-line unused-imports/no-unused-vars
 function requiredString(description: string, message?: string) {
   return z.preprocess(
     value => typeof value === "string" ? value.trim().length > 0 ? value.trim() : undefined : value,
@@ -21,8 +22,12 @@ function requiredString(description: string, message?: string) {
 const EnvSchema = z.object({
   NODE_ENV: z.string().default("development").describe("Runtime environment."),
 
-  MUX_TOKEN_ID: requiredString("Mux access token ID.", "Required to access Mux APIs"),
-  MUX_TOKEN_SECRET: requiredString("Mux access token secret.", "Required to access Mux APIs"),
+  MUX_TOKEN_ID: optionalString("Mux access token ID.", "Required to access Mux APIs"),
+  MUX_TOKEN_SECRET: optionalString("Mux access token secret.", "Required to access Mux APIs"),
+  MUX_AI_WORKFLOW_SECRET_KEY: optionalString(
+    "Base64-encoded 32-byte key for workflow encryption/decryption.",
+    "Workflow secret key",
+  ),
   EVALITE_INGEST_SECRET: optionalString(
     "Shared secret for posting Evalite results.",
     "Evalite ingest secret",
@@ -69,7 +74,17 @@ const EnvSchema = z.object({
     "Full URL for posting Evalite results (e.g., https://example.com/api/evalite-results).",
     "Evalite results endpoint",
   ),
-});
+}).refine(
+  (env) => {
+    const hasMuxCredentials = Boolean(env.MUX_TOKEN_ID && env.MUX_TOKEN_SECRET);
+    const hasWorkflowKey = Boolean(env.MUX_AI_WORKFLOW_SECRET_KEY);
+    return hasMuxCredentials || hasWorkflowKey;
+  },
+  {
+    message:
+      "Either MUX_TOKEN_ID + MUX_TOKEN_SECRET or MUX_AI_WORKFLOW_SECRET_KEY must be set.",
+  },
+);
 
 export type Env = z.infer<typeof EnvSchema>;
 

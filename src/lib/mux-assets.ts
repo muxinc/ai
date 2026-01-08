@@ -1,7 +1,7 @@
 import Mux from "@mux/mux-node";
 
 import { getMuxCredentialsFromEnv } from "@mux/ai/lib/client-factory";
-import type { MuxAsset, PlaybackAsset, PlaybackPolicy } from "@mux/ai/types";
+import type { MuxAsset, PlaybackAsset, PlaybackPolicy, WorkflowCredentialsInput } from "@mux/ai/types";
 
 /**
  * Finds a usable playback ID for the given asset.
@@ -31,9 +31,10 @@ function getPlaybackId(asset: MuxAsset): { id: string; policy: PlaybackPolicy } 
 
 export async function getPlaybackIdForAsset(
   assetId: string,
+  credentials?: WorkflowCredentialsInput,
 ): Promise<PlaybackAsset> {
   "use step";
-  const { muxTokenId, muxTokenSecret } = getMuxCredentialsFromEnv();
+  const { muxTokenId, muxTokenSecret } = await getMuxCredentialsFromEnv(credentials);
   const mux = new Mux({
     tokenId: muxTokenId,
     tokenSecret: muxTokenSecret,

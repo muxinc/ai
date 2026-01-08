@@ -2,17 +2,20 @@ import { generateObject } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
-import { createWorkflowConfig } from "@mux/ai/lib/client-factory";
 import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
 import { getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
 import type { PromptOverrides } from "@mux/ai/lib/prompt-builder";
 import { createPromptBuilder } from "@mux/ai/lib/prompt-builder";
-import { createLanguageModelFromConfig } from "@mux/ai/lib/providers";
+import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
-import { getMuxSigningContextFromEnv } from "@mux/ai/lib/url-signing";
 import { getStoryboardUrl } from "@mux/ai/primitives/storyboards";
-import type { ImageSubmissionMode, MuxAIOptions, TokenUsage } from "@mux/ai/types";
+import type {
+  ImageSubmissionMode,
+  MuxAIOptions,
+  TokenUsage,
+  WorkflowCredentialsInput,
+} from "@mux/ai/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -201,16 +204,18 @@ async function analyzeStoryboard({
   modelId,
   userPrompt,
   systemPrompt,
+  credentials,
 }: {
   imageDataUrl: string;
   provider: SupportedProvider;
   modelId: string;
   userPrompt: string;
   systemPrompt: string;
+  credentials?: WorkflowCredentialsInput;
 }): Promise<AnalysisResponse> {
   "use step";
 
-  const model = createLanguageModelFromConfig(provider, modelId);
+  const model = await createLanguageModelFromConfig(provider, modelId, credentials);
 
   const response = await generateObject({
     model,
@@ -254,28 +259,21 @@ export async function hasBurnedInCaptions(
     imageSubmissionMode = "url",
     imageDownloadOptions,
     promptOverrides,
+    credentials,
     ...config
   } = options;
 
   // Build the user prompt with any overrides
   const userPrompt = buildUserPrompt(promptOverrides);
 
-  const workflowConfig = await createWorkflowConfig(
-    { ...config, model },
-    provider as SupportedProvider,
-  );
-  const { playbackId, policy } = await getPlaybackIdForAsset(assetId);
+  const modelConfig = resolveLanguageModelConfig({
+    ...config,
+    model,
+    provider: provider as SupportedProvider,
+  });
+  const { playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
 
-  // Resolve signing context for signed playback IDs
-  const signingContext = getMuxSigningContextFromEnv();
-  if (policy === "signed" && !signingContext) {
-    throw new Error(
-      "Signed playback ID requires signing credentials. " +
-      "Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
-    );
-  }
-
-  const imageUrl = await getStoryboardUrl(playbackId, 640, policy === "signed");
+  const imageUrl = await getStoryboardUrl(playbackId, 640, policy === "signed", credentials);
 
   let analysisResponse: AnalysisResponse;
 
@@ -283,18 +281,20 @@ export async function hasBurnedInCaptions(
     const base64Data = await fetchImageAsBase64(imageUrl, imageDownloadOptions);
     analysisResponse = await analyzeStoryboard({
       imageDataUrl: base64Data,
-      provider: workflowConfig.provider,
-      modelId: workflowConfig.modelId,
+      provider: modelConfig.provider,
+      modelId: modelConfig.modelId,
       userPrompt,
       systemPrompt: SYSTEM_PROMPT,
+      credentials,
     });
   } else {
     analysisResponse = await analyzeStoryboard({
       imageDataUrl: imageUrl,
-      provider: workflowConfig.provider,
-      modelId: workflowConfig.modelId,
+      provider: modelConfig.provider,
+      modelId: modelConfig.modelId,
       userPrompt,
       systemPrompt: SYSTEM_PROMPT,
+      credentials,
     });
   }
 
