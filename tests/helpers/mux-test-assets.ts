@@ -34,4 +34,8 @@ export const muxTestAssets = {
   burnedInCaptionsAssetId2: env.MUX_TEST_ASSET_ID_BURNED_IN_CAPTIONS_2 ?? "gEvCHSJRioaSMHtsJxT4DA02ee3xbgVL02sDGZJuqt01vs",
   /** Recommended: an asset without burned-in captions. */
   withoutBurnedInCaptionsAssetId: env.MUX_TEST_ASSET_ID_WITHOUT_BURNED_IN_CAPTIONS ?? "gIRjPqMSRcdk200kIKvsUo2K4JQr6UjNg7qKZc02egCcM",
+
+  /** Audio-only assets for testing audio workflows (no video track). */
+  audioOnlyAssetId: env.MUX_TEST_ASSET_ID_AUDIO_ONLY ?? "vakDEjEbE3J7mGOfRqAwYoLyw00CthM1Anx2300ECnkNU",
+  violentAudioOnlyAssetId: env.MUX_TEST_ASSET_ID_VIOLENT_AUDIO_ONLY ?? "QdM00ClVHk1OISef4l4q5MhBnm002LKw6wcEtSD01yRyAo",
 } as const;

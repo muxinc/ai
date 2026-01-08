@@ -1,7 +1,7 @@
 import { Command } from "commander";
 
 import type { ChunkingStrategy } from "@mux/ai";
-import { generateVideoEmbeddings } from "@mux/ai/workflows";
+import { generateEmbeddings } from "@mux/ai/workflows";
 
 import "../env";
 
@@ -12,7 +12,7 @@ const program = new Command();
 
 program
   .name("embeddings")
-  .description("Generate embeddings for a Mux video asset transcript")
+  .description("Generate embeddings for a Mux asset transcript")
   .argument("<asset-id>", "Mux asset ID to analyze")
   .option("-l, --language <code>", "Language code for transcription", "en")
   .option("-p, --provider <provider>", "AI provider (openai, google)", "openai")
@@ -68,7 +68,7 @@ program
           { type: "vtt", maxTokens, overlapCues: overlap } :
           { type: "token", maxTokens, overlap };
 
-      const result = await generateVideoEmbeddings(assetId, {
+      const result = await generateEmbeddings(assetId, {
         provider: options.provider,
         languageCode: options.language,
         chunkingStrategy,
@@ -97,7 +97,7 @@ program
       console.log(`  First 5 dims: [${result.averagedEmbedding.slice(0, 5).map(n => n.toFixed(4)).join(", ")}...]`);
 
       console.log("\n💡 Usage Examples:");
-      console.log("// Store averaged embedding for video-level search:");
+      console.log("// Store averaged embedding for asset-level search:");
       console.log("// await vectorDB.insert({");
       console.log("//   id: result.assetId,");
       console.log("//   embedding: result.averagedEmbedding,");
