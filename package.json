@@ -79,6 +79,8 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc --noEmit",
+    "example:ask-questions": "npx tsx examples/ask-questions/basic-example.ts",
+    "example:ask-questions:multiple": "npx tsx examples/ask-questions/multiple-questions-example.ts",
     "example:chapters": "npx tsx examples/chapters/basic-example.ts",
     "example:chapters:compare": "npx tsx examples/chapters/provider-comparison.ts",
     "example:burned-in": "npx tsx examples/burned-in-captions/basic-example.ts",
