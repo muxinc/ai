@@ -64,11 +64,11 @@ function bytesToBase64(bytes: Uint8Array): string {
 
 function base64ToBytes(value: string, label: string): Uint8Array {
   if (!value) {
-    throw new Error(`Invalid encrypted payload: missing ${label}.`);
+    throw new Error(`${label} is missing`);
   }
   const normalized = value.length % 4 === 0 ? value : value + "=".repeat(4 - (value.length % 4));
   if (!BASE64_ALPHABET_RE.test(normalized)) {
-    throw new Error(`Invalid encrypted payload: ${label} is not base64.`);
+    throw new Error(`${label} is not valid base64`);
   }
   if (typeof globalThis.atob !== "function") {
     throw new TypeError("Base64 decoder is not available in this environment.");
@@ -77,10 +77,10 @@ function base64ToBytes(value: string, label: string): Uint8Array {
   try {
     binary = globalThis.atob(normalized);
   } catch {
-    throw new Error(`Invalid encrypted payload: ${label} is not base64.`);
+    throw new Error(`${label} is not valid base64`);
   }
   if (!binary) {
-    throw new Error(`Invalid encrypted payload: ${label} is empty.`);
+    throw new Error(`${label} decoded to empty value`);
   }
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) {
@@ -89,21 +89,32 @@ function base64ToBytes(value: string, label: string): Uint8Array {
   return bytes;
 }
 
+/** Wraps base64ToBytes for encrypted payload fields, adding context to errors */
+function payloadBase64ToBytes(value: string, field: string): Uint8Array {
+  try {
+    return base64ToBytes(value, field);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : `${field} is invalid`;
+    throw new Error(`Invalid encrypted payload: ${detail}`);
+  }
+}
+
 /** Converts key to bytes and validates it's exactly 32 bytes (256 bits) */
 function normalizeKey(key: Uint8Array | string): Uint8Array {
   let keyBytes: Uint8Array;
   if (typeof key === "string") {
     try {
-      keyBytes = base64ToBytes(key, "key");
-    } catch {
-      throw new Error("Invalid workflow secret key. Expected 32-byte base64 value.");
+      keyBytes = base64ToBytes(key, "value");
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "value is not valid base64";
+      throw new Error(`Invalid workflow secret key: ${detail}. Expected 32-byte base64 value.`);
     }
   } else {
     keyBytes = new Uint8Array(key);
   }
 
   if (keyBytes.length !== 32) {
-    throw new Error("Invalid workflow secret key. Expected 32-byte base64 value.");
+    throw new Error(`Invalid workflow secret key: expected 32 bytes, got ${keyBytes.length}.`);
   }
 
   return keyBytes;
@@ -135,8 +146,8 @@ function assertEncryptedPayload(payload: EncryptedPayload): void {
     throw new Error("Invalid encrypted payload: unsupported algorithm.");
   }
 
-  const iv = base64ToBytes(payload.iv, "iv");
-  const tag = base64ToBytes(payload.tag, "tag");
+  const iv = payloadBase64ToBytes(payload.iv, "iv");
+  const tag = payloadBase64ToBytes(payload.tag, "tag");
 
   if (iv.length !== IV_LENGTH_BYTES) {
     throw new Error("Invalid encrypted payload: iv length mismatch.");
@@ -146,7 +157,7 @@ function assertEncryptedPayload(payload: EncryptedPayload): void {
     throw new Error("Invalid encrypted payload: tag length mismatch.");
   }
 
-  base64ToBytes(payload.ciphertext, "ciphertext");
+  payloadBase64ToBytes(payload.ciphertext, "ciphertext");
 }
 
 /**
@@ -234,9 +245,9 @@ export async function decryptFromWorkflow<T>(
   assertEncryptedPayload(payload);
 
   const keyBytes = normalizeKey(key);
-  const iv = base64ToBytes(payload.iv, "iv");
-  const tag = base64ToBytes(payload.tag, "tag");
-  const ciphertext = base64ToBytes(payload.ciphertext, "ciphertext");
+  const iv = payloadBase64ToBytes(payload.iv, "iv");
+  const tag = payloadBase64ToBytes(payload.tag, "tag");
+  const ciphertext = payloadBase64ToBytes(payload.ciphertext, "ciphertext");
 
   const webCrypto = getWebCrypto();
   const cryptoKey = await webCrypto.subtle.importKey(

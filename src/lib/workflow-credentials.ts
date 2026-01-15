@@ -119,8 +119,9 @@ export async function resolveWorkflowCredentials(
         getWorkflowSecretKeyFromEnv(),
       );
       return { ...resolved, ...decrypted };
-    } catch {
-      throw new Error("Failed to decrypt workflow credentials.");
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Unknown error.";
+      throw new Error(`Failed to decrypt workflow credentials. ${detail}`);
     }
   }
 

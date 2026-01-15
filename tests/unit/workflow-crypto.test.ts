@@ -21,7 +21,9 @@ describe("workflow crypto helpers", () => {
 
     const encrypted = await encryptForWorkflow({ value: "secret" }, key);
 
-    await expect(decryptFromWorkflow(encrypted, wrongKey)).rejects.toThrow();
+    await expect(decryptFromWorkflow(encrypted, wrongKey)).rejects.toThrow(
+      "Failed to decrypt workflow payload.",
+    );
   });
 
   it("rejects malformed payloads", async () => {
@@ -35,6 +37,194 @@ describe("workflow crypto helpers", () => {
     } as const;
 
     await expect(decryptFromWorkflow(malformed, key)).rejects.toThrow();
+  });
+
+  describe("secret key validation errors", () => {
+    const validPayload = {
+      v: 1 as const,
+      alg: "aes-256-gcm" as const,
+      iv: "AAAAAAAAAAAAAAAA", // 12 bytes
+      tag: "AAAAAAAAAAAAAAAAAAAAAA==", // 16 bytes
+      ciphertext: "AAAA",
+    };
+
+    it("rejects empty string key with clear error", async () => {
+      await expect(encryptForWorkflow({ test: true }, "")).rejects.toThrow(
+        "Invalid workflow secret key: value is missing. Expected 32-byte base64 value.",
+      );
+    });
+
+    it("rejects invalid base64 key with clear error", async () => {
+      await expect(encryptForWorkflow({ test: true }, "not-valid-base64!!!")).rejects.toThrow(
+        "Invalid workflow secret key: value is not valid base64. Expected 32-byte base64 value.",
+      );
+    });
+
+    it("rejects key that is too short with clear error", async () => {
+      const shortKey = Buffer.alloc(16, 1).toString("base64"); // 16 bytes instead of 32
+
+      await expect(encryptForWorkflow({ test: true }, shortKey)).rejects.toThrow(
+        "Invalid workflow secret key: expected 32 bytes, got 16.",
+      );
+    });
+
+    it("rejects key that is too long with clear error", async () => {
+      const longKey = Buffer.alloc(64, 1).toString("base64"); // 64 bytes instead of 32
+
+      await expect(encryptForWorkflow({ test: true }, longKey)).rejects.toThrow(
+        "Invalid workflow secret key: expected 32 bytes, got 64.",
+      );
+    });
+
+    it("rejects empty key on decrypt with clear error", async () => {
+      await expect(decryptFromWorkflow(validPayload, "")).rejects.toThrow(
+        "Invalid workflow secret key: value is missing. Expected 32-byte base64 value.",
+      );
+    });
+  });
+
+  describe("encrypted payload validation errors", () => {
+    const validKey = Buffer.alloc(32, 1);
+
+    it("rejects payload with missing iv", async () => {
+      const payload = {
+        v: 1 as const,
+        alg: "aes-256-gcm" as const,
+        iv: "",
+        tag: "AAAAAAAAAAAAAAAAAAAAAA==",
+        ciphertext: "AAAA",
+      };
+
+      await expect(decryptFromWorkflow(payload, validKey)).rejects.toThrow(
+        "Invalid encrypted payload: iv is missing",
+      );
+    });
+
+    it("rejects payload with invalid base64 iv", async () => {
+      const payload = {
+        v: 1 as const,
+        alg: "aes-256-gcm" as const,
+        iv: "not-valid!!!",
+        tag: "AAAAAAAAAAAAAAAAAAAAAA==",
+        ciphertext: "AAAA",
+      };
+
+      await expect(decryptFromWorkflow(payload, validKey)).rejects.toThrow(
+        "Invalid encrypted payload: iv is not valid base64",
+      );
+    });
+
+    it("rejects payload with wrong iv length", async () => {
+      const payload = {
+        v: 1 as const,
+        alg: "aes-256-gcm" as const,
+        iv: "AAAA", // 3 bytes instead of 12
+        tag: "AAAAAAAAAAAAAAAAAAAAAA==",
+        ciphertext: "AAAA",
+      };
+
+      await expect(decryptFromWorkflow(payload, validKey)).rejects.toThrow(
+        "Invalid encrypted payload: iv length mismatch.",
+      );
+    });
+
+    it("rejects payload with missing tag", async () => {
+      const payload = {
+        v: 1 as const,
+        alg: "aes-256-gcm" as const,
+        iv: "AAAAAAAAAAAAAAAA",
+        tag: "",
+        ciphertext: "AAAA",
+      };
+
+      await expect(decryptFromWorkflow(payload, validKey)).rejects.toThrow(
+        "Invalid encrypted payload: tag is missing",
+      );
+    });
+
+    it("rejects payload with invalid base64 tag", async () => {
+      const payload = {
+        v: 1 as const,
+        alg: "aes-256-gcm" as const,
+        iv: "AAAAAAAAAAAAAAAA",
+        tag: "!!!invalid!!!",
+        ciphertext: "AAAA",
+      };
+
+      await expect(decryptFromWorkflow(payload, validKey)).rejects.toThrow(
+        "Invalid encrypted payload: tag is not valid base64",
+      );
+    });
+
+    it("rejects payload with wrong tag length", async () => {
+      const payload = {
+        v: 1 as const,
+        alg: "aes-256-gcm" as const,
+        iv: "AAAAAAAAAAAAAAAA",
+        tag: "AAAA", // 3 bytes instead of 16
+        ciphertext: "AAAA",
+      };
+
+      await expect(decryptFromWorkflow(payload, validKey)).rejects.toThrow(
+        "Invalid encrypted payload: tag length mismatch.",
+      );
+    });
+
+    it("rejects payload with missing ciphertext", async () => {
+      const payload = {
+        v: 1 as const,
+        alg: "aes-256-gcm" as const,
+        iv: "AAAAAAAAAAAAAAAA",
+        tag: "AAAAAAAAAAAAAAAAAAAAAA==",
+        ciphertext: "",
+      };
+
+      await expect(decryptFromWorkflow(payload, validKey)).rejects.toThrow(
+        "Invalid encrypted payload: ciphertext is missing",
+      );
+    });
+
+    it("rejects payload with invalid base64 ciphertext", async () => {
+      const payload = {
+        v: 1 as const,
+        alg: "aes-256-gcm" as const,
+        iv: "AAAAAAAAAAAAAAAA",
+        tag: "AAAAAAAAAAAAAAAAAAAAAA==",
+        ciphertext: "!!!bad!!!",
+      };
+
+      await expect(decryptFromWorkflow(payload, validKey)).rejects.toThrow(
+        "Invalid encrypted payload: ciphertext is not valid base64",
+      );
+    });
+
+    it("rejects payload with unsupported version", async () => {
+      const payload = {
+        v: 2 as unknown as 1,
+        alg: "aes-256-gcm" as const,
+        iv: "AAAAAAAAAAAAAAAA",
+        tag: "AAAAAAAAAAAAAAAAAAAAAA==",
+        ciphertext: "AAAA",
+      };
+
+      await expect(decryptFromWorkflow(payload, validKey)).rejects.toThrow(
+        "Invalid encrypted payload.",
+      );
+    });
+
+    it("rejects payload with unsupported algorithm", async () => {
+      const payload = {
+        v: 1 as const,
+        alg: "aes-128-gcm" as unknown as "aes-256-gcm",
+        iv: "AAAAAAAAAAAAAAAA",
+        tag: "AAAAAAAAAAAAAAAAAAAAAA==",
+        ciphertext: "AAAA",
+      };
+
+      await expect(decryptFromWorkflow(payload, validKey)).rejects.toThrow(
+        "Invalid encrypted payload.",
+      );
+    });
   });
 
   describe("key ID (kid) support", () => {
