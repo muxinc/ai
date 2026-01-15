@@ -55,10 +55,7 @@ function bytesToBase64(bytes: Uint8Array): string {
     const chunk = bytes.subarray(i, i + BASE64_CHUNK_SIZE);
     binary += String.fromCharCode(...chunk);
   }
-  if (typeof globalThis.btoa !== "function") {
-    throw new TypeError("Base64 encoder is not available in this environment.");
-  }
-  return globalThis.btoa(binary);
+  return btoa(binary);
 }
 
 function base64ToBytes(value: string, label: string): Uint8Array {
@@ -66,12 +63,9 @@ function base64ToBytes(value: string, label: string): Uint8Array {
     throw new Error(`${label} is missing`);
   }
   const normalized = value.length % 4 === 0 ? value : value + "=".repeat(4 - (value.length % 4));
-  if (typeof globalThis.atob !== "function") {
-    throw new TypeError("Base64 decoder is not available in this environment.");
-  }
   let binary: string;
   try {
-    binary = globalThis.atob(normalized);
+    binary = atob(normalized);
   } catch {
     throw new Error(`${label} is not valid base64`);
   }
