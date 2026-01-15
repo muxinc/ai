@@ -7,7 +7,6 @@
  */
 
 const BASE64_CHUNK_SIZE = 0x8000;
-const BASE64_ALPHABET_RE = /^[A-Z0-9+/]+={0,2}$/i;
 
 // Encryption parameters (AES-256-GCM with standard IV/tag sizes)
 const WORKFLOW_ENCRYPTION_VERSION = 1;
@@ -67,9 +66,6 @@ function base64ToBytes(value: string, label: string): Uint8Array {
     throw new Error(`${label} is missing`);
   }
   const normalized = value.length % 4 === 0 ? value : value + "=".repeat(4 - (value.length % 4));
-  if (!BASE64_ALPHABET_RE.test(normalized)) {
-    throw new Error(`${label} is not valid base64`);
-  }
   if (typeof globalThis.atob !== "function") {
     throw new TypeError("Base64 decoder is not available in this environment.");
   }
