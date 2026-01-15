@@ -379,12 +379,18 @@ export async function translateAudio(
     throw new Error("Only ElevenLabs provider is currently supported for audio translation");
   }
 
-  const credentials: WorkflowCredentialsInput | undefined = isEncryptedPayload(providedCredentials) ?
-    providedCredentials :
-      {
-        ...(providedCredentials ?? {}),
-        ...(elevenLabsApiKey ? { elevenLabsApiKey } : {}),
-      };
+  // Only build a credentials object if we have actual credentials to pass.
+  // Passing an empty object would be treated as plaintext credentials and rejected
+  // by the workflow runtime. When undefined, the system falls back to env vars.
+  let credentials: WorkflowCredentialsInput | undefined;
+  if (isEncryptedPayload(providedCredentials)) {
+    credentials = providedCredentials;
+  } else if (providedCredentials || elevenLabsApiKey) {
+    credentials = {
+      ...(providedCredentials ?? {}),
+      ...(elevenLabsApiKey ? { elevenLabsApiKey } : {}),
+    };
+  }
 
   // S3 configuration
   const s3Endpoint = options.s3Endpoint ?? env.S3_ENDPOINT;
