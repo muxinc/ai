@@ -33,6 +33,31 @@ export function setWorkflowCredentialsProvider(provider?: WorkflowCredentialsPro
 }
 
 /**
+ * Detects whether code is running inside a Workflow Dev Kit runtime.
+ * getWorkflowMetadata throws when invoked outside a workflow.
+ */
+async function isWorkflowRuntime(): Promise<boolean> {
+  try {
+    const workflowModule = await import("workflow");
+    if (typeof workflowModule.getWorkflowMetadata !== "function") {
+      return false;
+    }
+    workflowModule.getWorkflowMetadata();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Determines if we should enforce encrypted credentials.
+ * This triggers in workflow runtimes or when the workflow secret key is set.
+ */
+async function shouldEnforceEncryptedCredentials(): Promise<boolean> {
+  return Boolean(env.MUX_AI_WORKFLOW_SECRET_KEY) || await isWorkflowRuntime();
+}
+
+/**
  * Retrieves the workflow secret key from environment variables.
  * This key is used to decrypt encrypted credential payloads.
  */
@@ -97,6 +122,13 @@ export async function resolveWorkflowCredentials(
     } catch {
       throw new Error("Failed to decrypt workflow credentials.");
     }
+  }
+
+  if (await shouldEnforceEncryptedCredentials()) {
+    throw new Error(
+      "Plaintext workflow credentials are not allowed when using Workflow Dev Kit." +
+      "Pass encrypted credentials (encryptForWorkflow) or resolve secrets via environment variables.",
+    );
   }
 
   // Plain credentials object - merge directly

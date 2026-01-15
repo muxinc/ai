@@ -10,6 +10,9 @@ There are two phases, both running in Vercel serverless functions:
 - Trigger phase — your API route calls `start()` and passes encrypted credentials.
 - Execution phase — the workflow steps run in a separate serverless invocation; this is the execution host where decryption happens.
 
+When running inside a workflow runtime (or when `MUX_AI_WORKFLOW_SECRET_KEY` is set),
+passing plaintext `credentials` will throw an error to prevent accidental exposure.
+
 ## Example: Summarization (default providers only)
 
 `getSummaryAndTags` accepts the default language-model providers (`openai`,
