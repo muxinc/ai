@@ -131,8 +131,8 @@ export async function resolveMuxCredentials(
   return { muxTokenId, muxTokenSecret };
 }
 
-/** Supported AI/ML provider identifiers for API key resolution */
-type ProviderApiKey = "openai" | "anthropic" | "google" | "hive" | "elevenlabs";
+/** Supported AI/ML provider identifiers for API key resolution. */
+export type ApiKeyProvider = "openai" | "anthropic" | "google" | "hive" | "elevenlabs";
 
 /**
  * Resolves an API key for a specific AI/ML provider.
@@ -146,13 +146,13 @@ type ProviderApiKey = "openai" | "anthropic" | "google" | "hive" | "elevenlabs";
  * @throws Error if no API key is available for the specified provider
  */
 export async function resolveProviderApiKey(
-  provider: ProviderApiKey,
+  provider: ApiKeyProvider,
   credentials?: WorkflowCredentialsInput,
 ): Promise<string> {
   const resolved = await resolveWorkflowCredentials(credentials);
 
   // Map each provider to its credential field and env var fallback
-  const apiKeyMap: Record<ProviderApiKey, string | undefined> = {
+  const apiKeyMap: Record<ApiKeyProvider, string | undefined> = {
     openai: resolved.openaiApiKey ?? env.OPENAI_API_KEY,
     anthropic: resolved.anthropicApiKey ?? env.ANTHROPIC_API_KEY,
     google: resolved.googleApiKey ?? env.GOOGLE_GENERATIVE_AI_API_KEY,
@@ -170,7 +170,7 @@ export async function resolveProviderApiKey(
       google: "GOOGLE_GENERATIVE_AI_API_KEY",
       hive: "HIVE_API_KEY",
       elevenlabs: "ELEVENLABS_API_KEY",
-    } as const satisfies Record<ProviderApiKey, keyof Env>;
+    } as const satisfies Record<ApiKeyProvider, keyof Env>;
 
     throw new Error(
       `${provider} API key is required. Provide encrypted workflow credentials or set ${envVarNames[provider]} environment variable.`,

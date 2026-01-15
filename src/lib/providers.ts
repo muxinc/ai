@@ -182,9 +182,9 @@ function requireEnv(value: string | undefined, name: string): string {
  * Use this in steps to instantiate models from config passed through workflow.
  * Fetches credentials internally from environment variables to avoid exposing them in step I/O.
  */
-export async function createLanguageModelFromConfig(
-  provider: SupportedProvider,
-  modelId: string,
+export async function createLanguageModelFromConfig<P extends SupportedProvider = SupportedProvider>(
+  provider: P,
+  modelId: ModelIdByProvider[P],
   credentials?: WorkflowCredentialsInput,
 ): Promise<LanguageModel> {
   switch (provider) {
@@ -215,9 +215,11 @@ export async function createLanguageModelFromConfig(
  * Use this in steps to instantiate embedding models from config passed through workflow.
  * Fetches credentials internally from environment variables to avoid exposing them in step I/O.
  */
-export async function createEmbeddingModelFromConfig(
-  provider: SupportedEmbeddingProvider,
-  modelId: string,
+export async function createEmbeddingModelFromConfig<
+  P extends SupportedEmbeddingProvider = SupportedEmbeddingProvider,
+>(
+  provider: P,
+  modelId: EmbeddingModelIdByProvider[P],
   credentials?: WorkflowCredentialsInput,
 ): Promise<EmbeddingModel<string>> {
   switch (provider) {
