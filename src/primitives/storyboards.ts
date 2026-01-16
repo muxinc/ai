@@ -1,4 +1,5 @@
-import { getMuxSigningContextFromEnv, signUrl } from "@mux/ai/lib/url-signing";
+import { signUrl } from "@mux/ai/lib/url-signing";
+import type { WorkflowCredentialsInput } from "@mux/ai/types";
 
 export const DEFAULT_STORYBOARD_WIDTH = 640;
 
@@ -15,14 +16,13 @@ export async function getStoryboardUrl(
   playbackId: string,
   width: number = DEFAULT_STORYBOARD_WIDTH,
   shouldSign: boolean = false,
+  credentials?: WorkflowCredentialsInput,
 ): Promise<string> {
   "use step";
   const baseUrl = `https://image.mux.com/${playbackId}/storyboard.png`;
 
   if (shouldSign) {
-    // NOTE: this assumes you have already validated the signing context elsewhere
-    const signingContext = getMuxSigningContextFromEnv();
-    return signUrl(baseUrl, playbackId, signingContext!, "storyboard", { width });
+    return signUrl(baseUrl, playbackId, undefined, "storyboard", { width }, credentials);
   }
 
   return `${baseUrl}?width=${width}`;
