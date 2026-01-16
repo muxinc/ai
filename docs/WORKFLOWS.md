@@ -6,6 +6,8 @@ Detailed documentation for each pre-built workflow.
 
 Workflows are production-ready functions that orchestrate complete video AI tasks from start to finish. Each workflow handles the entire process: fetching video data from Mux (transcripts, storyboards, thumbnails), formatting it appropriately for AI providers, making the AI call with optimized prompts, and returning structured, typed results.
 
+For audio-only assets (no video track), see [Audio-Only Workflows](./AUDIO-ONLY.md).
+
 Internally, every workflow is composed from [primitives](./PRIMITIVES.md) - the low-level building blocks that provide direct access to Mux video data. This layered architecture means you can start with workflows for common tasks, and when you need more control, drop down to primitives to build custom solutions. Think of workflows as the "batteries included" layer and primitives as the foundation you can build on.
 
 Workflows in this project are exported with the `"use workflow"` directive, which makes them compatible with [Workflow DevKit](https://useworkflow.dev). See "Compatability with Workflow DevKit" in the [README](./README.md) for details.
