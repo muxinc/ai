@@ -84,6 +84,7 @@
     "example:burned-in": "npx tsx examples/burned-in-captions/basic-example.ts",
     "example:burned-in:compare": "npx tsx examples/burned-in-captions/provider-comparison.ts",
     "example:summarization": "npx tsx examples/summarization/basic-example.ts",
+    "example:summarization:audio-only": "npx tsx examples/summarization/audio-only-example.ts",
     "example:summarization:compare": "npx tsx examples/summarization/provider-comparison.ts",
     "example:signed-playback": "npx tsx examples/signed-playback/signed-playback.ts",
     "example:signed-playback:summarization": "npx tsx examples/signed-playback/signed-summarization.ts",
