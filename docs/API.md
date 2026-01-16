@@ -44,17 +44,21 @@ interface SummaryAndTagsResult {
 
 ## `getModerationScores(assetId, options?)`
 
-Analyzes video thumbnails for inappropriate content using OpenAI's Moderation API or Hive's visual moderation API.
+Analyzes a Mux asset for inappropriate content using OpenAI's Moderation API or Hive's Moderation API.
+
+- For **video assets**, this moderates **storyboard thumbnails** (image moderation).
+- For **audio-only assets**, this moderates the **underlying transcript text** (text moderation).
 
 **Parameters:**
 
-- `assetId` (string) - Mux video asset ID
+- `assetId` (string) - Mux asset ID (video or audio-only)
 - `options` (optional) - Configuration options
 
 **Options:**
 
 - `provider?: 'openai' | 'hive'` - Moderation provider (default: 'openai')
 - `model?: string` - OpenAI moderation model to use (default: `omni-moderation-latest`)
+- `languageCode?: string` - Transcript language code when moderating audio-only assets (optional)
 - `thresholds?: { sexual?: number; violence?: number }` - Custom thresholds (default: {sexual: 0.7, violence: 0.8})
 - `thumbnailInterval?: number` - Seconds between thumbnails for long videos (default: 10)
 - `thumbnailWidth?: number` - Thumbnail width in pixels (default: 640)
@@ -69,18 +73,22 @@ Analyzes video thumbnails for inappropriate content using OpenAI's Moderation AP
 
 Credentials (`MUX_TOKEN_ID`, `MUX_TOKEN_SECRET`, `OPENAI_API_KEY`, `HIVE_API_KEY`) are read from environment variables by default. For Workflow Dev Kit multi-tenant usage, pass encrypted `credentials` in options (see README).
 
+**Hive note (audio-only):** transcript moderation submits `text_data` and requires a Hive **Text Moderation** project/API key. If you use a Visual Moderation key, Hive will reject the request (see [Hive Text Moderation docs](https://docs.thehive.ai/docs/classification-text)).
+
 **Returns:**
 
 ```typescript
 {
   assetId: string;
+  mode: 'thumbnails' | 'transcript';
+  isAudioOnly: boolean;
   thumbnailScores: Array<{ // Individual thumbnail results
     url: string;
     sexual: number; // 0-1 score
     violence: number; // 0-1 score
     error: boolean;
   }>;
-  maxScores: { // Highest scores across all thumbnails
+  maxScores: { // Highest scores across all thumbnails (or transcript chunks for audio-only)
     sexual: number;
     violence: number;
   };
@@ -139,7 +147,7 @@ Translates existing captions from one language to another and optionally adds th
 
 **Parameters:**
 
-- `assetId` (string) - Mux video asset ID
+- `assetId` (string) - Mux asset ID (video or audio-only)
 - `fromLanguageCode` (string) - Source language code (e.g., 'en', 'es', 'fr')
 - `toLanguageCode` (string) - Target language code (e.g., 'es', 'fr', 'de')
 - `options` (optional) - Configuration options
@@ -172,7 +180,7 @@ All ISO 639-1 language codes are automatically supported using `Intl.DisplayName
 
 ## `generateChapters(assetId, languageCode, options?)`
 
-Generates AI-powered chapter markers by analyzing video captions. Creates logical chapter breaks based on topic changes and content transitions.
+Generates AI-powered chapter markers by analyzing video or audio transcripts. Creates logical chapter breaks based on topic changes and content transitions.
 
 **Parameters:**
 
@@ -200,9 +208,8 @@ Generates AI-powered chapter markers by analyzing video captions. Creates logica
 
 **Requirements:**
 
-- Asset must have caption track in the specified language
-- Caption track must be in 'ready' status
-- Uses existing auto-generated or uploaded captions
+- Asset must have a ready caption/transcript track in the specified language
+- Uses existing auto-generated or uploaded captions/transcripts
 
 **Example Output:**
 
@@ -217,11 +224,11 @@ player.addChapters([
 
 ## `translateAudio(assetId, toLanguageCode, options?)`
 
-Creates AI-dubbed audio tracks from existing video content using ElevenLabs voice cloning and translation. Uses the default audio track on your asset, language is auto-detected.
+Creates AI-dubbed audio tracks from existing media content using ElevenLabs voice cloning and translation. Uses the default audio track on your asset, language is auto-detected.
 
 **Parameters:**
 
-- `assetId` (string) - Mux video asset ID (must have audio.m4a static rendition)
+- `assetId` (string) - Mux asset ID (video or audio-only; must have audio.m4a static rendition)
 - `toLanguageCode` (string) - Target language code (e.g., 'es', 'fr', 'de')
 - `options` (optional) - Configuration options
 
@@ -255,13 +262,16 @@ interface TranslateAudioResult {
 **Supported Languages:**
 ElevenLabs supports 32+ languages with automatic language name detection via `Intl.DisplayNames`. Supported languages include English, Spanish, French, German, Italian, Portuguese, Polish, Japanese, Korean, Chinese, Russian, Arabic, Hindi, Thai, and many more. Track names are automatically generated (e.g., "Polish (auto-dubbed)").
 
-## `generateVideoEmbeddings(assetId, options?)`
+## `generateEmbeddings(assetId, options?)`
 
-Generate vector embeddings for video transcript chunks for semantic video search.
+Generate vector embeddings for transcript chunks from video or audio assets for semantic search.
+
+**Deprecated:**
+`generateVideoEmbeddings` is deprecated. Use `generateEmbeddings` instead.
 
 **Parameters:**
 
-- `assetId` (string) - Mux video asset ID
+- `assetId` (string) - Mux asset ID
 - `options` (optional) - Configuration options
 
 **Options:**
@@ -280,18 +290,25 @@ Generate vector embeddings for video transcript chunks for semantic video search
 ```typescript
 {
   assetId: string;
-  languageCode: string;
   chunks: Array<{
-    chunkId: number;
-    text: string;
+    chunkId: string;
     embedding: number[]; // Vector embedding
     metadata: {
-      startTime: number; // Chunk start time in seconds
-      endTime: number; // Chunk end time in seconds
+      startTime?: number; // Chunk start time in seconds
+      endTime?: number; // Chunk end time in seconds
       tokenCount: number;
     };
   }>;
-  averagedEmbedding: number[]; // Single embedding for entire video
+  averagedEmbedding: number[]; // Single embedding for entire transcript
+  provider: string;
+  model: string;
+  metadata: {
+    totalChunks: number;
+    totalTokens: number;
+    chunkingStrategy: string;
+    embeddingDimensions: number;
+    generatedAt: string;
+  };
 }
 ```
 

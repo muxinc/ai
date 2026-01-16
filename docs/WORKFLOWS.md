@@ -6,6 +6,8 @@ Detailed documentation for each pre-built workflow.
 
 Workflows are production-ready functions that orchestrate complete video AI tasks from start to finish. Each workflow handles the entire process: fetching video data from Mux (transcripts, storyboards, thumbnails), formatting it appropriately for AI providers, making the AI call with optimized prompts, and returning structured, typed results.
 
+For audio-only assets (no video track), see [Audio-Only Workflows](./AUDIO-ONLY.md).
+
 Internally, every workflow is composed from [primitives](./PRIMITIVES.md) - the low-level building blocks that provide direct access to Mux video data. This layered architecture means you can start with workflows for common tasks, and when you need more control, drop down to primitives to build custom solutions. Think of workflows as the "batteries included" layer and primitives as the foundation you can build on.
 
 Workflows in this project are exported with the `"use workflow"` directive, which makes them compatible with [Workflow DevKit](https://useworkflow.dev). See "Compatability with Workflow DevKit" in the [README](./README.md) for details.
@@ -79,7 +81,10 @@ See [API Reference](./API.md#custom-prompts-with-promptoverrides) for more examp
 
 ## Content Moderation
 
-Analyze video content for inappropriate material using OpenAI or Hive.
+Analyze a Mux asset for inappropriate material using OpenAI or Hive.
+
+- For **video assets**, moderation runs over storyboard thumbnails.
+- For **audio-only assets**, moderation runs over transcript text.
 
 ```typescript
 import { getModerationScores } from "@mux/ai/workflows";
@@ -89,7 +94,7 @@ const result = await getModerationScores("your-mux-asset-id", {
   thresholds: { sexual: 0.7, violence: 0.8 }
 });
 
-console.log(result.maxScores); // Highest scores across all thumbnails
+console.log(result.maxScores); // Highest scores across all thumbnails (or transcript for audio-only)
 console.log(result.exceedsThreshold); // true if content should be flagged
 
 // Use Hive for visual moderation
@@ -102,7 +107,7 @@ const hiveResult = await getModerationScores("your-mux-asset-id", {
 ### Provider Comparison
 
 - **OpenAI**: Uses the `omni-moderation-latest` model with dedicated moderation API
-- **Hive**: Specialized visual moderation API with different scoring algorithms
+- **Hive**: Visual moderation by default; audio-only/text moderation requires a Hive **Text Moderation** project/API key (otherwise Hive will reject `text_data`) — see [Hive Text Moderation docs](https://docs.thehive.ai/docs/classification-text)
 
 ## Burned-in Caption Detection
 
@@ -130,7 +135,7 @@ console.log(result.detectedLanguage); // Language if captions detected
 
 ## Chapter Generation
 
-Generate AI-powered chapter markers from video captions.
+Generate AI-powered chapter markers from video or audio transcripts.
 
 ```typescript
 import { generateChapters } from "@mux/ai/workflows";
@@ -148,19 +153,18 @@ player.addChapters(result.chapters);
 
 ### Requirements
 
-- Asset must have caption track in the specified language
-- Caption track must be in 'ready' status
-- Uses existing auto-generated or uploaded captions
+- Asset must have a ready caption/transcript track in the specified language
+- Uses existing auto-generated or uploaded captions/transcripts
 
-## Video Embeddings
+## Embeddings
 
-Generate vector embeddings for semantic video search.
+Generate vector embeddings for semantic search over video or audio transcripts.
 
 ```typescript
-import { generateVideoEmbeddings } from "@mux/ai/workflows";
+import { generateEmbeddings } from "@mux/ai/workflows";
 
 // Token-based chunking
-const result = await generateVideoEmbeddings("your-mux-asset-id", {
+const result = await generateEmbeddings("your-mux-asset-id", {
   provider: "openai",
   chunkingStrategy: {
     type: "token",
@@ -170,7 +174,7 @@ const result = await generateVideoEmbeddings("your-mux-asset-id", {
 });
 
 console.log(result.chunks); // Array of chunk embeddings with timestamps
-console.log(result.averagedEmbedding); // Single embedding for entire video
+console.log(result.averagedEmbedding); // Single embedding for entire transcript
 
 // Store chunks in vector database for timestamp-accurate search
 for (const chunk of result.chunks) {
@@ -199,7 +203,7 @@ for (const chunk of result.chunks) {
 
 ```typescript
 // VTT-based chunking
-const vttResult = await generateVideoEmbeddings("your-mux-asset-id", {
+const vttResult = await generateEmbeddings("your-mux-asset-id", {
   provider: "google",
   chunkingStrategy: {
     type: "vtt",
@@ -211,7 +215,7 @@ const vttResult = await generateVideoEmbeddings("your-mux-asset-id", {
 
 ## Caption Translation
 
-Translate existing captions to different languages and add as new tracks.
+Translate existing captions to different languages and add as new tracks (video or audio-only assets).
 
 ```typescript
 import { translateCaptions } from "@mux/ai/workflows";
@@ -288,7 +292,7 @@ All ISO 639-1 language codes are automatically supported using `Intl.DisplayName
 
 ## Audio Dubbing
 
-Create AI-dubbed audio tracks using ElevenLabs voice cloning.
+Create AI-dubbed audio tracks using ElevenLabs voice cloning (video or audio-only assets).
 
 ```typescript
 import { translateAudio } from "@mux/ai/workflows";

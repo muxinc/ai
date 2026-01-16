@@ -5,6 +5,7 @@
   "description": "Examples for @mux/ai summarization functionality",
   "scripts": {
     "basic": "ts-node basic-example.ts",
+    "audio-only": "ts-node audio-only-example.ts",
     "tones": "ts-node tone-variations.ts",
     "custom": "ts-node custom-prompt-example.ts",
     "anthropic": "ts-node anthropic-example.ts",

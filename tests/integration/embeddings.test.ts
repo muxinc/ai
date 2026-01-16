@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { generateVideoEmbeddings } from "../../src/workflows";
+import { generateEmbeddings } from "../../src/workflows";
 import { muxTestAssets } from "../helpers/mux-test-assets";
 
 describe("embeddings Integration Tests", () => {
   const assetId = muxTestAssets.assetId;
+  const audioOnlyAssetId = muxTestAssets.audioOnlyAssetId;
 
   it("should generate embeddings with OpenAI provider", async () => {
-    const result = await generateVideoEmbeddings(assetId, {
+    const result = await generateEmbeddings(assetId, {
       provider: "openai",
       chunkingStrategy: { type: "token", maxTokens: 500, overlap: 100 },
     });
@@ -65,7 +66,7 @@ describe("embeddings Integration Tests", () => {
   });
 
   it("should generate embeddings with custom chunking strategy", async () => {
-    const result = await generateVideoEmbeddings(assetId, {
+    const result = await generateEmbeddings(assetId, {
       provider: "openai",
       chunkingStrategy: { type: "token", maxTokens: 300, overlap: 50 },
     });
@@ -80,13 +81,24 @@ describe("embeddings Integration Tests", () => {
   });
 
   it("should always generate averaged embedding", async () => {
-    const result = await generateVideoEmbeddings(assetId, {
+    const result = await generateEmbeddings(assetId, {
       provider: "openai",
     });
 
     expect(result).toBeDefined();
     expect(result.chunks.length).toBeGreaterThan(0);
     expect(result.averagedEmbedding.length).toBeGreaterThan(0);
+    expect(result.averagedEmbedding.length).toBe(result.chunks[0].embedding.length);
+  });
+
+  it("should generate embeddings for audio-only assets", async () => {
+    const result = await generateEmbeddings(audioOnlyAssetId, {
+      provider: "openai",
+    });
+
+    expect(result).toBeDefined();
+    expect(result.assetId).toBe(audioOnlyAssetId);
+    expect(result.chunks.length).toBeGreaterThan(0);
     expect(result.averagedEmbedding.length).toBe(result.chunks[0].embedding.length);
   });
 });

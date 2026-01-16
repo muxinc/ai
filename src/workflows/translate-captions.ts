@@ -6,10 +6,11 @@ import env from "@mux/ai/env";
 import { getMuxCredentialsFromEnv } from "@mux/ai/lib/client-factory";
 import { getLanguageCodePair, getLanguageName } from "@mux/ai/lib/language-codes";
 import type { LanguageCodePair, SupportedISO639_1 } from "@mux/ai/lib/language-codes";
-import { getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
+import { getPlaybackIdForAsset, isAudioOnlyAsset } from "@mux/ai/lib/mux-assets";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
-import { buildTranscriptUrl } from "@mux/ai/primitives/transcripts";
+import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
+import { buildTranscriptUrl, getReadyTextTracks } from "@mux/ai/primitives/transcripts";
 import type { MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "@mux/ai/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -259,20 +260,51 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
 
   // Fetch asset data and playback ID from Mux
   const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
+  const isAudioOnly = isAudioOnlyAsset(assetData);
 
-  // Find text track with the source language
-  if (!assetData.tracks) {
-    throw new Error("No tracks found for this asset");
+  // Resolve signing context for signed playback IDs
+  const signingContext = await resolveMuxSigningContext(credentials);
+  if (policy === "signed" && !signingContext) {
+    throw new Error(
+      "Signed playback ID requires signing credentials. " +
+      "Provide muxSigningKey and muxPrivateKey in options or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
+    );
   }
 
-  const sourceTextTrack = assetData.tracks.find(track =>
-    track.type === "text" &&
-    track.status === "ready" &&
+  // Find text track with the source language
+  const readyTextTracks = getReadyTextTracks(assetData);
+  if (!readyTextTracks.length) {
+    throw new Error("No ready text tracks found for this asset");
+  }
+
+  let sourceTextTrack = readyTextTracks.find(track =>
+    track.text_type === "subtitles" &&
     track.language_code === fromLanguageCode,
   );
 
-  if (!sourceTextTrack?.id) {
-    throw new Error(`No ready text track found with language code '${fromLanguageCode}' for this asset`);
+  if (!sourceTextTrack && isAudioOnly && readyTextTracks.length === 1) {
+    sourceTextTrack = readyTextTracks[0];
+  }
+
+  if (!sourceTextTrack) {
+    const availableLanguages = readyTextTracks
+      .map(t => t.language_code)
+      .filter(Boolean)
+      .join(", ");
+    if (isAudioOnly) {
+      throw new Error(
+        `No transcript track found with language code '${fromLanguageCode}' for this asset. ` +
+        `Audio-only assets require a transcript. Available languages: ${availableLanguages || "none"}`,
+      );
+    }
+    throw new Error(
+      `No ready text track found with language code '${fromLanguageCode}' for this asset. ` +
+      `Available languages: ${availableLanguages || "none"}`,
+    );
+  }
+
+  if (!sourceTextTrack.id) {
+    throw new Error("Transcript track is missing an id");
   }
 
   // Fetch the VTT file content (signed if needed)

@@ -1,6 +1,7 @@
 # Examples
 
 See the `examples/` directory for complete working examples.
+For audio-only support details, see [Audio-Only Workflows](./AUDIO-ONLY.md).
 
 ## Prerequisites
 

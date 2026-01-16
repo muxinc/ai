@@ -8,7 +8,7 @@
 `@mux/ai` does this by providing:
 
 Easy to use, purpose-driven, cost effective, configurable **_workflow functions_** that integrate with a variety of popular AI/LLM providers (OpenAI, Anthropic, Google).
-- **Examples:** [`getSummaryAndTags`](#video-summarization), [`getModerationScores`](#content-moderation), [`hasBurnedInCaptions`](#burned-in-caption-detection), [`generateChapters`](#chapter-generation), [`generateVideoEmbeddings`](#video-search-with-embeddings), [`translateCaptions`](#caption-translation), [`translateAudio`](#audio-dubbing)
+- **Examples:** [`getSummaryAndTags`](#video-summarization), [`getModerationScores`](#content-moderation), [`hasBurnedInCaptions`](#burned-in-caption-detection), [`generateChapters`](#chapter-generation), [`generateEmbeddings`](#search-with-embeddings), [`translateCaptions`](#caption-translation), [`translateAudio`](#audio-dubbing)
 - Workflows automatically ship with `"use workflow"` [compatability with Workflow DevKit](#compatability-with-workflow-devkit)
 
 Convenient, parameterized, commonly needed **_primitive functions_** backed by [Mux Video](https://www.mux.com/video-api) for building your own media-based AI workflows and integrations.
@@ -86,10 +86,10 @@ S3_SECRET_ACCESS_KEY=your-secret-key
 | [`getSummaryAndTags`](./docs/WORKFLOWS.md#video-summarization)<br/>[API](./docs/API.md#getsummaryandtagsassetid-options) · [Source](./src/workflows/summarization.ts) | Generate titles, descriptions, and tags for an asset              | OpenAI, Anthropic, Google | `gpt-5.1` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google) | Video (required), Captions (optional) | None |
 | [`getModerationScores`](./docs/WORKFLOWS.md#content-moderation)<br/>[API](./docs/API.md#getmoderationscoresassetid-options) · [Source](./src/workflows/moderation.ts) | Detect inappropriate (sexual or violent) content in an asset      | OpenAI, Hive              | `omni-moderation-latest` (OpenAI) or Hive visual moderation task   | Video (required) | None |
 | [`hasBurnedInCaptions`](./docs/WORKFLOWS.md#burned-in-caption-detection)<br/>[API](./docs/API.md#hasburnedincaptionsassetid-options) · [Source](./src/workflows/burned-in-captions.ts) | Detect burned-in captions (hardcoded subtitles) in an asset       | OpenAI, Anthropic, Google | `gpt-5.1` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google) | Video (required) | None |
-| [`generateChapters`](./docs/WORKFLOWS.md#chapter-generation)<br/>[API](./docs/API.md#generatechaptersassetid-languagecode-options) · [Source](./src/workflows/chapters.ts) | Generate chapter markers for an asset using the transcript        | OpenAI, Anthropic, Google | `gpt-5.1` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google) | Video (required), Captions (required) | None |
-| [`generateVideoEmbeddings`](./docs/WORKFLOWS.md#video-embeddings)<br/>[API](./docs/API.md#generatevideoembeddingsassetid-options) · [Source](./src/workflows/embeddings.ts) | Generate vector embeddings for an asset's transcript chunks       | OpenAI, Google            | `text-embedding-3-small` (OpenAI), `gemini-embedding-001` (Google) | Video (required), Captions (required) | None |
-| [`translateCaptions`](./docs/WORKFLOWS.md#caption-translation)<br/>[API](./docs/API.md#translatecaptionsassetid-fromlanguagecode-tolanguagecode-options) · [Source](./src/workflows/translate-captions.ts) | Translate an asset's captions into different languages            | OpenAI, Anthropic, Google | `gpt-5.1` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google) | Video (required), Captions (required) | AWS S3 (if `uploadToMux=true`) |
-| [`translateAudio`](./docs/WORKFLOWS.md#audio-dubbing)<br/>[API](./docs/API.md#translateaudioassetid-tolanguagecode-options) · [Source](./src/workflows/translate-audio.ts) | Create AI-dubbed audio tracks in different languages for an asset | ElevenLabs only           | ElevenLabs Dubbing API                                             | Video (required), Audio (required) | AWS S3 (if `uploadToMux=true`) |
+| [`generateChapters`](./docs/WORKFLOWS.md#chapter-generation)<br/>[API](./docs/API.md#generatechaptersassetid-languagecode-options) · [Source](./src/workflows/chapters.ts) | Generate chapter markers for an asset using the transcript        | OpenAI, Anthropic, Google | `gpt-5.1` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google) | Video or audio-only, Captions/Transcripts (required) | None |
+| [`generateEmbeddings`](./docs/WORKFLOWS.md#embeddings)<br/>[API](./docs/API.md#generateembeddingsassetid-options) · [Source](./src/workflows/embeddings.ts) | Generate vector embeddings for an asset's transcript chunks       | OpenAI, Google            | `text-embedding-3-small` (OpenAI), `gemini-embedding-001` (Google) | Video or audio-only, Captions/Transcripts (required) | None |
+| [`translateCaptions`](./docs/WORKFLOWS.md#caption-translation)<br/>[API](./docs/API.md#translatecaptionsassetid-fromlanguagecode-tolanguagecode-options) · [Source](./src/workflows/translate-captions.ts) | Translate an asset's captions into different languages            | OpenAI, Anthropic, Google | `gpt-5.1` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google) | Video or audio-only, Captions/Transcripts (required) | AWS S3 (if `uploadToMux=true`) |
+| [`translateAudio`](./docs/WORKFLOWS.md#audio-dubbing)<br/>[API](./docs/API.md#translateaudioassetid-tolanguagecode-options) · [Source](./src/workflows/translate-audio.ts) | Create AI-dubbed audio tracks in different languages for an asset | ElevenLabs only           | ElevenLabs Dubbing API                                             | Video or audio-only, Audio (required) | AWS S3 (if `uploadToMux=true`) |
 
 ## Compatability with Workflow DevKit
 
@@ -217,7 +217,7 @@ console.log(result.tags);         // ["typescript", "tutorial", "programming"]
 
 ### Content Moderation
 
-Automatically detect inappropriate content in videos:
+Automatically detect inappropriate content in videos (or audio-only assets with transcripts):
 
 ```typescript
 import { getModerationScores } from "@mux/ai/workflows";
@@ -253,14 +253,14 @@ player.addChapters(result.chapters);
 // ]
 ```
 
-### Video Search with Embeddings
+### Search with Embeddings
 
-Generate embeddings for semantic video search:
+Generate embeddings for semantic search over transcripts:
 
 ```typescript
-import { generateVideoEmbeddings } from "@mux/ai/workflows";
+import { generateEmbeddings } from "@mux/ai/workflows";
 
-const result = await generateVideoEmbeddings("your-asset-id", {
+const result = await generateEmbeddings("your-asset-id", {
   provider: "openai",
   languageCode: "en",
   chunkingStrategy: {
@@ -379,7 +379,7 @@ Different workflows support various AI providers. You only need to configure API
 
 ### OpenAI
 
-**Used by:** `getSummaryAndTags`, `getModerationScores`, `hasBurnedInCaptions`, `generateChapters`, `generateVideoEmbeddings`, `translateCaptions`
+**Used by:** `getSummaryAndTags`, `getModerationScores`, `hasBurnedInCaptions`, `generateChapters`, `generateEmbeddings`, `translateCaptions`
 
 **Get your API key:** [OpenAI API Keys](https://platform.openai.com/api-keys)
 
@@ -399,7 +399,7 @@ ANTHROPIC_API_KEY=your_anthropic_api_key
 
 ### Google Generative AI
 
-**Used by:** `getSummaryAndTags`, `hasBurnedInCaptions`, `generateChapters`, `generateVideoEmbeddings`, `translateCaptions`
+**Used by:** `getSummaryAndTags`, `hasBurnedInCaptions`, `generateChapters`, `generateEmbeddings`, `translateCaptions`
 
 **Get your API key:** [Google AI Studio](https://aistudio.google.com/app/apikey)
 

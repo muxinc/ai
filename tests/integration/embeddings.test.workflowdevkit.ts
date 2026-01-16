@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { start } from "workflow/api";
 
 import type { SupportedEmbeddingProvider } from "../../src/lib/providers";
-import { generateVideoEmbeddings } from "../../src/workflows";
+import { generateEmbeddings } from "../../src/workflows";
 import { muxTestAssets } from "../helpers/mux-test-assets";
 
 describe("Embeddings Integration Tests for Workflow DevKit", () => {
@@ -10,7 +10,7 @@ describe("Embeddings Integration Tests for Workflow DevKit", () => {
   const providers: SupportedEmbeddingProvider[] = ["openai", "google"];
 
   it.each(providers)("should generate embeddings with %s provider", async (provider) => {
-    const run = await start(generateVideoEmbeddings, [assetId, {
+    const run = await start(generateEmbeddings, [assetId, {
       provider,
       chunkingStrategy: { type: "token", maxTokens: 500, overlap: 100 },
     }]);

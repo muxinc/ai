@@ -38,6 +38,20 @@ Features:
 - Includes transcript data when available
 - Shows summary, tags, and storyboard URL
 
+### Audio-Only Example (`audio-only-example.ts`)
+
+Runs summarization on an audio-only asset using the `MUX_TEST_ASSET_ID_AUDIO_ONLY` env var by default:
+
+```bash
+npm run audio-only
+```
+
+Optionally pass a specific audio-only asset ID:
+
+```bash
+npm run audio-only <your-audio-only-asset-id>
+```
+
 ### Tone Variations (`tone-variations.ts`)
 
 Shows how different tone settings affect the analysis output using the default prompt:
