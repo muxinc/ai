@@ -221,7 +221,7 @@ export async function createEmbeddingModelFromConfig<
   provider: P,
   modelId: EmbeddingModelIdByProvider[P],
   credentials?: WorkflowCredentialsInput,
-): Promise<EmbeddingModel<string>> {
+): Promise<EmbeddingModel> {
   switch (provider) {
     case "openai": {
       const apiKey = await resolveProviderApiKey("openai", credentials);
@@ -301,7 +301,7 @@ export function resolveLanguageModel<P extends SupportedProvider = SupportedProv
  */
 export function resolveEmbeddingModel<P extends SupportedEmbeddingProvider = "openai">(
   options: MuxAIOptions & { provider?: P; model?: EmbeddingModelIdByProvider[P] } = {},
-): { provider: P; modelId: EmbeddingModelIdByProvider[P]; model: EmbeddingModel<string> } {
+): { provider: P; modelId: EmbeddingModelIdByProvider[P]; model: EmbeddingModel } {
   const provider = options.provider || ("openai" as P);
   const modelId = (options.model || DEFAULT_EMBEDDING_MODELS[provider]) as EmbeddingModelIdByProvider[P];
 
