@@ -154,4 +154,100 @@ describe("moderation Integration Tests", () => {
       expect(result.maxScores.violence).toBeGreaterThan(VIOLENCE_THRESHOLD);
     });
   });
+
+  describe("maxSamples option", () => {
+    it("should limit thumbnail count when maxSamples is set", async () => {
+      const result = await getModerationScores(safeAsset, {
+        provider: "openai",
+        model: "omni-moderation-latest",
+        maxSamples: 5,
+      });
+
+      expect(result).toBeDefined();
+      expect(result.assetId).toBe(safeAsset);
+      expect(result.thumbnailScores.length).toBe(5);
+
+      // Verify structure is still correct
+      expect(result).toHaveProperty("maxScores");
+      expect(result).toHaveProperty("exceedsThreshold");
+      expect(typeof result.maxScores.violence).toBe("number");
+      expect(typeof result.maxScores.sexual).toBe("number");
+    });
+
+    it("should still detect violent content with reduced samples", async () => {
+      const result = await getModerationScores(violentAsset, {
+        provider: "openai",
+        model: "omni-moderation-latest",
+        maxSamples: 5,
+      });
+
+      expect(result).toBeDefined();
+      expect(result.assetId).toBe(violentAsset);
+      expect(result.thumbnailScores.length).toBe(5);
+
+      // Should still detect violent content even with fewer samples
+      expect(result.maxScores.violence).toBeGreaterThan(VIOLENCE_THRESHOLD);
+      expect(result.maxScores.sexual).toBeLessThan(SEXUAL_THRESHOLD);
+    });
+
+    it("should work with very small maxSamples", async () => {
+      const result = await getModerationScores(safeAsset, {
+        provider: "openai",
+        model: "omni-moderation-latest",
+        maxSamples: 2,
+      });
+
+      expect(result).toBeDefined();
+      expect(result.thumbnailScores.length).toBe(2);
+      expect(result.thumbnailScores.filter(s => !s.error).length).toBeGreaterThan(0);
+
+      // Verify scores are valid
+      expect(result.maxScores.violence).toBeGreaterThanOrEqual(0);
+      expect(result.maxScores.sexual).toBeGreaterThanOrEqual(0);
+    });
+
+    it("should work with maxSamples and hive provider", async () => {
+      const result = await getModerationScores(safeAsset, {
+        provider: "hive",
+        maxSamples: 5,
+      });
+
+      expect(result).toBeDefined();
+      expect(result.assetId).toBe(safeAsset);
+      expect(result.thumbnailScores.length).toBe(5);
+
+      // Verify moderation still works correctly
+      expect(result.maxScores.violence).toBeLessThan(VIOLENCE_THRESHOLD);
+      expect(result.maxScores.sexual).toBeLessThan(SEXUAL_THRESHOLD);
+    });
+
+    it("should not affect behavior when maxSamples is very large", async () => {
+      const resultUnlimited = await getModerationScores(safeAsset, {
+        provider: "openai",
+        model: "omni-moderation-latest",
+      });
+
+      const resultWithLargeMax = await getModerationScores(safeAsset, {
+        provider: "openai",
+        model: "omni-moderation-latest",
+        maxSamples: 1000,
+      });
+
+      // Should generate the same number of thumbnails
+      expect(resultWithLargeMax.thumbnailScores.length).toBe(resultUnlimited.thumbnailScores.length);
+    });
+
+    it("should combine maxSamples with custom thumbnail interval", async () => {
+      const result = await getModerationScores(safeAsset, {
+        provider: "openai",
+        model: "omni-moderation-latest",
+        thumbnailInterval: 5,
+        maxSamples: 3,
+      });
+
+      expect(result).toBeDefined();
+      // maxSamples should override the interval-based count
+      expect(result.thumbnailScores.length).toBe(3);
+    });
+  });
 });
