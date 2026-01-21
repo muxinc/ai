@@ -8,6 +8,8 @@ export interface ThumbnailOptions {
   width?: number;
   /** Flag for whether or not to use signed playback IDs (default: false) */
   shouldSign?: boolean;
+  /** Maximum number of thumbnails to generate. When set, samples are evenly distributed with first and last frames pinned. */
+  maxSamples?: number;
   /** Workflow credentials for signing (optional). */
   credentials?: WorkflowCredentialsInput;
 }
@@ -27,8 +29,8 @@ export async function getThumbnailUrls(
   options: ThumbnailOptions = {},
 ): Promise<string[]> {
   "use step";
-  const { interval = 10, width = 640, shouldSign = false, credentials } = options;
-  const timestamps: number[] = [];
+  const { interval = 10, width = 640, shouldSign = false, maxSamples, credentials } = options;
+  let timestamps: number[] = [];
 
   if (duration <= 50) {
     const spacing = duration / 6;
@@ -39,6 +41,26 @@ export async function getThumbnailUrls(
     for (let time = 0; time < duration; time += interval) {
       timestamps.push(time);
     }
+  }
+
+  // Apply maxSamples cap if specified and we have more timestamps than the limit
+  if (maxSamples !== undefined && timestamps.length > maxSamples) {
+    const newTimestamps: number[] = [];
+
+    // Always include first frame
+    newTimestamps.push(0);
+
+    // If maxSamples >= 2, add evenly distributed middle frames and last frame
+    if (maxSamples >= 2) {
+      const spacing = duration / (maxSamples - 1);
+      for (let i = 1; i < maxSamples - 1; i++) {
+        newTimestamps.push(spacing * i);
+      }
+      // Always include last frame
+      newTimestamps.push(duration);
+    }
+
+    timestamps = newTimestamps;
   }
 
   const baseUrl = `https://image.mux.com/${playbackId}/thumbnail.png`;

@@ -175,6 +175,28 @@ describe("signed Playback Integration Tests", () => {
           expect(url).not.toContain("token=");
         });
       });
+
+      it.skipIf(!canRunSignedTests)("should work with maxSamples on signed URLs", async () => {
+        const urls = await getThumbnailUrls(playbackId, 100, {
+          interval: 10,
+          width: 640,
+          shouldSign: true,
+          maxSamples: 5,
+        });
+
+        // Should be capped at 5 thumbnails
+        expect(urls.length).toBe(5);
+
+        // All URLs should be signed
+        urls.forEach((url) => {
+          expect(url).toContain(`https://image.mux.com/${playbackId}/thumbnail.png`);
+          expect(url).toContain("token=");
+        });
+
+        // Verify the first URL is accessible
+        const response = await fetch(urls[0], { method: "HEAD" });
+        expect(response.ok).toBe(true);
+      });
     });
 
     describe("buildTranscriptUrl", () => {
