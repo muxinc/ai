@@ -172,7 +172,7 @@ describe("getThumbnailUrls", () => {
     });
   });
 
-  describe("uRL formatting", () => {
+  describe("formatting of URLs", () => {
     it("should include width parameter", async () => {
       const duration = 30;
       const urls = await getThumbnailUrls(testPlaybackId, duration, {
