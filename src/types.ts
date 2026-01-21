@@ -9,12 +9,6 @@ export interface MuxAIOptions {
   /** Optional timeout (ms) for helper utilities that support request limits. */
   timeout?: number;
   /**
-   * Optional cancellation signal passed through to underlying AI SDK calls.
-   * When aborted, in-flight model requests will be
-   * cancelled where supported.
-   */
-  abortSignal?: AbortSignal;
-  /**
    * Optional credentials for workflow execution.
    * Use encryptForWorkflow when running in Workflow Dev Kit environments.
    */

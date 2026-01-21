@@ -1,4 +1,4 @@
-import { generateObject } from "ai";
+import { generateText, Output } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
@@ -78,7 +78,7 @@ export interface BurnedInCaptionsOptions extends MuxAIOptions {
 /** Schema used to validate burned-in captions analysis responses. */
 export const burnedInCaptionsSchema = z.object({
   hasBurnedInCaptions: z.boolean(),
-  confidence: z.number().min(0).max(1),
+  confidence: z.number(),
   detectedLanguage: z.string().nullable(),
 });
 
@@ -217,9 +217,9 @@ async function analyzeStoryboard({
 
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
 
-  const response = await generateObject({
+  const response = await generateText({
     model,
-    schema: burnedInCaptionsSchema,
+    output: Output.object({ schema: burnedInCaptionsSchema }),
     experimental_telemetry: { isEnabled: true },
     messages: [
       {
@@ -237,13 +237,16 @@ async function analyzeStoryboard({
   });
 
   return {
-    result: response.object,
+    result: {
+      ...response.output,
+      confidence: Math.min(1, Math.max(0, response.output.confidence)),
+    },
     usage: {
       inputTokens: response.usage.inputTokens,
       outputTokens: response.usage.outputTokens,
       totalTokens: response.usage.totalTokens,
-      reasoningTokens: response.usage.reasoningTokens,
-      cachedInputTokens: response.usage.cachedInputTokens,
+      reasoningTokens: response.usage.outputTokenDetails.reasoningTokens,
+      cachedInputTokens: response.usage.inputTokenDetails.cacheReadTokens,
     },
   };
 }

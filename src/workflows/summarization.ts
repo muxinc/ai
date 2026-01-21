@@ -488,7 +488,6 @@ export async function getSummaryAndTags(
     cleanTranscript = true,
     imageSubmissionMode = "url",
     imageDownloadOptions,
-    abortSignal: _abortSignal,
     promptOverrides,
     credentials,
   } = options ?? {};
