@@ -1,4 +1,4 @@
-import { generateObject } from "ai";
+import { generateText, Output } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
@@ -378,9 +378,9 @@ async function analyzeStoryboard(
   "use step";
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
 
-  const response = await generateObject({
+  const response = await generateText({
     model,
-    schema: summarySchema,
+    output: Output.object({ schema: summarySchema }),
     messages: [
       {
         role: "system",
@@ -397,13 +397,13 @@ async function analyzeStoryboard(
   });
 
   return {
-    result: response.object,
+    result: response.output,
     usage: {
       inputTokens: response.usage.inputTokens,
       outputTokens: response.usage.outputTokens,
       totalTokens: response.usage.totalTokens,
-      reasoningTokens: response.usage.reasoningTokens,
-      cachedInputTokens: response.usage.cachedInputTokens,
+      reasoningTokens: response.usage.outputTokenDetails.reasoningTokens,
+      cachedInputTokens: response.usage.inputTokenDetails.cacheReadTokens,
     },
   };
 }
@@ -418,9 +418,9 @@ async function analyzeAudioOnly(
   "use step";
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
 
-  const response = await generateObject({
+  const response = await generateText({
     model,
-    schema: summarySchema,
+    output: Output.object({ schema: summarySchema }),
     messages: [
       {
         role: "system",
@@ -434,13 +434,13 @@ async function analyzeAudioOnly(
   });
 
   return {
-    result: response.object,
+    result: response.output,
     usage: {
       inputTokens: response.usage.inputTokens,
       outputTokens: response.usage.outputTokens,
       totalTokens: response.usage.totalTokens,
-      reasoningTokens: response.usage.reasoningTokens,
-      cachedInputTokens: response.usage.cachedInputTokens,
+      reasoningTokens: response.usage.outputTokenDetails.reasoningTokens,
+      cachedInputTokens: response.usage.inputTokenDetails.cacheReadTokens,
     },
   };
 }
@@ -488,7 +488,6 @@ export async function getSummaryAndTags(
     cleanTranscript = true,
     imageSubmissionMode = "url",
     imageDownloadOptions,
-    abortSignal: _abortSignal,
     promptOverrides,
     credentials,
   } = options ?? {};

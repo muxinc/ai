@@ -1,5 +1,5 @@
 import Mux from "@mux/mux-node";
-import { generateObject } from "ai";
+import { generateText, Output } from "ai";
 import { z } from "zod";
 
 import env from "@mux/ai/env";
@@ -90,7 +90,6 @@ async function translateVttWithAI({
   toLanguageCode,
   provider,
   modelId,
-  abortSignal,
   credentials,
 }: {
   vttContent: string;
@@ -98,17 +97,15 @@ async function translateVttWithAI({
   toLanguageCode: string;
   provider: SupportedProvider;
   modelId: string;
-  abortSignal?: AbortSignal;
   credentials?: WorkflowCredentialsInput;
 }): Promise<{ translatedVtt: string; usage: TokenUsage }> {
   "use step";
 
-  const languageModel = await createLanguageModelFromConfig(provider, modelId, credentials);
+  const model = await createLanguageModelFromConfig(provider, modelId, credentials);
 
-  const response = await generateObject({
-    model: languageModel,
-    schema: translationSchema,
-    abortSignal,
+  const response = await generateText({
+    model,
+    output: Output.object({ schema: translationSchema }),
     messages: [
       {
         role: "user",
@@ -118,13 +115,13 @@ async function translateVttWithAI({
   });
 
   return {
-    translatedVtt: response.object.translation,
+    translatedVtt: response.output.translation,
     usage: {
       inputTokens: response.usage.inputTokens,
       outputTokens: response.usage.outputTokens,
       totalTokens: response.usage.totalTokens,
-      reasoningTokens: response.usage.reasoningTokens,
-      cachedInputTokens: response.usage.cachedInputTokens,
+      reasoningTokens: response.usage.outputTokenDetails.reasoningTokens,
+      cachedInputTokens: response.usage.inputTokenDetails.cacheReadTokens,
     },
   };
 }
@@ -328,7 +325,6 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
       toLanguageCode,
       provider: modelConfig.provider,
       modelId: modelConfig.modelId,
-      abortSignal: options.abortSignal,
       credentials,
     });
     translatedVtt = result.translatedVtt;

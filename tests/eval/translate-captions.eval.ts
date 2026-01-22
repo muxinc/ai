@@ -1,7 +1,9 @@
 import { openai } from "@ai-sdk/openai";
+import { generateText, Output } from "ai";
+import dedent from "dedent";
 import { evalite } from "evalite";
-import { faithfulness } from "evalite/scorers";
 import { reportTrace } from "evalite/traces";
+import { z } from "zod";
 
 import { isValidISO639_1, isValidISO639_3, toISO639_1, toISO639_3 } from "../../src/lib/language-codes";
 import { calculateCost, DEFAULT_LANGUAGE_MODELS } from "../../src/lib/providers";
@@ -219,6 +221,13 @@ const data = providers.flatMap(provider =>
 /** Regex to match VTT timestamp lines (e.g., "00:00:00.000 --> 00:00:05.000") */
 const VTT_TIMESTAMP_REGEX = /\d{2}:\d{2}:\d{2}\.\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}\.\d{3}/g;
 
+const faithfulnessScoreSchema = z
+  .object({
+    score: z.number(),
+    reasoning: z.string(),
+  })
+  .strict();
+
 /**
  * Count the number of cues in a VTT file by counting timestamp lines.
  */
@@ -250,6 +259,58 @@ function extractVttTextContent(vttContent: string): string {
   }
 
   return textLines.join(" ");
+}
+
+async function scoreTranslationFaithfulness({
+  translatedText,
+  targetLanguageName,
+}: {
+  translatedText: string;
+  targetLanguageName: string;
+}): Promise<{ score: number; metadata?: { reasoning?: string } }> {
+  const systemPrompt = dedent`
+    <role>
+      You are an expert at grading translation faithfulness.
+      You judge whether the translated text preserves the meaning of the original English transcript.
+    </role>
+
+    <grading_rubric>
+      Use this rubric to determine the score (0.0-1.0):
+
+      - Score 1.0: Fully faithful translation, meaning preserved across all content
+      - Score 0.7-0.9: Strongly faithful with minor omissions or slight wording drift
+      - Score 0.4-0.6: Partial faithfulness; noticeable omissions, paraphrasing, or distortions
+      - Score 0.1-0.3: Weak faithfulness; large portions missing or mistranslated
+      - Score 0.0: Unrelated or hallucinated content
+    </grading_rubric>
+
+    <constraints>
+      - Focus on meaning preservation, not stylistic differences
+      - Output JSON only and match the requested schema
+    </constraints>
+  `;
+
+  const response = await generateText({
+    model: openai("gpt-5.1"),
+    output: Output.object({ schema: faithfulnessScoreSchema }),
+    messages: [
+      {
+        role: "system",
+        content: systemPrompt,
+      },
+      {
+        role: "user",
+        content: `Original English transcript:\n${ORIGINAL_TRANSCRIPT}\n\n` +
+          `Translated ${targetLanguageName} text:\n${translatedText}\n\n` +
+          "Return JSON with: score (number between 0 and 1) and reasoning.",
+      },
+    ],
+  });
+
+  return {
+    score: response.output.score,
+    metadata: { reasoning: response.output.reasoning },
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -416,11 +477,9 @@ evalite("Caption Translation", {
         const translatedText = extractVttTextContent(output.translatedVtt);
 
         // Use faithfulness scorer to check if translation is grounded in the original
-        const result = await faithfulness({
-          question: `Translate the following English transcript to ${input.targetLanguageName}: "${ORIGINAL_TRANSCRIPT}"`,
-          answer: translatedText,
-          groundTruth: [ORIGINAL_TRANSCRIPT],
-          model: openai("gpt-5.1"),
+        const result = await scoreTranslationFaithfulness({
+          translatedText,
+          targetLanguageName: input.targetLanguageName,
         });
 
         return {

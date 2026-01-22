@@ -6,7 +6,7 @@ import path from "node:path";
 import { anthropic } from "@ai-sdk/anthropic";
 import { google } from "@ai-sdk/google";
 import { openai } from "@ai-sdk/openai";
-import { generateObject } from "ai";
+import { generateText, Output } from "ai";
 import { Command } from "commander";
 import dedent from "dedent";
 import { z } from "zod";
@@ -193,9 +193,9 @@ interface Options {
 }
 
 const WorkflowInsightSchema = z.object({
-  summaryMarkdown: z.string().min(1),
-  tldr: z.string().min(1).optional(),
-  caveat: z.string().min(1).optional(),
+  summaryMarkdown: z.string(),
+  tldr: z.string(),
+  caveat: z.string(),
 });
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -637,9 +637,9 @@ async function generateWorkflowInsights(suites: EvaliteSuite[], options: Generat
         ${JSON.stringify(stats, null, 2)}
       </metrics_json>`;
 
-    const result = await generateObject({
+    const result = await generateText({
       model,
-      schema: WorkflowInsightSchema,
+      output: Output.object({ schema: WorkflowInsightSchema }),
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
@@ -649,9 +649,9 @@ async function generateWorkflowInsights(suites: EvaliteSuite[], options: Generat
     insights.push({
       workflowKey,
       workflowName: stats.workflowName,
-      summaryMarkdown: result.object.summaryMarkdown.trim(),
-      tldr: result.object.tldr?.trim(),
-      caveat: result.object.caveat?.trim(),
+      summaryMarkdown: result.output.summaryMarkdown.trim(),
+      tldr: result.output.tldr?.trim(),
+      caveat: result.output.caveat?.trim(),
       stats,
       recommendations: stats.recommendations,
     });

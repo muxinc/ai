@@ -1,4 +1,4 @@
-import { generateObject } from "ai";
+import { generateText, Output } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
@@ -112,9 +112,9 @@ async function generateChaptersWithAI({
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
 
   const response = await withRetry(() =>
-    generateObject({
+    generateText({
       model,
-      schema: chaptersSchema,
+      output: Output.object({ schema: chaptersSchema }),
       messages: [
         {
           role: "system",
@@ -129,13 +129,13 @@ async function generateChaptersWithAI({
   );
 
   return {
-    chapters: response.object,
+    chapters: response.output,
     usage: {
       inputTokens: response.usage.inputTokens,
       outputTokens: response.usage.outputTokens,
       totalTokens: response.usage.totalTokens,
-      reasoningTokens: response.usage.reasoningTokens,
-      cachedInputTokens: response.usage.cachedInputTokens,
+      reasoningTokens: response.usage.outputTokenDetails.reasoningTokens,
+      cachedInputTokens: response.usage.inputTokenDetails.cacheReadTokens,
     },
   };
 }
