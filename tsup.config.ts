@@ -19,6 +19,7 @@ export default defineConfig({
     "@ai-sdk/anthropic",
     "@ai-sdk/google",
     "p-retry",
+    "workflow",
     "zod",
   ],
 });
