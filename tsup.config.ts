@@ -14,6 +14,7 @@ export default defineConfig({
     "@mux/mux-node",
     "dedent",
     "dotenv",
+    "workflow",
     "ai",
     "@ai-sdk/openai",
     "@ai-sdk/anthropic",
