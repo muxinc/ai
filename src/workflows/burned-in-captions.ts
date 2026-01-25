@@ -1,6 +1,7 @@
+import { valibotSchema } from "@ai-sdk/valibot";
 import { generateText, Output } from "ai";
 import dedent from "dedent";
-import { z } from "zod";
+import * as v from "valibot";
 
 import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
@@ -76,14 +77,23 @@ export interface BurnedInCaptionsOptions extends MuxAIOptions {
 }
 
 /** Schema used to validate burned-in captions analysis responses. */
-export const burnedInCaptionsSchema = z.object({
-  hasBurnedInCaptions: z.boolean(),
-  confidence: z.number(),
-  detectedLanguage: z.string().nullable(),
+export const burnedInCaptionsSchema = v.strictObject({
+  hasBurnedInCaptions: v.pipe(
+    v.boolean(),
+    v.description("Whether burned-in captions are detected."),
+  ),
+  confidence: v.pipe(
+    v.number(),
+    v.description("Confidence score between 0 and 1."),
+  ),
+  detectedLanguage: v.pipe(
+    v.nullable(v.string()),
+    v.description("Detected language of captions, if any."),
+  ),
 });
 
 /** Inferred shape returned from the burned-in captions schema. */
-export type BurnedInCaptionsAnalysis = z.infer<typeof burnedInCaptionsSchema>;
+export type BurnedInCaptionsAnalysis = v.InferOutput<typeof burnedInCaptionsSchema>;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Prompts
@@ -219,7 +229,7 @@ async function analyzeStoryboard({
 
   const response = await generateText({
     model,
-    output: Output.object({ schema: burnedInCaptionsSchema }),
+    output: Output.object({ schema: valibotSchema(burnedInCaptionsSchema) }),
     experimental_telemetry: { isEnabled: true },
     messages: [
       {

@@ -1,6 +1,7 @@
+import { valibotSchema } from "@ai-sdk/valibot";
 import { generateText, Output } from "ai";
 import dedent from "dedent";
-import { z } from "zod";
+import * as v from "valibot";
 
 import { getPlaybackIdForAsset, isAudioOnlyAsset } from "@mux/ai/lib/mux-assets";
 import type { PromptOverrides, PromptSection } from "@mux/ai/lib/prompt-builder";
@@ -20,18 +21,27 @@ import type { MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "@mux/ai
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const chapterSchema = z.object({
-  startTime: z.number(),
-  title: z.string(),
+export const chapterSchema = v.strictObject({
+  startTime: v.pipe(
+    v.number(),
+    v.description("Chapter start time in seconds."),
+  ),
+  title: v.pipe(
+    v.string(),
+    v.description("Chapter title."),
+  ),
 });
 
-export type Chapter = z.infer<typeof chapterSchema>;
+export type Chapter = v.InferOutput<typeof chapterSchema>;
 
-export const chaptersSchema = z.object({
-  chapters: z.array(chapterSchema),
+export const chaptersSchema = v.strictObject({
+  chapters: v.pipe(
+    v.array(chapterSchema),
+    v.description("List of generated chapters."),
+  ),
 });
 
-export type ChaptersType = z.infer<typeof chaptersSchema>;
+export type ChaptersType = v.InferOutput<typeof chaptersSchema>;
 
 /** Structured return payload from `generateChapters`. */
 export interface ChaptersResult {
@@ -114,7 +124,7 @@ async function generateChaptersWithAI({
   const response = await withRetry(() =>
     generateText({
       model,
-      output: Output.object({ schema: chaptersSchema }),
+      output: Output.object({ schema: valibotSchema(chaptersSchema) }),
       messages: [
         {
           role: "system",

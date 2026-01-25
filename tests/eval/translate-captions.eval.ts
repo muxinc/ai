@@ -1,9 +1,10 @@
 import { openai } from "@ai-sdk/openai";
+import { valibotSchema } from "@ai-sdk/valibot";
 import { generateText, Output } from "ai";
 import dedent from "dedent";
 import { evalite } from "evalite";
 import { reportTrace } from "evalite/traces";
-import { z } from "zod";
+import * as v from "valibot";
 
 import { isValidISO639_1, isValidISO639_3, toISO639_1, toISO639_3 } from "../../src/lib/language-codes";
 import { calculateCost, DEFAULT_LANGUAGE_MODELS } from "../../src/lib/providers";
@@ -221,12 +222,16 @@ const data = providers.flatMap(provider =>
 /** Regex to match VTT timestamp lines (e.g., "00:00:00.000 --> 00:00:05.000") */
 const VTT_TIMESTAMP_REGEX = /\d{2}:\d{2}:\d{2}\.\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}\.\d{3}/g;
 
-const faithfulnessScoreSchema = z
-  .object({
-    score: z.number(),
-    reasoning: z.string(),
-  })
-  .strict();
+const faithfulnessScoreSchema = v.strictObject({
+  score: v.pipe(
+    v.number(),
+    v.description("Faithfulness score between 0 and 1."),
+  ),
+  reasoning: v.pipe(
+    v.string(),
+    v.description("Rationale for the faithfulness score."),
+  ),
+});
 
 /**
  * Count the number of cues in a VTT file by counting timestamp lines.
@@ -292,7 +297,7 @@ async function scoreTranslationFaithfulness({
 
   const response = await generateText({
     model: openai("gpt-5.1"),
-    output: Output.object({ schema: faithfulnessScoreSchema }),
+    output: Output.object({ schema: valibotSchema(faithfulnessScoreSchema) }),
     messages: [
       {
         role: "system",
