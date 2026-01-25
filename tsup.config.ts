@@ -22,6 +22,5 @@ export default defineConfig({
     "p-retry",
     "workflow",
     "valibot",
-    "zod",
   ],
 });

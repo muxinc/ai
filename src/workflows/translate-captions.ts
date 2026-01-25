@@ -1,6 +1,7 @@
+import { valibotSchema } from "@ai-sdk/valibot";
 import Mux from "@mux/mux-node";
 import { generateText, Output } from "ai";
-import { z } from "zod";
+import * as v from "valibot";
 
 import env from "@mux/ai/env";
 import { getMuxCredentialsFromEnv } from "@mux/ai/lib/client-factory";
@@ -62,12 +63,15 @@ export interface TranslationOptions<P extends SupportedProvider = SupportedProvi
 }
 
 /** Schema used when requesting caption translation from a language model. */
-export const translationSchema = z.object({
-  translation: z.string(),
+export const translationSchema = v.strictObject({
+  translation: v.pipe(
+    v.string(),
+    v.description("Translated VTT content."),
+  ),
 });
 
 /** Inferred shape returned by `translationSchema`. */
-export type TranslationPayload = z.infer<typeof translationSchema>;
+export type TranslationPayload = v.InferOutput<typeof translationSchema>;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Implementation
@@ -105,7 +109,7 @@ async function translateVttWithAI({
 
   const response = await generateText({
     model,
-    output: Output.object({ schema: translationSchema }),
+    output: Output.object({ schema: valibotSchema(translationSchema) }),
     messages: [
       {
         role: "user",

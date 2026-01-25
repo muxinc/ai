@@ -35,9 +35,18 @@ import type {
 export const SUMMARY_KEYWORD_LIMIT = 10;
 
 export const summarySchema = v.strictObject({
-  keywords: v.pipe(v.array(v.string())),
-  title: v.string(),
-  description: v.string(),
+  keywords: v.pipe(
+    v.array(v.string()),
+    v.description("Summary keywords."),
+  ),
+  title: v.pipe(
+    v.string(),
+    v.description("Short summary title."),
+  ),
+  description: v.pipe(
+    v.string(),
+    v.description("Longer summary description."),
+  ),
 });
 
 export type SummaryType = v.InferOutput<typeof summarySchema>;

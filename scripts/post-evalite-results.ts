@@ -6,10 +6,11 @@ import path from "node:path";
 import { anthropic } from "@ai-sdk/anthropic";
 import { google } from "@ai-sdk/google";
 import { openai } from "@ai-sdk/openai";
+import { valibotSchema } from "@ai-sdk/valibot";
 import { generateText, Output } from "ai";
 import { Command } from "commander";
 import dedent from "dedent";
-import { z } from "zod";
+import * as v from "valibot";
 
 import env from "../src/env";
 import { DEFAULT_LANGUAGE_MODELS } from "../src/lib/providers";
@@ -192,10 +193,19 @@ interface Options {
   workflows?: WorkflowKey[];
 }
 
-const WorkflowInsightSchema = z.object({
-  summaryMarkdown: z.string(),
-  tldr: z.string(),
-  caveat: z.string(),
+const WorkflowInsightSchema = v.strictObject({
+  summaryMarkdown: v.pipe(
+    v.string(),
+    v.description("Markdown summary of workflow eval results."),
+  ),
+  tldr: v.pipe(
+    v.string(),
+    v.description("Single-sentence takeaway."),
+  ),
+  caveat: v.pipe(
+    v.string(),
+    v.description("Concise caveat about the results."),
+  ),
 });
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -639,7 +649,7 @@ async function generateWorkflowInsights(suites: EvaliteSuite[], options: Generat
 
     const result = await generateText({
       model,
-      output: Output.object({ schema: WorkflowInsightSchema }),
+      output: Output.object({ schema: valibotSchema(WorkflowInsightSchema) }),
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
