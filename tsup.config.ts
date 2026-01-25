@@ -18,7 +18,10 @@ export default defineConfig({
     "@ai-sdk/openai",
     "@ai-sdk/anthropic",
     "@ai-sdk/google",
+    "@noble/ciphers",
     "p-retry",
+    "workflow",
+    "valibot",
     "zod",
   ],
 });
