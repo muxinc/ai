@@ -104,7 +104,7 @@ with a key identifier, then implement custom decryption logic that looks up the
 correct key. This requires bypassing the built-in credential resolution.
 
 ```typescript
-import { decryptFromWorkflow, encryptForWorkflow } from "@mux/ai/workflows";
+import { decryptFromWorkflow, encryptForWorkflow } from "@mux/ai";
 
 // Trigger phase: tag payload with the key ID
 const encrypted = await encryptForWorkflow(
@@ -138,7 +138,8 @@ the old key once all in-flight workflows have completed.
 
 ```typescript
 import { start } from "workflow/api";
-import { encryptForWorkflow, getSummaryAndTags } from "@mux/ai/workflows";
+import { encryptForWorkflow } from "@mux/ai"
+import { getSummaryAndTags } from "@mux/ai/workflows";
 
 // Trigger phase (API route): encrypt before calling start()
 const workflowKey = process.env.MUX_AI_WORKFLOW_SECRET_KEY!;
@@ -166,7 +167,8 @@ limited to those values, even though `hive` is not a default language provider.
 
 ```typescript
 import { start } from "workflow/api";
-import { encryptForWorkflow, getModerationScores } from "@mux/ai/workflows";
+import { encryptForWorkflow } from "@mux/ai"
+import { getModerationScores } from "@mux/ai/workflows";
 
 const workflowKey = process.env.MUX_AI_WORKFLOW_SECRET_KEY!;
 const encryptedCredentials = await encryptForWorkflow(
@@ -191,7 +193,8 @@ to that value, and the helper resolves the API key from encrypted credentials.
 
 ```typescript
 import { start } from "workflow/api";
-import { encryptForWorkflow, translateAudio } from "@mux/ai/workflows";
+import { encryptForWorkflow } from "@mux/ai"
+import { translateAudio } from "@mux/ai/workflows";
 
 const workflowKey = process.env.MUX_AI_WORKFLOW_SECRET_KEY!;
 const encryptedCredentials = await encryptForWorkflow(
