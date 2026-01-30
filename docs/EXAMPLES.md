@@ -31,6 +31,10 @@ npm run example:chapters:compare <asset-id> [language-code]
 npm run example:burned-in <asset-id> [provider]
 npm run example:burned-in:compare <asset-id>
 
+# Ask Questions
+npm run example:ask-questions <asset-id> "<question>"
+npm run example:ask-questions:multiple <asset-id> "<question1>" "<question2>" ...
+
 # Summarization
 npm run example:summarization <asset-id> [provider]
 npm run example:summarization:compare <asset-id>
@@ -58,6 +62,12 @@ npm run example:chapters abc123 en openai
 
 # Detect burned-in captions with Anthropic
 npm run example:burned-in abc123 anthropic
+
+# Ask a yes/no question about a video
+npm run example:ask-questions abc123 "Does this video contain cooking?"
+
+# Ask multiple questions at once
+npm run example:ask-questions:multiple abc123 "Does this video contain people?" "Is this in color?"
 
 # Compare OpenAI vs Anthropic chapter generation
 npm run example:chapters:compare abc123 en
@@ -124,6 +134,42 @@ npm install
 npm run burned-in:basic <your-asset-id> [provider]
 npm run compare <your-asset-id>
 ```
+
+## Ask Questions Examples
+
+- **Basic Usage**: Answer single yes/no questions about video content
+- **Multiple Questions**: Process multiple questions efficiently in one API call
+
+```bash
+cd examples/ask-questions
+npm install
+
+# Single question with OpenAI (default)
+npm run basic <your-asset-id> "Does this video contain music?"
+
+# Multiple questions
+npm run multiple <your-asset-id> "Does this show people?" "Is this in color?" "Does it have dialogue?"
+
+# Use different providers
+npm run basic <your-asset-id> "Is this a tutorial?" --provider anthropic
+npm run basic <your-asset-id> "Does this show cooking?" --provider google
+
+# Without transcript (visual-only analysis)
+npm run basic <your-asset-id> "Does this video show text?" --no-transcript
+
+# Custom model
+npm run basic <your-asset-id> "Is this a tutorial?" --model gpt-4o
+```
+
+**Use Cases:**
+
+- Content classification and categorization
+- Quality checks and validation
+- Content moderation decisions
+- Accessibility audits
+- Metadata verification
+
+Supports OpenAI, Anthropic, and Google providers.
 
 ## Chapter Generation Examples
 
