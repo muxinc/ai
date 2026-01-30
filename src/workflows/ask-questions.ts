@@ -10,10 +10,9 @@ import { createTranscriptSection, renderSection } from "@mux/ai/lib/prompt-build
 import { createLanguageModelFromConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider } from "@mux/ai/lib/providers";
 import { withRetry } from "@mux/ai/lib/retry";
-import { getMuxSigningContextFromEnv } from "@mux/ai/lib/url-signing";
 import { getStoryboardUrl } from "@mux/ai/primitives/storyboards";
 import { fetchTranscriptForAsset } from "@mux/ai/primitives/transcripts";
-import type { ImageSubmissionMode, MuxAIOptions, TokenUsage } from "@mux/ai/types";
+import type { ImageSubmissionMode, MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "@mux/ai/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -196,9 +195,10 @@ async function analyzeQuestionsWithStoryboard(
   modelId: string,
   userPrompt: string,
   systemPrompt: string,
+  credentials?: WorkflowCredentialsInput,
 ): Promise<AnalysisResponse> {
   "use step";
-  const model = createLanguageModelFromConfig(provider, modelId);
+  const model = await createLanguageModelFromConfig(provider, modelId, credentials);
 
   const response = await generateObject({
     model,
@@ -287,7 +287,7 @@ export async function askQuestions(
     imageSubmissionMode = "url",
     imageDownloadOptions,
     storyboardWidth = 640,
-    abortSignal: _abortSignal,
+    credentials,
   } = options ?? {};
 
   // Only OpenAI supported initially
@@ -304,16 +304,7 @@ export async function askQuestions(
   );
 
   // Fetch asset data and playback ID from Mux
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId);
-
-  // Resolve signing context for signed playback IDs
-  const signingContext = getMuxSigningContextFromEnv();
-  if (policy === "signed" && !signingContext) {
-    throw new Error(
-      "Signed playback ID requires signing credentials. " +
-      "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
-    );
-  }
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
 
   const transcriptText =
     includeTranscript ?
@@ -331,6 +322,7 @@ export async function askQuestions(
     playbackId,
     storyboardWidth,
     policy === "signed",
+    credentials,
   );
 
   let analysisResponse: AnalysisResponse;
@@ -344,6 +336,7 @@ export async function askQuestions(
         config.modelId,
         userPrompt,
         SYSTEM_PROMPT,
+        credentials,
       );
     } else {
       // URL-based submission with retry
@@ -354,6 +347,7 @@ export async function askQuestions(
           config.modelId,
           userPrompt,
           SYSTEM_PROMPT,
+          credentials,
         ),
       );
     }
