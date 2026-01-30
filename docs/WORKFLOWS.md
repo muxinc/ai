@@ -133,6 +133,95 @@ console.log(result.detectedLanguage); // Language if captions detected
 - Caption text must appear across multiple frames throughout the timeline
 - Optimized prompts minimize false positives
 
+## Ask Questions
+
+Answer yes/no questions about video content by analyzing storyboard frames and optional transcripts.
+
+```typescript
+import { askQuestions } from "@mux/ai/workflows";
+
+// Single question
+const result = await askQuestions("your-mux-asset-id", [
+  { question: "Does this video contain cooking?" }
+], {
+  provider: "openai"
+});
+
+console.log(result.answers[0].answer); // "yes" or "no"
+console.log(result.answers[0].confidence); // 0.0-1.0 confidence score
+console.log(result.answers[0].reasoning); // AI's explanation
+```
+
+### Multiple Questions
+
+Process multiple questions in a single API call for efficiency:
+
+```typescript
+const result = await askQuestions(assetId, [
+  { question: "Does this video contain people?" },
+  { question: "Is this video in color?" },
+  { question: "Does this video contain violence?" },
+  { question: "Is this suitable for children?" }
+]);
+
+// Process all answers
+result.answers.forEach(answer => {
+  console.log(`Q: ${answer.question}`);
+  console.log(`A: ${answer.answer} (${Math.round(answer.confidence * 100)}% confident)`);
+  console.log(`Reasoning: ${answer.reasoning}\n`);
+});
+```
+
+### Use Cases
+
+- **Content Classification:** "Is this a product demo?", "Does this contain advertisements?"
+- **Content Moderation:** "Does this show violence?", "Is there inappropriate content?"
+- **Quality Checks:** "Is the audio clear?", "Is the lighting professional?"
+- **Accessibility Audits:** "Are there visual text elements?", "Does this rely only on audio?"
+- **Metadata Validation:** "Does the content match the title?", "Is this in English?"
+
+### Configuration Options
+
+```typescript
+const result = await askQuestions(assetId, questions, {
+  provider: "openai", // Currently only OpenAI supported
+  model: "gpt-5.1", // Override default model
+  includeTranscript: true, // Include transcript (default: true)
+  cleanTranscript: true, // Remove timestamps/markup (default: true)
+  imageSubmissionMode: "url", // "url" or "base64" (default: "url")
+  storyboardWidth: 640 // Storyboard resolution in pixels (default: 640)
+});
+```
+
+### Tips for Effective Questions
+
+- **Be specific:** "Does this show a person cooking in a kitchen?" vs "Does this have food?"
+- **Frame positively:** "Is this video in color?" vs "Is this video not black and white?"
+- **Avoid ambiguity:** Questions should have clear yes/no answers
+- **Use objective criteria:** Focus on observable evidence rather than subjective opinions
+
+### Transcript Integration
+
+When `includeTranscript` is enabled (default), the AI considers both visual frames and audio/dialogue:
+
+```typescript
+// Without transcript - visual analysis only
+const visualOnly = await askQuestions(assetId, [
+  { question: "Does someone speak in this video?" }
+], {
+  includeTranscript: false
+});
+
+// With transcript - analyzes both visual and audio
+const withAudio = await askQuestions(assetId, [
+  { question: "Does someone speak in this video?" }
+], {
+  includeTranscript: true
+});
+```
+
+The AI will prioritize visual evidence when transcript and visuals conflict.
+
 ## Chapter Generation
 
 Generate AI-powered chapter markers from video or audio transcripts.

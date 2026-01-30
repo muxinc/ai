@@ -141,6 +141,87 @@ Analyzes video frames to detect burned-in captions (hardcoded subtitles) that ar
 - Caption text must appear across multiple frames throughout the timeline
 - Both providers use optimized prompts to minimize false positives
 
+## `askQuestions(assetId, questions, options?)`
+
+Answer yes/no questions about video content by analyzing storyboard frames and optional transcripts. Process multiple questions in a single API call for efficiency.
+
+**Parameters:**
+
+- `assetId` (string) - Mux video asset ID
+- `questions` (array) - Array of question objects
+  - Each question object must have a `question` field (string)
+  - Example: `[{ question: "Does this video contain cooking?" }]`
+- `options` (optional) - Configuration options
+
+**Options:**
+
+- `provider?: 'openai'` - AI provider (default: 'openai', currently only OpenAI supported)
+- `model?: string` - AI model to use (default: `gpt-5.1`)
+- `includeTranscript?: boolean` - Include video transcript in analysis (default: true)
+- `cleanTranscript?: boolean` - Remove VTT timestamps and formatting from transcript (default: true)
+- `imageSubmissionMode?: 'url' | 'base64'` - How to submit storyboard to AI providers (default: 'url')
+- `imageDownloadOptions?: object` - Options for image download when using base64 mode
+  - `timeout?: number` - Request timeout in milliseconds (default: 10000)
+  - `retries?: number` - Maximum retry attempts (default: 3)
+  - `retryDelay?: number` - Base delay between retries in milliseconds (default: 1000)
+  - `maxRetryDelay?: number` - Maximum delay between retries in milliseconds (default: 10000)
+  - `exponentialBackoff?: boolean` - Whether to use exponential backoff (default: true)
+- `storyboardWidth?: number` - Storyboard resolution in pixels (default: 640)
+
+**Returns:**
+
+```typescript
+interface AskQuestionsResult {
+  assetId: string;
+  answers: Array<{
+    question: string; // The original question
+    answer: "yes" | "no"; // Binary answer
+    confidence: number; // Confidence score (0.0-1.0)
+    reasoning: string; // AI's explanation based on observable evidence
+  }>;
+  storyboardUrl: string; // URL to analyzed storyboard
+  usage?: { // Token usage statistics
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
+  transcriptText?: string; // Raw transcript (when includeTranscript is true)
+}
+```
+
+**Examples:**
+
+```typescript
+// Single question
+const result = await askQuestions("asset-id", [
+  { question: "Does this video contain cooking?" }
+]);
+
+console.log(result.answers[0].answer); // "yes" or "no"
+console.log(result.answers[0].confidence); // 0.95
+console.log(result.answers[0].reasoning); // "A chef prepares ingredients..."
+
+// Multiple questions (efficient single API call)
+const result = await askQuestions("asset-id", [
+  { question: "Does this video contain people?" },
+  { question: "Is this video in color?" },
+  { question: "Does this video contain violence?" }
+]);
+
+// Without transcript (visual-only analysis)
+const result = await askQuestions("asset-id", questions, {
+  includeTranscript: false
+});
+```
+
+**Tips for Effective Questions:**
+
+- Be specific and focused on observable evidence
+- Frame questions positively (prefer "Is X present?" over "Is X not present?")
+- Avoid ambiguous or subjective questions
+- Questions should have clear yes/no answers
+- The AI prioritizes visual evidence when transcript and visuals conflict
+
 ## `translateCaptions(assetId, fromLanguageCode, toLanguageCode, options?)`
 
 Translates existing captions from one language to another and optionally adds them as a new track to the Mux asset.

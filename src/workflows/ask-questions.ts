@@ -2,14 +2,14 @@ import { generateObject } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
-import { createWorkflowConfig } from "@mux/ai/lib/client-factory";
 import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
 import { getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
 import { createTranscriptSection, renderSection } from "@mux/ai/lib/prompt-builder";
-import { createLanguageModelFromConfig } from "@mux/ai/lib/providers";
-import type { ModelIdByProvider } from "@mux/ai/lib/providers";
+import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
+import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
 import { withRetry } from "@mux/ai/lib/retry";
+import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
 import { getStoryboardUrl } from "@mux/ai/primitives/storyboards";
 import { fetchTranscriptForAsset } from "@mux/ai/primitives/transcripts";
 import type { ImageSubmissionMode, MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "@mux/ai/types";
@@ -189,6 +189,16 @@ interface AnalysisResponse {
   usage: TokenUsage;
 }
 
+async function fetchImageAsBase64(
+  imageUrl: string,
+  imageDownloadOptions?: ImageDownloadOptions,
+): Promise<string> {
+  "use step";
+
+  const downloadResult = await downloadImageAsBase64(imageUrl, imageDownloadOptions);
+  return downloadResult.base64Data;
+}
+
 async function analyzeQuestionsWithStoryboard(
   imageDataUrl: string,
   provider: "openai",
@@ -203,6 +213,7 @@ async function analyzeQuestionsWithStoryboard(
   const response = await generateObject({
     model,
     schema: askQuestionsSchema,
+    experimental_telemetry: { isEnabled: true },
     messages: [
       {
         role: "system",
@@ -297,14 +308,23 @@ export async function askQuestions(
     );
   }
 
-  // Validate credentials and resolve language model
-  const config = await createWorkflowConfig(
-    { ...options, model },
-    provider,
-  );
+  const modelConfig = resolveLanguageModelConfig({
+    ...options,
+    model,
+    provider: provider as SupportedProvider,
+  });
 
   // Fetch asset data and playback ID from Mux
   const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
+
+  // Resolve signing context for signed playback IDs
+  const signingContext = await resolveMuxSigningContext(credentials);
+  if (policy === "signed" && !signingContext) {
+    throw new Error(
+      "Signed playback ID requires signing credentials. " +
+      "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
+    );
+  }
 
   const transcriptText =
     includeTranscript ?
@@ -329,11 +349,11 @@ export async function askQuestions(
 
   try {
     if (imageSubmissionMode === "base64") {
-      const downloadResult = await downloadImageAsBase64(imageUrl, imageDownloadOptions);
+      const base64Data = await fetchImageAsBase64(imageUrl, imageDownloadOptions);
       analysisResponse = await analyzeQuestionsWithStoryboard(
-        downloadResult.base64Data,
-        config.provider as "openai",
-        config.modelId,
+        base64Data,
+        modelConfig.provider as "openai",
+        modelConfig.modelId,
         userPrompt,
         SYSTEM_PROMPT,
         credentials,
@@ -343,8 +363,8 @@ export async function askQuestions(
       analysisResponse = await withRetry(() =>
         analyzeQuestionsWithStoryboard(
           imageUrl,
-          config.provider as "openai",
-          config.modelId,
+          modelConfig.provider as "openai",
+          modelConfig.modelId,
           userPrompt,
           SYSTEM_PROMPT,
           credentials,
