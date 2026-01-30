@@ -9,15 +9,18 @@ program
   .description("Ask multiple yes/no questions about a Mux video asset")
   .argument("<asset-id>", "Mux asset ID to analyze")
   .argument("<questions...>", "Yes/no questions to ask about the video (space-separated)")
-  .option("-m, --model <model>", "Model name (default: gpt-5.1)")
+  .option("-p, --provider <provider>", "AI provider: openai, anthropic, google (default: openai)")
+  .option("-m, --model <model>", "Model name (default varies by provider)")
   .option("--no-transcript", "Exclude transcript from analysis")
   .action(async (assetId: string, questions: string[], options: {
+    provider?: string;
     model?: string;
     transcript: boolean;
   }) => {
     console.log("Asset ID:", assetId);
     console.log(`Questions (${questions.length}):`, questions);
-    console.log(`Model: ${options.model || "gpt-5.1 (default)"}`);
+    console.log(`Provider: ${options.provider || "openai (default)"}`);
+    console.log(`Model: ${options.model || "default"}`);
     console.log(`Include Transcript: ${options.transcript}\n`);
 
     // Convert string array to Question objects
@@ -27,6 +30,7 @@ program
       // Uses the default prompt built into the library
       // Credentials are automatically read from environment variables
       const result = await askQuestions(assetId, questionObjects, {
+        provider: options.provider as any,
         model: options.model,
         includeTranscript: options.transcript,
       });

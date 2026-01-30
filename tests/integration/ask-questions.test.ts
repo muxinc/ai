@@ -1,14 +1,29 @@
 import { describe, expect, it } from "vitest";
 
+import type { SupportedProvider } from "../../src/lib/providers";
 import { askQuestions } from "../../src/workflows";
-import { muxTestAssets } from "../helpers/mux-test-assets";
 
 describe("ask Questions Integration Tests", () => {
-  const testAssetId = muxTestAssets.assetId;
+  // Use glasses video for clear, consistent answers across all providers
+  const testAssetId = "gIRjPqMSRcdk200kIKvsUo2K4JQr6UjNg7qKZc02egCcM";
+  const providers: SupportedProvider[] = ["openai", "anthropic", "google"];
+
+  it.each(providers)("should return valid result for %s provider", async (provider) => {
+    const result = await askQuestions(testAssetId, [
+      { question: "Is this video about glasses?" },
+    ], { provider });
+
+    expect(result).toBeDefined();
+    expect(result).toHaveProperty("assetId", testAssetId);
+    expect(result).toHaveProperty("answers");
+    expect(result.answers).toHaveLength(1);
+    expect(["yes", "no"]).toContain(result.answers[0].answer);
+    expect(result.answers[0].answer).toBe("yes"); // Should be yes for glasses video
+  });
 
   it("should answer a single yes/no question with OpenAI", async () => {
     const result = await askQuestions(testAssetId, [
-      { question: "Does this video contain music?" },
+      { question: "Is this video about glasses?" },
     ]);
 
     expect(result).toBeDefined();
@@ -17,9 +32,10 @@ describe("ask Questions Integration Tests", () => {
     expect(result.answers).toHaveLength(1);
 
     const answer = result.answers[0];
-    expect(answer).toHaveProperty("question", "Does this video contain music?");
+    expect(answer).toHaveProperty("question", "Is this video about glasses?");
     expect(answer).toHaveProperty("answer");
     expect(["yes", "no"]).toContain(answer.answer);
+    expect(answer.answer).toBe("yes"); // Should be yes for glasses video
     expect(answer).toHaveProperty("confidence");
     expect(answer.confidence).toBeGreaterThanOrEqual(0);
     expect(answer.confidence).toBeLessThanOrEqual(1);
@@ -30,14 +46,20 @@ describe("ask Questions Integration Tests", () => {
 
   it("should answer multiple questions in a single call", async () => {
     const questions = [
-      { question: "Does this video contain people?" },
+      { question: "Is this video about glasses?" },
+      { question: "Is this video about contact lenses?" },
       { question: "Is this video in color?" },
-      { question: "Does this video contain animals?" },
     ];
 
     const result = await askQuestions(testAssetId, questions);
 
     expect(result.answers).toHaveLength(3);
+
+    // Verify structure and specific expected answers
+    expect(result.answers[0].question).toBe(questions[0].question);
+    expect(result.answers[0].answer).toBe("yes"); // glasses
+    expect(result.answers[1].question).toBe(questions[1].question);
+    expect(result.answers[1].answer).toBe("no"); // contact lenses
 
     result.answers.forEach((answer, idx) => {
       expect(answer.question).toBe(questions[idx].question);
@@ -124,15 +146,6 @@ describe("ask Questions Integration Tests", () => {
     await expect(
       askQuestions(testAssetId, [{ question: "   " }]),
     ).rejects.toThrow("Question at index 0 is invalid");
-  });
-
-  it("should throw error for invalid provider", async () => {
-    await expect(
-      askQuestions(testAssetId, [{ question: "Is this a video?" }], {
-        // @ts-expect-error - testing runtime validation
-        provider: "invalid",
-      }),
-    ).rejects.toThrow("not supported");
   });
 
   it("should throw error when answer count doesn't match question count", async () => {

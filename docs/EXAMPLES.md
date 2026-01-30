@@ -144,11 +144,15 @@ npm run compare <your-asset-id>
 cd examples/ask-questions
 npm install
 
-# Single question
+# Single question with OpenAI (default)
 npm run basic <your-asset-id> "Does this video contain music?"
 
 # Multiple questions
 npm run multiple <your-asset-id> "Does this show people?" "Is this in color?" "Does it have dialogue?"
+
+# Use different providers
+npm run basic <your-asset-id> "Is this a tutorial?" --provider anthropic
+npm run basic <your-asset-id> "Does this show cooking?" --provider google
 
 # Without transcript (visual-only analysis)
 npm run basic <your-asset-id> "Does this video show text?" --no-transcript
@@ -165,7 +169,7 @@ npm run basic <your-asset-id> "Is this a tutorial?" --model gpt-4o
 - Accessibility audits
 - Metadata verification
 
-Currently supports OpenAI provider only.
+Supports OpenAI, Anthropic, and Google providers.
 
 ## Chapter Generation Examples
 

@@ -155,8 +155,8 @@ Answer yes/no questions about video content by analyzing storyboard frames and o
 
 **Options:**
 
-- `provider?: 'openai'` - AI provider (default: 'openai', currently only OpenAI supported)
-- `model?: string` - AI model to use (default: `gpt-5.1`)
+- `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
+- `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
 - `includeTranscript?: boolean` - Include video transcript in analysis (default: true)
 - `cleanTranscript?: boolean` - Remove VTT timestamps and formatting from transcript (default: true)
 - `imageSubmissionMode?: 'url' | 'base64'` - How to submit storyboard to AI providers (default: 'url')

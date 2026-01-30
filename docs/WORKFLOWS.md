@@ -184,7 +184,7 @@ result.answers.forEach(answer => {
 
 ```typescript
 const result = await askQuestions(assetId, questions, {
-  provider: "openai", // Currently only OpenAI supported
+  provider: "openai", // "openai", "anthropic", or "google" (default: "openai")
   model: "gpt-5.1", // Override default model
   includeTranscript: true, // Include transcript (default: true)
   cleanTranscript: true, // Remove timestamps/markup (default: true)

@@ -38,10 +38,10 @@ export interface QuestionAnswer {
 
 /** Configuration options for askQuestions workflow. */
 export interface AskQuestionsOptions extends MuxAIOptions {
-  /** AI provider to run (defaults to 'openai'). Currently only 'openai' is supported. */
-  provider?: "openai";
+  /** AI provider to run (defaults to 'openai'). */
+  provider?: SupportedProvider;
   /** Provider-specific chat model identifier. */
-  model?: ModelIdByProvider["openai"];
+  model?: ModelIdByProvider[SupportedProvider];
   /** Fetch transcript alongside storyboard (defaults to true). */
   includeTranscript?: boolean;
   /** Strip timestamps/markup from transcripts (defaults to true). */
@@ -76,7 +76,7 @@ export interface AskQuestionsResult {
 export const questionAnswerSchema = z.object({
   question: z.string(),
   answer: z.enum(["yes", "no"]),
-  confidence: z.number().min(0).max(1),
+  confidence: z.number(),
   reasoning: z.string(),
 });
 
@@ -201,7 +201,7 @@ async function fetchImageAsBase64(
 
 async function analyzeQuestionsWithStoryboard(
   imageDataUrl: string,
-  provider: "openai",
+  provider: SupportedProvider,
   modelId: string,
   userPrompt: string,
   systemPrompt: string,
@@ -230,7 +230,12 @@ async function analyzeQuestionsWithStoryboard(
   });
 
   return {
-    result: response.object,
+    result: {
+      answers: response.object.answers.map(answer => ({
+        ...answer,
+        confidence: Math.min(1, Math.max(0, answer.confidence)),
+      })),
+    },
     usage: {
       inputTokens: response.usage.inputTokens,
       outputTokens: response.usage.outputTokens,
@@ -301,13 +306,6 @@ export async function askQuestions(
     credentials,
   } = options ?? {};
 
-  // Only OpenAI supported initially
-  if (provider !== "openai") {
-    throw new Error(
-      `Provider "${provider}" is not supported. Only "openai" is currently supported for askQuestions.`,
-    );
-  }
-
   const modelConfig = resolveLanguageModelConfig({
     ...options,
     model,
@@ -352,7 +350,7 @@ export async function askQuestions(
       const base64Data = await fetchImageAsBase64(imageUrl, imageDownloadOptions);
       analysisResponse = await analyzeQuestionsWithStoryboard(
         base64Data,
-        modelConfig.provider as "openai",
+        modelConfig.provider,
         modelConfig.modelId,
         userPrompt,
         SYSTEM_PROMPT,
@@ -363,7 +361,7 @@ export async function askQuestions(
       analysisResponse = await withRetry(() =>
         analyzeQuestionsWithStoryboard(
           imageUrl,
-          modelConfig.provider as "openai",
+          modelConfig.provider,
           modelConfig.modelId,
           userPrompt,
           SYSTEM_PROMPT,

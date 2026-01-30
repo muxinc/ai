@@ -1,16 +1,36 @@
 import { describe, expect, it } from "vitest";
 import { start } from "workflow/api";
 
+import type { SupportedProvider } from "../../src/lib/providers";
 import { askQuestions } from "../../src/workflows";
-import { muxTestAssets } from "../helpers/mux-test-assets";
 
 describe("Ask Questions Integration Tests for Workflow DevKit", () => {
-  const assetId = muxTestAssets.assetId;
+  // Use glasses video for clear, consistent answers across all providers
+  const assetId = "gIRjPqMSRcdk200kIKvsUo2K4JQr6UjNg7qKZc02egCcM";
+  const providers: SupportedProvider[] = ["openai", "anthropic", "google"];
+
+  it.each(providers)("should answer questions with %s provider in Workflow DevKit", async (provider) => {
+    const questions = [
+      { question: "Is this video about glasses?" },
+    ];
+
+    const run = await start(askQuestions, [assetId, questions, { provider }]);
+    expect(run.runId).toMatch(/^wrun_/);
+
+    const result = await run.returnValue;
+
+    expect(result).toBeDefined();
+    expect(result).toHaveProperty("assetId", assetId);
+    expect(result).toHaveProperty("answers");
+    expect(result.answers).toHaveLength(1);
+    expect(["yes", "no"]).toContain(result.answers[0].answer);
+    expect(result.answers[0].answer).toBe("yes"); // Should be yes for glasses video
+  }, 120000);
 
   it("should answer questions using OpenAI provider in Workflow DevKit", async () => {
     const questions = [
-      { question: "Does this video contain music?" },
-      { question: "Are there people visible in this video?" },
+      { question: "Is this video about glasses?" },
+      { question: "Is this video about contact lenses?" },
     ];
 
     const run = await start(askQuestions, [assetId, questions, { provider: "openai" }]);
@@ -33,6 +53,10 @@ describe("Ask Questions Integration Tests for Workflow DevKit", () => {
     // Verify answers array
     expect(Array.isArray(result.answers)).toBe(true);
     expect(result.answers).toHaveLength(questions.length);
+
+    // Verify specific expected answers
+    expect(result.answers[0].answer).toBe("yes"); // glasses
+    expect(result.answers[1].answer).toBe("no"); // contact lenses
 
     // Verify each answer structure
     result.answers.forEach((answer, idx) => {
