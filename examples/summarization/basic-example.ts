@@ -65,6 +65,8 @@ program
       console.log(result.tags.join(", "));
       console.log("\n🖼️  Storyboard URL:");
       console.log(result.storyboardUrl);
+      console.log("\n📊 Token Usage:");
+      console.log(JSON.stringify(result.usage, null, 2));
     } catch (error) {
       console.error("❌ Error:", error instanceof Error ? error.message : error);
       process.exit(1);
