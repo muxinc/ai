@@ -245,8 +245,8 @@ async function analyzeStoryboard({
       inputTokens: response.usage.inputTokens,
       outputTokens: response.usage.outputTokens,
       totalTokens: response.usage.totalTokens,
-      reasoningTokens: response.usage.outputTokenDetails.reasoningTokens,
-      cachedInputTokens: response.usage.inputTokenDetails.cacheReadTokens,
+      reasoningTokens: response.usage.reasoningTokens,
+      cachedInputTokens: response.usage.cachedInputTokens,
     },
   };
 }
