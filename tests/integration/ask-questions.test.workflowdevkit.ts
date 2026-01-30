@@ -3,6 +3,7 @@ import { start } from "workflow/api";
 
 import type { SupportedProvider } from "../../src/lib/providers";
 import { askQuestions } from "../../src/workflows";
+import { muxTestAssets } from "../helpers/mux-test-assets";
 
 describe("Ask Questions Integration Tests for Workflow DevKit", () => {
   // Use glasses video for clear, consistent answers across all providers
@@ -84,9 +85,11 @@ describe("Ask Questions Integration Tests for Workflow DevKit", () => {
   }, 120000); // 2 minute timeout for AI processing
 
   it("should handle transcript inclusion in Workflow DevKit", async () => {
+    // Use default test asset which has a transcript
+    const assetWithTranscript = muxTestAssets.assetId;
     const questions = [{ question: "Is this a video?" }];
 
-    const run = await start(askQuestions, [assetId, questions, {
+    const run = await start(askQuestions, [assetWithTranscript, questions, {
       provider: "openai",
       includeTranscript: true,
     }]);

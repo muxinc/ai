@@ -233,6 +233,8 @@ async function analyzeQuestionsWithStoryboard(
     result: {
       answers: response.object.answers.map(answer => ({
         ...answer,
+        // Strip numbering prefix (e.g., "1. " or "2. ") from questions
+        question: answer.question.replace(/^\d+\.\s*/, ""),
         confidence: Math.min(1, Math.max(0, answer.confidence)),
       })),
     },

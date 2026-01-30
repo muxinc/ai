@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { SupportedProvider } from "../../src/lib/providers";
 import { askQuestions } from "../../src/workflows";
+import { muxTestAssets } from "../helpers/mux-test-assets";
 
 describe("ask Questions Integration Tests", () => {
   // Use glasses video for clear, consistent answers across all providers
@@ -97,8 +98,10 @@ describe("ask Questions Integration Tests", () => {
   });
 
   it("should include transcript text when includeTranscript is true", async () => {
+    // Use default test asset which has a transcript
+    const assetWithTranscript = muxTestAssets.assetId;
     const result = await askQuestions(
-      testAssetId,
+      assetWithTranscript,
       [{ question: "Is this a video?" }],
       { includeTranscript: true },
     );
