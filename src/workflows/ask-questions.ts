@@ -239,11 +239,12 @@ async function analyzeQuestionsWithStoryboard(
   modelId: string,
   userPrompt: string,
   systemPrompt: string,
-  responseSchema: AskQuestionsSchema,
+  allowedAnswers: [string, ...string[]],
   credentials?: WorkflowCredentialsInput,
 ): Promise<AnalysisResponse> {
   "use step";
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
+  const responseSchema = createAskQuestionsSchema(allowedAnswers);
 
   const response = await generateText({
     model,
@@ -357,9 +358,7 @@ export async function askQuestions(
     throw new Error("answerOptions must include at least one non-empty value");
   }
 
-  const responseSchema = createAskQuestionsSchema(
-    normalizedAnswerOptions as [string, ...string[]],
-  );
+  const allowedAnswers = normalizedAnswerOptions as [string, ...string[]];
 
   const modelConfig = resolveLanguageModelConfig({
     ...options,
@@ -410,7 +409,7 @@ export async function askQuestions(
         modelConfig.modelId,
         userPrompt,
         systemPrompt,
-        responseSchema,
+        allowedAnswers,
         credentials,
       );
     } else {
@@ -422,7 +421,7 @@ export async function askQuestions(
           modelConfig.modelId,
           userPrompt,
           systemPrompt,
-          responseSchema,
+          allowedAnswers,
           credentials,
         ),
       );
