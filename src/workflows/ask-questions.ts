@@ -5,7 +5,7 @@ import { z } from "zod";
 import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
 import { getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
-import { createTranscriptSection, renderSection } from "@mux/ai/lib/prompt-builder";
+import { createPromptBuilder, createTranscriptSection } from "@mux/ai/lib/prompt-builder";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
 import { withRetry } from "@mux/ai/lib/retry";
@@ -24,12 +24,12 @@ export interface Question {
   question: string;
 }
 
-/** A single answer to a yes/no question. */
+/** A single answer to a question. */
 export interface QuestionAnswer {
   /** The original question */
   question: string;
-  /** Yes or no answer (strict) */
-  answer: "yes" | "no";
+  /** Answer selected from the allowed options */
+  answer: string;
   /** Confidence score between 0 and 1 */
   confidence: number;
   /** Reasoning explaining the answer based on observable evidence */
@@ -42,6 +42,8 @@ export interface AskQuestionsOptions extends MuxAIOptions {
   provider?: SupportedProvider;
   /** Provider-specific chat model identifier. */
   model?: ModelIdByProvider[SupportedProvider];
+  /** Allowed answers for each question (defaults to ["yes", "no"]). */
+  answerOptions?: string[];
   /** Fetch transcript alongside storyboard (defaults to true). */
   includeTranscript?: boolean;
   /** Strip timestamps/markup from transcripts (defaults to true). */
@@ -75,19 +77,27 @@ export interface AskQuestionsResult {
 /** Zod schema for a single answer. */
 export const questionAnswerSchema = z.object({
   question: z.string(),
-  answer: z.enum(["yes", "no"]),
+  answer: z.string(),
   confidence: z.number(),
   reasoning: z.string(),
 });
 
 export type QuestionAnswerType = z.infer<typeof questionAnswerSchema>;
 
-/** Zod schema for the complete response. */
-export const askQuestionsSchema = z.object({
-  answers: z.array(questionAnswerSchema),
-});
+function createAskQuestionsSchema(allowedAnswers: [string, ...string[]]) {
+  const answerSchema = z.enum(allowedAnswers);
 
-export type AskQuestionsType = z.infer<typeof askQuestionsSchema>;
+  return z.object({
+    answers: z.array(
+      questionAnswerSchema.extend({
+        answer: answerSchema,
+      }),
+    ),
+  });
+}
+
+type AskQuestionsSchema = ReturnType<typeof createAskQuestionsSchema>;
+export type AskQuestionsType = z.infer<AskQuestionsSchema>;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Prompts
@@ -95,15 +105,15 @@ export type AskQuestionsType = z.infer<typeof askQuestionsSchema>;
 
 const SYSTEM_PROMPT = dedent`
   <role>
-    You are a video content analyst specializing in binary classification tasks.
-    Your job is to answer yes/no questions about video content based on storyboard
+    You are a video content analyst specializing in classification tasks.
+    Your job is to answer questions about video content based on storyboard
     images and optional transcript data.
   </role>
 
   <context>
     You will receive:
     - A storyboard image containing multiple sequential frames from a video
-    - A list of yes/no questions about the video content
+    - A list of questions about the video content
     - Optionally, a transcript of the audio/dialogue
 
     The storyboard frames are arranged in a grid and represent the visual
@@ -122,14 +132,14 @@ const SYSTEM_PROMPT = dedent`
   <task>
     For each question provided, you must:
     1. Analyze the storyboard frames and transcript (if provided)
-    2. Answer with ONLY "yes" or "no" - no other values are acceptable
+    2. Answer with ONLY the allowed response options - no other values are acceptable
     3. Provide a confidence score between 0 and 1 reflecting your certainty
     4. Explain your reasoning based on observable evidence
   </task>
 
   <answer_guidelines>
-    - Answer "yes" only if you have clear evidence supporting the affirmative
-    - Answer "no" if evidence contradicts or if insufficient evidence exists
+    - Choose the affirmative option only if you have clear evidence supporting it
+    - Choose the negative/contradicting option if evidence contradicts or if insufficient evidence exists
     - Confidence should reflect the clarity and strength of evidence:
       * 0.9-1.0: Clear, unambiguous evidence
       * 0.7-0.9: Strong evidence with minor ambiguity
@@ -141,7 +151,7 @@ const SYSTEM_PROMPT = dedent`
   </answer_guidelines>
 
   <constraints>
-    - You MUST answer every question with either "yes" or "no"
+    - You MUST answer every question with one of the allowed response options
     - Only describe observable evidence from frames or transcript
     - Do not fabricate details or make unsupported assumptions
     - Return structured data matching the requested schema exactly
@@ -155,6 +165,28 @@ const SYSTEM_PROMPT = dedent`
     - Be specific and evidence-based
   </language_guidelines>`;
 
+function buildSystemPrompt(allowedAnswers: string[]): string {
+  const answerList = allowedAnswers.map(answer => `"${answer}"`).join(", ");
+
+  return `${SYSTEM_PROMPT}\n\n${dedent`
+    <response_options>
+      Allowed answers: ${answerList}
+    </response_options>
+  `}`;
+}
+
+type AskQuestionsPromptSections = "questions";
+
+const askQuestionsPromptBuilder = createPromptBuilder<AskQuestionsPromptSections>({
+  template: {
+    questions: {
+      tag: "questions",
+      content: "Please answer the following yes/no questions about this video:",
+    },
+  },
+  sectionOrder: ["questions"],
+});
+
 function buildUserPrompt(
   questions: Question[],
   transcriptText?: string,
@@ -164,20 +196,22 @@ function buildUserPrompt(
     .map((q, idx) => `${idx + 1}. ${q.question}`)
     .join("\n");
 
-  let prompt = dedent`
-    <questions>
-      Please answer the following yes/no questions about this video:
+  const questionsContent = dedent`
+    Please answer the following yes/no questions about this video:
 
-      ${questionsList}
-    </questions>`;
+    ${questionsList}`;
 
-  if (transcriptText) {
-    const format = isCleanTranscript ? "plain text" : "WebVTT";
-    const transcriptSection = createTranscriptSection(transcriptText, format);
-    prompt = `${prompt}\n\n${renderSection(transcriptSection)}`;
+  if (!transcriptText) {
+    return askQuestionsPromptBuilder.build({ questions: questionsContent });
   }
 
-  return prompt;
+  const format = isCleanTranscript ? "plain text" : "WebVTT";
+  const transcriptSection = createTranscriptSection(transcriptText, format);
+
+  return askQuestionsPromptBuilder.buildWithContext(
+    { questions: questionsContent },
+    [transcriptSection],
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -205,6 +239,7 @@ async function analyzeQuestionsWithStoryboard(
   modelId: string,
   userPrompt: string,
   systemPrompt: string,
+  responseSchema: AskQuestionsSchema,
   credentials?: WorkflowCredentialsInput,
 ): Promise<AnalysisResponse> {
   "use step";
@@ -212,7 +247,7 @@ async function analyzeQuestionsWithStoryboard(
 
   const response = await generateText({
     model,
-    output: Output.object({ schema: askQuestionsSchema }),
+    output: Output.object({ schema: responseSchema }),
     experimental_telemetry: { isEnabled: true },
     messages: [
       {
@@ -249,9 +284,10 @@ async function analyzeQuestionsWithStoryboard(
 }
 
 /**
- * Answer yes/no questions about a Mux video asset by analyzing storyboard frames and transcript.
+ * Answer questions about a Mux video asset by analyzing storyboard frames and transcript.
+ * Defaults to yes/no answers unless `answerOptions` are provided.
  *
- * This workflow takes a list of yes/no questions and returns structured answers with confidence
+ * This workflow takes a list of questions and returns structured answers with confidence
  * scores and reasoning for each question. All questions are processed in a single LLM call for
  * efficiency.
  *
@@ -300,6 +336,7 @@ export async function askQuestions(
   const {
     provider = "openai",
     model,
+    answerOptions,
     includeTranscript = true,
     cleanTranscript = true,
     imageSubmissionMode = "url",
@@ -307,6 +344,22 @@ export async function askQuestions(
     storyboardWidth = 640,
     credentials,
   } = options ?? {};
+
+  const normalizedAnswerOptions = Array.from(
+    new Set(
+      (answerOptions?.length ? answerOptions : ["yes", "no"])
+        .map(option => option.trim())
+        .filter(Boolean),
+    ),
+  );
+
+  if (!normalizedAnswerOptions.length) {
+    throw new Error("answerOptions must include at least one non-empty value");
+  }
+
+  const responseSchema = createAskQuestionsSchema(
+    normalizedAnswerOptions as [string, ...string[]],
+  );
 
   const modelConfig = resolveLanguageModelConfig({
     ...options,
@@ -336,6 +389,7 @@ export async function askQuestions(
 
   // Build the user prompt with questions and optional transcript
   const userPrompt = buildUserPrompt(questions, transcriptText, cleanTranscript);
+  const systemPrompt = buildSystemPrompt(normalizedAnswerOptions);
 
   // Generate storyboard URL (signed if needed)
   const imageUrl = await getStoryboardUrl(
@@ -355,7 +409,8 @@ export async function askQuestions(
         modelConfig.provider,
         modelConfig.modelId,
         userPrompt,
-        SYSTEM_PROMPT,
+        systemPrompt,
+        responseSchema,
         credentials,
       );
     } else {
@@ -366,7 +421,8 @@ export async function askQuestions(
           modelConfig.provider,
           modelConfig.modelId,
           userPrompt,
-          SYSTEM_PROMPT,
+          systemPrompt,
+          responseSchema,
           credentials,
         ),
       );

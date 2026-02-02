@@ -135,7 +135,7 @@ console.log(result.detectedLanguage); // Language if captions detected
 
 ## Ask Questions
 
-Answer yes/no questions about video content by analyzing storyboard frames and optional transcripts.
+Answer questions about video content by analyzing storyboard frames and optional transcripts. By default, answers are "yes"/"no", but you can override the allowed responses.
 
 ```typescript
 import { askQuestions } from "@mux/ai/workflows";
@@ -147,7 +147,7 @@ const result = await askQuestions("your-mux-asset-id", [
   provider: "openai"
 });
 
-console.log(result.answers[0].answer); // "yes" or "no"
+console.log(result.answers[0].answer); // "yes" or "no" by default
 console.log(result.answers[0].confidence); // 0.0-1.0 confidence score
 console.log(result.answers[0].reasoning); // AI's explanation
 ```
@@ -186,6 +186,7 @@ result.answers.forEach(answer => {
 const result = await askQuestions(assetId, questions, {
   provider: "openai", // "openai", "anthropic", or "google" (default: "openai")
   model: "gpt-5.1", // Override default model
+  answerOptions: ["yes", "no", "unsure"], // Override allowed answers
   includeTranscript: true, // Include transcript (default: true)
   cleanTranscript: true, // Remove timestamps/markup (default: true)
   imageSubmissionMode: "url", // "url" or "base64" (default: "url")
@@ -197,7 +198,7 @@ const result = await askQuestions(assetId, questions, {
 
 - **Be specific:** "Does this show a person cooking in a kitchen?" vs "Does this have food?"
 - **Frame positively:** "Is this video in color?" vs "Is this video not black and white?"
-- **Avoid ambiguity:** Questions should have clear yes/no answers
+- **Avoid ambiguity:** Questions should have clear answers that map to your allowed options
 - **Use objective criteria:** Focus on observable evidence rather than subjective opinions
 
 ### Transcript Integration

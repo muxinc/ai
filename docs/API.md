@@ -143,7 +143,7 @@ Analyzes video frames to detect burned-in captions (hardcoded subtitles) that ar
 
 ## `askQuestions(assetId, questions, options?)`
 
-Answer yes/no questions about video content by analyzing storyboard frames and optional transcripts. Process multiple questions in a single API call for efficiency.
+Answer questions about video content by analyzing storyboard frames and optional transcripts. By default, answers are "yes"/"no", but you can override the allowed responses.
 
 **Parameters:**
 
@@ -157,6 +157,7 @@ Answer yes/no questions about video content by analyzing storyboard frames and o
 
 - `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
 - `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
+- `answerOptions?: string[]` - Allowed answers (default: `["yes", "no"]`)
 - `includeTranscript?: boolean` - Include video transcript in analysis (default: true)
 - `cleanTranscript?: boolean` - Remove VTT timestamps and formatting from transcript (default: true)
 - `imageSubmissionMode?: 'url' | 'base64'` - How to submit storyboard to AI providers (default: 'url')
@@ -175,7 +176,7 @@ interface AskQuestionsResult {
   assetId: string;
   answers: Array<{
     question: string; // The original question
-    answer: "yes" | "no"; // Binary answer
+    answer: string; // Answer from allowed options
     confidence: number; // Confidence score (0.0-1.0)
     reasoning: string; // AI's explanation based on observable evidence
   }>;
@@ -197,7 +198,7 @@ const result = await askQuestions("asset-id", [
   { question: "Does this video contain cooking?" }
 ]);
 
-console.log(result.answers[0].answer); // "yes" or "no"
+console.log(result.answers[0].answer); // "yes" or "no" by default
 console.log(result.answers[0].confidence); // 0.95
 console.log(result.answers[0].reasoning); // "A chef prepares ingredients..."
 
@@ -212,6 +213,11 @@ const result = await askQuestions("asset-id", [
 const result = await askQuestions("asset-id", questions, {
   includeTranscript: false
 });
+
+// Custom answer options
+const triState = await askQuestions("asset-id", questions, {
+  answerOptions: ["yes", "no", "unsure"]
+});
 ```
 
 **Tips for Effective Questions:**
@@ -219,7 +225,7 @@ const result = await askQuestions("asset-id", questions, {
 - Be specific and focused on observable evidence
 - Frame questions positively (prefer "Is X present?" over "Is X not present?")
 - Avoid ambiguous or subjective questions
-- Questions should have clear yes/no answers
+- Questions should have clear answers that map to your allowed options
 - The AI prioritizes visual evidence when transcript and visuals conflict
 
 ## `translateCaptions(assetId, fromLanguageCode, toLanguageCode, options?)`
