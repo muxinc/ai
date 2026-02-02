@@ -1,7 +1,6 @@
-import { valibotSchema } from "@ai-sdk/valibot";
 import { generateText, Output } from "ai";
 import dedent from "dedent";
-import * as v from "valibot";
+import { z } from "zod";
 
 import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
@@ -34,18 +33,18 @@ import type {
 
 export const SUMMARY_KEYWORD_LIMIT = 10;
 
-export const summarySchema = v.strictObject({
-  keywords: v.pipe(v.array(v.string())),
-  title: v.string(),
-  description: v.string(),
-});
+export const summarySchema = z.object({
+  keywords: z.array(z.string()),
+  title: z.string(),
+  description: z.string(),
+}).strict();
 
-export type SummaryType = v.InferOutput<typeof summarySchema>;
+export type SummaryType = z.infer<typeof summarySchema>;
 
 const SUMMARY_OUTPUT = Output.object({
   name: "summary_metadata",
   description: "Structured summary with title, description, and keywords.",
-  schema: valibotSchema(summarySchema),
+  schema: summarySchema,
 });
 
 /** Structured return payload for `getSummaryAndTags`. */
@@ -411,7 +410,7 @@ async function analyzeStoryboard(
     throw new Error("Summarization output missing");
   }
 
-  const parsed = v.parse(summarySchema, response.output);
+  const parsed = summarySchema.parse(response.output);
 
   return {
     result: parsed,
@@ -456,7 +455,7 @@ async function analyzeAudioOnly(
     throw new Error("Summarization output missing");
   }
 
-  const parsed = v.parse(summarySchema, response.output);
+  const parsed = summarySchema.parse(response.output);
 
   return {
     result: parsed,

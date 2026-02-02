@@ -21,7 +21,6 @@ export default defineConfig({
     "@noble/ciphers",
     "p-retry",
     "workflow",
-    "valibot",
     "zod",
   ],
 });
