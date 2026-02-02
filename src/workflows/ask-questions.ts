@@ -1,4 +1,4 @@
-import { generateObject } from "ai";
+import { generateText, Output } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
@@ -210,9 +210,9 @@ async function analyzeQuestionsWithStoryboard(
   "use step";
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
 
-  const response = await generateObject({
+  const response = await generateText({
     model,
-    schema: askQuestionsSchema,
+    output: Output.object({ schema: askQuestionsSchema }),
     experimental_telemetry: { isEnabled: true },
     messages: [
       {
@@ -231,7 +231,7 @@ async function analyzeQuestionsWithStoryboard(
 
   return {
     result: {
-      answers: response.object.answers.map(answer => ({
+      answers: response.output.answers.map(answer => ({
         ...answer,
         // Strip numbering prefix (e.g., "1. " or "2. ") from questions
         question: answer.question.replace(/^\d+\.\s*/, ""),
