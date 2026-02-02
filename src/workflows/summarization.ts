@@ -404,8 +404,6 @@ async function analyzeStoryboard(
     ],
   });
 
-  console.warn("[summarization] response:", JSON.stringify(response, null, 2));
-
   if (!response.output) {
     throw new Error("Summarization output missing");
   }
@@ -448,8 +446,6 @@ async function analyzeAudioOnly(
       },
     ],
   });
-
-  console.warn("[summarization] response:", JSON.stringify(response, null, 2));
 
   if (!response.output) {
     throw new Error("Summarization output missing");
