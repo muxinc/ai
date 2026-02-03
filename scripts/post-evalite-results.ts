@@ -81,6 +81,9 @@ interface WorkflowInsightStats {
   assetDurationSecondsTotalByCase?: number;
   assetDurationMinutesTotalByCase?: number;
   assetDurationMissingCaseCount?: number;
+  thumbnailCountTotalByCase?: number;
+  thumbnailCountAverageByCase?: number;
+  thumbnailCountMissingCaseCount?: number;
   providerCount: number;
   providers: ProviderStats[];
   scorerAverages?: Record<string, number>;
@@ -288,10 +291,16 @@ async function computeWorkflowStats(
   const overallScorers = new Map<string, { sum: number; count: number }>();
   const providers = new Set<string>();
   const assets = new Set<string>();
+  const assetDurationByAssetId = new Map<string, number>();
   const caseAssetIds: string[] = [];
+  const missingCaseAssetIds: string[] = [];
   let suiteDurationMs = coerceNumber(suite.duration);
   let suiteDurationFallbackSum = 0;
   let suiteDurationFallbackCount = 0;
+  let assetDurationSecondsTotalByCase = 0;
+  let assetDurationMissingCaseCount = 0;
+  let thumbnailCountTotalByCase = 0;
+  let thumbnailCountPresentCaseCount = 0;
 
   for (const item of evals) {
     if (!isRecord(item)) {
@@ -312,6 +321,30 @@ async function computeWorkflowStats(
     if (assetId) {
       assets.add(assetId);
       caseAssetIds.push(assetId);
+    }
+
+    const usage = isRecord(output.usage) ? output.usage : undefined;
+    const usageMetadata =
+      usage && isRecord(usage.metadata) ? usage.metadata : undefined;
+    const usageAssetDurationSeconds = coerceNumber(usageMetadata?.assetDurationSeconds);
+    const usageThumbnailCount = coerceNumber(usageMetadata?.thumbnailCount);
+
+    if (typeof usageAssetDurationSeconds === "number") {
+      // Prefer per-case usage metadata to avoid extra Mux Video API calls.
+      assetDurationSecondsTotalByCase += usageAssetDurationSeconds;
+      if (assetId && !assetDurationByAssetId.has(assetId)) {
+        assetDurationByAssetId.set(assetId, usageAssetDurationSeconds);
+      }
+    } else {
+      assetDurationMissingCaseCount += 1;
+      if (assetId) {
+        missingCaseAssetIds.push(assetId);
+      }
+    }
+
+    if (typeof usageThumbnailCount === "number") {
+      thumbnailCountTotalByCase += usageThumbnailCount;
+      thumbnailCountPresentCaseCount += 1;
     }
 
     const provider =
@@ -449,6 +482,12 @@ async function computeWorkflowStats(
   let assetDurationMissingCount = 0;
   if (assets.size > 0) {
     for (const assetId of assets) {
+      const usageDuration = assetDurationByAssetId.get(assetId);
+      if (typeof usageDuration === "number") {
+        assetDurationSecondsTotal += usageDuration;
+        continue;
+      }
+
       const durationSeconds = await resolveAssetDurationSeconds(assetId, assetDurationCache);
       if (typeof durationSeconds === "number") {
         assetDurationSecondsTotal += durationSeconds;
@@ -458,15 +497,12 @@ async function computeWorkflowStats(
     }
   }
 
-  let assetDurationSecondsTotalByCase = 0;
-  let assetDurationMissingCaseCount = 0;
-  if (caseAssetIds.length > 0) {
-    for (const assetId of caseAssetIds) {
+  if (assetDurationMissingCaseCount > 0 && missingCaseAssetIds.length > 0) {
+    for (const assetId of missingCaseAssetIds) {
       const durationSeconds = await resolveAssetDurationSeconds(assetId, assetDurationCache);
       if (typeof durationSeconds === "number") {
         assetDurationSecondsTotalByCase += durationSeconds;
-      } else {
-        assetDurationMissingCaseCount += 1;
+        assetDurationMissingCaseCount -= 1;
       }
     }
   }
@@ -579,6 +615,16 @@ async function computeWorkflowStats(
       assetDurationSecondsTotalByCase > 0 ? assetDurationSecondsTotalByCase / 60 : undefined,
     assetDurationMissingCaseCount:
       assetDurationMissingCaseCount > 0 ? assetDurationMissingCaseCount : undefined,
+    thumbnailCountTotalByCase:
+      thumbnailCountPresentCaseCount > 0 ? thumbnailCountTotalByCase : undefined,
+    thumbnailCountAverageByCase:
+      thumbnailCountPresentCaseCount > 0 ?
+        thumbnailCountTotalByCase / thumbnailCountPresentCaseCount :
+        undefined,
+    thumbnailCountMissingCaseCount:
+      thumbnailCountPresentCaseCount > 0 && evals.length > thumbnailCountPresentCaseCount ?
+        evals.length - thumbnailCountPresentCaseCount :
+        undefined,
     providerCount: providers.size,
     providers: providerSummaries,
     scorerAverages: Object.keys(overallScorerAverages).length > 0 ?
