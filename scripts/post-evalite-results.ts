@@ -78,6 +78,9 @@ interface WorkflowInsightStats {
   assetDurationSecondsTotal?: number;
   assetDurationMinutesTotal?: number;
   assetDurationMissingCount?: number;
+  assetDurationSecondsTotalByCase?: number;
+  assetDurationMinutesTotalByCase?: number;
+  assetDurationMissingCaseCount?: number;
   providerCount: number;
   providers: ProviderStats[];
   scorerAverages?: Record<string, number>;
@@ -285,6 +288,7 @@ async function computeWorkflowStats(
   const overallScorers = new Map<string, { sum: number; count: number }>();
   const providers = new Set<string>();
   const assets = new Set<string>();
+  const caseAssetIds: string[] = [];
   let suiteDurationMs = coerceNumber(suite.duration);
   let suiteDurationFallbackSum = 0;
   let suiteDurationFallbackCount = 0;
@@ -307,6 +311,7 @@ async function computeWorkflowStats(
           undefined;
     if (assetId) {
       assets.add(assetId);
+      caseAssetIds.push(assetId);
     }
 
     const provider =
@@ -453,6 +458,19 @@ async function computeWorkflowStats(
     }
   }
 
+  let assetDurationSecondsTotalByCase = 0;
+  let assetDurationMissingCaseCount = 0;
+  if (caseAssetIds.length > 0) {
+    for (const assetId of caseAssetIds) {
+      const durationSeconds = await resolveAssetDurationSeconds(assetId, assetDurationCache);
+      if (typeof durationSeconds === "number") {
+        assetDurationSecondsTotalByCase += durationSeconds;
+      } else {
+        assetDurationMissingCaseCount += 1;
+      }
+    }
+  }
+
   const providerSummaries: ProviderStats[] = Array.from(providerStats.values()).map((stats) => {
     const scorerAverages: Record<string, number> = {};
     for (const [name, scorer] of stats.scorerSums.entries()) {
@@ -555,6 +573,12 @@ async function computeWorkflowStats(
     assetDurationMinutesTotal:
       assetDurationSecondsTotal > 0 ? assetDurationSecondsTotal / 60 : undefined,
     assetDurationMissingCount: assetDurationMissingCount > 0 ? assetDurationMissingCount : undefined,
+    assetDurationSecondsTotalByCase:
+      assetDurationSecondsTotalByCase > 0 ? assetDurationSecondsTotalByCase : undefined,
+    assetDurationMinutesTotalByCase:
+      assetDurationSecondsTotalByCase > 0 ? assetDurationSecondsTotalByCase / 60 : undefined,
+    assetDurationMissingCaseCount:
+      assetDurationMissingCaseCount > 0 ? assetDurationMissingCaseCount : undefined,
     providerCount: providers.size,
     providers: providerSummaries,
     scorerAverages: Object.keys(overallScorerAverages).length > 0 ?
