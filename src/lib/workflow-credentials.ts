@@ -120,7 +120,7 @@ export async function resolveWorkflowCredentials(
       );
       return { ...resolved, ...decrypted };
     } catch (error) {
-      const detail = error instanceof Error ? error.message : "Unknown error.";
+      const detail = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to decrypt workflow credentials. ${detail}`);
     }
   }

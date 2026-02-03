@@ -37,9 +37,15 @@ export const summarySchema = z.object({
   keywords: z.array(z.string()),
   title: z.string(),
   description: z.string(),
-});
+}).strict();
 
 export type SummaryType = z.infer<typeof summarySchema>;
+
+const SUMMARY_OUTPUT = Output.object({
+  name: "summary_metadata",
+  description: "Structured summary with title, description, and keywords.",
+  schema: summarySchema,
+});
 
 /** Structured return payload for `getSummaryAndTags`. */
 export interface SummaryAndTagsResult {
@@ -150,7 +156,7 @@ const summarizationPromptBuilder = createPromptBuilder<SummarizationPromptSectio
     keywords: {
       tag: "keywords_requirements",
       content: dedent`
-        Specific, searchable terms (up to 10) that capture:
+        Specific, searchable terms (up to ${SUMMARY_KEYWORD_LIMIT}) that capture:
         - Primary subjects (people, animals, objects)
         - Actions and activities being performed
         - Setting and environment
@@ -200,7 +206,7 @@ const audioOnlyPromptBuilder = createPromptBuilder<SummarizationPromptSections>(
     keywords: {
       tag: "keywords_requirements",
       content: dedent`
-        Specific, searchable terms (up to 10) that capture:
+        Specific, searchable terms (up to ${SUMMARY_KEYWORD_LIMIT}) that capture:
         - Primary topics and themes
         - Speakers or presenters (if named)
         - Key concepts and terminology
@@ -253,6 +259,7 @@ const SYSTEM_PROMPT = dedent`
     - Only describe what is clearly observable in the frames or explicitly stated in the transcript
     - Do not fabricate details or make unsupported assumptions
     - Return structured data matching the requested schema
+    - Output only the JSON object; no markdown or extra text
   </constraints>
 
   <tone_guidance>
@@ -307,6 +314,7 @@ const AUDIO_ONLY_SYSTEM_PROMPT = dedent`
     - Do not fabricate details or make unsupported assumptions
     - Return structured data matching the requested schema
     - Focus entirely on audio/spoken content - there are no visual elements
+    - Output only the JSON object; no markdown or extra text
   </constraints>
 
   <tone_guidance>
@@ -380,7 +388,7 @@ async function analyzeStoryboard(
 
   const response = await generateText({
     model,
-    output: Output.object({ schema: summarySchema }),
+    output: SUMMARY_OUTPUT,
     messages: [
       {
         role: "system",
@@ -396,8 +404,14 @@ async function analyzeStoryboard(
     ],
   });
 
+  if (!response.output) {
+    throw new Error("Summarization output missing");
+  }
+
+  const parsed = summarySchema.parse(response.output);
+
   return {
-    result: response.output,
+    result: parsed,
     usage: {
       inputTokens: response.usage.inputTokens,
       outputTokens: response.usage.outputTokens,
@@ -420,7 +434,7 @@ async function analyzeAudioOnly(
 
   const response = await generateText({
     model,
-    output: Output.object({ schema: summarySchema }),
+    output: SUMMARY_OUTPUT,
     messages: [
       {
         role: "system",
@@ -433,8 +447,14 @@ async function analyzeAudioOnly(
     ],
   });
 
+  if (!response.output) {
+    throw new Error("Summarization output missing");
+  }
+
+  const parsed = summarySchema.parse(response.output);
+
   return {
-    result: response.output,
+    result: parsed,
     usage: {
       inputTokens: response.usage.inputTokens,
       outputTokens: response.usage.outputTokens,

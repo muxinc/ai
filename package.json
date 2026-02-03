@@ -105,6 +105,7 @@
     "@aws-sdk/lib-storage": "^3.0.0",
     "@aws-sdk/s3-request-presigner": "^3.0.0",
     "@mux/mux-node": "^12.5.0",
+    "@noble/ciphers": "^2.1.1",
     "ai": "^6.0.42",
     "dedent": "^1.7.0",
     "dotenv": "^17.2.2",
