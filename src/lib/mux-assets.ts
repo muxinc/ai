@@ -55,3 +55,19 @@ export async function getPlaybackIdForAsset(
 
   return { asset, playbackId, policy };
 }
+
+export async function getAssetDurationSeconds(
+  assetId: string,
+  credentials?: WorkflowCredentialsInput,
+): Promise<number | undefined> {
+  "use step";
+  const { muxTokenId, muxTokenSecret } = await getMuxCredentialsFromEnv(credentials);
+  const mux = new Mux({
+    tokenId: muxTokenId,
+    tokenSecret: muxTokenSecret,
+  });
+
+  const asset = await mux.video.assets.retrieve(assetId);
+  const duration = asset.duration;
+  return typeof duration === "number" && Number.isFinite(duration) ? duration : undefined;
+}

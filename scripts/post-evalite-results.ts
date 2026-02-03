@@ -12,6 +12,7 @@ import dedent from "dedent";
 import { z } from "zod";
 
 import env from "../src/env";
+import { getAssetDurationSeconds } from "../src/lib/mux-assets";
 import { DEFAULT_LANGUAGE_MODELS } from "../src/lib/providers";
 import type { SupportedProvider } from "../src/lib/providers";
 
@@ -74,6 +75,9 @@ interface WorkflowInsightStats {
   suiteCreatedAt?: string;
   caseCount: number;
   assetCount?: number;
+  assetDurationSecondsTotal?: number;
+  assetDurationMinutesTotal?: number;
+  assetDurationMissingCount?: number;
   providerCount: number;
   providers: ProviderStats[];
   scorerAverages?: Record<string, number>;
@@ -177,6 +181,7 @@ function resolveRef() {
 const WORKFLOW_MATCHERS = [
   { key: "burned_in_captions", regex: /burned[- ]in[- ]captions/i },
   { key: "chapters", regex: /chapters?/i },
+  { key: "ask_questions", regex: /ask[- ]questions/i },
   { key: "translate_captions", regex: /translate[- ]captions/i },
   { key: "summarization", regex: /summarization/i },
 ] as const;
@@ -216,7 +221,46 @@ function coerceNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-function computeWorkflowStats(suite: EvaliteSuite, workflowKey: string): WorkflowInsightStats {
+let hasWarnedMissingMuxCredentials = false;
+
+async function resolveAssetDurationSeconds(
+  assetId: string,
+  cache: Map<string, number | null>,
+): Promise<number | undefined> {
+  if (cache.has(assetId)) {
+    const cached = cache.get(assetId);
+    return typeof cached === "number" ? cached : undefined;
+  }
+
+  if (!env.MUX_TOKEN_ID || !env.MUX_TOKEN_SECRET) {
+    if (!hasWarnedMissingMuxCredentials) {
+      console.warn("⚠️ Skipping asset duration lookup: MUX_TOKEN_ID and MUX_TOKEN_SECRET are required.");
+      hasWarnedMissingMuxCredentials = true;
+    }
+    cache.set(assetId, null);
+    return undefined;
+  }
+
+  try {
+    const duration = await getAssetDurationSeconds(assetId);
+    cache.set(assetId, typeof duration === "number" ? duration : null);
+    return duration;
+  } catch (error) {
+    console.warn(
+      `⚠️ Failed to fetch Mux asset duration for ${assetId}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    cache.set(assetId, null);
+    return undefined;
+  }
+}
+
+async function computeWorkflowStats(
+  suite: EvaliteSuite,
+  workflowKey: string,
+  assetDurationCache: Map<string, number | null>,
+): Promise<WorkflowInsightStats> {
   const evals = Array.isArray(suite.evals) ? suite.evals : [];
   const providerStats = new Map<string, {
     provider: string;
@@ -396,6 +440,19 @@ function computeWorkflowStats(suite: EvaliteSuite, workflowKey: string): Workflo
     suiteDurationMs = suiteDurationFallbackSum;
   }
 
+  let assetDurationSecondsTotal = 0;
+  let assetDurationMissingCount = 0;
+  if (assets.size > 0) {
+    for (const assetId of assets) {
+      const durationSeconds = await resolveAssetDurationSeconds(assetId, assetDurationCache);
+      if (typeof durationSeconds === "number") {
+        assetDurationSecondsTotal += durationSeconds;
+      } else {
+        assetDurationMissingCount += 1;
+      }
+    }
+  }
+
   const providerSummaries: ProviderStats[] = Array.from(providerStats.values()).map((stats) => {
     const scorerAverages: Record<string, number> = {};
     for (const [name, scorer] of stats.scorerSums.entries()) {
@@ -494,6 +551,10 @@ function computeWorkflowStats(suite: EvaliteSuite, workflowKey: string): Workflo
     suiteCreatedAt: suite.createdAt,
     caseCount: evals.length,
     assetCount: assets.size || undefined,
+    assetDurationSecondsTotal: assetDurationSecondsTotal > 0 ? assetDurationSecondsTotal : undefined,
+    assetDurationMinutesTotal:
+      assetDurationSecondsTotal > 0 ? assetDurationSecondsTotal / 60 : undefined,
+    assetDurationMissingCount: assetDurationMissingCount > 0 ? assetDurationMissingCount : undefined,
     providerCount: providers.size,
     providers: providerSummaries,
     scorerAverages: Object.keys(overallScorerAverages).length > 0 ?
@@ -569,6 +630,7 @@ async function generateWorkflowInsights(suites: EvaliteSuite[], options: Generat
   const { model, provider, modelId } = resolveInsightsModel(options);
   const { workflows: workflowFilter } = options;
   const insights: WorkflowInsightPayload[] = [];
+  const assetDurationCache = new Map<string, number | null>();
 
   console.warn(`🤖 Generating insights using ${provider}/${modelId}`);
   if (workflowFilter && workflowFilter.length > 0) {
@@ -600,7 +662,7 @@ async function generateWorkflowInsights(suites: EvaliteSuite[], options: Generat
       continue;
     }
 
-    const stats = computeWorkflowStats(suite, workflowKey);
+    const stats = await computeWorkflowStats(suite, workflowKey, assetDurationCache);
 
     const userPrompt = dedent`
       <task>
