@@ -1,11 +1,15 @@
 import { getApiKeyFromEnv } from "@mux/ai/lib/client-factory";
 import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImagesAsBase64 } from "@mux/ai/lib/image-download";
-import { getPlaybackIdForAsset, isAudioOnlyAsset } from "@mux/ai/lib/mux-assets";
+import {
+  getAssetDurationSecondsFromAsset,
+  getPlaybackIdForAsset,
+  isAudioOnlyAsset,
+} from "@mux/ai/lib/mux-assets";
 import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
 import { getThumbnailUrls } from "@mux/ai/primitives/thumbnails";
 import { fetchTranscriptForAsset, getReadyTextTracks } from "@mux/ai/primitives/transcripts";
-import type { ImageSubmissionMode, MuxAIOptions, WorkflowCredentialsInput } from "@mux/ai/types";
+import type { ImageSubmissionMode, MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "@mux/ai/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -27,6 +31,8 @@ export interface ModerationResult {
   /** Convenience flag so callers can understand why `thumbnailScores` may contain a transcript entry. */
   isAudioOnly: boolean;
   thumbnailScores: ThumbnailModerationScore[];
+  /** Workflow usage metadata (asset duration, thumbnails, etc.). */
+  usage?: TokenUsage;
   maxScores: {
     sexual: number;
     violence: number;
@@ -439,7 +445,8 @@ export async function getModerationScores(
 
   // Fetch asset data and playback ID from Mux via helper
   const { asset, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
-  const duration = asset.duration || 0;
+  const assetDurationSeconds = getAssetDurationSecondsFromAsset(asset);
+  const duration = assetDurationSeconds ?? 0;
   const isAudioOnly = isAudioOnlyAsset(asset);
 
   // Resolve signing context for signed playback IDs
@@ -453,6 +460,7 @@ export async function getModerationScores(
 
   let thumbnailScores: ThumbnailModerationScore[];
   let mode: ModerationResult["mode"] = "thumbnails";
+  let thumbnailCount: number | undefined;
 
   if (isAudioOnly) {
     mode = "transcript";
@@ -497,6 +505,7 @@ export async function getModerationScores(
       maxSamples,
       credentials,
     });
+    thumbnailCount = thumbnailUrls.length;
 
     if (provider === "openai") {
       thumbnailScores = await requestOpenAIModeration(
@@ -531,6 +540,12 @@ export async function getModerationScores(
     mode,
     isAudioOnly,
     thumbnailScores,
+    usage: {
+      metadata: {
+        assetDurationSeconds,
+        ...(thumbnailCount === undefined ? {} : { thumbnailCount }),
+      },
+    },
     maxScores: {
       sexual: maxSexual,
       violence: maxViolence,

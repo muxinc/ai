@@ -1,6 +1,10 @@
 import { embed } from "ai";
 
-import { getPlaybackIdForAsset, isAudioOnlyAsset } from "@mux/ai/lib/mux-assets";
+import {
+  getAssetDurationSecondsFromAsset,
+  getPlaybackIdForAsset,
+  isAudioOnlyAsset,
+} from "@mux/ai/lib/mux-assets";
 import type { EmbeddingModelIdByProvider, SupportedEmbeddingProvider } from "@mux/ai/lib/providers";
 import { createEmbeddingModelFromConfig, resolveEmbeddingModelConfig } from "@mux/ai/lib/providers";
 import { withRetry } from "@mux/ai/lib/retry";
@@ -158,6 +162,7 @@ async function generateEmbeddingsInternal(
 
   // Fetch asset and playback ID
   const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
+  const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
   const isAudioOnly = isAudioOnlyAsset(assetData);
 
   // Resolve signing context for signed playback IDs
@@ -267,6 +272,11 @@ async function generateEmbeddingsInternal(
       chunkingStrategy: JSON.stringify(chunkingStrategy),
       embeddingDimensions: chunkEmbeddings[0].embedding.length,
       generatedAt: new Date().toISOString(),
+    },
+    usage: {
+      metadata: {
+        assetDurationSeconds,
+      },
     },
   };
 }

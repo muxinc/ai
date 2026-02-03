@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
-import { getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
+import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
 import type { PromptOverrides } from "@mux/ai/lib/prompt-builder";
 import { createPromptBuilder } from "@mux/ai/lib/prompt-builder";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
@@ -274,7 +274,11 @@ export async function hasBurnedInCaptions(
     model,
     provider: provider as SupportedProvider,
   });
-  const { playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(
+    assetId,
+    credentials,
+  );
+  const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
 
   const imageUrl = await getStoryboardUrl(playbackId, 640, policy === "signed", credentials);
 
@@ -311,6 +315,11 @@ export async function hasBurnedInCaptions(
     confidence: analysisResponse.result.confidence ?? 0,
     detectedLanguage: analysisResponse.result.detectedLanguage ?? null,
     storyboardUrl: imageUrl,
-    usage: analysisResponse.usage,
+    usage: {
+      ...analysisResponse.usage,
+      metadata: {
+        assetDurationSeconds,
+      },
+    },
   };
 }

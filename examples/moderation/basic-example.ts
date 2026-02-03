@@ -60,6 +60,9 @@ async function main() {
     });
 
     console.log("\n📦 Asset ID:", result.assetId);
+
+    console.log("\n📈 Usage:");
+    console.log(JSON.stringify(result.usage, null, 2));
   } catch (error) {
     console.error("❌ Error:", error instanceof Error ? error.message : error);
   }

@@ -125,10 +125,22 @@ export interface VideoEmbeddingsResult {
     embeddingDimensions: number;
     generatedAt: string;
   };
+  /** Workflow usage metadata (asset duration, thumbnails, etc.). */
+  usage?: TokenUsage;
 }
 // ─────────────────────────────────────────────────────────────────────────────
 // AI SDK Usage Metrics
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Metadata attached to usage objects for workflow context.
+ */
+export interface UsageMetadata {
+  /** Total asset duration in seconds. */
+  assetDurationSeconds?: number;
+  /** Number of thumbnails sampled for workflows that use thumbnails. */
+  thumbnailCount?: number;
+}
 
 /**
  * Token usage breakdown returned by AI SDK providers.
@@ -145,4 +157,6 @@ export interface TokenUsage {
   reasoningTokens?: number;
   /** Input tokens served from cache (reduces cost). */
   cachedInputTokens?: number;
+  /** Workflow metadata (asset duration, thumbnails, etc.). */
+  metadata?: UsageMetadata;
 }

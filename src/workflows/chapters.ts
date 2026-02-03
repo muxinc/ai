@@ -2,7 +2,11 @@ import { generateText, Output } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
-import { getPlaybackIdForAsset, isAudioOnlyAsset } from "@mux/ai/lib/mux-assets";
+import {
+  getAssetDurationSecondsFromAsset,
+  getPlaybackIdForAsset,
+  isAudioOnlyAsset,
+} from "@mux/ai/lib/mux-assets";
 import type { PromptOverrides, PromptSection } from "@mux/ai/lib/prompt-builder";
 import { createPromptBuilder } from "@mux/ai/lib/prompt-builder";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
@@ -291,7 +295,11 @@ export async function generateChapters(
   });
 
   // Fetch asset and transcript
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(
+    assetId,
+    credentials,
+  );
+  const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
   const isAudioOnly = isAudioOnlyAsset(assetData);
 
   // Resolve signing context for signed playback IDs
@@ -382,10 +390,18 @@ export async function generateChapters(
     validChapters[0].startTime = 0;
   }
 
+  const usageWithMetadata: TokenUsage = {
+    ...usage,
+    metadata: {
+      ...usage?.metadata,
+      assetDurationSeconds,
+    },
+  };
+
   return {
     assetId,
     languageCode,
     chapters: validChapters,
-    usage,
+    usage: usageWithMetadata,
   };
 }
