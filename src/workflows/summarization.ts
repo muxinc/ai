@@ -4,7 +4,11 @@ import { z } from "zod";
 
 import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
-import { getPlaybackIdForAsset, isAudioOnlyAsset } from "@mux/ai/lib/mux-assets";
+import {
+  getAssetDurationSecondsFromAsset,
+  getPlaybackIdForAsset,
+  isAudioOnlyAsset,
+} from "@mux/ai/lib/mux-assets";
 import type {
   PromptOverrides,
 } from "@mux/ai/lib/prompt-builder";
@@ -528,6 +532,8 @@ export async function getSummaryAndTags(
   // Fetch asset data from Mux and grab playback/transcript details
   const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
 
+  const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
+
   // Detect if asset is audio-only
   const isAudioOnly = isAudioOnlyAsset(assetData);
 
@@ -637,7 +643,12 @@ export async function getSummaryAndTags(
     description: analysisResponse.result.description,
     tags: normalizeKeywords(analysisResponse.result.keywords),
     storyboardUrl: imageUrl, // undefined for audio-only assets
-    usage: analysisResponse.usage,
+    usage: {
+      ...analysisResponse.usage,
+      metadata: {
+        assetDurationSeconds,
+      },
+    },
     transcriptText: transcriptText || undefined,
   };
 }

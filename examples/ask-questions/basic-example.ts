@@ -45,9 +45,7 @@ program
 
       if (result.usage) {
         console.log("\n📈 Token Usage:");
-        console.log(`  Input: ${result.usage.inputTokens}`);
-        console.log(`  Output: ${result.usage.outputTokens}`);
-        console.log(`  Total: ${result.usage.totalTokens}`);
+        console.log(JSON.stringify(result.usage, null, 2));
       }
     } catch (error) {
       console.error("❌ Error:", error instanceof Error ? error.message : error);

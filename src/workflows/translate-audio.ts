@@ -4,10 +4,10 @@ import env from "@mux/ai/env";
 import { getApiKeyFromEnv, getMuxCredentialsFromEnv } from "@mux/ai/lib/client-factory";
 import { getLanguageCodePair, toISO639_1, toISO639_3 } from "@mux/ai/lib/language-codes";
 import type { LanguageCodePair, SupportedISO639_1 } from "@mux/ai/lib/language-codes";
-import { getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
+import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
 import { signUrl } from "@mux/ai/lib/url-signing";
 import { isEncryptedPayload } from "@mux/ai/lib/workflow-crypto";
-import type { MuxAIOptions, WorkflowCredentialsInput } from "@mux/ai/types";
+import type { MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "@mux/ai/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -26,6 +26,8 @@ export interface AudioTranslationResult {
   dubbingId: string;
   uploadedTrackId?: string;
   presignedUrl?: string;
+  /** Workflow usage metadata (asset duration, thumbnails, etc.). */
+  usage?: TokenUsage;
 }
 
 /** Configuration accepted by `translateAudio`. */
@@ -404,7 +406,11 @@ export async function translateAudio(
   }
 
   // Fetch asset data and playback ID from Mux
-  const { asset: initialAsset, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
+  const { asset: initialAsset, playbackId, policy } = await getPlaybackIdForAsset(
+    assetId,
+    credentials,
+  );
+  const assetDurationSeconds = getAssetDurationSecondsFromAsset(initialAsset);
 
   // Check for audio-only static rendition
 
@@ -594,5 +600,10 @@ export async function translateAudio(
     dubbingId,
     uploadedTrackId,
     presignedUrl,
+    usage: {
+      metadata: {
+        assetDurationSeconds,
+      },
+    },
   };
 }

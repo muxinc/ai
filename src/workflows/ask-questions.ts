@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
-import { getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
+import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
 import { createPromptBuilder, createTranscriptSection } from "@mux/ai/lib/prompt-builder";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
@@ -369,6 +369,8 @@ export async function askQuestions(
   // Fetch asset data and playback ID from Mux
   const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
 
+  const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
+
   // Resolve signing context for signed playback IDs
   const signingContext = await resolveMuxSigningContext(credentials);
   if (policy === "signed" && !signingContext) {
@@ -449,7 +451,12 @@ export async function askQuestions(
     assetId,
     answers: analysisResponse.result.answers,
     storyboardUrl: imageUrl,
-    usage: analysisResponse.usage,
+    usage: {
+      ...analysisResponse.usage,
+      metadata: {
+        assetDurationSeconds,
+      },
+    },
     transcriptText: transcriptText || undefined,
   };
 }

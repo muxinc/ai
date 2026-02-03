@@ -6,7 +6,11 @@ import env from "@mux/ai/env";
 import { getMuxCredentialsFromEnv } from "@mux/ai/lib/client-factory";
 import { getLanguageCodePair, getLanguageName } from "@mux/ai/lib/language-codes";
 import type { LanguageCodePair, SupportedISO639_1 } from "@mux/ai/lib/language-codes";
-import { getPlaybackIdForAsset, isAudioOnlyAsset } from "@mux/ai/lib/mux-assets";
+import {
+  getAssetDurationSecondsFromAsset,
+  getPlaybackIdForAsset,
+  isAudioOnlyAsset,
+} from "@mux/ai/lib/mux-assets";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
 import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
@@ -256,7 +260,11 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   }
 
   // Fetch asset data and playback ID from Mux
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(
+    assetId,
+    credentials,
+  );
+  const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
   const isAudioOnly = isAudioOnlyAsset(assetData);
 
   // Resolve signing context for signed playback IDs
@@ -333,6 +341,15 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     throw new Error(`Failed to translate VTT with ${modelConfig.provider}: ${error instanceof Error ? error.message : "Unknown error"}`);
   }
 
+  const usageWithMetadata = usage ?
+      {
+        ...usage,
+        metadata: {
+          assetDurationSeconds,
+        },
+      } :
+    undefined;
+
   // Resolve language code pairs for both source and target
   const sourceLanguage = getLanguageCodePair(fromLanguageCode);
   const targetLanguage = getLanguageCodePair(toLanguageCode);
@@ -347,7 +364,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
       targetLanguage,
       originalVtt: vttContent,
       translatedVtt,
-      usage,
+      usage: usageWithMetadata,
     };
   }
 
@@ -396,6 +413,6 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     translatedVtt,
     uploadedTrackId,
     presignedUrl,
-    usage,
+    usage: usageWithMetadata,
   };
 }

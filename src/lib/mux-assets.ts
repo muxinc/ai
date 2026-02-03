@@ -68,6 +68,10 @@ export async function getAssetDurationSeconds(
   });
 
   const asset = await mux.video.assets.retrieve(assetId);
+  return getAssetDurationSecondsFromAsset(asset);
+}
+
+export function getAssetDurationSecondsFromAsset(asset: MuxAsset): number | undefined {
   const duration = asset.duration;
   return typeof duration === "number" && Number.isFinite(duration) ? duration : undefined;
 }
