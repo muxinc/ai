@@ -11,8 +11,7 @@ import {
 } from "@mux/ai/lib/mux-assets";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
-import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
-import { createWorkflowMuxClient } from "@mux/ai/lib/workflow-mux-client";
+import { resolveMuxClient, resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
 import type { WorkflowMuxClient } from "@mux/ai/lib/workflow-mux-client";
 import { buildTranscriptUrl, getReadyTextTracks } from "@mux/ai/primitives/transcripts";
 import type { MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "@mux/ai/types";
@@ -236,7 +235,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     uploadToMux: uploadToMuxOption,
     credentials,
   } = options;
-  const muxClient = await createWorkflowMuxClient(credentials);
+  const muxClient = await resolveMuxClient(credentials);
 
   // S3 configuration
   const s3Endpoint = providedS3Endpoint ?? env.S3_ENDPOINT;

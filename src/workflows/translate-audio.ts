@@ -4,11 +4,9 @@ import { getLanguageCodePair, toISO639_1, toISO639_3 } from "@mux/ai/lib/languag
 import type { LanguageCodePair, SupportedISO639_1 } from "@mux/ai/lib/language-codes";
 import { getAssetDurationSecondsFromAsset, getPlaybackIdForAssetWithClient } from "@mux/ai/lib/mux-assets";
 import { signUrl } from "@mux/ai/lib/url-signing";
-import { isEncryptedPayload } from "@mux/ai/lib/workflow-crypto";
-import { createWorkflowMuxClient } from "@mux/ai/lib/workflow-mux-client";
+import { resolveMuxClient } from "@mux/ai/lib/workflow-credentials";
 import type { WorkflowMuxClient } from "@mux/ai/lib/workflow-mux-client";
-import { isWorkflowNativeCredentials, nativeEncryptForWorkflow } from "@mux/ai/lib/workflow-native-credentials";
-import { createWorkflowElevenLabsClient } from "@mux/ai/lib/workflow-provider-clients";
+import { isWorkflowNativeCredentials, serializeForWorkflow } from "@mux/ai/lib/workflow-native-credentials";
 import type { MuxAIOptions, TokenUsage, WorkflowCredentials, WorkflowCredentialsInput } from "@mux/ai/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -49,9 +47,6 @@ export interface AudioTranslationOptions extends MuxAIOptions {
    * bucket and attached to the Mux asset.
    */
   uploadToMux?: boolean;
-  /** Override for env.ELEVENLABS_API_KEY. */
-  /** @deprecated Prefer passing `credentials.elevenLabsClient`. */
-  elevenLabsApiKey?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -355,27 +350,16 @@ async function createAudioTrackOnMux(
 
 function normalizeAudioWorkflowCredentials(
   providedCredentials?: WorkflowCredentialsInput,
-  elevenLabsApiKey?: string,
 ): WorkflowCredentialsInput | undefined {
-  if (!providedCredentials && !elevenLabsApiKey) {
+  if (!providedCredentials) {
     return undefined;
   }
 
-  if (isEncryptedPayload(providedCredentials) || isWorkflowNativeCredentials(providedCredentials)) {
+  if (isWorkflowNativeCredentials(providedCredentials)) {
     return providedCredentials;
   }
 
-  const base = (providedCredentials ?? {}) as WorkflowCredentials;
-  if (!base.elevenLabsClient && (base.elevenLabsApiKey || elevenLabsApiKey)) {
-    const apiKey = elevenLabsApiKey ?? base.elevenLabsApiKey;
-    const { elevenLabsApiKey: _deprecatedElevenLabsApiKey, ...rest } = base;
-    return nativeEncryptForWorkflow({
-      ...rest,
-      elevenLabsClient: createWorkflowElevenLabsClient({ apiKey }),
-    });
-  }
-
-  return nativeEncryptForWorkflow(base);
+  return serializeForWorkflow(providedCredentials as WorkflowCredentials);
 }
 
 export async function translateAudio(
@@ -388,7 +372,6 @@ export async function translateAudio(
   const {
     provider = "elevenlabs",
     numSpeakers = 0, // 0 = auto-detect
-    elevenLabsApiKey,
     uploadToMux = true,
     credentials: providedCredentials,
   } = options;
@@ -397,7 +380,7 @@ export async function translateAudio(
     throw new Error("Only ElevenLabs provider is currently supported for audio translation");
   }
 
-  const credentials = normalizeAudioWorkflowCredentials(providedCredentials, elevenLabsApiKey);
+  const credentials = normalizeAudioWorkflowCredentials(providedCredentials);
 
   // S3 configuration
   const s3Endpoint = options.s3Endpoint ?? env.S3_ENDPOINT;
@@ -409,7 +392,7 @@ export async function translateAudio(
   if (uploadToMux && (!s3Endpoint || !s3Bucket || !s3AccessKeyId || !s3SecretAccessKey)) {
     throw new Error("S3 configuration is required for uploading to Mux. Provide s3Endpoint, s3Bucket, s3AccessKeyId, and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.");
   }
-  const muxClient = await createWorkflowMuxClient(credentials);
+  const muxClient = await resolveMuxClient(credentials);
 
   // Fetch asset data and playback ID from Mux
   const { asset: initialAsset, playbackId, policy } = await getPlaybackIdForAssetWithClient(

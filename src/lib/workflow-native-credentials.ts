@@ -51,7 +51,7 @@ export class WorkflowNativeCredentials<T = unknown> {
 
 registerWorkflowNativeCredentialsClass();
 
-export function nativeEncryptForWorkflow<T>(value: T): WorkflowNativeCredentials<T> {
+export function serializeForWorkflow<T>(value: T): WorkflowNativeCredentials<T> {
   return new WorkflowNativeCredentials(value);
 }
 

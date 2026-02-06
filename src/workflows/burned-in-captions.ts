@@ -9,7 +9,7 @@ import type { PromptOverrides } from "@mux/ai/lib/prompt-builder";
 import { createPromptBuilder } from "@mux/ai/lib/prompt-builder";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
-import { createWorkflowMuxClient } from "@mux/ai/lib/workflow-mux-client";
+import { resolveMuxClient } from "@mux/ai/lib/workflow-credentials";
 import { getStoryboardUrl } from "@mux/ai/primitives/storyboards";
 import type {
   ImageSubmissionMode,
@@ -275,7 +275,7 @@ export async function hasBurnedInCaptions(
     model,
     provider: provider as SupportedProvider,
   });
-  const muxClient = await createWorkflowMuxClient(credentials);
+  const muxClient = await resolveMuxClient(credentials);
   const { asset: assetData, playbackId, policy } = await getPlaybackIdForAssetWithClient(
     assetId,
     muxClient,

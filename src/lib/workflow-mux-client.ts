@@ -1,10 +1,6 @@
 import Mux from "@mux/mux-node";
+import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 
-import { getMuxCredentialsFromEnv } from "@mux/ai/lib/client-factory";
-import type { WorkflowCredentialsInput } from "@mux/ai/types";
-
-const WORKFLOW_SERIALIZE = Symbol.for("workflow-serialize");
-const WORKFLOW_DESERIALIZE = Symbol.for("workflow-deserialize");
 const WORKFLOW_CLASS_REGISTRY = Symbol.for("workflow-class-registry");
 const WORKFLOW_MUX_CLIENT_CLASS_ID = "mux.ai.workflow-mux-client";
 
@@ -32,14 +28,31 @@ function registerWorkflowMuxClientClass(): void {
   }
 }
 
+export interface WorkflowMuxClientOptions {
+  tokenId: string;
+  tokenSecret: string;
+  signingKey?: string;
+  privateKey?: string;
+}
+
 /**
  * Serializable Mux API client wrapper for workflow boundaries.
+ *
+ * Carries Mux API credentials and optional URL-signing keys.
+ * The Workflow DevKit handles secure serialization across step boundaries.
  */
 export class WorkflowMuxClient {
-  constructor(
-    private readonly tokenId: string,
-    private readonly tokenSecret: string,
-  ) {}
+  private readonly tokenId: string;
+  private readonly tokenSecret: string;
+  private readonly signingKey?: string;
+  private readonly privateKey?: string;
+
+  constructor(options: WorkflowMuxClientOptions) {
+    this.tokenId = options.tokenId;
+    this.tokenSecret = options.tokenSecret;
+    this.signingKey = options.signingKey;
+    this.privateKey = options.privateKey;
+  }
 
   createClient(): Mux {
     return new Mux({
@@ -48,23 +61,34 @@ export class WorkflowMuxClient {
     });
   }
 
-  static [WORKFLOW_SERIALIZE](instance: WorkflowMuxClient): { tokenId: string; tokenSecret: string } {
+  getTokenId(): string {
+    return this.tokenId;
+  }
+
+  getTokenSecret(): string {
+    return this.tokenSecret;
+  }
+
+  getSigningKey(): string | undefined {
+    return this.signingKey;
+  }
+
+  getPrivateKey(): string | undefined {
+    return this.privateKey;
+  }
+
+  static [WORKFLOW_SERIALIZE](instance: WorkflowMuxClient): WorkflowMuxClientOptions {
     return {
       tokenId: instance.tokenId,
       tokenSecret: instance.tokenSecret,
+      signingKey: instance.signingKey,
+      privateKey: instance.privateKey,
     };
   }
 
-  static [WORKFLOW_DESERIALIZE](value: { tokenId: string; tokenSecret: string }): WorkflowMuxClient {
-    return new WorkflowMuxClient(value.tokenId, value.tokenSecret);
+  static [WORKFLOW_DESERIALIZE](value: WorkflowMuxClientOptions): WorkflowMuxClient {
+    return new WorkflowMuxClient(value);
   }
 }
 
 registerWorkflowMuxClientClass();
-
-export async function createWorkflowMuxClient(
-  credentials?: WorkflowCredentialsInput,
-): Promise<WorkflowMuxClient> {
-  const { muxTokenId, muxTokenSecret } = await getMuxCredentialsFromEnv(credentials);
-  return new WorkflowMuxClient(muxTokenId, muxTokenSecret);
-}

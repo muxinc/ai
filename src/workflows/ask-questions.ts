@@ -9,8 +9,7 @@ import { createPromptBuilder, createTranscriptSection } from "@mux/ai/lib/prompt
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
 import { withRetry } from "@mux/ai/lib/retry";
-import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
-import { createWorkflowMuxClient } from "@mux/ai/lib/workflow-mux-client";
+import { resolveMuxClient, resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
 import { getStoryboardUrl } from "@mux/ai/primitives/storyboards";
 import { fetchTranscriptForAsset } from "@mux/ai/primitives/transcripts";
 import type { ImageSubmissionMode, MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "@mux/ai/types";
@@ -366,7 +365,7 @@ export async function askQuestions(
     model,
     provider: provider as SupportedProvider,
   });
-  const muxClient = await createWorkflowMuxClient(credentials);
+  const muxClient = await resolveMuxClient(credentials);
 
   // Fetch asset data and playback ID from Mux
   const { asset: assetData, playbackId, policy } = await getPlaybackIdForAssetWithClient(assetId, muxClient);

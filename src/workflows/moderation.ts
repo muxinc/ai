@@ -6,11 +6,8 @@ import {
   getPlaybackIdForAssetWithClient,
   isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
-import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
-import { isEncryptedPayload } from "@mux/ai/lib/workflow-crypto";
-import { createWorkflowMuxClient } from "@mux/ai/lib/workflow-mux-client";
-import { isWorkflowNativeCredentials, nativeEncryptForWorkflow } from "@mux/ai/lib/workflow-native-credentials";
-import { createWorkflowHiveClient } from "@mux/ai/lib/workflow-provider-clients";
+import { resolveMuxClient, resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
+import { isWorkflowNativeCredentials, serializeForWorkflow } from "@mux/ai/lib/workflow-native-credentials";
 import { getThumbnailUrls } from "@mux/ai/primitives/thumbnails";
 import { fetchTranscriptForAsset, getReadyTextTracks } from "@mux/ai/primitives/transcripts";
 import type {
@@ -154,20 +151,11 @@ function normalizeModerationWorkflowCredentials(
     return undefined;
   }
 
-  if (isEncryptedPayload(providedCredentials) || isWorkflowNativeCredentials(providedCredentials)) {
+  if (isWorkflowNativeCredentials(providedCredentials)) {
     return providedCredentials;
   }
 
-  const base = providedCredentials as WorkflowCredentials;
-  if (!base.hiveClient && base.hiveApiKey) {
-    const { hiveApiKey: _deprecatedHiveApiKey, ...rest } = base;
-    return nativeEncryptForWorkflow({
-      ...rest,
-      hiveClient: createWorkflowHiveClient({ apiKey: base.hiveApiKey }),
-    });
-  }
-
-  return nativeEncryptForWorkflow(base);
+  return serializeForWorkflow(providedCredentials as WorkflowCredentials);
 }
 
 async function processConcurrently<T>(
@@ -476,7 +464,7 @@ export async function getModerationScores(
     credentials: providedCredentials,
   } = options;
   const credentials = normalizeModerationWorkflowCredentials(providedCredentials);
-  const muxClient = await createWorkflowMuxClient(credentials);
+  const muxClient = await resolveMuxClient(credentials);
 
   // Fetch asset data and playback ID from Mux via helper
   const { asset, playbackId, policy } = await getPlaybackIdForAssetWithClient(assetId, muxClient);

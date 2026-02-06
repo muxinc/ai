@@ -3,16 +3,15 @@
  *
  * This module provides a unified way to resolve credentials from multiple sources:
  * 1. A custom credentials provider (set via `setWorkflowCredentialsProvider`)
- * 2. Workflow-native serialized credentials or encrypted credentials passed directly to workflows
- * 3. Plain credentials objects (for backward compatibility)
- * 4. Environment variables as fallback
+ * 2. Workflow-native serialized credentials passed directly to workflows
+ * 3. Environment variables as fallback
  *
  * Credentials are merged in order of precedence: direct input > provider > environment.
  */
 import env from "@mux/ai/env";
 import type { Env } from "@mux/ai/env";
 import type { SigningContext } from "@mux/ai/lib/url-signing";
-import { decryptFromWorkflow, isEncryptedPayload } from "@mux/ai/lib/workflow-crypto";
+import { WorkflowMuxClient } from "@mux/ai/lib/workflow-mux-client";
 import { isWorkflowNativeCredentials } from "@mux/ai/lib/workflow-native-credentials";
 import {
   normalizeWorkflowAnthropicClient,
@@ -50,18 +49,6 @@ export function setWorkflowCredentialsProvider(provider?: WorkflowCredentialsPro
 }
 
 /**
- * Retrieves the workflow secret key from environment variables.
- * This key is used to decrypt encrypted credential payloads.
- */
-function getWorkflowSecretKeyFromEnv(): string {
-  const key = env.MUX_AI_WORKFLOW_SECRET_KEY;
-  if (!key) {
-    throw new Error("Workflow secret key is required. Set MUX_AI_WORKFLOW_SECRET_KEY environment variable.");
-  }
-  return key;
-}
-
-/**
  * Invokes the registered credentials provider (if any) and validates the result.
  */
 async function resolveProviderCredentials(): Promise<WorkflowCredentials | undefined> {
@@ -86,10 +73,10 @@ async function resolveProviderCredentials(): Promise<WorkflowCredentials | undef
  *
  * Resolution order (later sources override earlier):
  * 1. Credentials from the registered provider
- * 2. Decrypted credentials (if input is an encrypted payload)
- *    OR plain credentials object (if input is already decrypted)
+ * 2. Workflow-native serialized credentials
+ *    OR plain credentials object
  *
- * @param credentials - Optional credentials input (encrypted or plain object)
+ * @param credentials - Optional credentials input
  * @returns Merged credentials object
  */
 export async function resolveWorkflowCredentials(
@@ -108,51 +95,47 @@ export async function resolveWorkflowCredentials(
     return { ...resolved, ...credentials.unwrap() };
   }
 
-  // Handle encrypted payloads by decrypting them first
-  if (isEncryptedPayload(credentials)) {
-    try {
-      const decrypted = await decryptFromWorkflow<WorkflowCredentials>(
-        credentials,
-        getWorkflowSecretKeyFromEnv(),
-      );
-      return { ...resolved, ...decrypted };
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      throw new Error(`Failed to decrypt workflow credentials. ${detail}`);
-    }
-  }
-
-  // Plain credentials object - merge directly (legacy-compatible).
-  // Prefer workflow-native serialized wrappers for step-boundary transport.
+  // Plain credentials object - merge directly.
   return { ...resolved, ...credentials };
 }
 
 /**
- * Resolves Mux API credentials (token ID and secret).
+ * Resolves a WorkflowMuxClient from workflow credentials or environment variables.
  *
- * Checks resolved workflow credentials first, then falls back to environment variables.
- * Throws if neither source provides valid credentials.
+ * Checks resolved workflow credentials for a muxClient first, then falls back
+ * to constructing one from MUX_TOKEN_ID / MUX_TOKEN_SECRET (and optional
+ * MUX_SIGNING_KEY / MUX_PRIVATE_KEY) environment variables.
  *
  * @param credentials - Optional workflow credentials input
- * @returns Object containing muxTokenId and muxTokenSecret
+ * @returns A WorkflowMuxClient instance
  * @throws Error if Mux credentials are not available
  */
-export async function resolveMuxCredentials(
+export async function resolveMuxClient(
   credentials?: WorkflowCredentialsInput,
-): Promise<{ muxTokenId: string; muxTokenSecret: string }> {
+): Promise<WorkflowMuxClient> {
   const resolved = await resolveWorkflowCredentials(credentials);
 
-  // Try resolved credentials first, fall back to environment variables
-  const muxTokenId = resolved.muxTokenId ?? env.MUX_TOKEN_ID;
-  const muxTokenSecret = resolved.muxTokenSecret ?? env.MUX_TOKEN_SECRET;
+  // Prefer a pre-built muxClient from credentials
+  if (resolved.muxClient) {
+    return resolved.muxClient;
+  }
+
+  // Fall back to environment variables
+  const muxTokenId = env.MUX_TOKEN_ID;
+  const muxTokenSecret = env.MUX_TOKEN_SECRET;
 
   if (!muxTokenId || !muxTokenSecret) {
     throw new Error(
-      "Mux credentials are required. Provide workflow credentials, encrypted workflow credentials, or set MUX_TOKEN_ID and MUX_TOKEN_SECRET environment variables.",
+      "Mux credentials are required. Provide a muxClient via workflow credentials or set MUX_TOKEN_ID and MUX_TOKEN_SECRET environment variables.",
     );
   }
 
-  return { muxTokenId, muxTokenSecret };
+  return new WorkflowMuxClient({
+    tokenId: muxTokenId,
+    tokenSecret: muxTokenSecret,
+    signingKey: env.MUX_SIGNING_KEY,
+    privateKey: env.MUX_PRIVATE_KEY,
+  });
 }
 
 /** Supported AI/ML provider identifiers for API key resolution. */
@@ -178,7 +161,7 @@ interface ProviderClientByProvider {
  * Resolves a provider client wrapper from workflow credentials.
  *
  * Supports both live class instances and serialized plain-object shapes for
- * compatibility with encrypted JSON credential payloads.
+ * compatibility with JSON-serialized workflow payloads.
  */
 export async function resolveProviderClient(
   provider: "openai",
@@ -244,13 +227,13 @@ export async function resolveProviderApiKey(
   const hiveClient = normalizeWorkflowHiveClient(record.hiveClient);
   const elevenLabsClient = normalizeWorkflowElevenLabsClient(record.elevenLabsClient);
 
-  // Map each provider to its credential field and env var fallback
+  // Map each provider to its credential source and env var fallback
   const apiKeyMap: Record<ApiKeyProvider, string | undefined> = {
-    openai: resolved.openaiApiKey ?? env.OPENAI_API_KEY,
-    anthropic: resolved.anthropicApiKey ?? env.ANTHROPIC_API_KEY,
-    google: resolved.googleApiKey ?? env.GOOGLE_GENERATIVE_AI_API_KEY,
-    hive: hiveClient?.getApiKey() ?? resolved.hiveApiKey ?? env.HIVE_API_KEY,
-    elevenlabs: elevenLabsClient?.getApiKey() ?? resolved.elevenLabsApiKey ?? env.ELEVENLABS_API_KEY,
+    openai: env.OPENAI_API_KEY,
+    anthropic: env.ANTHROPIC_API_KEY,
+    google: env.GOOGLE_GENERATIVE_AI_API_KEY,
+    hive: hiveClient?.getApiKey() ?? env.HIVE_API_KEY,
+    elevenlabs: elevenLabsClient?.getApiKey() ?? env.ELEVENLABS_API_KEY,
   };
 
   const apiKey = apiKeyMap[provider];
@@ -266,7 +249,7 @@ export async function resolveProviderApiKey(
     } as const satisfies Record<ApiKeyProvider, keyof Env>;
 
     throw new Error(
-      `${provider} API key is required. Provide a serialized ${provider} client, workflow credentials, or set ${envVarNames[provider]} environment variable.`,
+      `${provider} API key is required. Provide a ${provider} client via workflow credentials or set ${envVarNames[provider]} environment variable.`,
     );
   }
 
@@ -287,9 +270,9 @@ export async function resolveMuxSigningContext(
 ): Promise<SigningContext | undefined> {
   const resolved = await resolveWorkflowCredentials(credentials);
 
-  // Check both key components - both are required for signing
-  const keyId = resolved.muxSigningKey ?? env.MUX_SIGNING_KEY;
-  const keySecret = resolved.muxPrivateKey ?? env.MUX_PRIVATE_KEY;
+  // Try muxClient first, then fall back to environment variables
+  const keyId = resolved.muxClient?.getSigningKey() ?? env.MUX_SIGNING_KEY;
+  const keySecret = resolved.muxClient?.getPrivateKey() ?? env.MUX_PRIVATE_KEY;
 
   if (!keyId || !keySecret) {
     return undefined;

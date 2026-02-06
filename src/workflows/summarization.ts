@@ -20,10 +20,8 @@ import {
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
 import { withRetry } from "@mux/ai/lib/retry";
-import { resolveMuxSigningContext, resolveProviderApiKey, resolveProviderClient } from "@mux/ai/lib/workflow-credentials";
-import { isEncryptedPayload } from "@mux/ai/lib/workflow-crypto";
-import { createWorkflowMuxClient } from "@mux/ai/lib/workflow-mux-client";
-import { isWorkflowNativeCredentials, nativeEncryptForWorkflow } from "@mux/ai/lib/workflow-native-credentials";
+import { resolveMuxClient, resolveMuxSigningContext, resolveProviderApiKey, resolveProviderClient } from "@mux/ai/lib/workflow-credentials";
+import { isWorkflowNativeCredentials, serializeForWorkflow } from "@mux/ai/lib/workflow-native-credentials";
 import {
   createWorkflowAnthropicClient,
   createWorkflowGoogleClient,
@@ -516,7 +514,7 @@ async function buildSerializedProviderCredentials(
   credentials?: WorkflowCredentialsInput,
 ): Promise<WorkflowCredentials | undefined> {
   const plaintextCredentials =
-    credentials && typeof credentials === "object" && !isEncryptedPayload(credentials) ?
+    credentials && typeof credentials === "object" ?
         (isWorkflowNativeCredentials(credentials) ? credentials.unwrap() : credentials) as WorkflowCredentials :
       undefined;
 
@@ -525,9 +523,6 @@ async function buildSerializedProviderCredentials(
       const plaintextClient = normalizeWorkflowOpenAIClient(plaintextCredentials?.openaiClient);
       if (plaintextClient) {
         return { openaiClient: plaintextClient };
-      }
-      if (plaintextCredentials?.openaiApiKey) {
-        return { openaiClient: createWorkflowOpenAIClient({ apiKey: plaintextCredentials.openaiApiKey }) };
       }
       const existingClient = await resolveProviderClient("openai", plaintextCredentials ? undefined : credentials);
       if (existingClient) {
@@ -541,9 +536,6 @@ async function buildSerializedProviderCredentials(
       if (plaintextClient) {
         return { anthropicClient: plaintextClient };
       }
-      if (plaintextCredentials?.anthropicApiKey) {
-        return { anthropicClient: createWorkflowAnthropicClient({ apiKey: plaintextCredentials.anthropicApiKey }) };
-      }
       const existingClient = await resolveProviderClient("anthropic", plaintextCredentials ? undefined : credentials);
       if (existingClient) {
         return { anthropicClient: existingClient };
@@ -555,9 +547,6 @@ async function buildSerializedProviderCredentials(
       const plaintextClient = normalizeWorkflowGoogleClient(plaintextCredentials?.googleClient);
       if (plaintextClient) {
         return { googleClient: plaintextClient };
-      }
-      if (plaintextCredentials?.googleApiKey) {
-        return { googleClient: createWorkflowGoogleClient({ apiKey: plaintextCredentials.googleApiKey }) };
       }
       const existingClient = await resolveProviderClient("google", plaintextCredentials ? undefined : credentials);
       if (existingClient) {
@@ -603,12 +592,12 @@ export async function getSummaryAndTags(
     provider: provider as SupportedProvider,
   });
   const workflowCredentials =
-    credentials && typeof credentials === "object" && !isEncryptedPayload(credentials) && !isWorkflowNativeCredentials(credentials) ?
-        nativeEncryptForWorkflow(credentials as WorkflowCredentials) :
+    credentials && typeof credentials === "object" && !isWorkflowNativeCredentials(credentials) ?
+        serializeForWorkflow(credentials as WorkflowCredentials) :
       credentials;
   const providerCredentials = await buildSerializedProviderCredentials(modelConfig.provider, workflowCredentials);
-  const providerStepCredentials = providerCredentials ? nativeEncryptForWorkflow(providerCredentials) : undefined;
-  const muxClient = await createWorkflowMuxClient(workflowCredentials);
+  const providerStepCredentials = providerCredentials ? serializeForWorkflow(providerCredentials) : undefined;
+  const muxClient = await resolveMuxClient(workflowCredentials);
 
   // Fetch asset data from Mux and grab playback/transcript details
   const { asset: assetData, playbackId, policy } = await getPlaybackIdForAssetWithClient(assetId, muxClient);
