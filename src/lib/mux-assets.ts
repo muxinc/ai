@@ -74,7 +74,7 @@ export async function getMuxAsset(
 ): Promise<MuxAsset> {
   "use step";
   const muxClient = await getMuxClientFromEnv(credentials);
-  const mux = muxClient.createClient();
+  const mux = await muxClient.createClient();
   return mux.video.assets.retrieve(assetId);
 }
 
@@ -83,7 +83,7 @@ export async function getMuxAssetWithClient(
   muxClient: WorkflowMuxClient,
 ): Promise<MuxAsset> {
   "use step";
-  const client = muxClient.createClient();
+  const client = await muxClient.createClient();
   return client.video.assets.retrieve(assetId);
 }
 

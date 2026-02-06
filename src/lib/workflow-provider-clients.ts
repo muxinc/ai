@@ -5,15 +5,6 @@ import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 
 import type { EmbeddingModel, LanguageModel } from "ai";
 
-type AnyObject = Record<PropertyKey, unknown>;
-
-const WORKFLOW_CLASS_REGISTRY = Symbol.for("workflow-class-registry");
-const OPENAI_CLIENT_CLASS_ID = "mux.ai.workflow-openai-client";
-const ANTHROPIC_CLIENT_CLASS_ID = "mux.ai.workflow-anthropic-client";
-const GOOGLE_CLIENT_CLASS_ID = "mux.ai.workflow-google-client";
-const HIVE_CLIENT_CLASS_ID = "mux.ai.workflow-hive-client";
-const ELEVENLABS_CLIENT_CLASS_ID = "mux.ai.workflow-elevenlabs-client";
-
 type OpenAIOptions = Parameters<typeof createOpenAI>[0];
 type AnthropicOptions = Parameters<typeof createAnthropic>[0];
 type GoogleOptions = Parameters<typeof createGoogleGenerativeAI>[0];
@@ -25,31 +16,6 @@ type OpenAIEmbeddingModelId = Parameters<ReturnType<typeof createOpenAI>["embedd
 type AnthropicChatModelId = Parameters<ReturnType<typeof createAnthropic>["chat"]>[0];
 type GoogleChatModelId = Parameters<ReturnType<typeof createGoogleGenerativeAI>["chat"]>[0];
 type GoogleEmbeddingModelId = Parameters<ReturnType<typeof createGoogleGenerativeAI>["textEmbeddingModel"]>[0];
-
-function getOrCreateWorkflowClassRegistry(): Map<string, unknown> {
-  const globalRegistry = globalThis as AnyObject;
-  const existingRegistry = globalRegistry[WORKFLOW_CLASS_REGISTRY] as Map<string, unknown> | undefined;
-  const registry = existingRegistry ?? new Map<string, unknown>();
-  if (!existingRegistry) {
-    globalRegistry[WORKFLOW_CLASS_REGISTRY] = registry;
-  }
-  return registry;
-}
-
-function registerWorkflowClass(classId: string, cls: unknown): void {
-  const registry = getOrCreateWorkflowClassRegistry();
-  registry.set(classId, cls);
-
-  const ctor = cls as { classId?: string };
-  if (ctor.classId !== classId) {
-    Object.defineProperty(cls, "classId", {
-      value: classId,
-      writable: false,
-      enumerable: false,
-      configurable: false,
-    });
-  }
-}
 
 interface SerializedOpenAIClient { provider: "openai"; options: OpenAIOptions }
 interface SerializedAnthropicClient { provider: "anthropic"; options: AnthropicOptions }
@@ -74,10 +40,11 @@ export class WorkflowOpenAIClient {
     return { provider: "openai", options: instance.options };
   }
 
-  static [WORKFLOW_DESERIALIZE](value: SerializedOpenAIClient): WorkflowOpenAIClient {
-    return new WorkflowOpenAIClient(value.options);
+  static [WORKFLOW_DESERIALIZE](this: typeof WorkflowOpenAIClient, value: SerializedOpenAIClient): WorkflowOpenAIClient {
+    return new this(value.options);
   }
 }
+(WorkflowOpenAIClient as any)[WORKFLOW_DESERIALIZE] = WorkflowOpenAIClient[WORKFLOW_DESERIALIZE].bind(WorkflowOpenAIClient);
 
 export class WorkflowAnthropicClient {
   constructor(private readonly options: AnthropicOptions = {}) {}
@@ -91,10 +58,11 @@ export class WorkflowAnthropicClient {
     return { provider: "anthropic", options: instance.options };
   }
 
-  static [WORKFLOW_DESERIALIZE](value: SerializedAnthropicClient): WorkflowAnthropicClient {
-    return new WorkflowAnthropicClient(value.options);
+  static [WORKFLOW_DESERIALIZE](this: typeof WorkflowAnthropicClient, value: SerializedAnthropicClient): WorkflowAnthropicClient {
+    return new this(value.options);
   }
 }
+(WorkflowAnthropicClient as any)[WORKFLOW_DESERIALIZE] = WorkflowAnthropicClient[WORKFLOW_DESERIALIZE].bind(WorkflowAnthropicClient);
 
 export class WorkflowGoogleClient {
   constructor(private readonly options: GoogleOptions = {}) {}
@@ -113,10 +81,11 @@ export class WorkflowGoogleClient {
     return { provider: "google", options: instance.options };
   }
 
-  static [WORKFLOW_DESERIALIZE](value: SerializedGoogleClient): WorkflowGoogleClient {
-    return new WorkflowGoogleClient(value.options);
+  static [WORKFLOW_DESERIALIZE](this: typeof WorkflowGoogleClient, value: SerializedGoogleClient): WorkflowGoogleClient {
+    return new this(value.options);
   }
 }
+(WorkflowGoogleClient as any)[WORKFLOW_DESERIALIZE] = WorkflowGoogleClient[WORKFLOW_DESERIALIZE].bind(WorkflowGoogleClient);
 
 export class WorkflowHiveClient {
   constructor(private readonly options: HiveOptions = {}) {}
@@ -129,10 +98,11 @@ export class WorkflowHiveClient {
     return { provider: "hive", options: instance.options };
   }
 
-  static [WORKFLOW_DESERIALIZE](value: SerializedHiveClient): WorkflowHiveClient {
-    return new WorkflowHiveClient(value.options);
+  static [WORKFLOW_DESERIALIZE](this: typeof WorkflowHiveClient, value: SerializedHiveClient): WorkflowHiveClient {
+    return new this(value.options);
   }
 }
+(WorkflowHiveClient as any)[WORKFLOW_DESERIALIZE] = WorkflowHiveClient[WORKFLOW_DESERIALIZE].bind(WorkflowHiveClient);
 
 export class WorkflowElevenLabsClient {
   constructor(private readonly options: ElevenLabsOptions = {}) {}
@@ -145,16 +115,11 @@ export class WorkflowElevenLabsClient {
     return { provider: "elevenlabs", options: instance.options };
   }
 
-  static [WORKFLOW_DESERIALIZE](value: SerializedElevenLabsClient): WorkflowElevenLabsClient {
-    return new WorkflowElevenLabsClient(value.options);
+  static [WORKFLOW_DESERIALIZE](this: typeof WorkflowElevenLabsClient, value: SerializedElevenLabsClient): WorkflowElevenLabsClient {
+    return new this(value.options);
   }
 }
-
-registerWorkflowClass(OPENAI_CLIENT_CLASS_ID, WorkflowOpenAIClient);
-registerWorkflowClass(ANTHROPIC_CLIENT_CLASS_ID, WorkflowAnthropicClient);
-registerWorkflowClass(GOOGLE_CLIENT_CLASS_ID, WorkflowGoogleClient);
-registerWorkflowClass(HIVE_CLIENT_CLASS_ID, WorkflowHiveClient);
-registerWorkflowClass(ELEVENLABS_CLIENT_CLASS_ID, WorkflowElevenLabsClient);
+(WorkflowElevenLabsClient as any)[WORKFLOW_DESERIALIZE] = WorkflowElevenLabsClient[WORKFLOW_DESERIALIZE].bind(WorkflowElevenLabsClient);
 
 function isSerializedOpenAIClient(value: unknown): value is SerializedOpenAIClient {
   if (!value || typeof value !== "object") {

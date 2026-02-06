@@ -79,7 +79,7 @@ async function requestStaticRenditionCreation(
   muxClient: WorkflowMuxClient,
 ) {
   "use step";
-  const mux = muxClient.createClient();
+  const mux = await muxClient.createClient();
   try {
     await mux.video.assets.createStaticRendition(assetId, {
       resolution: "audio-only",
@@ -110,7 +110,7 @@ async function waitForAudioStaticRendition({
   muxClient: WorkflowMuxClient;
 }): Promise<any> {
   "use step";
-  const mux = muxClient.createClient();
+  const mux = await muxClient.createClient();
   let currentAsset = initialAsset;
 
   if (hasReadyAudioStaticRendition(currentAsset)) {
@@ -330,7 +330,7 @@ async function createAudioTrackOnMux(
   muxClient: WorkflowMuxClient,
 ): Promise<string> {
   "use step";
-  const mux = muxClient.createClient();
+  const mux = await muxClient.createClient();
   const languageName = new Intl.DisplayNames(["en"], { type: "language" }).of(languageCode) || languageCode.toUpperCase();
   const trackName = `${languageName} (auto-dubbed)`;
 

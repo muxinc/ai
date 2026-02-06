@@ -1,32 +1,6 @@
-import Mux from "@mux/mux-node";
 import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 
-const WORKFLOW_CLASS_REGISTRY = Symbol.for("workflow-class-registry");
-const WORKFLOW_MUX_CLIENT_CLASS_ID = "mux.ai.workflow-mux-client";
-
-type AnyObject = Record<PropertyKey, unknown>;
-
-function registerWorkflowMuxClientClass(): void {
-  const globalRegistry = globalThis as AnyObject;
-  const existingRegistry = globalRegistry[WORKFLOW_CLASS_REGISTRY] as Map<string, unknown> | undefined;
-  const registry = existingRegistry ?? new Map<string, unknown>();
-
-  if (!existingRegistry) {
-    globalRegistry[WORKFLOW_CLASS_REGISTRY] = registry as unknown;
-  }
-
-  registry.set(WORKFLOW_MUX_CLIENT_CLASS_ID, WorkflowMuxClient);
-
-  const ctor = WorkflowMuxClient as unknown as { classId?: string };
-  if (ctor.classId !== WORKFLOW_MUX_CLIENT_CLASS_ID) {
-    Object.defineProperty(WorkflowMuxClient, "classId", {
-      value: WORKFLOW_MUX_CLIENT_CLASS_ID,
-      writable: false,
-      enumerable: false,
-      configurable: false,
-    });
-  }
-}
+import type Mux from "@mux/mux-node";
 
 export interface WorkflowMuxClientOptions {
   tokenId: string;
@@ -54,8 +28,11 @@ export class WorkflowMuxClient {
     this.privateKey = options.privateKey;
   }
 
-  createClient(): Mux {
-    return new Mux({
+  async createClient(): Promise<Mux> {
+    // Dynamic import to prevent @mux/mux-node (and its transitive dep jose)
+    // from being bundled into workflow VM code where `require` is unavailable.
+    const { default: MuxClient } = await import("@mux/mux-node");
+    return new MuxClient({
       tokenId: this.tokenId,
       tokenSecret: this.tokenSecret,
     });
@@ -86,9 +63,10 @@ export class WorkflowMuxClient {
     };
   }
 
-  static [WORKFLOW_DESERIALIZE](value: WorkflowMuxClientOptions): WorkflowMuxClient {
-    return new WorkflowMuxClient(value);
+  static [WORKFLOW_DESERIALIZE](this: typeof WorkflowMuxClient, value: WorkflowMuxClientOptions): WorkflowMuxClient {
+    return new this(value);
   }
 }
-
-registerWorkflowMuxClientClass();
+// @workflow/core extracts WORKFLOW_DESERIALIZE and calls it standalone (without `this`).
+// Bind it to the class so `new this(...)` resolves correctly at runtime.
+(WorkflowMuxClient as any)[WORKFLOW_DESERIALIZE] = WorkflowMuxClient[WORKFLOW_DESERIALIZE].bind(WorkflowMuxClient);

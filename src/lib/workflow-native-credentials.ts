@@ -1,31 +1,6 @@
 import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 
-const WORKFLOW_CLASS_REGISTRY = Symbol.for("workflow-class-registry");
-const WORKFLOW_NATIVE_CREDENTIALS_CLASS_ID = "mux.ai.workflow-native-credentials";
-
 type AnyObject = Record<PropertyKey, unknown>;
-
-function registerWorkflowNativeCredentialsClass(): void {
-  const globalRegistry = globalThis as AnyObject;
-  const existingRegistry = globalRegistry[WORKFLOW_CLASS_REGISTRY] as Map<string, unknown> | undefined;
-  const registry = existingRegistry ?? new Map<string, unknown>();
-
-  if (!existingRegistry) {
-    globalRegistry[WORKFLOW_CLASS_REGISTRY] = registry as unknown;
-  }
-
-  registry.set(WORKFLOW_NATIVE_CREDENTIALS_CLASS_ID, WorkflowNativeCredentials);
-
-  const ctor = WorkflowNativeCredentials as unknown as { classId?: string };
-  if (ctor.classId !== WORKFLOW_NATIVE_CREDENTIALS_CLASS_ID) {
-    Object.defineProperty(WorkflowNativeCredentials, "classId", {
-      value: WORKFLOW_NATIVE_CREDENTIALS_CLASS_ID,
-      writable: false,
-      enumerable: false,
-      configurable: false,
-    });
-  }
-}
 
 /**
  * Workflow-native credentials container.
@@ -44,12 +19,13 @@ export class WorkflowNativeCredentials<T = unknown> {
     return instance.unwrap() as AnyObject;
   }
 
-  static [WORKFLOW_DESERIALIZE](value: AnyObject): WorkflowNativeCredentials {
-    return new WorkflowNativeCredentials(value);
+  static [WORKFLOW_DESERIALIZE](this: typeof WorkflowNativeCredentials, value: AnyObject): WorkflowNativeCredentials {
+    return new this(value);
   }
 }
-
-registerWorkflowNativeCredentialsClass();
+// @workflow/core extracts WORKFLOW_DESERIALIZE and calls it standalone (without `this`).
+// Bind it to the class so `new this(...)` resolves correctly at runtime.
+(WorkflowNativeCredentials as any)[WORKFLOW_DESERIALIZE] = WorkflowNativeCredentials[WORKFLOW_DESERIALIZE].bind(WorkflowNativeCredentials);
 
 export function serializeForWorkflow<T>(value: T): WorkflowNativeCredentials<T> {
   return new WorkflowNativeCredentials(value);

@@ -203,7 +203,7 @@ async function createTextTrackOnMux(
   muxClient: WorkflowMuxClient,
 ): Promise<string> {
   "use step";
-  const mux = muxClient.createClient();
+  const mux = await muxClient.createClient();
   const trackResponse = await mux.video.assets.createTrack(assetId, {
     type: "text",
     text_type: "subtitles",
