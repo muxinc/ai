@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import {
   getAssetDurationSecondsFromAsset,
-  getPlaybackIdForAsset,
+  getPlaybackIdForAssetWithClient,
   isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
 import type { PromptOverrides, PromptSection } from "@mux/ai/lib/prompt-builder";
@@ -13,6 +13,7 @@ import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
 import { withRetry } from "@mux/ai/lib/retry";
 import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
+import { createWorkflowMuxClient } from "@mux/ai/lib/workflow-mux-client";
 import {
   extractTimestampedTranscript,
   fetchTranscriptForAsset,
@@ -293,11 +294,12 @@ export async function generateChapters(
     model,
     provider: provider as SupportedProvider,
   });
+  const muxClient = await createWorkflowMuxClient(credentials);
 
   // Fetch asset and transcript
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAssetWithClient(
     assetId,
-    credentials,
+    muxClient,
   );
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
   const isAudioOnly = isAudioOnlyAsset(assetData);

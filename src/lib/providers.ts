@@ -3,7 +3,7 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 
 import env from "@mux/ai/env";
-import { resolveProviderApiKey } from "@mux/ai/lib/workflow-credentials";
+import { resolveProviderApiKey, resolveProviderClient } from "@mux/ai/lib/workflow-credentials";
 import type { MuxAIOptions, WorkflowCredentialsInput } from "@mux/ai/types";
 
 import type { EmbeddingModel, LanguageModel } from "ai";
@@ -189,16 +189,28 @@ export async function createLanguageModelFromConfig<P extends SupportedProvider 
 ): Promise<LanguageModel> {
   switch (provider) {
     case "openai": {
+      const openaiClient = await resolveProviderClient("openai", credentials);
+      if (openaiClient) {
+        return openaiClient.chat(modelId as OpenAIModelId);
+      }
       const apiKey = await resolveProviderApiKey("openai", credentials);
       const openai = createOpenAI({ apiKey });
       return openai(modelId);
     }
     case "anthropic": {
+      const anthropicClient = await resolveProviderClient("anthropic", credentials);
+      if (anthropicClient) {
+        return anthropicClient.chat(modelId as AnthropicModelId);
+      }
       const apiKey = await resolveProviderApiKey("anthropic", credentials);
       const anthropic = createAnthropic({ apiKey });
       return anthropic(modelId);
     }
     case "google": {
+      const googleClient = await resolveProviderClient("google", credentials);
+      if (googleClient) {
+        return googleClient.chat(modelId as GoogleModelId);
+      }
       const apiKey = await resolveProviderApiKey("google", credentials);
       const google = createGoogleGenerativeAI({ apiKey });
       return google(modelId);
@@ -224,11 +236,19 @@ export async function createEmbeddingModelFromConfig<
 ): Promise<EmbeddingModel> {
   switch (provider) {
     case "openai": {
+      const openaiClient = await resolveProviderClient("openai", credentials);
+      if (openaiClient) {
+        return openaiClient.embedding(modelId as OpenAIEmbeddingModelId);
+      }
       const apiKey = await resolveProviderApiKey("openai", credentials);
       const openai = createOpenAI({ apiKey });
       return openai.embedding(modelId);
     }
     case "google": {
+      const googleClient = await resolveProviderClient("google", credentials);
+      if (googleClient) {
+        return googleClient.embedding(modelId as GoogleEmbeddingModelId);
+      }
       const apiKey = await resolveProviderApiKey("google", credentials);
       const google = createGoogleGenerativeAI({ apiKey });
       return google.textEmbeddingModel(modelId);

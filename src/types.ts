@@ -1,4 +1,12 @@
 import type { Encrypted } from "@mux/ai/lib/workflow-crypto";
+import type { WorkflowNativeCredentials } from "@mux/ai/lib/workflow-native-credentials";
+import type {
+  WorkflowAnthropicClient,
+  WorkflowElevenLabsClient,
+  WorkflowGoogleClient,
+  WorkflowHiveClient,
+  WorkflowOpenAIClient,
+} from "@mux/ai/lib/workflow-provider-clients";
 
 import type Mux from "@mux/mux-node";
 
@@ -10,29 +18,42 @@ export interface MuxAIOptions {
   timeout?: number;
   /**
    * Optional credentials for workflow execution.
-   * Use encryptForWorkflow when running in Workflow Dev Kit environments.
+   * Supports plaintext, encrypted, and workflow-native serialized credential inputs.
+   * Prefer workflow-native serialized clients for step-boundary transport.
    */
   credentials?: WorkflowCredentialsInput;
 }
 
 /**
- * Plaintext workflow credentials. Avoid passing these to Workflow Dev Kit start()
- * unless you are not using workflow serialization.
+ * Workflow credentials.
+ * Plaintext keys remain supported for backward compatibility.
+ * Prefer serializable workflow client wrappers (`openaiClient`, `anthropicClient`,
+ * `googleClient`) to avoid passing raw provider keys across step boundaries.
  */
 export interface WorkflowCredentials {
   muxTokenId?: string;
   muxTokenSecret?: string;
   muxSigningKey?: string;
   muxPrivateKey?: string;
+  openaiClient?: WorkflowOpenAIClient;
+  anthropicClient?: WorkflowAnthropicClient;
+  googleClient?: WorkflowGoogleClient;
+  hiveClient?: WorkflowHiveClient;
+  elevenLabsClient?: WorkflowElevenLabsClient;
   openaiApiKey?: string;
   anthropicApiKey?: string;
   googleApiKey?: string;
+  /** @deprecated Prefer `hiveClient` */
   hiveApiKey?: string;
+  /** @deprecated Prefer `elevenLabsClient` */
   elevenLabsApiKey?: string;
 }
 
 /** Credentials that are safe to serialize across workflow boundaries. */
-export type WorkflowCredentialsInput = WorkflowCredentials | Encrypted<WorkflowCredentials>;
+export type WorkflowCredentialsInput =
+  | WorkflowCredentials |
+  Encrypted<WorkflowCredentials> |
+  WorkflowNativeCredentials<WorkflowCredentials>;
 
 /** Tone controls for the summarization helper. */
 export type ToneType = "neutral" | "playful" | "professional";

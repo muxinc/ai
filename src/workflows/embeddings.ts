@@ -2,13 +2,14 @@ import { embed } from "ai";
 
 import {
   getAssetDurationSecondsFromAsset,
-  getPlaybackIdForAsset,
+  getPlaybackIdForAssetWithClient,
   isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
 import type { EmbeddingModelIdByProvider, SupportedEmbeddingProvider } from "@mux/ai/lib/providers";
 import { createEmbeddingModelFromConfig, resolveEmbeddingModelConfig } from "@mux/ai/lib/providers";
 import { withRetry } from "@mux/ai/lib/retry";
 import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
+import { createWorkflowMuxClient } from "@mux/ai/lib/workflow-mux-client";
 import { chunkText, chunkVTTCues } from "@mux/ai/primitives/text-chunking";
 import { fetchTranscriptForAsset, getReadyTextTracks, parseVTTCues } from "@mux/ai/primitives/transcripts";
 import type {
@@ -159,9 +160,10 @@ async function generateEmbeddingsInternal(
   } = options;
 
   const embeddingModel = resolveEmbeddingModelConfig({ ...options, provider, model });
+  const muxClient = await createWorkflowMuxClient(credentials);
 
   // Fetch asset and playback ID
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAssetWithClient(assetId, muxClient);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
   const isAudioOnly = isAudioOnlyAsset(assetData);
 

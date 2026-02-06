@@ -1,6 +1,7 @@
 import Mux from "@mux/mux-node";
 
 import { getMuxCredentialsFromEnv } from "@mux/ai/lib/client-factory";
+import type { WorkflowMuxClient } from "@mux/ai/lib/workflow-mux-client";
 import type { MuxAsset, PlaybackAsset, PlaybackPolicy, WorkflowCredentialsInput } from "@mux/ai/types";
 
 /**
@@ -55,6 +56,16 @@ export async function getPlaybackIdForAsset(
   return { asset, playbackId, policy };
 }
 
+export async function getPlaybackIdForAssetWithClient(
+  assetId: string,
+  muxClient: WorkflowMuxClient,
+): Promise<PlaybackAsset> {
+  "use step";
+  const asset = await getMuxAssetWithClient(assetId, muxClient);
+  const { id: playbackId, policy } = getPlaybackId(asset);
+  return { asset, playbackId, policy };
+}
+
 /**
  * Fetches the Mux asset once so callers can derive playback IDs, duration, tracks,
  * and other metadata from a single Video API call.
@@ -72,6 +83,15 @@ export async function getMuxAsset(
   });
 
   return mux.video.assets.retrieve(assetId);
+}
+
+export async function getMuxAssetWithClient(
+  assetId: string,
+  muxClient: WorkflowMuxClient,
+): Promise<MuxAsset> {
+  "use step";
+  const client = muxClient.createClient();
+  return client.video.assets.retrieve(assetId);
 }
 
 export async function getAssetDurationSeconds(

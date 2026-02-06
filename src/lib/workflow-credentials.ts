@@ -3,8 +3,9 @@
  *
  * This module provides a unified way to resolve credentials from multiple sources:
  * 1. A custom credentials provider (set via `setWorkflowCredentialsProvider`)
- * 2. Encrypted credentials passed directly to workflow functions
- * 3. Environment variables as fallback
+ * 2. Workflow-native serialized credentials or encrypted credentials passed directly to workflows
+ * 3. Plain credentials objects (for backward compatibility)
+ * 4. Environment variables as fallback
  *
  * Credentials are merged in order of precedence: direct input > provider > environment.
  */
@@ -12,6 +13,22 @@ import env from "@mux/ai/env";
 import type { Env } from "@mux/ai/env";
 import type { SigningContext } from "@mux/ai/lib/url-signing";
 import { decryptFromWorkflow, isEncryptedPayload } from "@mux/ai/lib/workflow-crypto";
+import { isWorkflowNativeCredentials } from "@mux/ai/lib/workflow-native-credentials";
+import {
+  normalizeWorkflowAnthropicClient,
+  normalizeWorkflowElevenLabsClient,
+  normalizeWorkflowGoogleClient,
+  normalizeWorkflowHiveClient,
+  normalizeWorkflowOpenAIClient,
+
+} from "@mux/ai/lib/workflow-provider-clients";
+import type {
+  WorkflowAnthropicClient,
+  WorkflowElevenLabsClient,
+  WorkflowGoogleClient,
+  WorkflowHiveClient,
+  WorkflowOpenAIClient,
+} from "@mux/ai/lib/workflow-provider-clients";
 import type { WorkflowCredentials, WorkflowCredentialsInput } from "@mux/ai/types";
 
 /**
@@ -30,31 +47,6 @@ let workflowCredentialsProvider: WorkflowCredentialsProvider | undefined;
  */
 export function setWorkflowCredentialsProvider(provider?: WorkflowCredentialsProvider): void {
   workflowCredentialsProvider = provider;
-}
-
-/**
- * Detects whether code is running inside a Workflow Dev Kit runtime.
- * getWorkflowMetadata throws when invoked outside a workflow.
- */
-async function isWorkflowRuntime(): Promise<boolean> {
-  try {
-    const workflowModule = await import("workflow");
-    if (typeof workflowModule.getWorkflowMetadata !== "function") {
-      return false;
-    }
-    workflowModule.getWorkflowMetadata();
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Determines if we should enforce encrypted credentials.
- * This triggers in workflow runtimes or when the workflow secret key is set.
- */
-async function shouldEnforceEncryptedCredentials(): Promise<boolean> {
-  return Boolean(env.MUX_AI_WORKFLOW_SECRET_KEY) || await isWorkflowRuntime();
 }
 
 /**
@@ -111,6 +103,11 @@ export async function resolveWorkflowCredentials(
     return resolved;
   }
 
+  // Workflow-native serialized credentials container
+  if (isWorkflowNativeCredentials(credentials)) {
+    return { ...resolved, ...credentials.unwrap() };
+  }
+
   // Handle encrypted payloads by decrypting them first
   if (isEncryptedPayload(credentials)) {
     try {
@@ -125,14 +122,8 @@ export async function resolveWorkflowCredentials(
     }
   }
 
-  if (await shouldEnforceEncryptedCredentials()) {
-    throw new Error(
-      "Plaintext workflow credentials are not allowed when using Workflow Dev Kit." +
-      "Pass encrypted credentials (encryptForWorkflow) or resolve secrets via environment variables.",
-    );
-  }
-
-  // Plain credentials object - merge directly
+  // Plain credentials object - merge directly (legacy-compatible).
+  // Prefer workflow-native serialized wrappers for step-boundary transport.
   return { ...resolved, ...credentials };
 }
 
@@ -157,7 +148,7 @@ export async function resolveMuxCredentials(
 
   if (!muxTokenId || !muxTokenSecret) {
     throw new Error(
-      "Mux credentials are required. Provide encrypted workflow credentials or set MUX_TOKEN_ID and MUX_TOKEN_SECRET environment variables.",
+      "Mux credentials are required. Provide workflow credentials, encrypted workflow credentials, or set MUX_TOKEN_ID and MUX_TOKEN_SECRET environment variables.",
     );
   }
 
@@ -166,6 +157,72 @@ export async function resolveMuxCredentials(
 
 /** Supported AI/ML provider identifiers for API key resolution. */
 export type ApiKeyProvider = "openai" | "anthropic" | "google" | "hive" | "elevenlabs";
+export type ProviderClientProvider = "openai" | "anthropic" | "google" | "hive" | "elevenlabs";
+
+export type WorkflowProviderClient =
+  WorkflowOpenAIClient |
+  WorkflowAnthropicClient |
+  WorkflowGoogleClient |
+  WorkflowHiveClient |
+  WorkflowElevenLabsClient;
+
+interface ProviderClientByProvider {
+  openai: WorkflowOpenAIClient;
+  anthropic: WorkflowAnthropicClient;
+  google: WorkflowGoogleClient;
+  hive: WorkflowHiveClient;
+  elevenlabs: WorkflowElevenLabsClient;
+}
+
+/**
+ * Resolves a provider client wrapper from workflow credentials.
+ *
+ * Supports both live class instances and serialized plain-object shapes for
+ * compatibility with encrypted JSON credential payloads.
+ */
+export async function resolveProviderClient(
+  provider: "openai",
+  credentials?: WorkflowCredentialsInput,
+): Promise<WorkflowOpenAIClient | undefined>;
+export async function resolveProviderClient(
+  provider: "anthropic",
+  credentials?: WorkflowCredentialsInput,
+): Promise<WorkflowAnthropicClient | undefined>;
+export async function resolveProviderClient(
+  provider: "google",
+  credentials?: WorkflowCredentialsInput,
+): Promise<WorkflowGoogleClient | undefined>;
+export async function resolveProviderClient(
+  provider: "hive",
+  credentials?: WorkflowCredentialsInput,
+): Promise<WorkflowHiveClient | undefined>;
+export async function resolveProviderClient(
+  provider: "elevenlabs",
+  credentials?: WorkflowCredentialsInput,
+): Promise<WorkflowElevenLabsClient | undefined>;
+export async function resolveProviderClient<P extends ProviderClientProvider>(
+  provider: P,
+  credentials?: WorkflowCredentialsInput,
+): Promise<ProviderClientByProvider[P] | undefined> {
+  const resolved = await resolveWorkflowCredentials(credentials);
+
+  switch (provider) {
+    case "openai":
+      return normalizeWorkflowOpenAIClient((resolved as Record<string, unknown>).openaiClient) as ProviderClientByProvider[P] | undefined;
+    case "anthropic":
+      return normalizeWorkflowAnthropicClient((resolved as Record<string, unknown>).anthropicClient) as ProviderClientByProvider[P] | undefined;
+    case "google":
+      return normalizeWorkflowGoogleClient((resolved as Record<string, unknown>).googleClient) as ProviderClientByProvider[P] | undefined;
+    case "hive":
+      return normalizeWorkflowHiveClient((resolved as Record<string, unknown>).hiveClient) as ProviderClientByProvider[P] | undefined;
+    case "elevenlabs":
+      return normalizeWorkflowElevenLabsClient((resolved as Record<string, unknown>).elevenLabsClient) as ProviderClientByProvider[P] | undefined;
+    default: {
+      const exhaustiveCheck: never = provider;
+      throw new Error(`Unsupported provider client: ${exhaustiveCheck}`);
+    }
+  }
+}
 
 /**
  * Resolves an API key for a specific AI/ML provider.
@@ -183,14 +240,17 @@ export async function resolveProviderApiKey(
   credentials?: WorkflowCredentialsInput,
 ): Promise<string> {
   const resolved = await resolveWorkflowCredentials(credentials);
+  const record = resolved as Record<string, unknown>;
+  const hiveClient = normalizeWorkflowHiveClient(record.hiveClient);
+  const elevenLabsClient = normalizeWorkflowElevenLabsClient(record.elevenLabsClient);
 
   // Map each provider to its credential field and env var fallback
   const apiKeyMap: Record<ApiKeyProvider, string | undefined> = {
     openai: resolved.openaiApiKey ?? env.OPENAI_API_KEY,
     anthropic: resolved.anthropicApiKey ?? env.ANTHROPIC_API_KEY,
     google: resolved.googleApiKey ?? env.GOOGLE_GENERATIVE_AI_API_KEY,
-    hive: resolved.hiveApiKey ?? env.HIVE_API_KEY,
-    elevenlabs: resolved.elevenLabsApiKey ?? env.ELEVENLABS_API_KEY,
+    hive: hiveClient?.getApiKey() ?? resolved.hiveApiKey ?? env.HIVE_API_KEY,
+    elevenlabs: elevenLabsClient?.getApiKey() ?? resolved.elevenLabsApiKey ?? env.ELEVENLABS_API_KEY,
   };
 
   const apiKey = apiKeyMap[provider];
@@ -206,7 +266,7 @@ export async function resolveProviderApiKey(
     } as const satisfies Record<ApiKeyProvider, keyof Env>;
 
     throw new Error(
-      `${provider} API key is required. Provide encrypted workflow credentials or set ${envVarNames[provider]} environment variable.`,
+      `${provider} API key is required. Provide a serialized ${provider} client, workflow credentials, or set ${envVarNames[provider]} environment variable.`,
     );
   }
 

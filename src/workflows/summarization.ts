@@ -6,7 +6,7 @@ import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
 import {
   getAssetDurationSecondsFromAsset,
-  getPlaybackIdForAsset,
+  getPlaybackIdForAssetWithClient,
   isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
 import type {
@@ -20,7 +20,18 @@ import {
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
 import { withRetry } from "@mux/ai/lib/retry";
-import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
+import { resolveMuxSigningContext, resolveProviderApiKey, resolveProviderClient } from "@mux/ai/lib/workflow-credentials";
+import { isEncryptedPayload } from "@mux/ai/lib/workflow-crypto";
+import { createWorkflowMuxClient } from "@mux/ai/lib/workflow-mux-client";
+import { isWorkflowNativeCredentials, nativeEncryptForWorkflow } from "@mux/ai/lib/workflow-native-credentials";
+import {
+  createWorkflowAnthropicClient,
+  createWorkflowGoogleClient,
+  createWorkflowOpenAIClient,
+  normalizeWorkflowAnthropicClient,
+  normalizeWorkflowGoogleClient,
+  normalizeWorkflowOpenAIClient,
+} from "@mux/ai/lib/workflow-provider-clients";
 import { getStoryboardUrl } from "@mux/ai/primitives/storyboards";
 import { fetchTranscriptForAsset } from "@mux/ai/primitives/transcripts";
 import type {
@@ -28,6 +39,7 @@ import type {
   MuxAIOptions,
   TokenUsage,
   ToneType,
+  WorkflowCredentials,
   WorkflowCredentialsInput,
 } from "@mux/ai/types";
 
@@ -499,6 +511,68 @@ function normalizeKeywords(keywords?: string[]): string[] {
   return normalized;
 }
 
+async function buildSerializedProviderCredentials(
+  provider: SupportedProvider,
+  credentials?: WorkflowCredentialsInput,
+): Promise<WorkflowCredentials | undefined> {
+  const plaintextCredentials =
+    credentials && typeof credentials === "object" && !isEncryptedPayload(credentials) ?
+        (isWorkflowNativeCredentials(credentials) ? credentials.unwrap() : credentials) as WorkflowCredentials :
+      undefined;
+
+  switch (provider) {
+    case "openai": {
+      const plaintextClient = normalizeWorkflowOpenAIClient(plaintextCredentials?.openaiClient);
+      if (plaintextClient) {
+        return { openaiClient: plaintextClient };
+      }
+      if (plaintextCredentials?.openaiApiKey) {
+        return { openaiClient: createWorkflowOpenAIClient({ apiKey: plaintextCredentials.openaiApiKey }) };
+      }
+      const existingClient = await resolveProviderClient("openai", plaintextCredentials ? undefined : credentials);
+      if (existingClient) {
+        return { openaiClient: existingClient };
+      }
+      const apiKey = await resolveProviderApiKey("openai", plaintextCredentials ? undefined : credentials);
+      return { openaiClient: createWorkflowOpenAIClient({ apiKey }) };
+    }
+    case "anthropic": {
+      const plaintextClient = normalizeWorkflowAnthropicClient(plaintextCredentials?.anthropicClient);
+      if (plaintextClient) {
+        return { anthropicClient: plaintextClient };
+      }
+      if (plaintextCredentials?.anthropicApiKey) {
+        return { anthropicClient: createWorkflowAnthropicClient({ apiKey: plaintextCredentials.anthropicApiKey }) };
+      }
+      const existingClient = await resolveProviderClient("anthropic", plaintextCredentials ? undefined : credentials);
+      if (existingClient) {
+        return { anthropicClient: existingClient };
+      }
+      const apiKey = await resolveProviderApiKey("anthropic", plaintextCredentials ? undefined : credentials);
+      return { anthropicClient: createWorkflowAnthropicClient({ apiKey }) };
+    }
+    case "google": {
+      const plaintextClient = normalizeWorkflowGoogleClient(plaintextCredentials?.googleClient);
+      if (plaintextClient) {
+        return { googleClient: plaintextClient };
+      }
+      if (plaintextCredentials?.googleApiKey) {
+        return { googleClient: createWorkflowGoogleClient({ apiKey: plaintextCredentials.googleApiKey }) };
+      }
+      const existingClient = await resolveProviderClient("google", plaintextCredentials ? undefined : credentials);
+      if (existingClient) {
+        return { googleClient: existingClient };
+      }
+      const apiKey = await resolveProviderApiKey("google", plaintextCredentials ? undefined : credentials);
+      return { googleClient: createWorkflowGoogleClient({ apiKey }) };
+    }
+    default: {
+      const exhaustiveCheck: never = provider;
+      throw new Error(`Unsupported provider: ${exhaustiveCheck}`);
+    }
+  }
+}
+
 export async function getSummaryAndTags(
   assetId: string,
   options?: SummarizationOptions,
@@ -528,9 +602,16 @@ export async function getSummaryAndTags(
     model,
     provider: provider as SupportedProvider,
   });
+  const workflowCredentials =
+    credentials && typeof credentials === "object" && !isEncryptedPayload(credentials) && !isWorkflowNativeCredentials(credentials) ?
+        nativeEncryptForWorkflow(credentials as WorkflowCredentials) :
+      credentials;
+  const providerCredentials = await buildSerializedProviderCredentials(modelConfig.provider, workflowCredentials);
+  const providerStepCredentials = providerCredentials ? nativeEncryptForWorkflow(providerCredentials) : undefined;
+  const muxClient = await createWorkflowMuxClient(workflowCredentials);
 
   // Fetch asset data from Mux and grab playback/transcript details
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAssetWithClient(assetId, muxClient);
 
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
 
@@ -545,7 +626,7 @@ export async function getSummaryAndTags(
   }
 
   // Resolve signing context for signed playback IDs
-  const signingContext = await resolveMuxSigningContext(credentials);
+  const signingContext = await resolveMuxSigningContext(workflowCredentials);
   if (policy === "signed" && !signingContext) {
     throw new Error(
       "Signed playback ID requires signing credentials. " +
@@ -558,7 +639,7 @@ export async function getSummaryAndTags(
         (await fetchTranscriptForAsset(assetData, playbackId, {
           cleanTranscript,
           shouldSign: policy === "signed",
-          credentials,
+          credentials: workflowCredentials,
           required: isAudioOnly,
         })).transcriptText :
       "";
@@ -586,11 +667,11 @@ export async function getSummaryAndTags(
         modelConfig.modelId,
         userPrompt,
         systemPrompt,
-        credentials,
+        providerStepCredentials,
       );
     } else {
       // Video analysis: fetch storyboard and analyze with visual content
-      const storyboardUrl = await getStoryboardUrl(playbackId, 640, policy === "signed", credentials);
+      const storyboardUrl = await getStoryboardUrl(playbackId, 640, policy === "signed", workflowCredentials);
       imageUrl = storyboardUrl;
 
       if (imageSubmissionMode === "base64") {
@@ -601,7 +682,7 @@ export async function getSummaryAndTags(
           modelConfig.modelId,
           userPrompt,
           systemPrompt,
-          credentials,
+          providerStepCredentials,
         );
       } else {
         // URL-based submission with retry logic
@@ -612,7 +693,7 @@ export async function getSummaryAndTags(
             modelConfig.modelId,
             userPrompt,
             systemPrompt,
-            credentials,
+            providerStepCredentials,
           ));
       }
     }

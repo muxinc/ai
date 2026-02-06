@@ -3,13 +3,23 @@ import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImagesAsBase64 } from "@mux/ai/lib/image-download";
 import {
   getAssetDurationSecondsFromAsset,
-  getPlaybackIdForAsset,
+  getPlaybackIdForAssetWithClient,
   isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
 import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
+import { isEncryptedPayload } from "@mux/ai/lib/workflow-crypto";
+import { createWorkflowMuxClient } from "@mux/ai/lib/workflow-mux-client";
+import { isWorkflowNativeCredentials, nativeEncryptForWorkflow } from "@mux/ai/lib/workflow-native-credentials";
+import { createWorkflowHiveClient } from "@mux/ai/lib/workflow-provider-clients";
 import { getThumbnailUrls } from "@mux/ai/primitives/thumbnails";
 import { fetchTranscriptForAsset, getReadyTextTracks } from "@mux/ai/primitives/transcripts";
-import type { ImageSubmissionMode, MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "@mux/ai/types";
+import type {
+  ImageSubmissionMode,
+  MuxAIOptions,
+  TokenUsage,
+  WorkflowCredentials,
+  WorkflowCredentialsInput,
+} from "@mux/ai/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -136,6 +146,29 @@ const HIVE_VIOLENCE_CATEGORIES = [
   "fights",
   "garm_death_injury_or_military_conflict",
 ];
+
+function normalizeModerationWorkflowCredentials(
+  providedCredentials?: WorkflowCredentialsInput,
+): WorkflowCredentialsInput | undefined {
+  if (!providedCredentials) {
+    return undefined;
+  }
+
+  if (isEncryptedPayload(providedCredentials) || isWorkflowNativeCredentials(providedCredentials)) {
+    return providedCredentials;
+  }
+
+  const base = providedCredentials as WorkflowCredentials;
+  if (!base.hiveClient && base.hiveApiKey) {
+    const { hiveApiKey: _deprecatedHiveApiKey, ...rest } = base;
+    return nativeEncryptForWorkflow({
+      ...rest,
+      hiveClient: createWorkflowHiveClient({ apiKey: base.hiveApiKey }),
+    });
+  }
+
+  return nativeEncryptForWorkflow(base);
+}
 
 async function processConcurrently<T>(
   items: any[],
@@ -440,11 +473,13 @@ export async function getModerationScores(
     maxConcurrent = 5,
     imageSubmissionMode = "url",
     imageDownloadOptions,
-    credentials,
+    credentials: providedCredentials,
   } = options;
+  const credentials = normalizeModerationWorkflowCredentials(providedCredentials);
+  const muxClient = await createWorkflowMuxClient(credentials);
 
   // Fetch asset data and playback ID from Mux via helper
-  const { asset, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
+  const { asset, playbackId, policy } = await getPlaybackIdForAssetWithClient(assetId, muxClient);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(asset);
   const duration = assetDurationSeconds ?? 0;
   const isAudioOnly = isAudioOnlyAsset(asset);
