@@ -67,6 +67,3 @@ export class WorkflowMuxClient {
     return new this(value);
   }
 }
-// @workflow/core extracts WORKFLOW_DESERIALIZE and calls it standalone (without `this`).
-// Bind it to the class so `new this(...)` resolves correctly at runtime.
-(WorkflowMuxClient as any)[WORKFLOW_DESERIALIZE] = WorkflowMuxClient[WORKFLOW_DESERIALIZE].bind(WorkflowMuxClient);

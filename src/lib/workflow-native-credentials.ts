@@ -23,9 +23,6 @@ export class WorkflowNativeCredentials<T = unknown> {
     return new this(value);
   }
 }
-// @workflow/core extracts WORKFLOW_DESERIALIZE and calls it standalone (without `this`).
-// Bind it to the class so `new this(...)` resolves correctly at runtime.
-(WorkflowNativeCredentials as any)[WORKFLOW_DESERIALIZE] = WorkflowNativeCredentials[WORKFLOW_DESERIALIZE].bind(WorkflowNativeCredentials);
 
 export function serializeForWorkflow<T>(value: T): WorkflowNativeCredentials<T> {
   return new WorkflowNativeCredentials(value);

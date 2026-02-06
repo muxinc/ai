@@ -44,7 +44,6 @@ export class WorkflowOpenAIClient {
     return new this(value.options);
   }
 }
-(WorkflowOpenAIClient as any)[WORKFLOW_DESERIALIZE] = WorkflowOpenAIClient[WORKFLOW_DESERIALIZE].bind(WorkflowOpenAIClient);
 
 export class WorkflowAnthropicClient {
   constructor(private readonly options: AnthropicOptions = {}) {}
@@ -62,7 +61,6 @@ export class WorkflowAnthropicClient {
     return new this(value.options);
   }
 }
-(WorkflowAnthropicClient as any)[WORKFLOW_DESERIALIZE] = WorkflowAnthropicClient[WORKFLOW_DESERIALIZE].bind(WorkflowAnthropicClient);
 
 export class WorkflowGoogleClient {
   constructor(private readonly options: GoogleOptions = {}) {}
@@ -85,7 +83,6 @@ export class WorkflowGoogleClient {
     return new this(value.options);
   }
 }
-(WorkflowGoogleClient as any)[WORKFLOW_DESERIALIZE] = WorkflowGoogleClient[WORKFLOW_DESERIALIZE].bind(WorkflowGoogleClient);
 
 export class WorkflowHiveClient {
   constructor(private readonly options: HiveOptions = {}) {}
@@ -102,7 +99,6 @@ export class WorkflowHiveClient {
     return new this(value.options);
   }
 }
-(WorkflowHiveClient as any)[WORKFLOW_DESERIALIZE] = WorkflowHiveClient[WORKFLOW_DESERIALIZE].bind(WorkflowHiveClient);
 
 export class WorkflowElevenLabsClient {
   constructor(private readonly options: ElevenLabsOptions = {}) {}
@@ -119,7 +115,6 @@ export class WorkflowElevenLabsClient {
     return new this(value.options);
   }
 }
-(WorkflowElevenLabsClient as any)[WORKFLOW_DESERIALIZE] = WorkflowElevenLabsClient[WORKFLOW_DESERIALIZE].bind(WorkflowElevenLabsClient);
 
 function isSerializedOpenAIClient(value: unknown): value is SerializedOpenAIClient {
   if (!value || typeof value !== "object") {
