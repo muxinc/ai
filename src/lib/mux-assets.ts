@@ -66,6 +66,16 @@ export async function getPlaybackIdForAssetWithClient(
   return toPlaybackAsset(asset);
 }
 
+export async function getPlaybackIdForAssetWithClient(
+  assetId: string,
+  muxClient: WorkflowMuxClient,
+): Promise<PlaybackAsset> {
+  "use step";
+  const asset = await getMuxAssetWithClient(assetId, muxClient);
+  const { id: playbackId, policy } = getPlaybackId(asset);
+  return { asset, playbackId, policy };
+}
+
 /**
  * Fetches the Mux asset once so callers can derive playback IDs, duration, tracks,
  * and other metadata from a single Video API call.

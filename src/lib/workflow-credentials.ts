@@ -19,7 +19,6 @@ import {
   normalizeWorkflowGoogleClient,
   normalizeWorkflowHiveClient,
   normalizeWorkflowOpenAIClient,
-
 } from "@mux/ai/lib/workflow-provider-clients";
 import type {
   WorkflowAnthropicClient,
@@ -223,7 +222,6 @@ function resolveProviderApiKeyFromCredentials(
 
   return apiKey;
 }
-
 /**
  * Resolves a provider client wrapper from workflow credentials.
  *
