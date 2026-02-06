@@ -65,6 +65,9 @@ const EnvSchema = z.object({
   S3_BUCKET: optionalString("Bucket used for caption and audio uploads.", "S3 bucket"),
   S3_ACCESS_KEY_ID: optionalString("Access key ID for S3-compatible uploads.", "S3 access key id"),
   S3_SECRET_ACCESS_KEY: optionalString("Secret access key for S3-compatible uploads.", "S3 secret access key"),
+  S3_ALLOWED_ENDPOINT_HOSTS: optionalString(
+    "Comma-separated S3 endpoint allowlist (supports exact hosts and *.suffix patterns).",
+  ),
 
   EVALITE_RESULTS_ENDPOINT: optionalString(
     "Full URL for posting Evalite results (e.g., https://example.com/api/evalite-results).",

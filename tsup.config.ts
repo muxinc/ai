@@ -11,9 +11,6 @@ export default defineConfig({
   clean: true,
   splitting: false,
   external: [
-    "@aws-sdk/client-s3",
-    "@aws-sdk/lib-storage",
-    "@aws-sdk/s3-request-presigner",
     "@mux/mux-node",
     "dedent",
     "dotenv",

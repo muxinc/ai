@@ -187,12 +187,14 @@ npm run compare <your-asset-id> [language-code]
 
 - **Basic Translation**: Translate captions and upload to Mux
 - **Translation Only**: Translate without uploading to Mux
+- **AWS SDK Adapter**: Translate captions using `storageAdapter` backed by AWS SDK v3
 
 ```bash
 cd examples/translate-captions
 npm install
 npm run basic <your-asset-id> en es [provider]
 npm run translation-only <your-asset-id> en fr [provider]
+npm run aws-sdk-adapter <your-asset-id> -- --s3-bucket <bucket-name>
 ```
 
 **Translation Workflow:**

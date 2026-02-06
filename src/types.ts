@@ -7,8 +7,38 @@ import type {
   WorkflowHiveClient,
   WorkflowOpenAIClient,
 } from "@mux/ai/lib/workflow-provider-clients";
+import type { WorkflowStorageClient } from "@mux/ai/lib/workflow-storage-client";
 
 import type Mux from "@mux/mux-node";
+
+/** Input shape for uploading objects through a storage adapter. */
+export interface StoragePutObjectInput {
+  endpoint: string;
+  region: string;
+  bucket: string;
+  key: string;
+  body: string | Uint8Array;
+  contentType?: string;
+  accessKeyId?: string;
+  secretAccessKey?: string;
+}
+
+/** Input shape for presigning object download URLs through a storage adapter. */
+export interface StoragePresignGetObjectInput {
+  endpoint: string;
+  region: string;
+  bucket: string;
+  key: string;
+  expiresInSeconds: number;
+  accessKeyId?: string;
+  secretAccessKey?: string;
+}
+
+/** Optional pluggable storage backend for S3-compatible object operations. */
+export interface StorageAdapter {
+  putObject: (input: StoragePutObjectInput) => Promise<void>;
+  createPresignedGetUrl: (input: StoragePresignGetObjectInput) => Promise<string>;
+}
 
 /**
  * Base options mixed into every higher-level workflow configuration.
@@ -21,6 +51,8 @@ export interface MuxAIOptions {
    * Uses serializable client wrappers transported securely across step boundaries.
    */
   credentials?: WorkflowCredentialsInput;
+  /** Optional storage adapter for upload and presigning operations. */
+  storageAdapter?: StorageAdapter;
 }
 
 /**
@@ -36,6 +68,8 @@ export interface WorkflowCredentials {
   googleClient?: WorkflowGoogleClient;
   hiveClient?: WorkflowHiveClient;
   elevenLabsClient?: WorkflowElevenLabsClient;
+  /** Prefer WorkflowStorageClient for workflow-safe serialization. */
+  storageClient?: WorkflowStorageClient;
 }
 
 /** Credentials that are safe to serialize across workflow boundaries. */

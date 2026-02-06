@@ -27,6 +27,8 @@ import type {
   WorkflowHiveClient,
   WorkflowOpenAIClient,
 } from "@mux/ai/lib/workflow-provider-clients";
+import { normalizeWorkflowStorageClient } from "@mux/ai/lib/workflow-storage-client";
+import type { WorkflowStorageClient } from "@mux/ai/lib/workflow-storage-client";
 import type { WorkflowCredentials, WorkflowCredentialsInput } from "@mux/ai/types";
 
 /**
@@ -293,6 +295,18 @@ export async function resolveProviderApiKey(
 ): Promise<string> {
   const resolved = await resolveWorkflowCredentials(credentials);
   return resolveProviderApiKeyFromCredentials(provider, resolved);
+}
+
+/**
+ * Resolves a workflow-compatible storage client from workflow credentials.
+ *
+ * Supports both live class instances and serialized plain-object shapes.
+ */
+export async function resolveStorageClient(
+  credentials?: WorkflowCredentialsInput,
+): Promise<WorkflowStorageClient | undefined> {
+  const resolved = await resolveWorkflowCredentials(credentials);
+  return normalizeWorkflowStorageClient((resolved as Record<string, unknown>).storageClient);
 }
 
 /**

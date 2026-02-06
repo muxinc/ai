@@ -3,11 +3,21 @@ import { getApiKeyFromEnv } from "@mux/ai/lib/client-factory";
 import { getLanguageCodePair, toISO639_1, toISO639_3 } from "@mux/ai/lib/language-codes";
 import type { LanguageCodePair, SupportedISO639_1 } from "@mux/ai/lib/language-codes";
 import { getAssetDurationSecondsFromAsset, getPlaybackIdForAssetWithClient } from "@mux/ai/lib/mux-assets";
+import {
+  createPresignedGetUrlWithStorageAdapter,
+  putObjectWithStorageAdapter,
+} from "@mux/ai/lib/storage-adapter";
 import { signUrl } from "@mux/ai/lib/url-signing";
-import { resolveMuxClient } from "@mux/ai/lib/workflow-credentials";
+import { resolveMuxClient, resolveStorageClient } from "@mux/ai/lib/workflow-credentials";
 import type { WorkflowMuxClient } from "@mux/ai/lib/workflow-mux-client";
 import { isWorkflowNativeCredentials, serializeForWorkflow } from "@mux/ai/lib/workflow-native-credentials";
-import type { MuxAIOptions, TokenUsage, WorkflowCredentials, WorkflowCredentialsInput } from "@mux/ai/types";
+import type {
+  MuxAIOptions,
+  StorageAdapter,
+  TokenUsage,
+  WorkflowCredentials,
+  WorkflowCredentialsInput,
+} from "@mux/ai/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -47,6 +57,8 @@ export interface AudioTranslationOptions extends MuxAIOptions {
    * bucket and attached to the Mux asset.
    */
   uploadToMux?: boolean;
+  /** Optional storage adapter override for upload + presign operations. */
+  storageAdapter?: StorageAdapter;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -263,6 +275,7 @@ async function uploadDubbedAudioToS3({
   s3Endpoint,
   s3Region,
   s3Bucket,
+  storageAdapter,
 }: {
   dubbedAudioBuffer: ArrayBuffer;
   assetId: string;
@@ -270,52 +283,36 @@ async function uploadDubbedAudioToS3({
   s3Endpoint: string;
   s3Region: string;
   s3Bucket: string;
+  storageAdapter?: StorageAdapter;
 }): Promise<string> {
   "use step";
 
-  const { S3Client, GetObjectCommand } = await import("@aws-sdk/client-s3");
-  const { Upload } = await import("@aws-sdk/lib-storage");
-  const { getSignedUrl } = await import("@aws-sdk/s3-request-presigner");
-
-  // asserting exists. already validated (See: translateAudio())
-  const s3AccessKeyId = env.S3_ACCESS_KEY_ID!;
-  const s3SecretAccessKey = env.S3_SECRET_ACCESS_KEY!;
-
-  const s3Client = new S3Client({
-    region: s3Region,
-    endpoint: s3Endpoint,
-    credentials: {
-      accessKeyId: s3AccessKeyId,
-      secretAccessKey: s3SecretAccessKey,
-    },
-    forcePathStyle: true,
-  });
+  const s3AccessKeyId = env.S3_ACCESS_KEY_ID;
+  const s3SecretAccessKey = env.S3_SECRET_ACCESS_KEY;
 
   // Create unique key for the audio file
   const audioKey = `audio-translations/${assetId}/auto-to-${toLanguageCode}-${Date.now()}.m4a`;
 
-  // Upload audio to S3
-  const upload = new Upload({
-    client: s3Client,
-    params: {
-      Bucket: s3Bucket,
-      Key: audioKey,
-      Body: new Uint8Array(dubbedAudioBuffer),
-      ContentType: "audio/mp4",
-    },
-  });
+  await putObjectWithStorageAdapter({
+    accessKeyId: s3AccessKeyId,
+    secretAccessKey: s3SecretAccessKey,
+    endpoint: s3Endpoint,
+    region: s3Region,
+    bucket: s3Bucket,
+    key: audioKey,
+    body: new Uint8Array(dubbedAudioBuffer),
+    contentType: "audio/mp4",
+  }, storageAdapter);
 
-  await upload.done();
-
-  // Generate presigned URL (valid for 1 hour)
-  const getObjectCommand = new GetObjectCommand({
-    Bucket: s3Bucket,
-    Key: audioKey,
-  });
-
-  const presignedUrl = await getSignedUrl(s3Client, getObjectCommand, {
-    expiresIn: 3600, // 1 hour
-  });
+  const presignedUrl = await createPresignedGetUrlWithStorageAdapter({
+    accessKeyId: s3AccessKeyId,
+    secretAccessKey: s3SecretAccessKey,
+    endpoint: s3Endpoint,
+    region: s3Region,
+    bucket: s3Bucket,
+    key: audioKey,
+    expiresInSeconds: 3600,
+  }, storageAdapter);
 
   console.warn(`✅ Audio uploaded successfully to: ${audioKey}`);
   console.warn(`🔗 Generated presigned URL (expires in 1 hour)`);
@@ -373,6 +370,7 @@ export async function translateAudio(
     provider = "elevenlabs",
     numSpeakers = 0, // 0 = auto-detect
     uploadToMux = true,
+    storageAdapter,
     credentials: providedCredentials,
   } = options;
 
@@ -381,6 +379,8 @@ export async function translateAudio(
   }
 
   const credentials = normalizeAudioWorkflowCredentials(providedCredentials);
+  const workflowStorageClient = await resolveStorageClient(credentials);
+  const effectiveStorageAdapter = storageAdapter ?? workflowStorageClient;
 
   // S3 configuration
   const s3Endpoint = options.s3Endpoint ?? env.S3_ENDPOINT;
@@ -389,8 +389,8 @@ export async function translateAudio(
   const s3AccessKeyId = env.S3_ACCESS_KEY_ID;
   const s3SecretAccessKey = env.S3_SECRET_ACCESS_KEY;
 
-  if (uploadToMux && (!s3Endpoint || !s3Bucket || !s3AccessKeyId || !s3SecretAccessKey)) {
-    throw new Error("S3 configuration is required for uploading to Mux. Provide s3Endpoint, s3Bucket, s3AccessKeyId, and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.");
+  if (uploadToMux && (!s3Endpoint || !s3Bucket || (!effectiveStorageAdapter && (!s3AccessKeyId || !s3SecretAccessKey)))) {
+    throw new Error("Storage configuration is required for uploading to Mux. Provide s3Endpoint and s3Bucket. If no storageAdapter or credentials.storageClient is supplied, also provide s3AccessKeyId and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.");
   }
   const muxClient = await resolveMuxClient(credentials);
 
@@ -557,6 +557,7 @@ export async function translateAudio(
       s3Endpoint: s3Endpoint!,
       s3Region,
       s3Bucket: s3Bucket!,
+      storageAdapter: effectiveStorageAdapter,
     });
   } catch (error) {
     throw new Error(`Failed to upload audio to S3: ${error instanceof Error ? error.message : "Unknown error"}`);

@@ -468,6 +468,7 @@ S3_SECRET_ACCESS_KEY=your-r2-secret-key
 
 - **[Workflows Guide](./docs/WORKFLOWS.md)** - Detailed guide to each pre-built workflow with examples
 - **[API Reference](./docs/API.md)** - Complete API documentation for all functions, parameters, and return types
+- **[Storage Adapters](./docs/STORAGE-ADAPTERS.md)** - Using custom storage SDKs (AWS, Cloudflare R2, MinIO)
 - **[Primitives Guide](./docs/PRIMITIVES.md)** - Low-level building blocks for custom workflows
 - **[Examples](./docs/EXAMPLES.md)** - Running examples from the repository
 

@@ -12,6 +12,10 @@ export {
   WorkflowHiveClient,
   WorkflowOpenAIClient,
 } from "./lib/workflow-provider-clients";
+export {
+  createWorkflowStorageClient,
+  WorkflowStorageClient,
+} from "./lib/workflow-storage-client";
 
 // Entry points are intentionally shallow; import explicitly from primitives or workflows
 export * as primitives from "./primitives";
