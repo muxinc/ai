@@ -24,10 +24,6 @@ const EnvSchema = z.object({
 
   MUX_TOKEN_ID: optionalString("Mux access token ID.", "Required to access Mux APIs"),
   MUX_TOKEN_SECRET: optionalString("Mux access token secret.", "Required to access Mux APIs"),
-  MUX_AI_WORKFLOW_SECRET_KEY: optionalString(
-    "Base64-encoded 32-byte key for workflow encryption/decryption.",
-    "Workflow secret key",
-  ),
   EVALITE_INGEST_SECRET: optionalString(
     "Shared secret for posting Evalite results.",
     "Evalite ingest secret",
@@ -77,12 +73,10 @@ const EnvSchema = z.object({
 }).refine(
   (env) => {
     const hasMuxCredentials = Boolean(env.MUX_TOKEN_ID && env.MUX_TOKEN_SECRET);
-    const hasWorkflowKey = Boolean(env.MUX_AI_WORKFLOW_SECRET_KEY);
-    return hasMuxCredentials || hasWorkflowKey;
+    return hasMuxCredentials;
   },
   {
-    message:
-      "Either MUX_TOKEN_ID + MUX_TOKEN_SECRET or MUX_AI_WORKFLOW_SECRET_KEY must be set.",
+    message: "MUX_TOKEN_ID + MUX_TOKEN_SECRET must be set.",
   },
 );
 

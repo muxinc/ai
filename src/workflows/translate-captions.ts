@@ -1,19 +1,18 @@
-import Mux from "@mux/mux-node";
 import { generateText, Output } from "ai";
 import { z } from "zod";
 
 import env from "@mux/ai/env";
-import { getMuxCredentialsFromEnv } from "@mux/ai/lib/client-factory";
 import { getLanguageCodePair, getLanguageName } from "@mux/ai/lib/language-codes";
 import type { LanguageCodePair, SupportedISO639_1 } from "@mux/ai/lib/language-codes";
 import {
   getAssetDurationSecondsFromAsset,
-  getPlaybackIdForAsset,
+  getPlaybackIdForAssetWithClient,
   isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
-import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
+import { resolveMuxClient, resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
+import type { WorkflowMuxClient } from "@mux/ai/lib/workflow-mux-client";
 import { buildTranscriptUrl, getReadyTextTracks } from "@mux/ai/primitives/transcripts";
 import type { MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "@mux/ai/types";
 
@@ -201,14 +200,10 @@ async function createTextTrackOnMux(
   languageCode: string,
   trackName: string,
   presignedUrl: string,
-  credentials?: WorkflowCredentialsInput,
+  muxClient: WorkflowMuxClient,
 ): Promise<string> {
   "use step";
-  const { muxTokenId, muxTokenSecret } = await getMuxCredentialsFromEnv(credentials);
-  const mux = new Mux({
-    tokenId: muxTokenId,
-    tokenSecret: muxTokenSecret,
-  });
+  const mux = await muxClient.createClient();
   const trackResponse = await mux.video.assets.createTrack(assetId, {
     type: "text",
     text_type: "subtitles",
@@ -240,6 +235,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     uploadToMux: uploadToMuxOption,
     credentials,
   } = options;
+  const muxClient = await resolveMuxClient(credentials);
 
   // S3 configuration
   const s3Endpoint = providedS3Endpoint ?? env.S3_ENDPOINT;
@@ -260,9 +256,9 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   }
 
   // Fetch asset data and playback ID from Mux
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAssetWithClient(
     assetId,
-    credentials,
+    muxClient,
   );
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
   const isAudioOnly = isAudioOnlyAsset(assetData);
@@ -397,7 +393,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
       toLanguageCode,
       trackName,
       presignedUrl,
-      credentials,
+      muxClient,
     );
   } catch (error) {
     console.warn(`Failed to add track to Mux asset: ${error instanceof Error ? error.message : "Unknown error"}`);

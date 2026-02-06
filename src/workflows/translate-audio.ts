@@ -1,13 +1,13 @@
-import Mux from "@mux/mux-node";
-
 import env from "@mux/ai/env";
-import { getApiKeyFromEnv, getMuxCredentialsFromEnv } from "@mux/ai/lib/client-factory";
+import { getApiKeyFromEnv } from "@mux/ai/lib/client-factory";
 import { getLanguageCodePair, toISO639_1, toISO639_3 } from "@mux/ai/lib/language-codes";
 import type { LanguageCodePair, SupportedISO639_1 } from "@mux/ai/lib/language-codes";
-import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
+import { getAssetDurationSecondsFromAsset, getPlaybackIdForAssetWithClient } from "@mux/ai/lib/mux-assets";
 import { signUrl } from "@mux/ai/lib/url-signing";
-import { isEncryptedPayload } from "@mux/ai/lib/workflow-crypto";
-import type { MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "@mux/ai/types";
+import { resolveMuxClient } from "@mux/ai/lib/workflow-credentials";
+import type { WorkflowMuxClient } from "@mux/ai/lib/workflow-mux-client";
+import { isWorkflowNativeCredentials, serializeForWorkflow } from "@mux/ai/lib/workflow-native-credentials";
+import type { MuxAIOptions, TokenUsage, WorkflowCredentials, WorkflowCredentialsInput } from "@mux/ai/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -47,8 +47,6 @@ export interface AudioTranslationOptions extends MuxAIOptions {
    * bucket and attached to the Mux asset.
    */
   uploadToMux?: boolean;
-  /** Override for env.ELEVENLABS_API_KEY. */
-  elevenLabsApiKey?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -78,14 +76,10 @@ const hasReadyAudioStaticRendition = (asset: any) => Boolean(getReadyAudioStatic
 
 async function requestStaticRenditionCreation(
   assetId: string,
-  credentials?: WorkflowCredentialsInput,
+  muxClient: WorkflowMuxClient,
 ) {
   "use step";
-  const { muxTokenId, muxTokenSecret } = await getMuxCredentialsFromEnv(credentials);
-  const mux = new Mux({
-    tokenId: muxTokenId,
-    tokenSecret: muxTokenSecret,
-  });
+  const mux = await muxClient.createClient();
   try {
     await mux.video.assets.createStaticRendition(assetId, {
       resolution: "audio-only",
@@ -109,18 +103,14 @@ async function requestStaticRenditionCreation(
 async function waitForAudioStaticRendition({
   assetId,
   initialAsset,
-  credentials,
+  muxClient,
 }: {
   assetId: string;
   initialAsset: any;
-  credentials?: WorkflowCredentialsInput;
+  muxClient: WorkflowMuxClient;
 }): Promise<any> {
   "use step";
-  const { muxTokenId, muxTokenSecret } = await getMuxCredentialsFromEnv(credentials);
-  const mux = new Mux({
-    tokenId: muxTokenId,
-    tokenSecret: muxTokenSecret,
-  });
+  const mux = await muxClient.createClient();
   let currentAsset = initialAsset;
 
   if (hasReadyAudioStaticRendition(currentAsset)) {
@@ -130,9 +120,9 @@ async function waitForAudioStaticRendition({
   const status = currentAsset.static_renditions?.status ?? "not_requested";
 
   if (status === "not_requested" || status === undefined) {
-    await requestStaticRenditionCreation(assetId, credentials);
+    await requestStaticRenditionCreation(assetId, muxClient);
   } else if (status === "errored") {
-    await requestStaticRenditionCreation(assetId, credentials);
+    await requestStaticRenditionCreation(assetId, muxClient);
   } else {
     console.warn(`ℹ️ Static rendition already ${status}. Waiting for it to finish...`);
   }
@@ -337,14 +327,10 @@ async function createAudioTrackOnMux(
   assetId: string,
   languageCode: string,
   presignedUrl: string,
-  credentials?: WorkflowCredentialsInput,
+  muxClient: WorkflowMuxClient,
 ): Promise<string> {
   "use step";
-  const { muxTokenId, muxTokenSecret } = await getMuxCredentialsFromEnv(credentials);
-  const mux = new Mux({
-    tokenId: muxTokenId,
-    tokenSecret: muxTokenSecret,
-  });
+  const mux = await muxClient.createClient();
   const languageName = new Intl.DisplayNames(["en"], { type: "language" }).of(languageCode) || languageCode.toUpperCase();
   const trackName = `${languageName} (auto-dubbed)`;
 
@@ -362,6 +348,20 @@ async function createAudioTrackOnMux(
   return trackResponse.id;
 }
 
+function normalizeAudioWorkflowCredentials(
+  providedCredentials?: WorkflowCredentialsInput,
+): WorkflowCredentialsInput | undefined {
+  if (!providedCredentials) {
+    return undefined;
+  }
+
+  if (isWorkflowNativeCredentials(providedCredentials)) {
+    return providedCredentials;
+  }
+
+  return serializeForWorkflow(providedCredentials as WorkflowCredentials);
+}
+
 export async function translateAudio(
   assetId: string,
   toLanguageCode: string,
@@ -372,7 +372,6 @@ export async function translateAudio(
   const {
     provider = "elevenlabs",
     numSpeakers = 0, // 0 = auto-detect
-    elevenLabsApiKey,
     uploadToMux = true,
     credentials: providedCredentials,
   } = options;
@@ -381,18 +380,7 @@ export async function translateAudio(
     throw new Error("Only ElevenLabs provider is currently supported for audio translation");
   }
 
-  // Only build a credentials object if we have actual credentials to pass.
-  // Passing an empty object would be treated as plaintext credentials and rejected
-  // by the workflow runtime. When undefined, the system falls back to env vars.
-  let credentials: WorkflowCredentialsInput | undefined;
-  if (isEncryptedPayload(providedCredentials)) {
-    credentials = providedCredentials;
-  } else if (providedCredentials || elevenLabsApiKey) {
-    credentials = {
-      ...(providedCredentials ?? {}),
-      ...(elevenLabsApiKey ? { elevenLabsApiKey } : {}),
-    };
-  }
+  const credentials = normalizeAudioWorkflowCredentials(providedCredentials);
 
   // S3 configuration
   const s3Endpoint = options.s3Endpoint ?? env.S3_ENDPOINT;
@@ -404,11 +392,12 @@ export async function translateAudio(
   if (uploadToMux && (!s3Endpoint || !s3Bucket || !s3AccessKeyId || !s3SecretAccessKey)) {
     throw new Error("S3 configuration is required for uploading to Mux. Provide s3Endpoint, s3Bucket, s3AccessKeyId, and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.");
   }
+  const muxClient = await resolveMuxClient(credentials);
 
   // Fetch asset data and playback ID from Mux
-  const { asset: initialAsset, playbackId, policy } = await getPlaybackIdForAsset(
+  const { asset: initialAsset, playbackId, policy } = await getPlaybackIdForAssetWithClient(
     assetId,
-    credentials,
+    muxClient,
   );
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(initialAsset);
 
@@ -420,7 +409,7 @@ export async function translateAudio(
     currentAsset = await waitForAudioStaticRendition({
       assetId,
       initialAsset: currentAsset,
-      credentials,
+      muxClient,
     });
   }
 
@@ -581,7 +570,7 @@ export async function translateAudio(
   const muxLangCode = toISO639_1(toLanguageCode);
 
   try {
-    uploadedTrackId = await createAudioTrackOnMux(assetId, muxLangCode, presignedUrl, credentials);
+    uploadedTrackId = await createAudioTrackOnMux(assetId, muxLangCode, presignedUrl, muxClient);
     const languageName = new Intl.DisplayNames(["en"], { type: "language" }).of(muxLangCode) || muxLangCode.toUpperCase();
     const trackName = `${languageName} (auto-dubbed)`;
     console.warn(`✅ Track added to Mux asset with ID: ${uploadedTrackId}`);
