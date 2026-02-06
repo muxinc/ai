@@ -5,6 +5,7 @@ import { getApiKeyFromEnv, getMuxCredentialsFromEnv } from "@mux/ai/lib/client-f
 import { getLanguageCodePair, toISO639_1, toISO639_3 } from "@mux/ai/lib/language-codes";
 import type { LanguageCodePair, SupportedISO639_1 } from "@mux/ai/lib/language-codes";
 import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
+import { createPresignedGetUrl, putObjectToS3 } from "@mux/ai/lib/s3-sigv4";
 import { signUrl } from "@mux/ai/lib/url-signing";
 import { isEncryptedPayload } from "@mux/ai/lib/workflow-crypto";
 import type { MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "@mux/ai/types";
@@ -283,48 +284,32 @@ async function uploadDubbedAudioToS3({
 }): Promise<string> {
   "use step";
 
-  const { S3Client, GetObjectCommand } = await import("@aws-sdk/client-s3");
-  const { Upload } = await import("@aws-sdk/lib-storage");
-  const { getSignedUrl } = await import("@aws-sdk/s3-request-presigner");
-
   // asserting exists. already validated (See: translateAudio())
   const s3AccessKeyId = env.S3_ACCESS_KEY_ID!;
   const s3SecretAccessKey = env.S3_SECRET_ACCESS_KEY!;
 
-  const s3Client = new S3Client({
-    region: s3Region,
-    endpoint: s3Endpoint,
-    credentials: {
-      accessKeyId: s3AccessKeyId,
-      secretAccessKey: s3SecretAccessKey,
-    },
-    forcePathStyle: true,
-  });
-
   // Create unique key for the audio file
   const audioKey = `audio-translations/${assetId}/auto-to-${toLanguageCode}-${Date.now()}.m4a`;
 
-  // Upload audio to S3
-  const upload = new Upload({
-    client: s3Client,
-    params: {
-      Bucket: s3Bucket,
-      Key: audioKey,
-      Body: new Uint8Array(dubbedAudioBuffer),
-      ContentType: "audio/mp4",
-    },
+  await putObjectToS3({
+    accessKeyId: s3AccessKeyId,
+    secretAccessKey: s3SecretAccessKey,
+    endpoint: s3Endpoint,
+    region: s3Region,
+    bucket: s3Bucket,
+    key: audioKey,
+    body: new Uint8Array(dubbedAudioBuffer),
+    contentType: "audio/mp4",
   });
 
-  await upload.done();
-
-  // Generate presigned URL (valid for 1 hour)
-  const getObjectCommand = new GetObjectCommand({
-    Bucket: s3Bucket,
-    Key: audioKey,
-  });
-
-  const presignedUrl = await getSignedUrl(s3Client, getObjectCommand, {
-    expiresIn: 3600, // 1 hour
+  const presignedUrl = await createPresignedGetUrl({
+    accessKeyId: s3AccessKeyId,
+    secretAccessKey: s3SecretAccessKey,
+    endpoint: s3Endpoint,
+    region: s3Region,
+    bucket: s3Bucket,
+    key: audioKey,
+    expiresInSeconds: 3600,
   });
 
   console.warn(`✅ Audio uploaded successfully to: ${audioKey}`);
