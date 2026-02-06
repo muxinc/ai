@@ -1,6 +1,15 @@
+import env from "@mux/ai/env";
+
 const AWS4_ALGORITHM = "AWS4-HMAC-SHA256";
 const AWS4_REQUEST_TERMINATOR = "aws4_request";
 const AWS4_SERVICE = "s3";
+
+// Env flags for endpoint hardening.
+// - S3_ALLOWED_ENDPOINT_HOSTS="s3.amazonaws.com,*.r2.cloudflarestorage.com"
+//   restricts requests to explicit hostnames / wildcard suffixes.
+const S3_ALLOWED_ENDPOINT_PATTERNS = parseEndpointAllowlist(
+  env.S3_ALLOWED_ENDPOINT_HOSTS,
+);
 
 interface S3Credentials {
   accessKeyId: string;
@@ -106,7 +115,51 @@ function normalizeEndpoint(endpoint: string): URL {
     throw new Error("S3 endpoint must not include query params or hash fragments.");
   }
 
+  enforceEndpointPolicy(url);
+
   return url;
+}
+
+function parseEndpointAllowlist(allowlist: string | undefined): string[] {
+  if (!allowlist) {
+    return [];
+  }
+
+  return allowlist
+    .split(",")
+    .map(value => value.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function hostnameMatchesPattern(hostname: string, pattern: string): boolean {
+  if (pattern.startsWith("*.")) {
+    const suffix = pattern.slice(1); // ".example.com"
+    return hostname.endsWith(suffix) && hostname.length > suffix.length;
+  }
+
+  return hostname === pattern;
+}
+
+function enforceEndpointPolicy(url: URL): void {
+  const hostname = url.hostname.toLowerCase();
+
+  // Enforce secure transport for all S3 uploads/signing flows.
+  if (url.protocol !== "https:") {
+    throw new Error(
+      `Insecure S3 endpoint protocol "${url.protocol}" is not allowed. Use HTTPS.`,
+    );
+  }
+
+  // Optional allowlist enforcement to prevent exfiltration/SSRF-like endpoint misuse.
+  // When unset, behavior remains backward compatible (any host allowed).
+  if (
+    S3_ALLOWED_ENDPOINT_PATTERNS.length > 0 &&
+    !S3_ALLOWED_ENDPOINT_PATTERNS.some(pattern => hostnameMatchesPattern(hostname, pattern))
+  ) {
+    throw new Error(
+      `S3 endpoint host "${hostname}" is not in S3_ALLOWED_ENDPOINT_HOSTS.`,
+    );
+  }
 }
 
 function buildCanonicalUri(endpoint: URL, bucket: string, key: string): string {
