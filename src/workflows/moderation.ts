@@ -21,6 +21,7 @@ export interface ThumbnailModerationScore {
   sexual: number;
   violence: number;
   error: boolean;
+  errorMessage?: string;
 }
 
 /** Aggregated moderation payload returned from `getModerationScores`. */
@@ -205,6 +206,7 @@ async function moderateImageWithOpenAI(entry: {
       sexual: 0,
       violence: 0,
       error: true,
+      errorMessage: error instanceof Error ? error.message : String(error),
     };
   }
 }
@@ -271,6 +273,7 @@ async function requestOpenAITextModeration(
       sexual: 0,
       violence: 0,
       error: true,
+      errorMessage: error instanceof Error ? error.message : String(error),
     };
   }
 }
@@ -304,7 +307,7 @@ async function requestOpenAITranscriptModeration(
   const chunks = chunkTextByUtf16CodeUnits(transcriptText, 10_000);
   if (!chunks.length) {
     return [
-      { url: "transcript:0", sexual: 0, violence: 0, error: true },
+      { url: "transcript:0", sexual: 0, violence: 0, error: true, errorMessage: "No transcript chunks to moderate" },
     ];
   }
   const targets = chunks.map((chunk, idx) => ({
@@ -356,12 +359,20 @@ async function moderateImageWithHive(entry: {
         Authorization: `Token ${apiKey}`,
       },
       body: formData,
+      signal: AbortSignal.timeout(15_000),
     });
 
     const json: any = await res.json().catch(() => undefined);
+
     if (!res.ok) {
       throw new Error(
         `Hive moderation error: ${res.status} ${res.statusText} - ${JSON.stringify(json)}`,
+      );
+    }
+
+    if (json?.return_code && json.return_code !== 0) {
+      throw new Error(
+        `Hive API error (return_code ${json.return_code}): ${json.message || "Unknown error"}`,
       );
     }
 
@@ -369,19 +380,22 @@ async function moderateImageWithHive(entry: {
     // Hive returns scores in status[0].response.output[0].classes as array of {class, score}
     const classes = json?.status?.[0]?.response?.output?.[0]?.classes || [];
 
+    const sexual = getHiveCategoryScores(classes, HIVE_SEXUAL_CATEGORIES);
+    const violence = getHiveCategoryScores(classes, HIVE_VIOLENCE_CATEGORIES);
+
     return {
       url: entry.url,
-      sexual: getHiveCategoryScores(classes, HIVE_SEXUAL_CATEGORIES),
-      violence: getHiveCategoryScores(classes, HIVE_VIOLENCE_CATEGORIES),
+      sexual,
+      violence,
       error: false,
     };
   } catch (error) {
-    console.error("Hive moderation failed:", error);
     return {
       url: entry.url,
       sexual: 0,
       violence: 0,
       error: true,
+      errorMessage: error instanceof Error ? error.message : String(error),
     };
   }
 }
@@ -394,6 +408,7 @@ async function requestHiveModeration(
   credentials?: WorkflowCredentialsInput,
 ): Promise<ThumbnailModerationScore[]> {
   "use step";
+
   const targets: Array<{ url: string; source: HiveModerationSource; credentials?: WorkflowCredentialsInput }> =
     submissionMode === "base64" ?
         (await downloadImagesAsBase64(imageUrls, downloadOptions, maxConcurrent)).map(img => ({
@@ -411,7 +426,9 @@ async function requestHiveModeration(
           credentials,
         }));
 
-  return processConcurrently(targets, moderateImageWithHive, maxConcurrent);
+  const results = await processConcurrently(targets, moderateImageWithHive, maxConcurrent);
+
+  return results;
 }
 
 /**
@@ -527,6 +544,14 @@ export async function getModerationScores(
     } else {
       throw new Error(`Unsupported moderation provider: ${provider}`);
     }
+  }
+
+  const failed = thumbnailScores.filter(s => s.error);
+  if (failed.length > 0) {
+    const details = failed.map(s => `${s.url}: ${s.errorMessage || "Unknown error"}`).join("; ");
+    throw new Error(
+      `Moderation failed for ${failed.length}/${thumbnailScores.length} thumbnail(s): ${details}`,
+    );
   }
 
   // Find highest scores across all thumbnails
