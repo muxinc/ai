@@ -5,6 +5,7 @@ import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
   getVideoTrackDurationSecondsFromAsset,
+  getVideoTrackMaxFrameRateFromAsset,
   isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
 import { planSamplingTimestamps } from "@mux/ai/lib/sampling-plan";
@@ -474,6 +475,7 @@ export async function getModerationScores(
   // Fetch asset data and playback ID from Mux via helper
   const { asset, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
   const videoTrackDurationSeconds = getVideoTrackDurationSecondsFromAsset(asset);
+  const videoTrackFps = getVideoTrackMaxFrameRateFromAsset(asset);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(asset);
   const duration = videoTrackDurationSeconds ?? assetDurationSeconds ?? 0;
   const isAudioOnly = isAudioOnlyAsset(asset);
@@ -543,6 +545,7 @@ export async function getModerationScores(
             max_candidates: maxSamples,
             trim_start_sec: duration > 2 ? 1 : 0,
             trim_end_sec: duration > 2 ? 1 : 0,
+            fps: videoTrackFps,
             base_cadence_hz: thumbnailInterval > 0 ? 1 / thumbnailInterval : undefined,
           }),
           {

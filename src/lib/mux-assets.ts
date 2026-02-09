@@ -96,3 +96,11 @@ export function getVideoTrackDurationSecondsFromAsset(asset: MuxAsset): number |
   const duration = (videoTrack as { duration?: unknown } | undefined)?.duration;
   return typeof duration === "number" && Number.isFinite(duration) ? duration : undefined;
 }
+
+export function getVideoTrackMaxFrameRateFromAsset(asset: MuxAsset): number | undefined {
+  const videoTrack = asset.tracks?.find(track => track.type === "video");
+  const maxFrameRate = (videoTrack as { max_frame_rate?: unknown } | undefined)?.max_frame_rate;
+  return typeof maxFrameRate === "number" && Number.isFinite(maxFrameRate) && maxFrameRate > 0 ?
+    maxFrameRate :
+    undefined;
+}
