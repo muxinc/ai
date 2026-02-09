@@ -477,7 +477,12 @@ export async function getModerationScores(
   const videoTrackDurationSeconds = getVideoTrackDurationSecondsFromAsset(asset);
   const videoTrackFps = getVideoTrackMaxFrameRateFromAsset(asset);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(asset);
-  const duration = videoTrackDurationSeconds ?? assetDurationSeconds ?? 0;
+  // Use the shorter of video-track and asset duration so thumbnail timestamps never
+  // exceed the renderable range reported by the Mux thumbnail service.
+  const candidateDurations = [videoTrackDurationSeconds, assetDurationSeconds].filter(
+    (d): d is number => d != null,
+  );
+  const duration = candidateDurations.length > 0 ? Math.min(...candidateDurations) : 0;
   const isAudioOnly = isAudioOnlyAsset(asset);
 
   // Resolve signing context for signed playback IDs
@@ -541,7 +546,6 @@ export async function getModerationScores(
           playbackId,
           planSamplingTimestamps({
             duration_sec: duration,
-            min_candidates: maxSamples,
             max_candidates: maxSamples,
             trim_start_sec: duration > 2 ? 1 : 0,
             trim_end_sec: duration > 2 ? 1 : 0,
