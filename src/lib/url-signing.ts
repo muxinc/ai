@@ -40,6 +40,7 @@ export function getMuxSigningContextFromEnv(): SigningContext | undefined {
  * Creates a Mux client configured for JWT signing.
  * This client is used internally for signing operations.
  */
+// @TODO does this need to include authorization token
 function createSigningClient(context: SigningContext): Mux {
   return new Mux({
     // These are not needed for signing, but the SDK requires them

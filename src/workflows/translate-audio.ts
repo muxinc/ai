@@ -1,7 +1,5 @@
-import Mux from "@mux/mux-node";
-
 import env from "@mux/ai/env";
-import { getApiKeyFromEnv, getMuxCredentialsFromEnv } from "@mux/ai/lib/client-factory";
+import { getApiKeyFromEnv, muxClient } from "@mux/ai/lib/client-factory";
 import { getLanguageCodePair, toISO639_1, toISO639_3 } from "@mux/ai/lib/language-codes";
 import type { LanguageCodePair, SupportedISO639_1 } from "@mux/ai/lib/language-codes";
 import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
@@ -81,11 +79,8 @@ async function requestStaticRenditionCreation(
   credentials?: WorkflowCredentialsInput,
 ) {
   "use step";
-  const { muxTokenId, muxTokenSecret } = await getMuxCredentialsFromEnv(credentials);
-  const mux = new Mux({
-    tokenId: muxTokenId,
-    tokenSecret: muxTokenSecret,
-  });
+  const mux = await muxClient(credentials);
+
   try {
     await mux.video.assets.createStaticRendition(assetId, {
       resolution: "audio-only",
@@ -116,11 +111,8 @@ async function waitForAudioStaticRendition({
   credentials?: WorkflowCredentialsInput;
 }): Promise<any> {
   "use step";
-  const { muxTokenId, muxTokenSecret } = await getMuxCredentialsFromEnv(credentials);
-  const mux = new Mux({
-    tokenId: muxTokenId,
-    tokenSecret: muxTokenSecret,
-  });
+  const mux = await muxClient(credentials);
+
   let currentAsset = initialAsset;
 
   if (hasReadyAudioStaticRendition(currentAsset)) {
@@ -340,11 +332,8 @@ async function createAudioTrackOnMux(
   credentials?: WorkflowCredentialsInput,
 ): Promise<string> {
   "use step";
-  const { muxTokenId, muxTokenSecret } = await getMuxCredentialsFromEnv(credentials);
-  const mux = new Mux({
-    tokenId: muxTokenId,
-    tokenSecret: muxTokenSecret,
-  });
+  const mux = await muxClient(credentials);
+
   const languageName = new Intl.DisplayNames(["en"], { type: "language" }).of(languageCode) || languageCode.toUpperCase();
   const trackName = `${languageName} (auto-dubbed)`;
 

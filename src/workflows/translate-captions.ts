@@ -1,9 +1,8 @@
-import Mux from "@mux/mux-node";
 import { generateText, Output } from "ai";
 import { z } from "zod";
 
 import env from "@mux/ai/env";
-import { getMuxCredentialsFromEnv } from "@mux/ai/lib/client-factory";
+import { muxClient } from "@mux/ai/lib/client-factory";
 import { getLanguageCodePair, getLanguageName } from "@mux/ai/lib/language-codes";
 import type { LanguageCodePair, SupportedISO639_1 } from "@mux/ai/lib/language-codes";
 import {
@@ -204,11 +203,8 @@ async function createTextTrackOnMux(
   credentials?: WorkflowCredentialsInput,
 ): Promise<string> {
   "use step";
-  const { muxTokenId, muxTokenSecret } = await getMuxCredentialsFromEnv(credentials);
-  const mux = new Mux({
-    tokenId: muxTokenId,
-    tokenSecret: muxTokenSecret,
-  });
+  const mux = await muxClient(credentials);
+
   const trackResponse = await mux.video.assets.createTrack(assetId, {
     type: "text",
     text_type: "subtitles",

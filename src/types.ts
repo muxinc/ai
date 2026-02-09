@@ -24,6 +24,7 @@ export interface WorkflowCredentials {
   muxTokenSecret?: string;
   muxSigningKey?: string;
   muxPrivateKey?: string;
+  authorizationToken?: string;
   openaiApiKey?: string;
   anthropicApiKey?: string;
   googleApiKey?: string;

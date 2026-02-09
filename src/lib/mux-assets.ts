@@ -1,6 +1,4 @@
-import Mux from "@mux/mux-node";
-
-import { getMuxCredentialsFromEnv } from "@mux/ai/lib/client-factory";
+import { muxClient } from "@mux/ai/lib/client-factory";
 import type { MuxAsset, PlaybackAsset, PlaybackPolicy, WorkflowCredentialsInput } from "@mux/ai/types";
 
 /**
@@ -65,11 +63,7 @@ export async function getMuxAsset(
 ): Promise<MuxAsset> {
   "use step";
   // Always resolve Mux credentials from env or provided overrides (multi-tenant safe).
-  const { muxTokenId, muxTokenSecret } = await getMuxCredentialsFromEnv(credentials);
-  const mux = new Mux({
-    tokenId: muxTokenId,
-    tokenSecret: muxTokenSecret,
-  });
+  const mux = await muxClient(credentials);
 
   return mux.video.assets.retrieve(assetId);
 }

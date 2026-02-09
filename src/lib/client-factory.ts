@@ -1,3 +1,5 @@
+import Mux from "@mux/mux-node";
+
 import env from "@mux/ai/env";
 import type {
   ModelIdByProvider,
@@ -18,7 +20,7 @@ import type { WorkflowCredentialsInput } from "@mux/ai/types";
  */
 export async function getMuxCredentialsFromEnv(
   credentials?: WorkflowCredentialsInput,
-): Promise<{ muxTokenId: string; muxTokenSecret: string }> {
+): Promise<{ muxTokenId?: string; muxTokenSecret?: string; authorizationToken?: string }> {
   return resolveMuxCredentials(credentials);
 }
 
@@ -132,4 +134,16 @@ export async function createWorkflowConfig<P extends SupportedProvider = Support
     provider: resolved.provider,
     modelId: resolved.modelId,
   };
+}
+
+export async function muxClient(credentials?: WorkflowCredentialsInput) {
+  const { muxTokenId, muxTokenSecret, authorizationToken } = await getMuxCredentialsFromEnv(credentials);
+
+  const client = new Mux({
+    tokenId: muxTokenId,
+    tokenSecret: muxTokenSecret,
+    authorizationToken,
+  });
+
+  return client;
 }

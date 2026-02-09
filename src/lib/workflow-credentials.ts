@@ -148,20 +148,21 @@ export async function resolveWorkflowCredentials(
  */
 export async function resolveMuxCredentials(
   credentials?: WorkflowCredentialsInput,
-): Promise<{ muxTokenId: string; muxTokenSecret: string }> {
+): Promise<{ muxTokenId?: string; muxTokenSecret?: string; authorizationToken?: string }> {
   const resolved = await resolveWorkflowCredentials(credentials);
 
   // Try resolved credentials first, fall back to environment variables
   const muxTokenId = resolved.muxTokenId ?? env.MUX_TOKEN_ID;
   const muxTokenSecret = resolved.muxTokenSecret ?? env.MUX_TOKEN_SECRET;
+  const authorizationToken = resolved.authorizationToken;
 
-  if (!muxTokenId || !muxTokenSecret) {
+  if ((!muxTokenId || !muxTokenSecret) && !authorizationToken) {
     throw new Error(
       "Mux credentials are required. Provide encrypted workflow credentials or set MUX_TOKEN_ID and MUX_TOKEN_SECRET environment variables.",
     );
   }
 
-  return { muxTokenId, muxTokenSecret };
+  return { muxTokenId, muxTokenSecret, authorizationToken };
 }
 
 /** Supported AI/ML provider identifiers for API key resolution. */
