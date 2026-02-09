@@ -84,7 +84,9 @@ export function planSamplingTimestamps(options: SamplingPlanOptionsV1): number[]
   const extra: number[] = [];
   if (slack > 0 && anchor_percents.length > 0) {
     // Distribute remaining budget across anchors; at least one per anchor if any slack.
-    const perAnchor = Math.max(1, Math.floor(slack / anchor_percents.length));
+    // Cap per-anchor samples to avoid blowing up when max_candidates is very large
+    // relative to the base count — a 1.5 s window only holds ~45 frames at 30 fps.
+    const perAnchor = Math.max(1, Math.min(5, Math.floor(slack / anchor_percents.length)));
     for (const p of anchor_percents) {
       // Compute the window center in seconds, clamped within the usable span.
       // Note: 1e-3 = 0.001 seconds (1 ms). We use a tiny epsilon to avoid exact

@@ -542,13 +542,15 @@ export async function getModerationScores(
           credentials,
         }) :
         // In maxSamples mode, sample valid timestamps over the trimmed usable span.
+        // Use proportional trims (≈ duration/6, capped at 5s) to stay well inside the
+        // renderable range — Mux can't always serve thumbnails at the very edges.
         await getThumbnailUrlsFromTimestamps(
           playbackId,
           planSamplingTimestamps({
             duration_sec: duration,
             max_candidates: maxSamples,
-            trim_start_sec: duration > 2 ? 1 : 0,
-            trim_end_sec: duration > 2 ? 1 : 0,
+            trim_start_sec: duration > 2 ? Math.min(5, Math.max(1, duration / 6)) : 0,
+            trim_end_sec: duration > 2 ? Math.min(5, Math.max(1, duration / 6)) : 0,
             fps: videoTrackFps,
             base_cadence_hz: thumbnailInterval > 0 ? 1 / thumbnailInterval : undefined,
           }),
