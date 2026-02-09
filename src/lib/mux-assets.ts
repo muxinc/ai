@@ -90,3 +90,9 @@ export function getAssetDurationSecondsFromAsset(asset: MuxAsset): number | unde
   const duration = asset.duration;
   return typeof duration === "number" && Number.isFinite(duration) ? duration : undefined;
 }
+
+export function getVideoTrackDurationSecondsFromAsset(asset: MuxAsset): number | undefined {
+  const videoTrack = asset.tracks?.find(track => track.type === "video");
+  const duration = (videoTrack as { duration?: unknown } | undefined)?.duration;
+  return typeof duration === "number" && Number.isFinite(duration) ? duration : undefined;
+}
