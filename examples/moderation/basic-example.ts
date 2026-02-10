@@ -13,10 +13,11 @@ const DEFAULT_MODELS: Record<ProviderWithModel, string> = {
 async function main() {
   const assetId = process.argv[2];
   const providerArg = (process.argv[3] as ModerationProviderArg | undefined) || "openai";
+  const maxSamples = process.argv[4] ? parseInt(process.argv[4], 10) : undefined;
 
   if (!assetId) {
-    console.log("Usage: npm run example:moderation <asset-id> [provider]");
-    console.log("Example: npm run example:moderation your-asset-id hive");
+    console.log("Usage: npm run example:moderation <asset-id> [provider] [maxSamples]");
+    console.log("Example: npm run example:moderation your-asset-id hive 3");
     console.log("Supported providers: openai | anthropic | google | hive");
     process.exit(1);
   }
@@ -38,6 +39,7 @@ async function main() {
     const result = await getModerationScores(assetId, {
       provider,
       ...(model ? { model } : {}),
+      ...(maxSamples ? { maxSamples } : {}),
       thresholds: {
         sexual: 0.7,
         violence: 0.8,
@@ -55,8 +57,11 @@ async function main() {
 
     console.log(`\n📸 Analyzed ${result.thumbnailScores.length} thumbnails:`);
     result.thumbnailScores.forEach((thumb, index) => {
-      const status = thumb.error ? "❌ ERROR" : "✅ OK";
-      console.log(`  ${index + 1}. Sexual: ${thumb.sexual.toFixed(3)}, Violence: ${thumb.violence.toFixed(3)} ${status}`);
+      if (thumb.error) {
+        console.log(`  ${index + 1}. ❌ ERROR: ${thumb.errorMessage || "Unknown error"}`);
+      } else {
+        console.log(`  ${index + 1}. Sexual: ${thumb.sexual.toFixed(3)}, Violence: ${thumb.violence.toFixed(3)} ✅ OK`);
+      }
     });
 
     console.log("\n📦 Asset ID:", result.assetId);
