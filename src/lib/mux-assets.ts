@@ -39,6 +39,11 @@ export function isAudioOnlyAsset(asset: MuxAsset): boolean {
   return hasAudioTrack && !hasVideoTrack;
 }
 
+function toPlaybackAsset(asset: MuxAsset): PlaybackAsset {
+  const { id: playbackId, policy } = getPlaybackId(asset);
+  return { asset, playbackId, policy };
+}
+
 export async function getPlaybackIdForAsset(
   assetId: string,
   credentials?: WorkflowCredentialsInput,
@@ -49,9 +54,7 @@ export async function getPlaybackIdForAsset(
   // Note: getMuxAsset still resolves Mux token ID/secret from env or provided
   // credentials to preserve multi-tenant behavior.
   const asset = await getMuxAsset(assetId, credentials);
-  const { id: playbackId, policy } = getPlaybackId(asset);
-
-  return { asset, playbackId, policy };
+  return toPlaybackAsset(asset);
 }
 
 export async function getPlaybackIdForAssetWithClient(
@@ -60,8 +63,7 @@ export async function getPlaybackIdForAssetWithClient(
 ): Promise<PlaybackAsset> {
   "use step";
   const asset = await getMuxAssetWithClient(assetId, muxClient);
-  const { id: playbackId, policy } = getPlaybackId(asset);
-  return { asset, playbackId, policy };
+  return toPlaybackAsset(asset);
 }
 
 /**
