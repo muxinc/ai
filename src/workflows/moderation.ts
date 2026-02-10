@@ -370,7 +370,7 @@ async function moderateImageWithHive(entry: {
       );
     }
 
-    if (json?.return_code && json.return_code !== 0) {
+    if (json?.return_code != null && json.return_code !== 0) {
       throw new Error(
         `Hive API error (return_code ${json.return_code}): ${json.message || "Unknown error"}`,
       );
@@ -378,7 +378,12 @@ async function moderateImageWithHive(entry: {
 
     // Extract scores from Hive response
     // Hive returns scores in status[0].response.output[0].classes as array of {class, score}
-    const classes = json?.status?.[0]?.response?.output?.[0]?.classes || [];
+    const classes = json?.status?.[0]?.response?.output?.[0]?.classes;
+    if (!Array.isArray(classes)) {
+      throw new TypeError(
+        `Unexpected Hive response structure: ${JSON.stringify(json)}`,
+      );
+    }
 
     const sexual = getHiveCategoryScores(classes, HIVE_SEXUAL_CATEGORIES);
     const violence = getHiveCategoryScores(classes, HIVE_VIOLENCE_CATEGORIES);
@@ -426,9 +431,7 @@ async function requestHiveModeration(
           credentials,
         }));
 
-  const results = await processConcurrently(targets, moderateImageWithHive, maxConcurrent);
-
-  return results;
+  return await processConcurrently(targets, moderateImageWithHive, maxConcurrent);
 }
 
 /**
