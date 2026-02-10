@@ -4,8 +4,12 @@ import { downloadImagesAsBase64 } from "@mux/ai/lib/image-download";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
+  getVideoTrackDurationSecondsFromAsset,
+  getVideoTrackMaxFrameRateFromAsset,
   isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
+import { planSamplingTimestamps } from "@mux/ai/lib/sampling-plan";
+import { signUrl } from "@mux/ai/lib/url-signing";
 import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
 import { getThumbnailUrls } from "@mux/ai/primitives/thumbnails";
 import { fetchTranscriptForAsset, getReadyTextTracks } from "@mux/ai/primitives/transcripts";
@@ -414,6 +418,31 @@ async function requestHiveModeration(
   return processConcurrently(targets, moderateImageWithHive, maxConcurrent);
 }
 
+async function getThumbnailUrlsFromTimestamps(
+  playbackId: string,
+  timestampsMs: number[],
+  options: {
+    width: number;
+    shouldSign: boolean;
+    credentials?: WorkflowCredentialsInput;
+  },
+): Promise<string[]> {
+  "use step";
+  const { width, shouldSign, credentials } = options;
+  const baseUrl = `https://image.mux.com/${playbackId}/thumbnail.png`;
+
+  const urlPromises = timestampsMs.map(async (tsMs) => {
+    const time = Number((tsMs / 1000).toFixed(2));
+    if (shouldSign) {
+      return signUrl(baseUrl, playbackId, undefined, "thumbnail", { time, width }, credentials);
+    }
+
+    return `${baseUrl}?time=${time}&width=${width}`;
+  });
+
+  return Promise.all(urlPromises);
+}
+
 /**
  * Moderate a Mux asset.
  * - Video assets: moderates storyboard thumbnails (image moderation)
@@ -445,8 +474,15 @@ export async function getModerationScores(
 
   // Fetch asset data and playback ID from Mux via helper
   const { asset, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
+  const videoTrackDurationSeconds = getVideoTrackDurationSecondsFromAsset(asset);
+  const videoTrackFps = getVideoTrackMaxFrameRateFromAsset(asset);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(asset);
-  const duration = assetDurationSeconds ?? 0;
+  // Use the shorter of video-track and asset duration so thumbnail timestamps never
+  // exceed the renderable range reported by the Mux thumbnail service.
+  const candidateDurations = [videoTrackDurationSeconds, assetDurationSeconds].filter(
+    (d): d is number => d != null,
+  );
+  const duration = candidateDurations.length > 0 ? Math.min(...candidateDurations) : 0;
   const isAudioOnly = isAudioOnlyAsset(asset);
 
   // Resolve signing context for signed playback IDs
@@ -497,14 +533,33 @@ export async function getModerationScores(
       throw new Error(`Unsupported moderation provider: ${provider}`);
     }
   } else {
-    // Generate thumbnail URLs (signed if needed)
-    const thumbnailUrls = await getThumbnailUrls(playbackId, duration, {
-      interval: thumbnailInterval,
-      width: thumbnailWidth,
-      shouldSign: policy === "signed",
-      maxSamples,
-      credentials,
-    });
+    const thumbnailUrls = maxSamples === undefined ?
+        // Generate thumbnail URLs (signed if needed) using existing interval-based logic.
+        await getThumbnailUrls(playbackId, duration, {
+          interval: thumbnailInterval,
+          width: thumbnailWidth,
+          shouldSign: policy === "signed",
+          credentials,
+        }) :
+        // In maxSamples mode, sample valid timestamps over the trimmed usable span.
+        // Use proportional trims (≈ duration/6, capped at 5s) to stay well inside the
+        // renderable range — Mux can't always serve thumbnails at the very edges.
+        await getThumbnailUrlsFromTimestamps(
+          playbackId,
+          planSamplingTimestamps({
+            duration_sec: duration,
+            max_candidates: maxSamples,
+            trim_start_sec: duration > 2 ? Math.min(5, Math.max(1, duration / 6)) : 0,
+            trim_end_sec: duration > 2 ? Math.min(5, Math.max(1, duration / 6)) : 0,
+            fps: videoTrackFps,
+            base_cadence_hz: thumbnailInterval > 0 ? 1 / thumbnailInterval : undefined,
+          }),
+          {
+            width: thumbnailWidth,
+            shouldSign: policy === "signed",
+            credentials,
+          },
+        );
     thumbnailCount = thumbnailUrls.length;
 
     if (provider === "openai") {
@@ -542,7 +597,7 @@ export async function getModerationScores(
     thumbnailScores,
     usage: {
       metadata: {
-        assetDurationSeconds,
+        assetDurationSeconds: duration,
         ...(thumbnailCount === undefined ? {} : { thumbnailCount }),
       },
     },
