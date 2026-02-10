@@ -70,15 +70,7 @@ const EnvSchema = z.object({
     "Full URL for posting Evalite results (e.g., https://example.com/api/evalite-results).",
     "Evalite results endpoint",
   ),
-}).refine(
-  (env) => {
-    const hasMuxCredentials = Boolean(env.MUX_TOKEN_ID && env.MUX_TOKEN_SECRET);
-    return hasMuxCredentials;
-  },
-  {
-    message: "MUX_TOKEN_ID + MUX_TOKEN_SECRET must be set.",
-  },
-);
+});
 
 export type Env = z.infer<typeof EnvSchema>;
 
