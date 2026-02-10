@@ -1,6 +1,5 @@
-import Mux from "@mux/mux-node";
-
-import { getMuxCredentialsFromEnv } from "@mux/ai/lib/client-factory";
+import { getMuxClientFromEnv } from "@mux/ai/lib/client-factory";
+import type { WorkflowMuxClient } from "@mux/ai/lib/workflow-mux-client";
 import type { MuxAsset, PlaybackAsset, PlaybackPolicy, WorkflowCredentialsInput } from "@mux/ai/types";
 
 /**
@@ -40,6 +39,11 @@ export function isAudioOnlyAsset(asset: MuxAsset): boolean {
   return hasAudioTrack && !hasVideoTrack;
 }
 
+function toPlaybackAsset(asset: MuxAsset): PlaybackAsset {
+  const { id: playbackId, policy } = getPlaybackId(asset);
+  return { asset, playbackId, policy };
+}
+
 export async function getPlaybackIdForAsset(
   assetId: string,
   credentials?: WorkflowCredentialsInput,
@@ -50,9 +54,16 @@ export async function getPlaybackIdForAsset(
   // Note: getMuxAsset still resolves Mux token ID/secret from env or provided
   // credentials to preserve multi-tenant behavior.
   const asset = await getMuxAsset(assetId, credentials);
-  const { id: playbackId, policy } = getPlaybackId(asset);
+  return toPlaybackAsset(asset);
+}
 
-  return { asset, playbackId, policy };
+export async function getPlaybackIdForAssetWithClient(
+  assetId: string,
+  muxClient: WorkflowMuxClient,
+): Promise<PlaybackAsset> {
+  "use step";
+  const asset = await getMuxAssetWithClient(assetId, muxClient);
+  return toPlaybackAsset(asset);
 }
 
 /**
@@ -64,14 +75,18 @@ export async function getMuxAsset(
   credentials?: WorkflowCredentialsInput,
 ): Promise<MuxAsset> {
   "use step";
-  // Always resolve Mux credentials from env or provided overrides (multi-tenant safe).
-  const { muxTokenId, muxTokenSecret } = await getMuxCredentialsFromEnv(credentials);
-  const mux = new Mux({
-    tokenId: muxTokenId,
-    tokenSecret: muxTokenSecret,
-  });
-
+  const muxClient = await getMuxClientFromEnv(credentials);
+  const mux = await muxClient.createClient();
   return mux.video.assets.retrieve(assetId);
+}
+
+export async function getMuxAssetWithClient(
+  assetId: string,
+  muxClient: WorkflowMuxClient,
+): Promise<MuxAsset> {
+  "use step";
+  const client = await muxClient.createClient();
+  return client.video.assets.retrieve(assetId);
 }
 
 export async function getAssetDurationSeconds(

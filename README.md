@@ -109,55 +109,56 @@ const run = await start(getSummaryAndTags, [assetId]);
 // const result = await run.returnValue
 ```
 
-### Multi-tenant credentials with Workflow Dev Kit (interim encryption pattern)
+### Multi-tenant credentials with Workflow Dev Kit
 
-Workflow Dev Kit serializes workflow inputs and step I/O. Do not pass plaintext secrets through
-`start()`. Instead, encrypt credentials in userland and pass ciphertext only.
-Set `MUX_AI_WORKFLOW_SECRET_KEY` to a base64-encoded 32-byte key on the workflow execution host.
+Workflow Dev Kit natively handles secure serialization of credentials across step
+boundaries. All credentials use serializable client wrappers (`WorkflowMuxClient`,
+`WorkflowOpenAIClient`, etc.) which the Workflow DevKit class registry transports
+securely. Wrap your credentials with `serializeForWorkflow` and pass them via `start()`.
 
 ```ts
 import { start } from "workflow/api";
-import { encryptForWorkflow, getSummaryAndTags } from "@mux/ai/workflows";
+import {
+  serializeForWorkflow,
+  WorkflowMuxClient,
+  WorkflowOpenAIClient,
+} from "@mux/ai";
+import { getSummaryAndTags } from "@mux/ai/workflows";
 
-const workflowKey = process.env.MUX_AI_WORKFLOW_SECRET_KEY!;
-const encryptedCredentials = encryptForWorkflow(
-  {
-    muxTokenId: "mux-token-id",
-    muxTokenSecret: "mux-token-secret",
-    openaiApiKey: "openai-api-key",
-  },
-  workflowKey,
-);
+const credentials = serializeForWorkflow({
+  muxClient: new WorkflowMuxClient({
+    tokenId: "mux-token-id",
+    tokenSecret: "mux-token-secret",
+  }),
+  openaiClient: new WorkflowOpenAIClient({
+    apiKey: "openai-api-key",
+  }),
+});
 
 const run = await start(getSummaryAndTags, [
   "your-asset-id",
-  { provider: "openai", credentials: encryptedCredentials },
+  { provider: "openai", credentials },
 ]);
 ```
 
-If you build custom steps, decrypt inside the step using the same workflow key:
+You can also register a credential provider on the execution host to resolve secrets inside steps.
+This is useful for dynamic key resolution, e.g. rotating keys or per-tenant secrets:
 
 ```ts
-import { decryptFromWorkflow } from "@mux/ai/workflows";
-
-async function resolveCredentials(encrypted: unknown) {
-  "use step";
-  return decryptFromWorkflow(
-    encrypted as any,
-    process.env.MUX_AI_WORKFLOW_SECRET_KEY!,
-  );
-}
-```
-
-You can also register a credential provider on the execution host to resolve secrets inside steps:
-
-```ts
-import { setWorkflowCredentialsProvider } from "@mux/ai/workflows";
+import {
+  setWorkflowCredentialsProvider,
+  WorkflowMuxClient,
+  WorkflowOpenAIClient,
+} from "@mux/ai";
 
 setWorkflowCredentialsProvider(async () => ({
-  muxTokenId: "mux-token-id",
-  muxTokenSecret: "mux-token-secret",
-  openaiApiKey: "openai-api-key",
+  muxClient: new WorkflowMuxClient({
+    tokenId: "mux-token-id",
+    tokenSecret: "mux-token-secret",
+  }),
+  openaiClient: new WorkflowOpenAIClient({
+    apiKey: await getOpenAIKeyForTenant(),
+  }),
 }));
 ```
 

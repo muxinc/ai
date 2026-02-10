@@ -1,8 +1,8 @@
-import Mux from "@mux/mux-node";
-
 import env from "@mux/ai/env";
 import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
 import type { WorkflowCredentialsInput } from "@mux/ai/types";
+
+import type Mux from "@mux/mux-node";
 
 /**
  * Context required to sign URLs for signed playback IDs.
@@ -40,8 +40,11 @@ export function getMuxSigningContextFromEnv(): SigningContext | undefined {
  * Creates a Mux client configured for JWT signing.
  * This client is used internally for signing operations.
  */
-function createSigningClient(context: SigningContext): Mux {
-  return new Mux({
+async function createSigningClient(context: SigningContext): Promise<Mux> {
+  // Dynamic import to prevent @mux/mux-node (and its transitive dep jose)
+  // from being bundled into workflow VM code where `require` is unavailable.
+  const { default: MuxClient } = await import("@mux/mux-node");
+  return new MuxClient({
     // These are not needed for signing, but the SDK requires them
     // Using empty strings as we only need the jwt functionality
     tokenId: env.MUX_TOKEN_ID || "",
@@ -67,7 +70,7 @@ export async function signPlaybackId(
   params?: Record<string, string | number>,
 ): Promise<string> {
   "use step";
-  const client = createSigningClient(context);
+  const client = await createSigningClient(context);
 
   // Convert params to Record<string, string> as required by the SDK
   const stringParams = params ?
@@ -106,7 +109,7 @@ export async function signUrl(
   if (!resolvedContext) {
     throw new Error(
       "Signed playback ID requires signing credentials. " +
-      "Provide muxSigningKey and muxPrivateKey in credentials or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
+      "Provide a muxClient with signing keys or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
     );
   }
   const token = await signPlaybackId(playbackId, resolvedContext, type, params);

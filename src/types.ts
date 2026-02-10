@@ -1,4 +1,12 @@
-import type { Encrypted } from "@mux/ai/lib/workflow-crypto";
+import type { WorkflowMuxClient } from "@mux/ai/lib/workflow-mux-client";
+import type { WorkflowNativeCredentials } from "@mux/ai/lib/workflow-native-credentials";
+import type {
+  WorkflowAnthropicClient,
+  WorkflowElevenLabsClient,
+  WorkflowGoogleClient,
+  WorkflowHiveClient,
+  WorkflowOpenAIClient,
+} from "@mux/ai/lib/workflow-provider-clients";
 
 import type Mux from "@mux/mux-node";
 
@@ -10,29 +18,30 @@ export interface MuxAIOptions {
   timeout?: number;
   /**
    * Optional credentials for workflow execution.
-   * Use encryptForWorkflow when running in Workflow Dev Kit environments.
+   * Uses serializable client wrappers transported securely across step boundaries.
    */
   credentials?: WorkflowCredentialsInput;
 }
 
 /**
- * Plaintext workflow credentials. Avoid passing these to Workflow Dev Kit start()
- * unless you are not using workflow serialization.
+ * Workflow credentials.
+ *
+ * All credentials use serializable workflow client wrappers which are
+ * transported securely across step boundaries by the Workflow DevKit.
  */
 export interface WorkflowCredentials {
-  muxTokenId?: string;
-  muxTokenSecret?: string;
-  muxSigningKey?: string;
-  muxPrivateKey?: string;
-  openaiApiKey?: string;
-  anthropicApiKey?: string;
-  googleApiKey?: string;
-  hiveApiKey?: string;
-  elevenLabsApiKey?: string;
+  muxClient?: WorkflowMuxClient;
+  openaiClient?: WorkflowOpenAIClient;
+  anthropicClient?: WorkflowAnthropicClient;
+  googleClient?: WorkflowGoogleClient;
+  hiveClient?: WorkflowHiveClient;
+  elevenLabsClient?: WorkflowElevenLabsClient;
 }
 
 /** Credentials that are safe to serialize across workflow boundaries. */
-export type WorkflowCredentialsInput = WorkflowCredentials | Encrypted<WorkflowCredentials>;
+export type WorkflowCredentialsInput =
+  | WorkflowCredentials |
+  WorkflowNativeCredentials<WorkflowCredentials>;
 
 /** Tone controls for the summarization helper. */
 export type ToneType = "neutral" | "playful" | "professional";
