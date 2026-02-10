@@ -475,7 +475,7 @@ async function getThumbnailUrlsFromTimestamps(
   const urlPromises = timestampsMs.map(async (tsMs) => {
     const time = Number((tsMs / 1000).toFixed(2));
     if (shouldSign) {
-      return signUrl(baseUrl, playbackId, undefined, "thumbnail", { time, width }, credentials);
+      return signUrl(baseUrl, playbackId, "thumbnail", { time, width }, credentials);
     }
 
     return `${baseUrl}?time=${time}&width=${width}`;

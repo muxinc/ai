@@ -91,7 +91,6 @@ export async function signPlaybackId(
  *
  * @param url - The base Mux URL (e.g. https://image.mux.com/{playbackId}/thumbnail.png)
  * @param playbackId - The Mux playback ID
- * @param context - Signing context with key credentials
  * @param type - Token type for the URL
  * @param params - Additional parameters for the token
  * @returns URL with token query parameter appended
@@ -99,13 +98,12 @@ export async function signPlaybackId(
 export async function signUrl(
   url: string,
   playbackId: string,
-  context?: SigningContext,
   type: TokenType = "video",
   params?: Record<string, string | number>,
   credentials?: WorkflowCredentialsInput,
 ): Promise<string> {
   "use step";
-  const resolvedContext = context ?? await resolveMuxSigningContext(credentials);
+  const resolvedContext = await resolveMuxSigningContext(credentials);
   if (!resolvedContext) {
     throw new Error(
       "Signed playback ID requires signing credentials. " +

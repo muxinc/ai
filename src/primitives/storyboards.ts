@@ -22,7 +22,7 @@ export async function getStoryboardUrl(
   const baseUrl = `https://image.mux.com/${playbackId}/storyboard.png`;
 
   if (shouldSign) {
-    return signUrl(baseUrl, playbackId, undefined, "storyboard", { width }, credentials);
+    return signUrl(baseUrl, playbackId, "storyboard", { width }, credentials);
   }
 
   return `${baseUrl}?width=${width}`;

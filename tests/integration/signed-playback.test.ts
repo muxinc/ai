@@ -105,7 +105,7 @@ describe("signed Playback Integration Tests", () => {
   describe("signUrl", () => {
     it.skipIf(!hasSigningCredentials)("should append token to URL without query params", async () => {
       const baseUrl = "https://image.mux.com/test-id/storyboard.png";
-      const signedUrl = await signUrl(baseUrl, "test-id", signingContext, "storyboard");
+      const signedUrl = await signUrl(baseUrl, "test-id", "storyboard");
 
       expect(signedUrl).toContain(baseUrl);
       expect(signedUrl).toContain("?token=");
@@ -113,7 +113,7 @@ describe("signed Playback Integration Tests", () => {
 
     it.skipIf(!hasSigningCredentials)("should append token to URL with existing query params", async () => {
       const baseUrl = "https://image.mux.com/test-id/thumbnail.png?width=640";
-      const signedUrl = await signUrl(baseUrl, "test-id", signingContext, "thumbnail");
+      const signedUrl = await signUrl(baseUrl, "test-id", "thumbnail");
 
       expect(signedUrl).toContain(baseUrl);
       expect(signedUrl).toContain("&token=");

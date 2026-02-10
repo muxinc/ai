@@ -3,8 +3,9 @@ import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 import type Mux from "@mux/mux-node";
 
 export interface WorkflowMuxClientOptions {
-  tokenId: string;
-  tokenSecret: string;
+  tokenId?: string;
+  tokenSecret?: string;
+  authorizationToken?: string;
   signingKey?: string;
   privateKey?: string;
 }
@@ -16,14 +17,16 @@ export interface WorkflowMuxClientOptions {
  * The Workflow DevKit handles secure serialization across step boundaries.
  */
 export class WorkflowMuxClient {
-  private readonly tokenId: string;
-  private readonly tokenSecret: string;
+  private readonly tokenId: string | null;
+  private readonly tokenSecret: string | null;
+  private readonly authorizationToken: string | null;
   private readonly signingKey?: string;
   private readonly privateKey?: string;
 
   constructor(options: WorkflowMuxClientOptions) {
-    this.tokenId = options.tokenId;
-    this.tokenSecret = options.tokenSecret;
+    this.tokenId = options.tokenId ?? null;
+    this.tokenSecret = options.tokenSecret ?? null;
+    this.authorizationToken = options.authorizationToken ?? null;
     this.signingKey = options.signingKey;
     this.privateKey = options.privateKey;
   }
@@ -35,15 +38,20 @@ export class WorkflowMuxClient {
     return new MuxClient({
       tokenId: this.tokenId,
       tokenSecret: this.tokenSecret,
+      authorizationToken: this.authorizationToken,
     });
   }
 
-  getTokenId(): string {
+  getTokenId(): string | null {
     return this.tokenId;
   }
 
-  getTokenSecret(): string {
+  getTokenSecret(): string | null {
     return this.tokenSecret;
+  }
+
+  getAuthorizationToken(): string | null {
+    return this.authorizationToken;
   }
 
   getSigningKey(): string | undefined {
@@ -56,8 +64,9 @@ export class WorkflowMuxClient {
 
   static [WORKFLOW_SERIALIZE](instance: WorkflowMuxClient): WorkflowMuxClientOptions {
     return {
-      tokenId: instance.tokenId,
-      tokenSecret: instance.tokenSecret,
+      tokenId: instance.tokenId ?? undefined,
+      tokenSecret: instance.tokenSecret ?? undefined,
+      authorizationToken: instance.authorizationToken ?? undefined,
       signingKey: instance.signingKey,
       privateKey: instance.privateKey,
     };
