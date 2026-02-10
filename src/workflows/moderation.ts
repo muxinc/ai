@@ -352,15 +352,27 @@ async function moderateImageWithHive(entry: {
       formData.append("media", blob, `thumbnail.${extension}`);
     }
 
-    const res = await fetch(HIVE_ENDPOINT, {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        Authorization: `Token ${apiKey}`,
-      },
-      body: formData,
-      signal: AbortSignal.timeout(15_000),
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
+    let res: Response;
+    try {
+      res = await fetch(HIVE_ENDPOINT, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          Authorization: `Token ${apiKey}`,
+        },
+        body: formData,
+        signal: controller.signal,
+      });
+    } catch (err: any) {
+      if (err?.name === "AbortError") {
+        throw new Error("Hive request timed out after 15s");
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeout);
+    }
 
     const json: any = await res.json().catch(() => undefined);
 
