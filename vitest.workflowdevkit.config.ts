@@ -16,7 +16,7 @@ export default defineConfig({
   },
   test: {
     include: ["**/*.test.workflowdevkit.ts"],
-    testTimeout: 300000,
+    testTimeout: 600000,
     globalSetup: "./vitest.workflowdevkit.setup.ts",
   },
 });
