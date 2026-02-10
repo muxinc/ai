@@ -157,49 +157,29 @@ interface ProviderClientByProvider {
   elevenlabs: WorkflowElevenLabsClient;
 }
 
-/**
- * Resolves a provider client wrapper from workflow credentials.
- *
- * Supports both live class instances and serialized plain-object shapes for
- * compatibility with JSON-serialized workflow payloads.
- */
-export async function resolveProviderClient(
-  provider: "openai",
-  credentials?: WorkflowCredentialsInput,
-): Promise<WorkflowOpenAIClient | undefined>;
-export async function resolveProviderClient(
-  provider: "anthropic",
-  credentials?: WorkflowCredentialsInput,
-): Promise<WorkflowAnthropicClient | undefined>;
-export async function resolveProviderClient(
-  provider: "google",
-  credentials?: WorkflowCredentialsInput,
-): Promise<WorkflowGoogleClient | undefined>;
-export async function resolveProviderClient(
-  provider: "hive",
-  credentials?: WorkflowCredentialsInput,
-): Promise<WorkflowHiveClient | undefined>;
-export async function resolveProviderClient(
-  provider: "elevenlabs",
-  credentials?: WorkflowCredentialsInput,
-): Promise<WorkflowElevenLabsClient | undefined>;
-export async function resolveProviderClient<P extends ProviderClientProvider>(
+type ProviderWithClientAndApiKey = ApiKeyProvider & ProviderClientProvider;
+
+export type ProviderClientOrApiKeyResolution<P extends ProviderWithClientAndApiKey> =
+  | { client: ProviderClientByProvider[P]; apiKey?: undefined } |
+  { client?: undefined; apiKey: string };
+
+function resolveProviderClientFromCredentials<P extends ProviderClientProvider>(
   provider: P,
-  credentials?: WorkflowCredentialsInput,
-): Promise<ProviderClientByProvider[P] | undefined> {
-  const resolved = await resolveWorkflowCredentials(credentials);
+  resolved: WorkflowCredentials,
+): ProviderClientByProvider[P] | undefined {
+  const record = resolved as Record<string, unknown>;
 
   switch (provider) {
     case "openai":
-      return normalizeWorkflowOpenAIClient((resolved as Record<string, unknown>).openaiClient) as ProviderClientByProvider[P] | undefined;
+      return normalizeWorkflowOpenAIClient(record.openaiClient) as ProviderClientByProvider[P] | undefined;
     case "anthropic":
-      return normalizeWorkflowAnthropicClient((resolved as Record<string, unknown>).anthropicClient) as ProviderClientByProvider[P] | undefined;
+      return normalizeWorkflowAnthropicClient(record.anthropicClient) as ProviderClientByProvider[P] | undefined;
     case "google":
-      return normalizeWorkflowGoogleClient((resolved as Record<string, unknown>).googleClient) as ProviderClientByProvider[P] | undefined;
+      return normalizeWorkflowGoogleClient(record.googleClient) as ProviderClientByProvider[P] | undefined;
     case "hive":
-      return normalizeWorkflowHiveClient((resolved as Record<string, unknown>).hiveClient) as ProviderClientByProvider[P] | undefined;
+      return normalizeWorkflowHiveClient(record.hiveClient) as ProviderClientByProvider[P] | undefined;
     case "elevenlabs":
-      return normalizeWorkflowElevenLabsClient((resolved as Record<string, unknown>).elevenLabsClient) as ProviderClientByProvider[P] | undefined;
+      return normalizeWorkflowElevenLabsClient(record.elevenLabsClient) as ProviderClientByProvider[P] | undefined;
     default: {
       const exhaustiveCheck: never = provider;
       throw new Error(`Unsupported provider client: ${exhaustiveCheck}`);
@@ -207,22 +187,10 @@ export async function resolveProviderClient<P extends ProviderClientProvider>(
   }
 }
 
-/**
- * Resolves an API key for a specific AI/ML provider.
- *
- * Checks resolved workflow credentials first, then falls back to the
- * provider-specific environment variable.
- *
- * @param provider - The provider identifier (e.g., "openai", "anthropic")
- * @param credentials - Optional workflow credentials input
- * @returns The resolved API key string
- * @throws Error if no API key is available for the specified provider
- */
-export async function resolveProviderApiKey(
+function resolveProviderApiKeyFromCredentials(
   provider: ApiKeyProvider,
-  credentials?: WorkflowCredentialsInput,
-): Promise<string> {
-  const resolved = await resolveWorkflowCredentials(credentials);
+  resolved: WorkflowCredentials,
+): string {
   const record = resolved as Record<string, unknown>;
   const hiveClient = normalizeWorkflowHiveClient(record.hiveClient);
   const elevenLabsClient = normalizeWorkflowElevenLabsClient(record.elevenLabsClient);
@@ -254,6 +222,79 @@ export async function resolveProviderApiKey(
   }
 
   return apiKey;
+}
+
+/**
+ * Resolves a provider client wrapper from workflow credentials.
+ *
+ * Supports both live class instances and serialized plain-object shapes for
+ * compatibility with JSON-serialized workflow payloads.
+ */
+export async function resolveProviderClient(
+  provider: "openai",
+  credentials?: WorkflowCredentialsInput,
+): Promise<WorkflowOpenAIClient | undefined>;
+export async function resolveProviderClient(
+  provider: "anthropic",
+  credentials?: WorkflowCredentialsInput,
+): Promise<WorkflowAnthropicClient | undefined>;
+export async function resolveProviderClient(
+  provider: "google",
+  credentials?: WorkflowCredentialsInput,
+): Promise<WorkflowGoogleClient | undefined>;
+export async function resolveProviderClient(
+  provider: "hive",
+  credentials?: WorkflowCredentialsInput,
+): Promise<WorkflowHiveClient | undefined>;
+export async function resolveProviderClient(
+  provider: "elevenlabs",
+  credentials?: WorkflowCredentialsInput,
+): Promise<WorkflowElevenLabsClient | undefined>;
+export async function resolveProviderClient<P extends ProviderClientProvider>(
+  provider: P,
+  credentials?: WorkflowCredentialsInput,
+): Promise<ProviderClientByProvider[P] | undefined> {
+  const resolved = await resolveWorkflowCredentials(credentials);
+  return resolveProviderClientFromCredentials(provider, resolved);
+}
+
+/**
+ * Resolves either a provider client (preferred) or API key in a single pass.
+ *
+ * This avoids resolving workflow credentials twice in code paths that first try
+ * a provider client and then fall back to an API key.
+ */
+export async function resolveProviderClientOrApiKey<P extends ProviderWithClientAndApiKey>(
+  provider: P,
+  credentials?: WorkflowCredentialsInput,
+): Promise<ProviderClientOrApiKeyResolution<P>> {
+  const resolved = await resolveWorkflowCredentials(credentials);
+  const client = resolveProviderClientFromCredentials(provider, resolved);
+
+  if (client) {
+    return { client };
+  }
+
+  return { apiKey: resolveProviderApiKeyFromCredentials(provider, resolved) };
+}
+
+/**
+ * Resolves an API key for a specific AI/ML provider.
+ *
+ * Checks resolved workflow credentials first, then falls back to the
+ * provider-specific environment variable.
+ *
+ * @param provider - The provider identifier (e.g., "openai", "anthropic")
+ * @param credentials - Optional workflow credentials input
+ * @returns The resolved API key string
+ * @throws Error if no API key is available for the specified provider
+ */
+export async function resolveProviderApiKey(
+  provider: ApiKeyProvider,
+  credentials?: WorkflowCredentialsInput,
+): Promise<string> {
+  const resolved = await resolveWorkflowCredentials(credentials);
+  return resolveProviderApiKeyFromCredentials(provider, resolved);
 }
 
 /**

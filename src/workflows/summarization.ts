@@ -20,7 +20,11 @@ import {
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
 import { withRetry } from "@mux/ai/lib/retry";
-import { resolveMuxClient, resolveMuxSigningContext, resolveProviderApiKey, resolveProviderClient } from "@mux/ai/lib/workflow-credentials";
+import {
+  resolveMuxClient,
+  resolveMuxSigningContext,
+  resolveProviderClientOrApiKey,
+} from "@mux/ai/lib/workflow-credentials";
 import { isWorkflowNativeCredentials, serializeForWorkflow } from "@mux/ai/lib/workflow-native-credentials";
 import {
   createWorkflowAnthropicClient,
@@ -524,36 +528,42 @@ async function buildSerializedProviderCredentials(
       if (plaintextClient) {
         return { openaiClient: plaintextClient };
       }
-      const existingClient = await resolveProviderClient("openai", plaintextCredentials ? undefined : credentials);
-      if (existingClient) {
-        return { openaiClient: existingClient };
+      const resolved = await resolveProviderClientOrApiKey(
+        "openai",
+        plaintextCredentials ? undefined : credentials,
+      );
+      if (resolved.client) {
+        return { openaiClient: resolved.client };
       }
-      const apiKey = await resolveProviderApiKey("openai", plaintextCredentials ? undefined : credentials);
-      return { openaiClient: createWorkflowOpenAIClient({ apiKey }) };
+      return { openaiClient: createWorkflowOpenAIClient({ apiKey: resolved.apiKey }) };
     }
     case "anthropic": {
       const plaintextClient = normalizeWorkflowAnthropicClient(plaintextCredentials?.anthropicClient);
       if (plaintextClient) {
         return { anthropicClient: plaintextClient };
       }
-      const existingClient = await resolveProviderClient("anthropic", plaintextCredentials ? undefined : credentials);
-      if (existingClient) {
-        return { anthropicClient: existingClient };
+      const resolved = await resolveProviderClientOrApiKey(
+        "anthropic",
+        plaintextCredentials ? undefined : credentials,
+      );
+      if (resolved.client) {
+        return { anthropicClient: resolved.client };
       }
-      const apiKey = await resolveProviderApiKey("anthropic", plaintextCredentials ? undefined : credentials);
-      return { anthropicClient: createWorkflowAnthropicClient({ apiKey }) };
+      return { anthropicClient: createWorkflowAnthropicClient({ apiKey: resolved.apiKey }) };
     }
     case "google": {
       const plaintextClient = normalizeWorkflowGoogleClient(plaintextCredentials?.googleClient);
       if (plaintextClient) {
         return { googleClient: plaintextClient };
       }
-      const existingClient = await resolveProviderClient("google", plaintextCredentials ? undefined : credentials);
-      if (existingClient) {
-        return { googleClient: existingClient };
+      const resolved = await resolveProviderClientOrApiKey(
+        "google",
+        plaintextCredentials ? undefined : credentials,
+      );
+      if (resolved.client) {
+        return { googleClient: resolved.client };
       }
-      const apiKey = await resolveProviderApiKey("google", plaintextCredentials ? undefined : credentials);
-      return { googleClient: createWorkflowGoogleClient({ apiKey }) };
+      return { googleClient: createWorkflowGoogleClient({ apiKey: resolved.apiKey }) };
     }
     default: {
       const exhaustiveCheck: never = provider;
