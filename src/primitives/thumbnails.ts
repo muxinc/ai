@@ -30,37 +30,39 @@ export async function getThumbnailUrls(
 ): Promise<string[]> {
   "use step";
   const { interval = 10, width = 640, shouldSign = false, maxSamples, credentials } = options;
-  let timestamps: number[] = [];
+  const timestamps: number[] = [];
 
+  // Calculate expected number of timestamps before generating
+  let expectedCount: number;
   if (duration <= 50) {
-    const spacing = duration / 6;
-    for (let i = 1; i <= 5; i++) {
-      timestamps.push(Math.round(i * spacing));
-    }
+    expectedCount = 5;
   } else {
-    for (let time = 0; time < duration; time += interval) {
-      timestamps.push(time);
-    }
+    expectedCount = Math.floor(duration / interval) + 1;
   }
 
-  // Apply maxSamples cap if specified and we have more timestamps than the limit
-  if (maxSamples !== undefined && timestamps.length > maxSamples) {
-    const newTimestamps: number[] = [];
+  // If maxSamples is set and would be exceeded, generate evenly-spaced samples directly
+  if (maxSamples !== undefined && expectedCount > maxSamples) {
+    timestamps.push(0); // Always include first frame
 
-    // Always include first frame
-    newTimestamps.push(0);
-
-    // If maxSamples >= 2, add evenly distributed middle frames and last frame
     if (maxSamples >= 2) {
       const spacing = duration / (maxSamples - 1);
       for (let i = 1; i < maxSamples - 1; i++) {
-        newTimestamps.push(spacing * i);
+        timestamps.push(spacing * i);
       }
-      // Always include last frame
-      newTimestamps.push(duration);
+      timestamps.push(duration); // Always include last frame
     }
-
-    timestamps = newTimestamps;
+  } else {
+    // Generate timestamps based on duration and interval
+    if (duration <= 50) {
+      const spacing = duration / 6;
+      for (let i = 1; i <= 5; i++) {
+        timestamps.push(Math.round(i * spacing));
+      }
+    } else {
+      for (let time = 0; time < duration; time += interval) {
+        timestamps.push(time);
+      }
+    }
   }
 
   const baseUrl = `https://image.mux.com/${playbackId}/thumbnail.png`;
