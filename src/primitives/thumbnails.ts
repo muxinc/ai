@@ -1,6 +1,9 @@
 import { signUrl } from "@mux/ai/lib/url-signing";
 import type { WorkflowCredentialsInput } from "@mux/ai/types";
 
+const MIN_DURATION = 50;
+const MIN_SAMPLES = 2;
+
 export interface ThumbnailOptions {
   /** Interval between thumbnails in seconds (default: 10) */
   interval?: number;
@@ -34,7 +37,7 @@ export async function getThumbnailUrls(
 
   // Calculate expected number of timestamps before generating
   let expectedCount: number;
-  if (duration <= 50) {
+  if (duration <= MIN_DURATION) {
     expectedCount = 5;
   } else {
     expectedCount = Math.floor(duration / interval) + 1;
@@ -44,7 +47,7 @@ export async function getThumbnailUrls(
   if (maxSamples !== undefined && expectedCount > maxSamples) {
     timestamps.push(0); // Always include first frame
 
-    if (maxSamples >= 2) {
+    if (maxSamples >= MIN_SAMPLES) {
       const spacing = duration / (maxSamples - 1);
       for (let i = 1; i < maxSamples - 1; i++) {
         timestamps.push(spacing * i);
@@ -53,7 +56,7 @@ export async function getThumbnailUrls(
     }
   } else {
     // Generate timestamps based on duration and interval
-    if (duration <= 50) {
+    if (duration <= MIN_DURATION) {
       const spacing = duration / 6;
       for (let i = 1; i <= 5; i++) {
         timestamps.push(Math.round(i * spacing));
