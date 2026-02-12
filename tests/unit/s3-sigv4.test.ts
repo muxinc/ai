@@ -81,7 +81,7 @@ describe("s3 sigv4 helpers", () => {
 
     const authHeader = (init?.headers as Record<string, string>).Authorization;
     expect(authHeader).toContain("AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20240607/us-east-1/s3/aws4_request");
-    expect(authHeader).toContain("SignedHeaders=host;x-amz-content-sha256;x-amz-date");
+    expect(authHeader).toContain("SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date");
     expect(authHeader).toContain("Signature=");
   });
 
@@ -95,7 +95,9 @@ describe("s3 sigv4 helpers", () => {
 
     const [, init] = fetchMock.mock.calls[0];
     expect(init?.body).toEqual(new Uint8Array([1, 2, 3]));
+    const authHeader = (init?.headers as Record<string, string>).Authorization;
     expect((init?.headers as Record<string, string>)["content-type"]).toBeUndefined();
+    expect(authHeader).toContain("SignedHeaders=host;x-amz-content-sha256;x-amz-date");
   });
 
   it("throws a detailed error when S3 PUT fails", async () => {

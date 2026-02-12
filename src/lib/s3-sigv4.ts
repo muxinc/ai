@@ -206,15 +206,18 @@ export async function putObjectToS3({
   const resolvedEndpoint = normalizeEndpoint(endpoint);
   const canonicalUri = buildCanonicalUri(resolvedEndpoint, bucket, key);
   const host = resolvedEndpoint.host;
+  const normalizedContentType = contentType?.trim();
   const { amzDate, shortDate } = formatAmzDate();
   const payloadHash = await sha256Hex(body);
 
-  const canonicalHeaders = [
-    `host:${host}`,
-    `x-amz-content-sha256:${payloadHash}`,
-    `x-amz-date:${amzDate}`,
-  ].join("\n");
-  const signedHeaders = "host;x-amz-content-sha256;x-amz-date";
+  const signingHeaders = [
+    ["host", host],
+    ["x-amz-content-sha256", payloadHash],
+    ["x-amz-date", amzDate],
+    ...(normalizedContentType ? [["content-type", normalizedContentType] as const] : []),
+  ].sort(([a], [b]) => a.localeCompare(b));
+  const canonicalHeaders = signingHeaders.map(([name, value]) => `${name}:${value}`).join("\n");
+  const signedHeaders = signingHeaders.map(([name]) => name).join(";");
   const canonicalRequest = [
     "PUT",
     canonicalUri,
@@ -240,7 +243,7 @@ export async function putObjectToS3({
       "Authorization": authorization,
       "x-amz-content-sha256": payloadHash,
       "x-amz-date": amzDate,
-      ...(contentType ? { "content-type": contentType } : {}),
+      ...(normalizedContentType ? { "content-type": normalizedContentType } : {}),
     },
     body: typeof body === "string" ? body : body,
   });
