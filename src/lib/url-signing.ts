@@ -109,7 +109,7 @@ export async function signUrl(
   if (!resolvedContext) {
     throw new Error(
       "Signed playback ID requires signing credentials. " +
-      "Provide a muxClient with signing keys or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
+      "Provide muxSigningKey and muxPrivateKey via workflow credentials or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
     );
   }
   const token = await signPlaybackId(playbackId, resolvedContext, type, params);

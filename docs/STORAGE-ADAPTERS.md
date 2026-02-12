@@ -13,11 +13,11 @@ The default storage path uses the internal `s3-sigv4` implementation on purpose.
 
 `storageAdapter` is an escape hatch for teams that want to use a specific SDK (AWS SDK, MinIO, etc.) while keeping the same workflow APIs.
 
-## Workflow serialization note
+## Workflow DevKit note
 
-If your code runs through Workflow DevKit step boundaries, prefer passing a
-serializable storage client via `credentials.storageClient` (similar to
-`credentials.muxClient`) instead of passing function closures in `storageAdapter`.
+If your code runs through Workflow DevKit step boundaries, prefer passing
+`storageAdapter` values that are workflow-safe (or use env variables) over
+passing non-serializable adapter closures in workflow arguments.
 
 ```typescript
 import {
@@ -29,16 +29,15 @@ await workflows.translateCaptions(assetId, "en", "es", {
   provider: "openai",
   s3Endpoint: "https://s3.amazonaws.com",
   s3Bucket: "my-bucket",
-  credentials: {
-    storageClient: createWorkflowStorageClient({
-      accessKeyId: process.env.S3_ACCESS_KEY_ID,
-      secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
-    }),
-  },
+  storageAdapter: createWorkflowStorageClient({
+    accessKeyId: process.env.S3_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.S3_SECRET_ACCESS_KEY!,
+  }),
 });
 ```
 
-You can still pass `storageAdapter` directly, but `credentials.storageClient` is the most consistent workflow-safe pattern.
+You can still pass your own `storageAdapter` directly, but `createWorkflowStorageClient(...)`
+is often the simplest workflow-compatible pattern.
 
 ## When to use this
 

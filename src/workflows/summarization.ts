@@ -6,7 +6,7 @@ import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
 import {
   getAssetDurationSecondsFromAsset,
-  getPlaybackIdForAssetWithClient,
+  getPlaybackIdForAsset,
   isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
 import type {
@@ -21,19 +21,8 @@ import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
 import { withRetry } from "@mux/ai/lib/retry";
 import {
-  resolveMuxClient,
   resolveMuxSigningContext,
-  resolveProviderClientOrApiKey,
 } from "@mux/ai/lib/workflow-credentials";
-import { isWorkflowNativeCredentials, serializeForWorkflow } from "@mux/ai/lib/workflow-native-credentials";
-import {
-  createWorkflowAnthropicClient,
-  createWorkflowGoogleClient,
-  createWorkflowOpenAIClient,
-  normalizeWorkflowAnthropicClient,
-  normalizeWorkflowGoogleClient,
-  normalizeWorkflowOpenAIClient,
-} from "@mux/ai/lib/workflow-provider-clients";
 import { getStoryboardUrl } from "@mux/ai/primitives/storyboards";
 import { fetchTranscriptForAsset } from "@mux/ai/primitives/transcripts";
 import type {
@@ -41,7 +30,6 @@ import type {
   MuxAIOptions,
   TokenUsage,
   ToneType,
-  WorkflowCredentials,
   WorkflowCredentialsInput,
 } from "@mux/ai/types";
 
@@ -513,65 +501,6 @@ function normalizeKeywords(keywords?: string[]): string[] {
   return normalized;
 }
 
-async function buildSerializedProviderCredentials(
-  provider: SupportedProvider,
-  credentials?: WorkflowCredentialsInput,
-): Promise<WorkflowCredentials | undefined> {
-  const plaintextCredentials =
-    credentials && typeof credentials === "object" ?
-        (isWorkflowNativeCredentials(credentials) ? credentials.unwrap() : credentials) as WorkflowCredentials :
-      undefined;
-
-  switch (provider) {
-    case "openai": {
-      const plaintextClient = normalizeWorkflowOpenAIClient(plaintextCredentials?.openaiClient);
-      if (plaintextClient) {
-        return { openaiClient: plaintextClient };
-      }
-      const resolved = await resolveProviderClientOrApiKey(
-        "openai",
-        plaintextCredentials ? undefined : credentials,
-      );
-      if (resolved.client) {
-        return { openaiClient: resolved.client };
-      }
-      return { openaiClient: createWorkflowOpenAIClient({ apiKey: resolved.apiKey }) };
-    }
-    case "anthropic": {
-      const plaintextClient = normalizeWorkflowAnthropicClient(plaintextCredentials?.anthropicClient);
-      if (plaintextClient) {
-        return { anthropicClient: plaintextClient };
-      }
-      const resolved = await resolveProviderClientOrApiKey(
-        "anthropic",
-        plaintextCredentials ? undefined : credentials,
-      );
-      if (resolved.client) {
-        return { anthropicClient: resolved.client };
-      }
-      return { anthropicClient: createWorkflowAnthropicClient({ apiKey: resolved.apiKey }) };
-    }
-    case "google": {
-      const plaintextClient = normalizeWorkflowGoogleClient(plaintextCredentials?.googleClient);
-      if (plaintextClient) {
-        return { googleClient: plaintextClient };
-      }
-      const resolved = await resolveProviderClientOrApiKey(
-        "google",
-        plaintextCredentials ? undefined : credentials,
-      );
-      if (resolved.client) {
-        return { googleClient: resolved.client };
-      }
-      return { googleClient: createWorkflowGoogleClient({ apiKey: resolved.apiKey }) };
-    }
-    default: {
-      const exhaustiveCheck: never = provider;
-      throw new Error(`Unsupported provider: ${exhaustiveCheck}`);
-    }
-  }
-}
-
 export async function getSummaryAndTags(
   assetId: string,
   options?: SummarizationOptions,
@@ -601,16 +530,10 @@ export async function getSummaryAndTags(
     model,
     provider: provider as SupportedProvider,
   });
-  const workflowCredentials =
-    credentials && typeof credentials === "object" && !isWorkflowNativeCredentials(credentials) ?
-        serializeForWorkflow(credentials as WorkflowCredentials) :
-      credentials;
-  const providerCredentials = await buildSerializedProviderCredentials(modelConfig.provider, workflowCredentials);
-  const providerStepCredentials = providerCredentials ? serializeForWorkflow(providerCredentials) : undefined;
-  const muxClient = await resolveMuxClient(workflowCredentials);
+  const workflowCredentials = credentials;
 
   // Fetch asset data from Mux and grab playback/transcript details
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAssetWithClient(assetId, muxClient);
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, workflowCredentials);
 
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
 
@@ -666,7 +589,7 @@ export async function getSummaryAndTags(
         modelConfig.modelId,
         userPrompt,
         systemPrompt,
-        providerStepCredentials,
+        workflowCredentials,
       );
     } else {
       // Video analysis: fetch storyboard and analyze with visual content
@@ -681,7 +604,7 @@ export async function getSummaryAndTags(
           modelConfig.modelId,
           userPrompt,
           systemPrompt,
-          providerStepCredentials,
+          workflowCredentials,
         );
       } else {
         // URL-based submission with retry logic
@@ -692,7 +615,7 @@ export async function getSummaryAndTags(
             modelConfig.modelId,
             userPrompt,
             systemPrompt,
-            providerStepCredentials,
+            workflowCredentials,
           ));
       }
     }

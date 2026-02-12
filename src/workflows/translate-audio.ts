@@ -8,15 +8,13 @@ import {
   putObjectWithStorageAdapter,
 } from "@mux/ai/lib/storage-adapter";
 import { signUrl } from "@mux/ai/lib/url-signing";
-import { resolveMuxClient, resolveStorageClient } from "@mux/ai/lib/workflow-credentials";
-import type { WorkflowMuxClient } from "@mux/ai/lib/workflow-mux-client";
-import { isWorkflowNativeCredentials, serializeForWorkflow } from "@mux/ai/lib/workflow-native-credentials";
+import { resolveMuxClient } from "@mux/ai/lib/workflow-credentials";
 import type {
   MuxAIOptions,
   StorageAdapter,
   TokenUsage,
-  WorkflowCredentials,
   WorkflowCredentialsInput,
+  WorkflowMuxClient,
 } from "@mux/ai/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -345,20 +343,6 @@ async function createAudioTrackOnMux(
   return trackResponse.id;
 }
 
-function normalizeAudioWorkflowCredentials(
-  providedCredentials?: WorkflowCredentialsInput,
-): WorkflowCredentialsInput | undefined {
-  if (!providedCredentials) {
-    return undefined;
-  }
-
-  if (isWorkflowNativeCredentials(providedCredentials)) {
-    return providedCredentials;
-  }
-
-  return serializeForWorkflow(providedCredentials as WorkflowCredentials);
-}
-
 export async function translateAudio(
   assetId: string,
   toLanguageCode: string,
@@ -378,9 +362,8 @@ export async function translateAudio(
     throw new Error("Only ElevenLabs provider is currently supported for audio translation");
   }
 
-  const credentials = normalizeAudioWorkflowCredentials(providedCredentials);
-  const workflowStorageClient = await resolveStorageClient(credentials);
-  const effectiveStorageAdapter = storageAdapter ?? workflowStorageClient;
+  const credentials = providedCredentials;
+  const effectiveStorageAdapter = storageAdapter;
 
   // S3 configuration
   const s3Endpoint = options.s3Endpoint ?? env.S3_ENDPOINT;
@@ -390,7 +373,7 @@ export async function translateAudio(
   const s3SecretAccessKey = env.S3_SECRET_ACCESS_KEY;
 
   if (uploadToMux && (!s3Endpoint || !s3Bucket || (!effectiveStorageAdapter && (!s3AccessKeyId || !s3SecretAccessKey)))) {
-    throw new Error("Storage configuration is required for uploading to Mux. Provide s3Endpoint and s3Bucket. If no storageAdapter or credentials.storageClient is supplied, also provide s3AccessKeyId and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.");
+    throw new Error("Storage configuration is required for uploading to Mux. Provide s3Endpoint and s3Bucket. If no storageAdapter is supplied, also provide s3AccessKeyId and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.");
   }
   const muxClient = await resolveMuxClient(credentials);
 

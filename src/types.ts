@@ -1,13 +1,4 @@
-import type { WorkflowMuxClient } from "@mux/ai/lib/workflow-mux-client";
-import type { WorkflowNativeCredentials } from "@mux/ai/lib/workflow-native-credentials";
-import type {
-  WorkflowAnthropicClient,
-  WorkflowElevenLabsClient,
-  WorkflowGoogleClient,
-  WorkflowHiveClient,
-  WorkflowOpenAIClient,
-} from "@mux/ai/lib/workflow-provider-clients";
-import type { WorkflowStorageClient } from "@mux/ai/lib/workflow-storage-client";
+import type { Encrypted } from "@mux/ai/lib/workflow-crypto";
 
 import type Mux from "@mux/mux-node";
 
@@ -40,6 +31,12 @@ export interface StorageAdapter {
   createPresignedGetUrl: (input: StoragePresignGetObjectInput) => Promise<string>;
 }
 
+export interface WorkflowMuxClient {
+  createClient: () => Promise<Mux>;
+  getSigningKey: () => string | undefined;
+  getPrivateKey: () => string | undefined;
+}
+
 /**
  * Base options mixed into every higher-level workflow configuration.
  */
@@ -48,7 +45,7 @@ export interface MuxAIOptions {
   timeout?: number;
   /**
    * Optional credentials for workflow execution.
-   * Uses serializable client wrappers transported securely across step boundaries.
+   * Use encryptForWorkflow when running in Workflow Dev Kit environments.
    */
   credentials?: WorkflowCredentialsInput;
   /** Optional storage adapter for upload and presigning operations. */
@@ -58,24 +55,32 @@ export interface MuxAIOptions {
 /**
  * Workflow credentials.
  *
- * All credentials use serializable workflow client wrappers which are
- * transported securely across step boundaries by the Workflow DevKit.
+ * Supports plain credential objects and primitive credential fields for
+ * per-request multi-tenant workflows.
  */
 export interface WorkflowCredentials {
-  muxClient?: WorkflowMuxClient;
-  openaiClient?: WorkflowOpenAIClient;
-  anthropicClient?: WorkflowAnthropicClient;
-  googleClient?: WorkflowGoogleClient;
-  hiveClient?: WorkflowHiveClient;
-  elevenLabsClient?: WorkflowElevenLabsClient;
-  /** Prefer WorkflowStorageClient for workflow-safe serialization. */
-  storageClient?: WorkflowStorageClient;
+  /** Direct Mux API token ID for per-request credential injection. */
+  muxTokenId?: string;
+  /** Direct Mux API token secret for per-request credential injection. */
+  muxTokenSecret?: string;
+  /** Optional direct Mux signing key ID for signed playback URL generation. */
+  muxSigningKey?: string;
+  /** Optional direct Mux private key for signed playback URL generation. */
+  muxPrivateKey?: string;
+  /** Optional direct OpenAI API key for per-request credential injection. */
+  openaiApiKey?: string;
+  /** Optional direct Anthropic API key for per-request credential injection. */
+  anthropicApiKey?: string;
+  /** Optional direct Google API key for per-request credential injection. */
+  googleApiKey?: string;
+  /** Optional direct Hive API key for per-request credential injection. */
+  hiveApiKey?: string;
+  /** Optional direct ElevenLabs API key for per-request credential injection. */
+  elevenLabsApiKey?: string;
 }
 
 /** Credentials that are safe to serialize across workflow boundaries. */
-export type WorkflowCredentialsInput =
-  | WorkflowCredentials |
-  WorkflowNativeCredentials<WorkflowCredentials>;
+export type WorkflowCredentialsInput = WorkflowCredentials | Encrypted<WorkflowCredentials>;
 
 /** Tone controls for the summarization helper. */
 export type ToneType = "neutral" | "playful" | "professional";

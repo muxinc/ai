@@ -12,7 +12,7 @@ function requireCredentials(
   if (!accessKeyId || !secretAccessKey) {
     throw new Error(
       "S3 credentials are required for default storage operations. " +
-      "Provide S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY or pass options.storageAdapter/credentials.storageClient.",
+      "Provide S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY or pass options.storageAdapter.",
     );
   }
 

@@ -18,17 +18,14 @@ import {
 import {
   resolveMuxClient,
   resolveMuxSigningContext,
-  resolveStorageClient,
 } from "@mux/ai/lib/workflow-credentials";
-import type { WorkflowMuxClient } from "@mux/ai/lib/workflow-mux-client";
-import { isWorkflowNativeCredentials, serializeForWorkflow } from "@mux/ai/lib/workflow-native-credentials";
 import { buildTranscriptUrl, getReadyTextTracks } from "@mux/ai/primitives/transcripts";
 import type {
   MuxAIOptions,
   StorageAdapter,
   TokenUsage,
-  WorkflowCredentials,
   WorkflowCredentialsInput,
+  WorkflowMuxClient,
 } from "@mux/ai/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -92,20 +89,6 @@ export type TranslationPayload = z.infer<typeof translationSchema>;
 // ─────────────────────────────────────────────────────────────────────────────
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
-
-function normalizeTranslationWorkflowCredentials(
-  providedCredentials?: WorkflowCredentialsInput,
-): WorkflowCredentialsInput | undefined {
-  if (!providedCredentials) {
-    return undefined;
-  }
-
-  if (isWorkflowNativeCredentials(providedCredentials)) {
-    return providedCredentials;
-  }
-
-  return serializeForWorkflow(providedCredentials as WorkflowCredentials);
-}
 
 async function fetchVttFromMux(vttUrl: string): Promise<string> {
   "use step";
@@ -250,10 +233,9 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     storageAdapter,
     credentials: providedCredentials,
   } = options;
-  const credentials = normalizeTranslationWorkflowCredentials(providedCredentials);
+  const credentials = providedCredentials;
   const muxClient = await resolveMuxClient(credentials);
-  const workflowStorageClient = await resolveStorageClient(credentials);
-  const effectiveStorageAdapter = storageAdapter ?? workflowStorageClient;
+  const effectiveStorageAdapter = storageAdapter;
 
   // S3 configuration
   const s3Endpoint = providedS3Endpoint ?? env.S3_ENDPOINT;
@@ -270,7 +252,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   });
 
   if (uploadToMux && (!s3Endpoint || !s3Bucket || (!effectiveStorageAdapter && (!s3AccessKeyId || !s3SecretAccessKey)))) {
-    throw new Error("Storage configuration is required for uploading to Mux. Provide s3Endpoint and s3Bucket. If no storageAdapter or credentials.storageClient is supplied, also provide s3AccessKeyId and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.");
+    throw new Error("Storage configuration is required for uploading to Mux. Provide s3Endpoint and s3Bucket. If no storageAdapter is supplied, also provide s3AccessKeyId and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.");
   }
 
   // Fetch asset data and playback ID from Mux

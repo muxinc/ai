@@ -1,6 +1,5 @@
 import { getMuxClientFromEnv } from "@mux/ai/lib/client-factory";
-import type { WorkflowMuxClient } from "@mux/ai/lib/workflow-mux-client";
-import type { MuxAsset, PlaybackAsset, PlaybackPolicy, WorkflowCredentialsInput } from "@mux/ai/types";
+import type { MuxAsset, PlaybackAsset, PlaybackPolicy, WorkflowCredentialsInput, WorkflowMuxClient } from "@mux/ai/types";
 
 /**
  * Finds a usable playback ID for the given asset.
