@@ -53,4 +53,4 @@ jobs:
           MUX_TEST_ASSET_ID_WITHOUT_BURNED_IN_CAPTIONS: ${{ secrets.MUX_TEST_ASSET_ID_WITHOUT_BURNED_IN_CAPTIONS }}
           MUX_TEST_ASSET_ID_AUDIO_ONLY: ${{ secrets.MUX_TEST_ASSET_ID_AUDIO_ONLY }}
           MUX_TEST_ASSET_ID_VIOLENT_AUDIO_ONLY: ${{ secrets.MUX_TEST_ASSET_ID_VIOLENT_AUDIO_ONLY }}
-        run: npm run test:integration -- tests/integration/translate-audio.test.ts
+        run: DOTENV_CONFIG_PATH=.env.test npx vitest run tests/integration/translate-audio.test.ts
