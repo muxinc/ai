@@ -245,7 +245,7 @@ export async function putObjectToS3({
       "x-amz-date": amzDate,
       ...(normalizedContentType ? { "content-type": normalizedContentType } : {}),
     },
-    body: typeof body === "string" ? body : body,
+    body,
   });
 
   if (!response.ok) {
