@@ -85,11 +85,24 @@ function bytesToBase64(bytes: Uint8Array): string {
   return output;
 }
 
+function normalizeBase64Input(value: string): string {
+  const cleaned = value
+    .replace(/\s+/g, "")
+    .replace(/-/g, "+")
+    .replace(/_/g, "/");
+
+  if (!cleaned) {
+    return cleaned;
+  }
+
+  return cleaned.length % 4 === 0 ? cleaned : cleaned + "=".repeat(4 - (cleaned.length % 4));
+}
+
 function base64ToBytes(value: string, label: string): Uint8Array {
   if (!value) {
     throw new Error(`${label} is missing`);
   }
-  const normalized = value.length % 4 === 0 ? value : value + "=".repeat(4 - (value.length % 4));
+  const normalized = normalizeBase64Input(value);
   const atobImpl = typeof globalThis.atob === "function" ? globalThis.atob.bind(globalThis) : undefined;
   if (atobImpl) {
     let binary: string;
@@ -108,21 +121,20 @@ function base64ToBytes(value: string, label: string): Uint8Array {
     return bytes;
   }
 
-  const cleaned = normalized.replace(/\s+/g, "");
-  if (cleaned.length % 4 !== 0) {
+  if (normalized.length % 4 !== 0) {
     throw new Error(`${label} is not valid base64`);
   }
 
-  const padding = cleaned.endsWith("==") ? 2 : cleaned.endsWith("=") ? 1 : 0;
-  const outputLength = (cleaned.length / 4) * 3 - padding;
+  const padding = normalized.endsWith("==") ? 2 : normalized.endsWith("=") ? 1 : 0;
+  const outputLength = (normalized.length / 4) * 3 - padding;
   const bytes = new Uint8Array(outputLength);
   let offset = 0;
 
-  for (let i = 0; i < cleaned.length; i += 4) {
-    const c0 = cleaned.charCodeAt(i);
-    const c1 = cleaned.charCodeAt(i + 1);
-    const c2 = cleaned.charCodeAt(i + 2);
-    const c3 = cleaned.charCodeAt(i + 3);
+  for (let i = 0; i < normalized.length; i += 4) {
+    const c0 = normalized.charCodeAt(i);
+    const c1 = normalized.charCodeAt(i + 1);
+    const c2 = normalized.charCodeAt(i + 2);
+    const c3 = normalized.charCodeAt(i + 3);
 
     if (c0 === 61 || c1 === 61) {
       throw new Error(`${label} is not valid base64`);
