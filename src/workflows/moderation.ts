@@ -3,14 +3,14 @@ import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImagesAsBase64 } from "@mux/ai/lib/image-download";
 import {
   getAssetDurationSecondsFromAsset,
-  getPlaybackIdForAssetWithClient,
+  getPlaybackIdForAsset,
   getVideoTrackDurationSecondsFromAsset,
   getVideoTrackMaxFrameRateFromAsset,
   isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
 import { planSamplingTimestamps } from "@mux/ai/lib/sampling-plan";
 import { signUrl } from "@mux/ai/lib/url-signing";
-import { resolveMuxClient, resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
+import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
 import { getThumbnailUrls } from "@mux/ai/primitives/thumbnails";
 import { fetchTranscriptForAsset, getReadyTextTracks } from "@mux/ai/primitives/transcripts";
 import type {
@@ -497,10 +497,8 @@ export async function getModerationScores(
     credentials: providedCredentials,
   } = options;
   const credentials = providedCredentials;
-  const muxClient = await resolveMuxClient(credentials);
-
   // Fetch asset data and playback ID from Mux via helper
-  const { asset, playbackId, policy } = await getPlaybackIdForAssetWithClient(assetId, muxClient);
+  const { asset, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
   const videoTrackDurationSeconds = getVideoTrackDurationSecondsFromAsset(asset);
   const videoTrackFps = getVideoTrackMaxFrameRateFromAsset(asset);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(asset);

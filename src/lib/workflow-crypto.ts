@@ -6,7 +6,18 @@
  * for forward compatibility.
  */
 
+import { gcm } from "@noble/ciphers/aes.js";
+
 const BASE64_CHUNK_SIZE = 0x8000;
+const BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+const BASE64_LOOKUP = (() => {
+  const table = new Uint8Array(256);
+  table.fill(255);
+  for (let i = 0; i < BASE64_ALPHABET.length; i++) {
+    table[BASE64_ALPHABET.charCodeAt(i)] = i;
+  }
+  return table;
+})();
 
 // Encryption parameters (AES-256-GCM with standard IV/tag sizes)
 const WORKFLOW_ENCRYPTION_VERSION = 1;
@@ -40,7 +51,7 @@ export type Encrypted<T> = EncryptedPayload & { __type?: T };
 
 function getWebCrypto(): NonNullable<typeof globalThis.crypto> {
   const webCrypto = globalThis.crypto;
-  if (!webCrypto || !webCrypto.subtle || typeof webCrypto.getRandomValues !== "function") {
+  if (!webCrypto || typeof webCrypto.getRandomValues !== "function") {
     throw new Error("Web Crypto API is required in workflow functions.");
   }
   return webCrypto;
@@ -50,12 +61,28 @@ function bytesToBase64(bytes: Uint8Array): string {
   if (bytes.length === 0) {
     return "";
   }
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += BASE64_CHUNK_SIZE) {
-    const chunk = bytes.subarray(i, i + BASE64_CHUNK_SIZE);
-    binary += String.fromCharCode(...chunk);
+  const btoaImpl = typeof globalThis.btoa === "function" ? globalThis.btoa.bind(globalThis) : undefined;
+  if (btoaImpl) {
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += BASE64_CHUNK_SIZE) {
+      const chunk = bytes.subarray(i, i + BASE64_CHUNK_SIZE);
+      binary += String.fromCharCode(...chunk);
+    }
+    return btoaImpl(binary);
   }
-  return btoa(binary);
+
+  let output = "";
+  for (let i = 0; i < bytes.length; i += 3) {
+    const b0 = bytes[i] ?? 0;
+    const b1 = bytes[i + 1] ?? 0;
+    const b2 = bytes[i + 2] ?? 0;
+    const triple = (b0 << 16) | (b1 << 8) | b2;
+    output += BASE64_ALPHABET[(triple >> 18) & 63];
+    output += BASE64_ALPHABET[(triple >> 12) & 63];
+    output += i + 1 < bytes.length ? BASE64_ALPHABET[(triple >> 6) & 63] : "=";
+    output += i + 2 < bytes.length ? BASE64_ALPHABET[triple & 63] : "=";
+  }
+  return output;
 }
 
 function base64ToBytes(value: string, label: string): Uint8Array {
@@ -63,19 +90,67 @@ function base64ToBytes(value: string, label: string): Uint8Array {
     throw new Error(`${label} is missing`);
   }
   const normalized = value.length % 4 === 0 ? value : value + "=".repeat(4 - (value.length % 4));
-  let binary: string;
-  try {
-    binary = atob(normalized);
-  } catch {
+  const atobImpl = typeof globalThis.atob === "function" ? globalThis.atob.bind(globalThis) : undefined;
+  if (atobImpl) {
+    let binary: string;
+    try {
+      binary = atobImpl(normalized);
+    } catch {
+      throw new Error(`${label} is not valid base64`);
+    }
+    if (!binary) {
+      throw new Error(`${label} decoded to empty value`);
+    }
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+  }
+
+  const cleaned = normalized.replace(/\s+/g, "");
+  if (cleaned.length % 4 !== 0) {
     throw new Error(`${label} is not valid base64`);
   }
-  if (!binary) {
+
+  const padding = cleaned.endsWith("==") ? 2 : cleaned.endsWith("=") ? 1 : 0;
+  const outputLength = (cleaned.length / 4) * 3 - padding;
+  const bytes = new Uint8Array(outputLength);
+  let offset = 0;
+
+  for (let i = 0; i < cleaned.length; i += 4) {
+    const c0 = cleaned.charCodeAt(i);
+    const c1 = cleaned.charCodeAt(i + 1);
+    const c2 = cleaned.charCodeAt(i + 2);
+    const c3 = cleaned.charCodeAt(i + 3);
+
+    if (c0 === 61 || c1 === 61) {
+      throw new Error(`${label} is not valid base64`);
+    }
+
+    const n0 = BASE64_LOOKUP[c0] ?? 255;
+    const n1 = BASE64_LOOKUP[c1] ?? 255;
+    const n2 = c2 === 61 ? 0 : (BASE64_LOOKUP[c2] ?? 255);
+    const n3 = c3 === 61 ? 0 : (BASE64_LOOKUP[c3] ?? 255);
+
+    if (n0 === 255 || n1 === 255 || n2 === 255 || n3 === 255) {
+      throw new Error(`${label} is not valid base64`);
+    }
+
+    const triple = (n0 << 18) | (n1 << 12) | (n2 << 6) | n3;
+    bytes[offset++] = (triple >> 16) & 0xFF;
+    if (c2 !== 61) {
+      bytes[offset++] = (triple >> 8) & 0xFF;
+    }
+    if (c3 !== 61) {
+      bytes[offset++] = triple & 0xFF;
+    }
+  }
+
+  if (!bytes.length) {
     throw new Error(`${label} decoded to empty value`);
   }
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
+
   return bytes;
 }
 
@@ -177,19 +252,7 @@ export async function encryptForWorkflow<T>(
 
   const encoder = new TextEncoder();
   const plaintext = encoder.encode(serialized);
-  const cryptoKey = await webCrypto.subtle.importKey(
-    "raw",
-    keyBytes,
-    { name: "AES-GCM" },
-    false,
-    ["encrypt"],
-  );
-  const encrypted = await webCrypto.subtle.encrypt(
-    { name: "AES-GCM", iv, tagLength: AUTH_TAG_LENGTH_BYTES * 8 },
-    cryptoKey,
-    plaintext,
-  );
-  const encryptedBytes = new Uint8Array(encrypted);
+  const encryptedBytes = gcm(keyBytes, iv).encrypt(plaintext);
   const tag = encryptedBytes.slice(encryptedBytes.length - AUTH_TAG_LENGTH_BYTES);
   const ciphertext = encryptedBytes.slice(0, encryptedBytes.length - AUTH_TAG_LENGTH_BYTES);
 
@@ -226,27 +289,16 @@ export async function decryptFromWorkflow<T>(
   const tag = payloadBase64ToBytes(payload.tag, "tag");
   const ciphertext = payloadBase64ToBytes(payload.ciphertext, "ciphertext");
 
-  const webCrypto = getWebCrypto();
-  const cryptoKey = await webCrypto.subtle.importKey(
-    "raw",
-    keyBytes,
-    { name: "AES-GCM" },
-    false,
-    ["decrypt"],
-  );
   const combined = new Uint8Array(ciphertext.length + tag.length);
   combined.set(ciphertext);
   combined.set(tag, ciphertext.length);
 
-  let plaintext: ArrayBuffer;
+  let plaintext: Uint8Array;
   try {
-    plaintext = await webCrypto.subtle.decrypt(
-      { name: "AES-GCM", iv, tagLength: AUTH_TAG_LENGTH_BYTES * 8 },
-      cryptoKey,
-      combined,
-    );
-  } catch {
-    throw new Error("Failed to decrypt workflow payload.");
+    plaintext = gcm(keyBytes, iv).decrypt(combined);
+  } catch (error) {
+    const message = (error as { message?: string } | undefined)?.message;
+    throw new Error(`Failed to decrypt workflow payload. ${message ?? String(error)}`);
   }
 
   try {

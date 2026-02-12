@@ -4,12 +4,12 @@ import { z } from "zod";
 
 import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
-import { getAssetDurationSecondsFromAsset, getPlaybackIdForAssetWithClient } from "@mux/ai/lib/mux-assets";
+import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
 import { createPromptBuilder, createTranscriptSection } from "@mux/ai/lib/prompt-builder";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
 import { withRetry } from "@mux/ai/lib/retry";
-import { resolveMuxClient, resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
+import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
 import { getStoryboardUrl } from "@mux/ai/primitives/storyboards";
 import { fetchTranscriptForAsset } from "@mux/ai/primitives/transcripts";
 import type { ImageSubmissionMode, MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "@mux/ai/types";
@@ -365,10 +365,8 @@ export async function askQuestions(
     model,
     provider: provider as SupportedProvider,
   });
-  const muxClient = await resolveMuxClient(credentials);
-
   // Fetch asset data and playback ID from Mux
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAssetWithClient(assetId, muxClient);
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
 
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
 

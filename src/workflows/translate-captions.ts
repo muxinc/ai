@@ -6,7 +6,7 @@ import { getLanguageCodePair, getLanguageName } from "@mux/ai/lib/language-codes
 import type { LanguageCodePair, SupportedISO639_1 } from "@mux/ai/lib/language-codes";
 import {
   getAssetDurationSecondsFromAsset,
-  getPlaybackIdForAssetWithClient,
+  getPlaybackIdForAsset,
   isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
@@ -25,7 +25,6 @@ import type {
   StorageAdapter,
   TokenUsage,
   WorkflowCredentialsInput,
-  WorkflowMuxClient,
 } from "@mux/ai/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -197,9 +196,10 @@ async function createTextTrackOnMux(
   languageCode: string,
   trackName: string,
   presignedUrl: string,
-  muxClient: WorkflowMuxClient,
+  credentials?: WorkflowCredentialsInput,
 ): Promise<string> {
   "use step";
+  const muxClient = await resolveMuxClient(credentials);
   const mux = await muxClient.createClient();
   const trackResponse = await mux.video.assets.createTrack(assetId, {
     type: "text",
@@ -234,7 +234,6 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     credentials: providedCredentials,
   } = options;
   const credentials = providedCredentials;
-  const muxClient = await resolveMuxClient(credentials);
   const effectiveStorageAdapter = storageAdapter;
 
   // S3 configuration
@@ -256,10 +255,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   }
 
   // Fetch asset data and playback ID from Mux
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAssetWithClient(
-    assetId,
-    muxClient,
-  );
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
   const isAudioOnly = isAudioOnlyAsset(assetData);
 
@@ -394,7 +390,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
       toLanguageCode,
       trackName,
       presignedUrl,
-      muxClient,
+      credentials,
     );
   } catch (error) {
     console.warn(`Failed to add track to Mux asset: ${error instanceof Error ? error.message : "Unknown error"}`);

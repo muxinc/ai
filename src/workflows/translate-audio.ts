@@ -2,7 +2,7 @@ import env from "@mux/ai/env";
 import { getApiKeyFromEnv } from "@mux/ai/lib/client-factory";
 import { getLanguageCodePair, toISO639_1, toISO639_3 } from "@mux/ai/lib/language-codes";
 import type { LanguageCodePair, SupportedISO639_1 } from "@mux/ai/lib/language-codes";
-import { getAssetDurationSecondsFromAsset, getPlaybackIdForAssetWithClient } from "@mux/ai/lib/mux-assets";
+import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
 import {
   createPresignedGetUrlWithStorageAdapter,
   putObjectWithStorageAdapter,
@@ -14,7 +14,6 @@ import type {
   StorageAdapter,
   TokenUsage,
   WorkflowCredentialsInput,
-  WorkflowMuxClient,
 } from "@mux/ai/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -86,9 +85,10 @@ const hasReadyAudioStaticRendition = (asset: any) => Boolean(getReadyAudioStatic
 
 async function requestStaticRenditionCreation(
   assetId: string,
-  muxClient: WorkflowMuxClient,
+  credentials?: WorkflowCredentialsInput,
 ) {
   "use step";
+  const muxClient = await resolveMuxClient(credentials);
   const mux = await muxClient.createClient();
   try {
     await mux.video.assets.createStaticRendition(assetId, {
@@ -113,13 +113,14 @@ async function requestStaticRenditionCreation(
 async function waitForAudioStaticRendition({
   assetId,
   initialAsset,
-  muxClient,
+  credentials,
 }: {
   assetId: string;
   initialAsset: any;
-  muxClient: WorkflowMuxClient;
+  credentials?: WorkflowCredentialsInput;
 }): Promise<any> {
   "use step";
+  const muxClient = await resolveMuxClient(credentials);
   const mux = await muxClient.createClient();
   let currentAsset = initialAsset;
 
@@ -130,9 +131,9 @@ async function waitForAudioStaticRendition({
   const status = currentAsset.static_renditions?.status ?? "not_requested";
 
   if (status === "not_requested" || status === undefined) {
-    await requestStaticRenditionCreation(assetId, muxClient);
+    await requestStaticRenditionCreation(assetId, credentials);
   } else if (status === "errored") {
-    await requestStaticRenditionCreation(assetId, muxClient);
+    await requestStaticRenditionCreation(assetId, credentials);
   } else {
     console.warn(`ℹ️ Static rendition already ${status}. Waiting for it to finish...`);
   }
@@ -322,9 +323,10 @@ async function createAudioTrackOnMux(
   assetId: string,
   languageCode: string,
   presignedUrl: string,
-  muxClient: WorkflowMuxClient,
+  credentials?: WorkflowCredentialsInput,
 ): Promise<string> {
   "use step";
+  const muxClient = await resolveMuxClient(credentials);
   const mux = await muxClient.createClient();
   const languageName = new Intl.DisplayNames(["en"], { type: "language" }).of(languageCode) || languageCode.toUpperCase();
   const trackName = `${languageName} (auto-dubbed)`;
@@ -375,13 +377,9 @@ export async function translateAudio(
   if (uploadToMux && (!s3Endpoint || !s3Bucket || (!effectiveStorageAdapter && (!s3AccessKeyId || !s3SecretAccessKey)))) {
     throw new Error("Storage configuration is required for uploading to Mux. Provide s3Endpoint and s3Bucket. If no storageAdapter is supplied, also provide s3AccessKeyId and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.");
   }
-  const muxClient = await resolveMuxClient(credentials);
 
   // Fetch asset data and playback ID from Mux
-  const { asset: initialAsset, playbackId, policy } = await getPlaybackIdForAssetWithClient(
-    assetId,
-    muxClient,
-  );
+  const { asset: initialAsset, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(initialAsset);
 
   // Check for audio-only static rendition
@@ -392,7 +390,7 @@ export async function translateAudio(
     currentAsset = await waitForAudioStaticRendition({
       assetId,
       initialAsset: currentAsset,
-      muxClient,
+      credentials,
     });
   }
 
@@ -554,7 +552,7 @@ export async function translateAudio(
   const muxLangCode = toISO639_1(toLanguageCode);
 
   try {
-    uploadedTrackId = await createAudioTrackOnMux(assetId, muxLangCode, presignedUrl, muxClient);
+    uploadedTrackId = await createAudioTrackOnMux(assetId, muxLangCode, presignedUrl, credentials);
     const languageName = new Intl.DisplayNames(["en"], { type: "language" }).of(muxLangCode) || muxLangCode.toUpperCase();
     const trackName = `${languageName} (auto-dubbed)`;
     console.warn(`✅ Track added to Mux asset with ID: ${uploadedTrackId}`);
