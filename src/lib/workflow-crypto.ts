@@ -91,11 +91,9 @@ function normalizeBase64Input(value: string): string {
     .replace(/-/g, "+")
     .replace(/_/g, "/");
 
-  if (!cleaned) {
-    return cleaned;
-  }
-
-  return cleaned.length % 4 === 0 ? cleaned : cleaned + "=".repeat(4 - (cleaned.length % 4));
+  // Pad with '=' to make the length a multiple of 4 (required by standard base64).
+  // When cleaned is empty, length is 0 and 0 % 4 === 0, so it passes through unchanged.
+  return cleaned?.length % 4 === 0 ? cleaned : cleaned + "=".repeat(4 - (cleaned.length % 4));
 }
 
 function base64ToBytes(value: string, label: string): Uint8Array {
