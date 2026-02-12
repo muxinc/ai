@@ -33,5 +33,5 @@ describe("audio Translation Integration Tests", () => {
     // Since uploadToMux is false, these should not be present
     expect(result.uploadedTrackId).toBeUndefined();
     expect(result.presignedUrl).toBeUndefined();
-  }, 300000); // 5 minute timeout for ElevenLabs processing
+  }, 600000); // 10 minute timeout for ElevenLabs processing
 });

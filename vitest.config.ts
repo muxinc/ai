@@ -16,6 +16,6 @@ export default defineConfig({
     globals: true,
     environment: "node",
     testTimeout: 600000, // 600 seconds for integration tests
-    fileParallelism: false, // Run test files sequentially to avoid rate limits and reduce API costs
+    maxConcurrency: 3, // Run up to 3 tests in parallel
   },
 });

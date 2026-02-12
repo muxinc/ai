@@ -1,15 +1,19 @@
-name: Integration Tests
+name: Translate Audio Integration Test
 
 on:
   push:
     branches:
       - main
   pull_request:
+    paths:
+      - tests/integration/translate-audio.test.ts
+      - .github/workflows/translate-audio-integration.yml
+  workflow_dispatch:
 
 jobs:
-  integration-tests:
+  translate-audio-integration-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Checkout code
@@ -24,7 +28,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run integration tests (excluding long-running audio translation test)
+      - name: Run translate audio integration test
         env:
           MUX_TOKEN_ID: ${{ secrets.MUX_TOKEN_ID }}
           MUX_TOKEN_SECRET: ${{ secrets.MUX_TOKEN_SECRET }}
@@ -48,13 +52,4 @@ jobs:
           MUX_TEST_ASSET_ID_WITHOUT_BURNED_IN_CAPTIONS: ${{ secrets.MUX_TEST_ASSET_ID_WITHOUT_BURNED_IN_CAPTIONS }}
           MUX_TEST_ASSET_ID_AUDIO_ONLY: ${{ secrets.MUX_TEST_ASSET_ID_AUDIO_ONLY }}
           MUX_TEST_ASSET_ID_VIOLENT_AUDIO_ONLY: ${{ secrets.MUX_TEST_ASSET_ID_VIOLENT_AUDIO_ONLY }}
-        run: npm run test:integration -- --exclude tests/integration/translate-audio.test.ts
-
-      - name: Simple CLI smoke test - Summarization example
-        env:
-          MUX_TOKEN_ID: ${{ secrets.MUX_TOKEN_ID }}
-          MUX_TOKEN_SECRET: ${{ secrets.MUX_TOKEN_SECRET }}
-          MUX_SIGNING_KEY: ${{ secrets.MUX_SIGNING_KEY }}
-          MUX_PRIVATE_KEY: ${{ secrets.MUX_PRIVATE_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: npm run example:summarization -- 88Lb01qNUqFJrOFMITk00Ck201F00Qmcbpc5qgopNV4fCOk -t playful -p openai
+        run: npm run test:integration -- tests/integration/translate-audio.test.ts
