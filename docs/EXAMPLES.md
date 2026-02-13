@@ -47,7 +47,7 @@ npm run example:moderation:compare <asset-id>
 npm run example:translate-captions <asset-id> [from-lang] [to-lang] [provider]
 
 # Audio Translation (Dubbing)
-npm run example:translate-audio <asset-id> [to-lang]
+npm run example:translate-audio <asset-id> -- --to <to-lang> [--from <from-lang>]
 
 # Signed Playback (for assets with signed playback policies)
 npm run example:signed-playback <signed-asset-id>
@@ -82,7 +82,7 @@ npm run example:translate-captions abc123 en es anthropic
 npm run example:summarization abc123 anthropic
 
 # Create AI-dubbed audio in French
-npm run example:translate-audio abc123 fr
+npm run example:translate-audio abc123 -- --to fr --from en
 ```
 
 ## Summarization Examples
@@ -216,7 +216,7 @@ npm run aws-sdk-adapter <your-asset-id> -- --s3-bucket <bucket-name>
 ```bash
 cd examples/translate-audio
 npm install
-npm run basic <your-asset-id> es
+npm run basic <your-asset-id> -- --to es [--from en]
 npm run dubbing-only <your-asset-id> fr
 ```
 
@@ -224,7 +224,7 @@ npm run dubbing-only <your-asset-id> fr
 
 1. Checks asset has audio.m4a static rendition
 2. Downloads default audio track from Mux
-3. Creates ElevenLabs dubbing job with automatic language detection
+3. Creates ElevenLabs dubbing job (source language auto-detected unless `--from` is set)
 4. Polls for completion (up to 30 minutes)
 5. Downloads dubbed audio file
 6. Uploads to S3-compatible storage

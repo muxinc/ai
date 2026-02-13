@@ -41,6 +41,12 @@ export interface AudioTranslationResult {
 export interface AudioTranslationOptions extends MuxAIOptions {
   /** Audio dubbing provider (currently ElevenLabs only). */
   provider?: "elevenlabs";
+  /**
+   * Optional source language code for ElevenLabs `source_lang`.
+   * Accepts ISO 639-1 (e.g. "en") or ISO 639-3 (e.g. "eng").
+   * Defaults to auto-detect when omitted.
+   */
+  fromLanguageCode?: string;
   /** Number of speakers supplied to ElevenLabs (0 = auto-detect, default). */
   numSpeakers?: number;
   /** Optional override for the S3-compatible endpoint used for uploads. */
@@ -178,12 +184,14 @@ async function createElevenLabsDubbingJob({
   audioBuffer,
   assetId,
   elevenLabsLangCode,
+  elevenLabsSourceLangCode,
   numSpeakers,
   credentials,
 }: {
   audioBuffer: ArrayBuffer;
   assetId: string;
   elevenLabsLangCode: string;
+  elevenLabsSourceLangCode?: string;
   numSpeakers: number;
   credentials?: WorkflowCredentialsInput;
 }): Promise<string> {
@@ -195,8 +203,14 @@ async function createElevenLabsDubbingJob({
   const formData = new FormData();
   formData.append("file", audioBlob);
   formData.append("target_lang", elevenLabsLangCode);
+  if (elevenLabsSourceLangCode) {
+    formData.append("source_lang", elevenLabsSourceLangCode);
+  }
   formData.append("num_speakers", numSpeakers.toString());
-  formData.append("name", `Mux Asset ${assetId} - auto to ${elevenLabsLangCode}`);
+  formData.append(
+    "name",
+    `Mux Asset ${assetId} - ${elevenLabsSourceLangCode ?? "auto"} to ${elevenLabsLangCode}`,
+  );
 
   const dubbingResponse = await fetch("https://api.elevenlabs.io/v1/dubbing", {
     method: "POST",
@@ -351,9 +365,10 @@ export async function translateAudio(
   options: AudioTranslationOptions = {},
 ): Promise<AudioTranslationResult> {
   "use workflow";
-  // Uses the default audio track on your asset, language is auto-detected by ElevenLabs
+  // Uses the default audio track on your asset (source language auto-detected unless provided)
   const {
     provider = "elevenlabs",
+    fromLanguageCode,
     numSpeakers = 0, // 0 = auto-detect
     uploadToMux = true,
     storageAdapter,
@@ -423,7 +438,13 @@ export async function translateAudio(
 
   // ElevenLabs uses ISO 639-3 (3-letter) codes, so normalize the input
   const elevenLabsLangCode = toISO639_3(toLanguageCode);
-  console.warn(`🔍 Creating dubbing job for asset ${assetId} with language code: ${elevenLabsLangCode}`);
+  const normalizedFromLanguageCode = fromLanguageCode?.trim();
+  const elevenLabsSourceLangCode = normalizedFromLanguageCode
+    ? toISO639_3(normalizedFromLanguageCode)
+    : undefined;
+  console.warn(
+    `🔍 Creating dubbing job for asset ${assetId}: ${elevenLabsSourceLangCode ?? "auto"} -> ${elevenLabsLangCode}`,
+  );
 
   let dubbingId: string;
   try {
@@ -431,6 +452,7 @@ export async function translateAudio(
       audioBuffer,
       assetId,
       elevenLabsLangCode,
+      elevenLabsSourceLangCode,
       numSpeakers,
       credentials,
     });
