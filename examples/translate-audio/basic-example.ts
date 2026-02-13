@@ -10,20 +10,23 @@ program
   .name("translate-audio")
   .description("Translate audio (dubbing) for a Mux video asset")
   .argument("<asset-id>", "Mux asset ID to translate")
+  .option("-f, --from <language>", "Source language code (defaults to auto-detect)")
   .option("-t, --to <language>", "Target language code", "es")
   .option("-s, --speakers <number>", "Number of speakers (0 for auto-detect)", "0")
   .option("--no-upload", "Skip uploading translated audio to Mux (returns presigned URL only)")
   .addHelpText("after", `
 Notes:
   - Asset must have an audio.m4a static rendition
-  - Uses default audio track, source language is auto-detected
+  - Uses default audio track, source language is auto-detected unless --from is provided
   - Provider is ElevenLabs (currently the only supported audio translation provider)`)
   .action(async (assetId: string, options: {
+    from?: string;
     to: string;
     speakers: string;
     upload: boolean;
   }) => {
     const numSpeakers = Number.parseInt(options.speakers, 10);
+    const fromLanguageCode = options.from?.trim() || undefined;
 
     if (Number.isNaN(numSpeakers) || numSpeakers < 0) {
       console.error("❌ Invalid number of speakers. Must be a non-negative integer.");
@@ -31,7 +34,7 @@ Notes:
     }
 
     console.log(`Asset ID: ${assetId}`);
-    console.log(`Audio Dubbing: auto-detect -> ${options.to}`);
+    console.log(`Audio Dubbing: ${fromLanguageCode ?? "auto-detect"} -> ${options.to}`);
     console.log(`Number of Speakers: ${numSpeakers === 0 ? "auto-detect" : numSpeakers}`);
     console.log(`Upload to Mux: ${options.upload}\n`);
 
@@ -40,6 +43,7 @@ Notes:
 
       const result = await translateAudio(assetId, options.to, {
         provider: "elevenlabs",
+        fromLanguageCode,
         numSpeakers,
         uploadToMux: options.upload,
       });
