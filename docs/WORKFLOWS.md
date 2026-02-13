@@ -388,12 +388,13 @@ Create AI-dubbed audio tracks using ElevenLabs voice cloning (video or audio-onl
 import { translateAudio } from "@mux/ai/workflows";
 
 // Create dubbed audio and upload to Mux
-// Uses default audio track, language auto-detected
+// Uses default audio track; source language auto-detected unless provided
 const result = await translateAudio(
   "your-mux-asset-id",
   "es", // target language
   {
     provider: "elevenlabs",
+    fromLanguageCode: "en", // optional source language
     numSpeakers: 0 // Auto-detect speakers
   }
 );
@@ -417,7 +418,7 @@ ElevenLabs supports 32+ languages with automatic language name detection via `In
 
 1. Checks asset has audio.m4a static rendition
 2. Downloads default audio track from Mux
-3. Creates ElevenLabs dubbing job with automatic language detection
+3. Creates ElevenLabs dubbing job (source language auto-detected unless `fromLanguageCode` is set)
 4. Polls for completion (up to 30 minutes)
 5. Downloads dubbed audio file
 6. Uploads to S3-compatible storage
