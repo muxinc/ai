@@ -91,7 +91,6 @@ export async function signPlaybackId(
  *
  * @param url - The base Mux URL (e.g. https://image.mux.com/{playbackId}/thumbnail.png)
  * @param playbackId - The Mux playback ID
- * @param context - Signing context with key credentials
  * @param type - Token type for the URL
  * @param params - Additional parameters for the token
  * @returns URL with token query parameter appended
