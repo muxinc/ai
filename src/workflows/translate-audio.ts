@@ -439,9 +439,7 @@ export async function translateAudio(
   // ElevenLabs uses ISO 639-3 (3-letter) codes, so normalize the input
   const elevenLabsLangCode = toISO639_3(toLanguageCode);
   const normalizedFromLanguageCode = fromLanguageCode?.trim();
-  const elevenLabsSourceLangCode = normalizedFromLanguageCode
-    ? toISO639_3(normalizedFromLanguageCode)
-    : undefined;
+  const elevenLabsSourceLangCode = normalizedFromLanguageCode ? toISO639_3(normalizedFromLanguageCode) : undefined;
   console.warn(
     `🔍 Creating dubbing job for asset ${assetId}: ${elevenLabsSourceLangCode ?? "auto"} -> ${elevenLabsLangCode}`,
   );
