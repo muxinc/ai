@@ -99,13 +99,12 @@ export async function signPlaybackId(
 export async function signUrl(
   url: string,
   playbackId: string,
-  context?: SigningContext,
   type: TokenType = "video",
   params?: Record<string, string | number>,
   credentials?: WorkflowCredentialsInput,
 ): Promise<string> {
   "use step";
-  const resolvedContext = context ?? await resolveMuxSigningContext(credentials);
+  const resolvedContext = await resolveMuxSigningContext(credentials);
   if (!resolvedContext) {
     throw new Error(
       "Signed playback ID requires signing credentials. " +
