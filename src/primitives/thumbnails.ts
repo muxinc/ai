@@ -67,7 +67,7 @@ export async function getThumbnailUrls(
 
   const urlPromises = timestamps.map(async (time) => {
     if (shouldSign) {
-      return signUrl(baseUrl, playbackId, undefined, "thumbnail", { time, width }, credentials);
+      return signUrl(baseUrl, playbackId, "thumbnail", { time, width }, credentials);
     }
 
     return `${baseUrl}?time=${time}&width=${width}`;
