@@ -21,6 +21,42 @@ Quick reference for where each workflow reads/writes Mux data, and which primiti
 | `translateCaptions` | ✓ | — | — | ✓ required | — | ◐ text track (default `uploadToMux=true`) |
 | `translateAudio` | ✓ | — | — | — | ✓ required | ◐ audio track (default `uploadToMux=true`) |
 
+## API Call Count Cheat Sheet (per successful run)
+
+Counts below are baseline (no retries/timeouts).
+
+| Workflow | Interaction count summary |
+| --- | --- |
+| `getSummaryAndTags` | Mux Video API: `1` (asset lookup) + Transcript fetch: `0/1` + Storyboard fetch: `0/1` (video only) + LLM call: `1` |
+| `askQuestions` | Mux Video API: `1` + Transcript fetch: `0/1` + Storyboard fetch: `1` + LLM call: `1` |
+| `hasBurnedInCaptions` | Mux Video API: `1` + Storyboard fetch: `1` + LLM call: `1` |
+| `getModerationScores` (video assets) | Mux Video API: `1` + Thumbnail fetches: `N` + Moderation API calls: `N` |
+| `getModerationScores` (audio-only assets) | Mux Video API: `1` + Transcript fetch: `1` + OpenAI text moderation calls: `C` |
+| `generateChapters` | Mux Video API: `1` + Transcript fetch: `1` + LLM call: `1` |
+| `generateEmbeddings` | Mux Video API: `1` + Transcript fetch: `1` + Embedding API calls: `K` |
+| `translateCaptions` (`uploadToMux=false`) | Mux Video API: `1` + Transcript fetch: `1` + LLM translation call: `1` |
+| `translateCaptions` (`uploadToMux=true`, default) | Above + S3 upload: `1` + Mux track create (`assets.createTrack`): `1` |
+| `translateAudio` (`uploadToMux=false`) | Mux Video API: `1 + R + P` + Audio fetch: `1` + ElevenLabs calls: `2 + S` |
+| `translateAudio` (`uploadToMux=true`, default) | Above + S3 upload: `1` + Mux track create (`assets.createTrack`): `1` |
+
+### Count Variables
+
+- `N` = number of sampled thumbnails in moderation (video path)  
+  - If `maxSamples` is set: `N <= maxSamples`  
+  - Else if duration <= 50s: `N = 5`  
+  - Else: `N = ceil(duration / thumbnailInterval)`
+- `C` = transcript moderation chunks for audio-only moderation  
+  - `C = ceil(transcript_utf16_length / 10_000)`
+- `K` = number of text chunks produced by embedding chunking strategy
+- `S` = ElevenLabs status polls until dubbing completes (max `180`)
+- `R` = static-rendition create request count in `translateAudio` (`0/1`)
+- `P` = static-rendition poll count in `translateAudio` (`0..36`, each poll is `assets.retrieve`)
+
+### URL mode vs base64 mode (important for "who hits Mux image URLs")
+
+- `imageSubmissionMode: "url"` -> AI/moderation provider fetches Mux storyboard/thumbnail URLs.
+- `imageSubmissionMode: "base64"` -> this workflow runtime fetches Mux images first, then sends base64 payload to provider.
+
 ## Workflow -> Primitive/Helper Mapping
 
 | Workflow (source) | Primitives/helpers touched | What is pulled from Mux | Writes to Mux | Other services in path |
