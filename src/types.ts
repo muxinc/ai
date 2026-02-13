@@ -63,6 +63,8 @@ export interface WorkflowCredentials {
   muxTokenId?: string;
   /** Direct Mux API token secret for per-request credential injection. */
   muxTokenSecret?: string;
+  /** Direct Mux API auth token secret for per-request credential injection. */
+  muxAuthorizationToken?: string;
   /** Optional direct Mux signing key ID for signed playback URL generation. */
   muxSigningKey?: string;
   /** Optional direct Mux private key for signed playback URL generation. */

@@ -213,7 +213,7 @@ export async function buildTranscriptUrl(
   const baseUrl = `https://stream.mux.com/${playbackId}/text/${trackId}.vtt`;
 
   if (shouldSign) {
-    return signUrl(baseUrl, playbackId, undefined, "video", undefined, credentials);
+    return signUrl(baseUrl, playbackId, "video", undefined, credentials);
   }
 
   return baseUrl;
