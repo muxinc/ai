@@ -100,6 +100,14 @@
     "evalite:post-results:production": "npx tsx scripts/export-evalite-results.ts && npx tsx scripts/post-evalite-results.ts",
     "prepare": "husky"
   },
+  "peerDependencies": {
+    "workflow": ">=4.1.0-beta.55"
+  },
+  "peerDependenciesMeta": {
+    "workflow": {
+      "optional": true
+    }
+  },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.16",
     "@ai-sdk/google": "^3.0.10",
