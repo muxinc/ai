@@ -5,9 +5,12 @@
   "description": "Examples for @mux/ai translation functionality",
   "scripts": {
     "basic": "ts-node basic-example.ts",
-    "translation-only": "ts-node translation-only-example.ts"
+    "translation-only": "ts-node translation-only-example.ts",
+    "aws-sdk-adapter": "ts-node aws-sdk-storage-adapter-example.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "latest",
+    "@aws-sdk/s3-request-presigner": "latest",
     "@mux/ai": "file:../..",
     "dotenv": "^16.0.0"
   },

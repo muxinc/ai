@@ -1,6 +1,5 @@
 import { getMuxClientFromEnv } from "@mux/ai/lib/client-factory";
-import type { WorkflowMuxClient } from "@mux/ai/lib/workflow-mux-client";
-import type { MuxAsset, PlaybackAsset, PlaybackPolicy, WorkflowCredentialsInput } from "@mux/ai/types";
+import type { MuxAsset, PlaybackAsset, PlaybackPolicy, WorkflowCredentialsInput, WorkflowMuxClient } from "@mux/ai/types";
 
 /**
  * Finds a usable playback ID for the given asset.
@@ -61,7 +60,8 @@ export async function getPlaybackIdForAssetWithClient(
   assetId: string,
   muxClient: WorkflowMuxClient,
 ): Promise<PlaybackAsset> {
-  "use step";
+  // Do not mark this as a workflow step: muxClient contains function properties
+  // (e.g. createClient) that are not serializable across step boundaries.
   const asset = await getMuxAssetWithClient(assetId, muxClient);
   return toPlaybackAsset(asset);
 }
@@ -84,7 +84,7 @@ export async function getMuxAssetWithClient(
   assetId: string,
   muxClient: WorkflowMuxClient,
 ): Promise<MuxAsset> {
-  "use step";
+  // Do not mark this as a workflow step for the same serialization reason as above.
   const client = await muxClient.createClient();
   return client.video.assets.retrieve(assetId);
 }

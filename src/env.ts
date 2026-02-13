@@ -24,6 +24,10 @@ const EnvSchema = z.object({
 
   MUX_TOKEN_ID: optionalString("Mux access token ID.", "Required to access Mux APIs"),
   MUX_TOKEN_SECRET: optionalString("Mux access token secret.", "Required to access Mux APIs"),
+  MUX_AI_WORKFLOW_SECRET_KEY: optionalString(
+    "Base64-encoded 32-byte key for workflow encryption/decryption.",
+    "Workflow secret key",
+  ),
   EVALITE_INGEST_SECRET: optionalString(
     "Shared secret for posting Evalite results.",
     "Evalite ingest secret",
@@ -65,6 +69,9 @@ const EnvSchema = z.object({
   S3_BUCKET: optionalString("Bucket used for caption and audio uploads.", "S3 bucket"),
   S3_ACCESS_KEY_ID: optionalString("Access key ID for S3-compatible uploads.", "S3 access key id"),
   S3_SECRET_ACCESS_KEY: optionalString("Secret access key for S3-compatible uploads.", "S3 secret access key"),
+  S3_ALLOWED_ENDPOINT_HOSTS: optionalString(
+    "Comma-separated S3 endpoint allowlist (supports exact hosts and *.suffix patterns).",
+  ),
 
   EVALITE_RESULTS_ENDPOINT: optionalString(
     "Full URL for posting Evalite results (e.g., https://example.com/api/evalite-results).",
@@ -73,10 +80,11 @@ const EnvSchema = z.object({
 }).refine(
   (env) => {
     const hasMuxCredentials = Boolean(env.MUX_TOKEN_ID && env.MUX_TOKEN_SECRET);
-    return hasMuxCredentials;
+    const hasWorkflowKey = Boolean(env.MUX_AI_WORKFLOW_SECRET_KEY);
+    return hasMuxCredentials || hasWorkflowKey;
   },
   {
-    message: "MUX_TOKEN_ID + MUX_TOKEN_SECRET must be set.",
+    message: "Either MUX_TOKEN_ID + MUX_TOKEN_SECRET or MUX_AI_WORKFLOW_SECRET_KEY must be set.",
   },
 );
 

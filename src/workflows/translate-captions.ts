@@ -6,15 +6,26 @@ import { getLanguageCodePair, getLanguageName } from "@mux/ai/lib/language-codes
 import type { LanguageCodePair, SupportedISO639_1 } from "@mux/ai/lib/language-codes";
 import {
   getAssetDurationSecondsFromAsset,
-  getPlaybackIdForAssetWithClient,
+  getPlaybackIdForAsset,
   isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
-import { resolveMuxClient, resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
-import type { WorkflowMuxClient } from "@mux/ai/lib/workflow-mux-client";
+import {
+  createPresignedGetUrlWithStorageAdapter,
+  putObjectWithStorageAdapter,
+} from "@mux/ai/lib/storage-adapter";
+import {
+  resolveMuxClient,
+  resolveMuxSigningContext,
+} from "@mux/ai/lib/workflow-credentials";
 import { buildTranscriptUrl, getReadyTextTracks } from "@mux/ai/primitives/transcripts";
-import type { MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "@mux/ai/types";
+import type {
+  MuxAIOptions,
+  StorageAdapter,
+  TokenUsage,
+  WorkflowCredentialsInput,
+} from "@mux/ai/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -62,6 +73,8 @@ export interface TranslationOptions<P extends SupportedProvider = SupportedProvi
    * bucket and attached to the Mux asset.
    */
   uploadToMux?: boolean;
+  /** Optional storage adapter override for upload + presign operations. */
+  storageAdapter?: StorageAdapter;
 }
 
 /** Schema used when requesting caption translation from a language model. */
@@ -137,6 +150,7 @@ async function uploadVttToS3({
   s3Endpoint,
   s3Region,
   s3Bucket,
+  storageAdapter,
 }: {
   translatedVtt: string;
   assetId: string;
@@ -145,54 +159,36 @@ async function uploadVttToS3({
   s3Endpoint: string;
   s3Region: string;
   s3Bucket: string;
+  storageAdapter?: StorageAdapter;
 }): Promise<string> {
   "use step";
 
-  const { S3Client, GetObjectCommand } = await import("@aws-sdk/client-s3");
-  const { Upload } = await import("@aws-sdk/lib-storage");
-  const { getSignedUrl } = await import("@aws-sdk/s3-request-presigner");
-
-  // asserting exists. already validated (See: translateAudio())
-  const s3AccessKeyId = env.S3_ACCESS_KEY_ID!;
-  const s3SecretAccessKey = env.S3_SECRET_ACCESS_KEY!;
-
-  const s3Client = new S3Client({
-    region: s3Region,
-    endpoint: s3Endpoint,
-    credentials: {
-      accessKeyId: s3AccessKeyId,
-      secretAccessKey: s3SecretAccessKey,
-    },
-    forcePathStyle: true,
-  });
+  const s3AccessKeyId = env.S3_ACCESS_KEY_ID;
+  const s3SecretAccessKey = env.S3_SECRET_ACCESS_KEY;
 
   // Create unique key for the VTT file
   const vttKey = `translations/${assetId}/${fromLanguageCode}-to-${toLanguageCode}-${Date.now()}.vtt`;
 
-  // Upload VTT to S3
-  const upload = new Upload({
-    client: s3Client,
-    params: {
-      Bucket: s3Bucket,
-      Key: vttKey,
-      Body: translatedVtt,
-      ContentType: "text/vtt",
-    },
-  });
+  await putObjectWithStorageAdapter({
+    accessKeyId: s3AccessKeyId,
+    secretAccessKey: s3SecretAccessKey,
+    endpoint: s3Endpoint,
+    region: s3Region,
+    bucket: s3Bucket,
+    key: vttKey,
+    body: translatedVtt,
+    contentType: "text/vtt",
+  }, storageAdapter);
 
-  await upload.done();
-
-  // Generate presigned URL (valid for 1 hour)
-  const getObjectCommand = new GetObjectCommand({
-    Bucket: s3Bucket,
-    Key: vttKey,
-  });
-
-  const presignedUrl = await getSignedUrl(s3Client, getObjectCommand, {
-    expiresIn: 3600, // 1 hour
-  });
-
-  return presignedUrl;
+  return createPresignedGetUrlWithStorageAdapter({
+    accessKeyId: s3AccessKeyId,
+    secretAccessKey: s3SecretAccessKey,
+    endpoint: s3Endpoint,
+    region: s3Region,
+    bucket: s3Bucket,
+    key: vttKey,
+    expiresInSeconds: 3600,
+  }, storageAdapter);
 }
 
 async function createTextTrackOnMux(
@@ -200,9 +196,10 @@ async function createTextTrackOnMux(
   languageCode: string,
   trackName: string,
   presignedUrl: string,
-  muxClient: WorkflowMuxClient,
+  credentials?: WorkflowCredentialsInput,
 ): Promise<string> {
   "use step";
+  const muxClient = await resolveMuxClient(credentials);
   const mux = await muxClient.createClient();
   const trackResponse = await mux.video.assets.createTrack(assetId, {
     type: "text",
@@ -233,9 +230,11 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     s3Region: providedS3Region,
     s3Bucket: providedS3Bucket,
     uploadToMux: uploadToMuxOption,
-    credentials,
+    storageAdapter,
+    credentials: providedCredentials,
   } = options;
-  const muxClient = await resolveMuxClient(credentials);
+  const credentials = providedCredentials;
+  const effectiveStorageAdapter = storageAdapter;
 
   // S3 configuration
   const s3Endpoint = providedS3Endpoint ?? env.S3_ENDPOINT;
@@ -251,15 +250,12 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     provider: provider as SupportedProvider,
   });
 
-  if (uploadToMux && (!s3Endpoint || !s3Bucket || !s3AccessKeyId || !s3SecretAccessKey)) {
-    throw new Error("S3 configuration is required for uploading to Mux. Provide s3Endpoint, s3Bucket, s3AccessKeyId, and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.");
+  if (uploadToMux && (!s3Endpoint || !s3Bucket || (!effectiveStorageAdapter && (!s3AccessKeyId || !s3SecretAccessKey)))) {
+    throw new Error("Storage configuration is required for uploading to Mux. Provide s3Endpoint and s3Bucket. If no storageAdapter is supplied, also provide s3AccessKeyId and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.");
   }
 
   // Fetch asset data and playback ID from Mux
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAssetWithClient(
-    assetId,
-    muxClient,
-  );
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
   const isAudioOnly = isAudioOnlyAsset(assetData);
 
@@ -376,6 +372,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
       s3Endpoint: s3Endpoint!,
       s3Region,
       s3Bucket: s3Bucket!,
+      storageAdapter: effectiveStorageAdapter,
     });
   } catch (error) {
     throw new Error(`Failed to upload VTT to S3: ${error instanceof Error ? error.message : "Unknown error"}`);
@@ -393,7 +390,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
       toLanguageCode,
       trackName,
       presignedUrl,
-      muxClient,
+      credentials,
     );
   } catch (error) {
     console.warn(`Failed to add track to Mux asset: ${error instanceof Error ? error.message : "Unknown error"}`);

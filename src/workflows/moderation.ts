@@ -3,22 +3,20 @@ import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImagesAsBase64 } from "@mux/ai/lib/image-download";
 import {
   getAssetDurationSecondsFromAsset,
-  getPlaybackIdForAssetWithClient,
+  getPlaybackIdForAsset,
   getVideoTrackDurationSecondsFromAsset,
   getVideoTrackMaxFrameRateFromAsset,
   isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
 import { planSamplingTimestamps } from "@mux/ai/lib/sampling-plan";
 import { signUrl } from "@mux/ai/lib/url-signing";
-import { resolveMuxClient, resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
-import { isWorkflowNativeCredentials, serializeForWorkflow } from "@mux/ai/lib/workflow-native-credentials";
+import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
 import { getThumbnailUrls } from "@mux/ai/primitives/thumbnails";
 import { fetchTranscriptForAsset, getReadyTextTracks } from "@mux/ai/primitives/transcripts";
 import type {
   ImageSubmissionMode,
   MuxAIOptions,
   TokenUsage,
-  WorkflowCredentials,
   WorkflowCredentialsInput,
 } from "@mux/ai/types";
 
@@ -136,20 +134,6 @@ const HIVE_VIOLENCE_CATEGORIES = [
   "fights",
   "garm_death_injury_or_military_conflict",
 ];
-
-function normalizeModerationWorkflowCredentials(
-  providedCredentials?: WorkflowCredentialsInput,
-): WorkflowCredentialsInput | undefined {
-  if (!providedCredentials) {
-    return undefined;
-  }
-
-  if (isWorkflowNativeCredentials(providedCredentials)) {
-    return providedCredentials;
-  }
-
-  return serializeForWorkflow(providedCredentials as WorkflowCredentials);
-}
 
 async function processConcurrently<T>(
   items: any[],
@@ -512,11 +496,9 @@ export async function getModerationScores(
     imageDownloadOptions,
     credentials: providedCredentials,
   } = options;
-  const credentials = normalizeModerationWorkflowCredentials(providedCredentials);
-  const muxClient = await resolveMuxClient(credentials);
-
+  const credentials = providedCredentials;
   // Fetch asset data and playback ID from Mux via helper
-  const { asset, playbackId, policy } = await getPlaybackIdForAssetWithClient(assetId, muxClient);
+  const { asset, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
   const videoTrackDurationSeconds = getVideoTrackDurationSecondsFromAsset(asset);
   const videoTrackFps = getVideoTrackMaxFrameRateFromAsset(asset);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(asset);

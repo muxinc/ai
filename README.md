@@ -96,6 +96,9 @@ S3_SECRET_ACCESS_KEY=your-secret-key
 
 All workflows are compatible with [Workflow DevKit](https://useworkflow.dev). The workflows in this SDK are exported with `"use workflow"` directives and `"use step"` directives in the code.
 
+Workflow DevKit serializes workflow inputs/outputs for observability. To avoid sending plaintext secrets through `start(...)`, encrypt credentials in the trigger host and decrypt them in workflow steps.
+See the dedicated [Workflow Encryption guide](./docs/WORKFLOW-ENCRYPTION.md) for full setup and patterns.
+
 If you are using Workflow DevKit in your project, then you must call workflow functions like this:
 
 ```ts
@@ -111,35 +114,39 @@ const run = await start(getSummaryAndTags, [assetId]);
 
 ### Multi-tenant credentials with Workflow Dev Kit
 
-Workflow Dev Kit natively handles secure serialization of credentials across step
-boundaries. All credentials use serializable client wrappers (`WorkflowMuxClient`,
-`WorkflowOpenAIClient`, etc.) which the Workflow DevKit class registry transports
-securely. Wrap your credentials with `serializeForWorkflow` and pass them via `start()`.
+Set a shared workflow secret key (base64-encoded 32-byte value) in your environment:
+
+```bash
+MUX_AI_WORKFLOW_SECRET_KEY=your_base64_32_byte_key
+```
+
+Then encrypt credentials before calling `start()`:
 
 ```ts
 import { start } from "workflow/api";
-import {
-  serializeForWorkflow,
-  WorkflowMuxClient,
-  WorkflowOpenAIClient,
-} from "@mux/ai";
+import { encryptForWorkflow } from "@mux/ai";
 import { getSummaryAndTags } from "@mux/ai/workflows";
 
-const credentials = serializeForWorkflow({
-  muxClient: new WorkflowMuxClient({
-    tokenId: "mux-token-id",
-    tokenSecret: "mux-token-secret",
-  }),
-  openaiClient: new WorkflowOpenAIClient({
-    apiKey: "openai-api-key",
-  }),
-});
+const workflowKey = process.env.MUX_AI_WORKFLOW_SECRET_KEY!;
+const encryptedCredentials = await encryptForWorkflow(
+  {
+    muxTokenId: "mux-token-id",
+    muxTokenSecret: "mux-token-secret",
+    openaiApiKey: "openai-api-key",
+  },
+  workflowKey,
+);
 
 const run = await start(getSummaryAndTags, [
   "your-asset-id",
-  { provider: "openai", credentials },
+  {
+    provider: "openai",
+    credentials: encryptedCredentials,
+  },
 ]);
 ```
+
+For Mux tokens specifically, `setWorkflowCredentialsProvider(...)` (or environment variables) is still recommended so raw Mux secrets are never embedded in workflow input payloads.
 
 You can also register a credential provider on the execution host to resolve secrets inside steps.
 This is useful for dynamic key resolution, e.g. rotating keys or per-tenant secrets:
@@ -147,18 +154,12 @@ This is useful for dynamic key resolution, e.g. rotating keys or per-tenant secr
 ```ts
 import {
   setWorkflowCredentialsProvider,
-  WorkflowMuxClient,
-  WorkflowOpenAIClient,
 } from "@mux/ai";
 
 setWorkflowCredentialsProvider(async () => ({
-  muxClient: new WorkflowMuxClient({
-    tokenId: "mux-token-id",
-    tokenSecret: "mux-token-secret",
-  }),
-  openaiClient: new WorkflowOpenAIClient({
-    apiKey: await getOpenAIKeyForTenant(),
-  }),
+  muxTokenId: "mux-token-id",
+  muxTokenSecret: "mux-token-secret",
+  openaiApiKey: await getOpenAIKeyForTenant(),
 }));
 ```
 
@@ -468,6 +469,8 @@ S3_SECRET_ACCESS_KEY=your-r2-secret-key
 
 - **[Workflows Guide](./docs/WORKFLOWS.md)** - Detailed guide to each pre-built workflow with examples
 - **[API Reference](./docs/API.md)** - Complete API documentation for all functions, parameters, and return types
+- **[Workflow Encryption](./docs/WORKFLOW-ENCRYPTION.md)** - Encrypting credentials across Workflow DevKit boundaries
+- **[Storage Adapters](./docs/STORAGE-ADAPTERS.md)** - Using custom storage SDKs (AWS, Cloudflare R2, MinIO)
 - **[Primitives Guide](./docs/PRIMITIVES.md)** - Low-level building blocks for custom workflows
 - **[Examples](./docs/EXAMPLES.md)** - Running examples from the repository
 

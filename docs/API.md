@@ -247,6 +247,7 @@ Translates existing captions from one language to another and optionally adds th
 - `s3Endpoint?: string` - S3-compatible storage endpoint
 - `s3Region?: string` - S3 region (default: 'auto')
 - `s3Bucket?: string` - S3 bucket name
+- `storageAdapter?: StorageAdapter` - Optional adapter with `putObject` and `createPresignedGetUrl` methods
 
 **Returns:**
 
@@ -327,6 +328,7 @@ Creates AI-dubbed audio tracks from existing media content using ElevenLabs voic
 - `s3Endpoint?: string` - S3-compatible storage endpoint
 - `s3Region?: string` - S3 region (default: 'auto')
 - `s3Bucket?: string` - S3 bucket name
+- `storageAdapter?: StorageAdapter` - Optional adapter with `putObject` and `createPresignedGetUrl` methods
 
 **Returns:**
 

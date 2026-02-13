@@ -1,15 +1,20 @@
-name: Integration Tests (Workflow DevKit)
+name: Translate Audio Integration Test
 
 on:
   push:
     branches:
       - main
   pull_request:
+    paths:
+      - tests/integration/translate-audio.test.ts
+      - src/workflows/translate-audio.ts
+      - .github/workflows/translate-audio-integration.yml
+  workflow_dispatch:
 
 jobs:
-  integration-tests:
+  translate-audio-integration-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Checkout code
@@ -24,7 +29,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run integration tests (Workflow DevKit, excluding long-running audio translation test)
+      - name: Run translate audio integration test
         env:
           MUX_TOKEN_ID: ${{ secrets.MUX_TOKEN_ID }}
           MUX_TOKEN_SECRET: ${{ secrets.MUX_TOKEN_SECRET }}
@@ -48,4 +53,4 @@ jobs:
           MUX_TEST_ASSET_ID_WITHOUT_BURNED_IN_CAPTIONS: ${{ secrets.MUX_TEST_ASSET_ID_WITHOUT_BURNED_IN_CAPTIONS }}
           MUX_TEST_ASSET_ID_AUDIO_ONLY: ${{ secrets.MUX_TEST_ASSET_ID_AUDIO_ONLY }}
           MUX_TEST_ASSET_ID_VIOLENT_AUDIO_ONLY: ${{ secrets.MUX_TEST_ASSET_ID_VIOLENT_AUDIO_ONLY }}
-        run: npm run test:integration-workflowdevkit -- --exclude tests/integration/translate-audio.test.workflowdevkit.ts
+        run: DOTENV_CONFIG_PATH=.env.test npx vitest run tests/integration/translate-audio.test.ts
