@@ -13,6 +13,9 @@ MUX_TOKEN_SECRET=your_token_secret
 OPENAI_API_KEY=your_openai_key
 ANTHROPIC_API_KEY=your_anthropic_key
 GOOGLE_GENERATIVE_AI_API_KEY=your_google_key
+BEDROCK_AWS_REGION=us-east-1
+GOOGLE_VERTEX_PROJECT=your_gcp_project_id
+GOOGLE_VERTEX_LOCATION=us-central1
 HIVE_API_KEY=your_hive_key # required for Hive moderation runs
 ```
 
@@ -169,7 +172,7 @@ npm run basic <your-asset-id> "Is this a tutorial?" --model gpt-4o
 - Accessibility audits
 - Metadata verification
 
-Supports OpenAI, Anthropic, and Google providers.
+Supports OpenAI, Anthropic, Google, Bedrock, and Vertex providers.
 
 ## Chapter Generation Examples
 

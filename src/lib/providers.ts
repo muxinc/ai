@@ -228,9 +228,9 @@ async function resolveBedrockSettingsFromCredentials(
 ): Promise<BedrockProviderSettings> {
   const resolved = await resolveWorkflowCredentials(credentials);
   const record = resolved as Record<string, unknown>;
-  const region = readCredentialString(record, "bedrockRegion")
-    ?? env.BEDROCK_AWS_REGION
-    ?? env.AWS_REGION;
+  const region = readCredentialString(record, "bedrockRegion") ??
+    env.BEDROCK_AWS_REGION ??
+    env.AWS_REGION;
 
   requireEnv(region, "BEDROCK_AWS_REGION or AWS_REGION");
 
@@ -287,13 +287,13 @@ async function resolveVertexSettingsFromCredentials(
     apiKey,
     googleAuthOptions:
       clientEmail && privateKey ?
-        {
-          credentials: {
-            client_email: clientEmail,
-            private_key: privateKey,
-            ...(privateKeyId ? { private_key_id: privateKeyId } : {}),
-          },
-        } :
+          {
+            credentials: {
+              client_email: clientEmail,
+              private_key: privateKey,
+              ...(privateKeyId ? { private_key_id: privateKeyId } : {}),
+            },
+          } :
         undefined,
   };
 }
@@ -322,13 +322,13 @@ function resolveVertexSettingsFromEnv(): VertexProviderSettings {
     apiKey,
     googleAuthOptions:
       clientEmail && privateKey ?
-        {
-          credentials: {
-            client_email: clientEmail,
-            private_key: privateKey,
-            ...(privateKeyId ? { private_key_id: privateKeyId } : {}),
-          },
-        } :
+          {
+            credentials: {
+              client_email: clientEmail,
+              private_key: privateKey,
+              ...(privateKeyId ? { private_key_id: privateKeyId } : {}),
+            },
+          } :
         undefined,
   };
 }

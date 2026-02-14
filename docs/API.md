@@ -11,9 +11,9 @@ Analyzes a Mux video asset and returns AI-generated metadata.
 
 **Options:**
 
-- `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
+- `provider?: 'openai' | 'anthropic' | 'google' | 'bedrock' | 'vertex'` - AI provider (default: 'openai')
 - `tone?: 'neutral' | 'playful' | 'professional'` - Analysis tone (default: 'neutral')
-- `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
+- `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, `gemini-3-flash-preview`, `us.anthropic.claude-3-5-sonnet-20241022-v2:0`, or `gemini-3-flash-preview` on Vertex)
 - `includeTranscript?: boolean` - Include video transcript in analysis (default: true)
 - `cleanTranscript?: boolean` - Remove VTT timestamps and formatting from transcript (default: true)
 - `imageSubmissionMode?: 'url' | 'base64'` - How to submit storyboard to AI providers (default: 'url')
@@ -111,8 +111,8 @@ Analyzes video frames to detect burned-in captions (hardcoded subtitles) that ar
 
 **Options:**
 
-- `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
-- `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
+- `provider?: 'openai' | 'anthropic' | 'google' | 'bedrock' | 'vertex'` - AI provider (default: 'openai')
+- `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, `gemini-3-flash-preview`, `us.anthropic.claude-3-5-sonnet-20241022-v2:0`, or `gemini-3-flash-preview` on Vertex)
 - `imageSubmissionMode?: 'url' | 'base64'` - How to submit storyboard to AI providers (default: 'url')
 - `imageDownloadOptions?: object` - Options for image download when using base64 mode
   - `timeout?: number` - Request timeout in milliseconds (default: 10000)
@@ -139,7 +139,7 @@ Analyzes video frames to detect burned-in captions (hardcoded subtitles) that ar
 - Distinguishes between actual captions and marketing/end-card text
 - Text appearing only in final 1-2 frames is classified as marketing copy
 - Caption text must appear across multiple frames throughout the timeline
-- Both providers use optimized prompts to minimize false positives
+- All providers use optimized prompts to minimize false positives
 
 ## `askQuestions(assetId, questions, options?)`
 
@@ -155,8 +155,8 @@ Answer questions about video content by analyzing storyboard frames and optional
 
 **Options:**
 
-- `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
-- `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
+- `provider?: 'openai' | 'anthropic' | 'google' | 'bedrock' | 'vertex'` - AI provider (default: 'openai')
+- `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, `gemini-3-flash-preview`, `us.anthropic.claude-3-5-sonnet-20241022-v2:0`, or `gemini-3-flash-preview` on Vertex)
 - `answerOptions?: string[]` - Allowed answers (default: `["yes", "no"]`)
 - `includeTranscript?: boolean` - Include video transcript in analysis (default: true)
 - `cleanTranscript?: boolean` - Remove VTT timestamps and formatting from transcript (default: true)
@@ -241,7 +241,7 @@ Translates existing captions from one language to another and optionally adds th
 
 **Options:**
 
-- `provider: 'openai' | 'anthropic' | 'google'` - AI provider (required)
+- `provider: 'openai' | 'anthropic' | 'google' | 'bedrock' | 'vertex'` - AI provider (required)
 - `model?: string` - Model to use (defaults to the provider's chat-vision model if omitted)
 - `uploadToMux?: boolean` - Whether to upload translated track to Mux (default: true)
 - `s3Endpoint?: string` - S3-compatible storage endpoint
@@ -278,8 +278,8 @@ Generates AI-powered chapter markers by analyzing video or audio transcripts. Cr
 
 **Options:**
 
-- `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
-- `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
+- `provider?: 'openai' | 'anthropic' | 'google' | 'bedrock' | 'vertex'` - AI provider (default: 'openai')
+- `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, `gemini-3-flash-preview`, `us.anthropic.claude-3-5-sonnet-20241022-v2:0`, or `gemini-3-flash-preview` on Vertex)
 
 **Returns:**
 
@@ -365,8 +365,8 @@ Generate vector embeddings for transcript chunks from video or audio assets for 
 
 **Options:**
 
-- `provider?: 'openai' | 'google'` - Embedding provider (default: 'openai')
-- `model?: string` - Model to use (defaults: `text-embedding-3-small` for OpenAI, `gemini-embedding-001` for Google)
+- `provider?: 'openai' | 'google' | 'bedrock' | 'vertex'` - Embedding provider (default: 'openai')
+- `model?: string` - Model to use (defaults: `text-embedding-3-small` for OpenAI, `gemini-embedding-001` for Google, `amazon.titan-embed-text-v2:0` for Bedrock, and `text-embedding-005` for Vertex)
 - `chunkingStrategy?: object` - How to chunk the transcript
   - `type: 'token' | 'vtt'` - Chunking method
   - `maxTokens?: number` - Maximum tokens per chunk (default: 500)

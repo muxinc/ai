@@ -47,7 +47,7 @@ Choose between two methods for submitting images to AI providers:
 - Better control over slow TTFB and network issues
 - Slightly higher bandwidth usage but more reliable results
 - For OpenAI: submits images as base64 data URIs
-- For Anthropic/Google: the AI SDK handles converting the base64 payload into the provider-specific format automatically
+- For Anthropic/Google/Bedrock/Vertex: the AI SDK handles converting the base64 payload into the provider-specific format automatically
 
 ```typescript
 // High reliability mode - recommended for production
@@ -184,7 +184,7 @@ result.answers.forEach(answer => {
 
 ```typescript
 const result = await askQuestions(assetId, questions, {
-  provider: "openai", // "openai", "anthropic", or "google" (default: "openai")
+  provider: "openai", // "openai", "anthropic", "google", "bedrock", or "vertex" (default: "openai")
   model: "gpt-5.1", // Override default model
   answerOptions: ["yes", "no", "unsure"], // Override allowed answers
   includeTranscript: true, // Include transcript (default: true)
@@ -456,10 +456,24 @@ const googleResult = await getSummaryAndTags(assetId, {
   tone: "professional"
 });
 
+// Bedrock analysis (default: us.anthropic.claude-3-5-sonnet-20241022-v2:0)
+const bedrockResult = await getSummaryAndTags(assetId, {
+  provider: "bedrock",
+  tone: "professional"
+});
+
+// Vertex analysis (default: gemini-3-flash-preview)
+const vertexResult = await getSummaryAndTags(assetId, {
+  provider: "vertex",
+  tone: "professional"
+});
+
 // Compare results
 console.log("OpenAI:", openaiResult.title);
 console.log("Anthropic:", anthropicResult.title);
 console.log("Google:", googleResult.title);
+console.log("Bedrock:", bedrockResult.title);
+console.log("Vertex:", vertexResult.title);
 ```
 
 Works with any workflow:
@@ -480,6 +494,16 @@ const anthropicChapters = await generateChapters(assetId, "en", {
 // Google (default: gemini-3-flash-preview)
 const googleChapters = await generateChapters(assetId, "en", {
   provider: "google"
+});
+
+// Bedrock (default: us.anthropic.claude-3-5-sonnet-20241022-v2:0)
+const bedrockChapters = await generateChapters(assetId, "en", {
+  provider: "bedrock"
+});
+
+// Vertex (default: gemini-3-flash-preview)
+const vertexChapters = await generateChapters(assetId, "en", {
+  provider: "vertex"
 });
 ```
 
@@ -503,4 +527,4 @@ const fastResult = await getSummaryAndTags(assetId, {
 });
 ```
 
-**Cost Optimization Tip:** The defaults (`gpt-5.1`, `claude-sonnet-4-5`, `gemini-3-flash-preview`) are optimized for cost/quality balance. Only upgrade to more powerful models when quality needs justify the higher cost.
+**Cost Optimization Tip:** The defaults (`gpt-5.1`, `claude-sonnet-4-5`, `gemini-3-flash-preview`, `us.anthropic.claude-3-5-sonnet-20241022-v2:0`) are optimized for cost/quality balance. Only upgrade to more powerful models when quality needs justify the higher cost.

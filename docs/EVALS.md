@@ -27,7 +27,7 @@ Every eval in this library measures workflows against three dimensions:
 - How do costs compare for equivalent quality?
 - Where are opportunities for prompt optimization?
 
-This framework enables systematic evaluation of default model selections across all supported providers and helps users understand the tradeoffs between OpenAI, Anthropic, and Google.
+This framework enables systematic evaluation of default model selections across all supported providers and helps users understand the tradeoffs between OpenAI, Anthropic, Google, Bedrock, and Vertex.
 
 ### Practical Application
 
@@ -37,7 +37,7 @@ Not all workflows can measure all 3 E's with equal precision from day one:
 
 - **Efficiency and Expense** are always measurable. Token counts, latency, and costs are objective metrics that can establish early signals for any workflow, even before efficacy scoring is fully developed.
 
-- **Foundational model workflows** (those relying exclusively on OpenAI, Anthropic, or Google) should target all 3 E's. These workflows have predictable inputs/outputs and can leverage scorers like semantic similarity, faithfulness (useful for translations), and others for efficacy measurement.
+- **Foundational model workflows** (those relying on providers like OpenAI, Anthropic, Google, Bedrock, or Vertex) should target all 3 E's. These workflows have predictable inputs/outputs and can leverage scorers like semantic similarity, faithfulness (useful for translations), and others for efficacy measurement.
 
 When adding a new workflow, start with Efficiency and Expense coverage immediately, then iterate on Efficacy as you build confidence in ground truth data.
 
@@ -192,7 +192,7 @@ const COST_THRESHOLD_USD = 0.012;
 All evals test across multiple providers to compare results:
 
 ```typescript
-const providers: SupportedProvider[] = ["openai", "anthropic", "google"];
+const providers: SupportedProvider[] = ["openai", "anthropic", "google", "bedrock", "vertex"];
 
 const data = providers.flatMap(provider =>
   testAssets.map(asset => ({
@@ -218,11 +218,15 @@ Evals calculate estimated costs using provider pricing for the default models:
 | OpenAI | gpt-5.1 | $1.25 | $10.00 |
 | Anthropic | claude-sonnet-4-5 | $3.00 | $15.00 |
 | Google | gemini-3-flash-preview | $0.50 | $3.00 |
+| Bedrock | us.anthropic.claude-3-5-sonnet-20241022-v2:0 | $3.00 | $15.00 |
+| Vertex | gemini-3-flash-preview | $0.50 | $3.00 |
 
 Pricing sources (verify periodically):
 - [OpenAI Pricing](https://openai.com/api/pricing)
 - [Anthropic Pricing](https://www.anthropic.com/pricing)
 - [Google AI Pricing](https://ai.google.dev/pricing)
+- [Amazon Bedrock Pricing](https://aws.amazon.com/bedrock/pricing)
+- [Google Vertex AI Pricing](https://cloud.google.com/vertex-ai/generative-ai/pricing)
 
 ## Resources
 
