@@ -15,7 +15,7 @@ import { muxTestAssets } from "../helpers/mux-test-assets";
  * Summarization Evaluation
  *
  * This eval measures the efficacy, efficiency, and expense of the `getSummaryAndTags`
- * function across multiple AI providers (OpenAI, Anthropic, Google) to ensure consistent,
+ * function across provider/model combinations to ensure consistent,
  * high-quality, fast, and cost-effective video metadata generation.
  *
  * ─────────────────────────────────────────────────────────────────────────────
@@ -81,12 +81,12 @@ import { muxTestAssets } from "../helpers/mux-test-assets";
  *
  * 1. TOKEN CONSUMPTION
  *    - Track inputTokens, outputTokens, totalTokens per request
- *    - Compare token usage across providers
+ *    - Compare token usage across provider/model combinations
  *    - Identify opportunities for prompt optimization
  *
  * 2. COST ESTIMATION
- *    - Calculate estimated USD cost per request using THIRD_PARTY_MODEL_PRICING
- *    - Compare costs across providers for budget optimization
+ *    - Calculate estimated USD cost per request using model-specific pricing
+ *    - Compare costs across provider/model combinations for budget optimization
  *    - Target: <$0.005 per request for cost-effective operation
  *    - Benchmark: Google ~$0.0008, OpenAI ~$0.002, Anthropic ~$0.013
  *
@@ -152,7 +152,7 @@ interface EvalOutput extends SummaryAndTagsResult {
   latencyMs: number;
   /** Token usage from the AI provider. */
   usage: TokenUsage;
-  /** Estimated cost in USD based on token usage and provider pricing. */
+  /** Estimated cost in USD based on token usage and model-specific pricing. */
   estimatedCostUsd: number;
 }
 
@@ -270,7 +270,7 @@ evalite("Summarization", {
   // ───────────────────────────────────────────────────────────────────────────
   //
   // Each scorer returns a value between 0 and 1. The eval framework aggregates
-  // these scores across all test cases and providers.
+  // these scores across all test cases and provider/model combinations.
   //
   // EFFICACY METRICS (content quality):
   // - Title Quality: Is the title well-formed and compelling?

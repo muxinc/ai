@@ -17,7 +17,7 @@ import { muxTestAssets } from "../helpers/mux-test-assets";
  * Caption Translation Evaluation
  *
  * This eval measures the efficacy, efficiency, and expense of the `translateCaptions`
- * function across multiple AI providers (OpenAI, Anthropic, Google) to ensure consistent,
+ * function across provider/model combinations to ensure consistent,
  * high-quality, fast, and cost-effective VTT subtitle translation.
  *
  * ─────────────────────────────────────────────────────────────────────────────
@@ -63,7 +63,7 @@ import { muxTestAssets } from "../helpers/mux-test-assets";
  *
  * 1. TOKEN CONSUMPTION
  *    - Track inputTokens, outputTokens, totalTokens per request
- *    - Compare token usage across providers
+ *    - Compare token usage across provider/model combinations
  *
  * 2. COST ESTIMATION
  *    - Calculate estimated USD cost per request
@@ -134,7 +134,7 @@ interface EvalOutput extends TranslationResult {
   latencyMs: number;
   /** Token usage from the AI provider. */
   usage: TokenUsage;
-  /** Estimated cost in USD based on token usage and provider pricing. */
+  /** Estimated cost in USD based on token usage and model-specific pricing. */
   estimatedCostUsd: number;
 }
 
@@ -358,7 +358,7 @@ evalite("Caption Translation", {
   // ───────────────────────────────────────────────────────────────────────────
   //
   // Each scorer returns a value between 0 and 1. The eval framework aggregates
-  // these scores across all test cases and providers.
+  // these scores across all test cases and provider/model combinations.
   //
   // EFFICACY METRICS (translation quality):
   // - VTT Format: Is the output valid VTT format?

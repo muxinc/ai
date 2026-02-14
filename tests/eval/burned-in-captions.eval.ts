@@ -12,7 +12,7 @@ import { muxTestAssets } from "../helpers/mux-test-assets";
  * Burned-in Captions Detection Evaluation
  *
  * This eval measures the efficacy, efficiency, and expense of the `hasBurnedInCaptions`
- * function across multiple AI providers (OpenAI, Anthropic, Google) to ensure consistent,
+ * function across provider/model combinations to ensure consistent,
  * accurate, fast, and cost-effective detection of hardcoded subtitles in video content.
  *
  * ─────────────────────────────────────────────────────────────────────────────
@@ -59,12 +59,12 @@ import { muxTestAssets } from "../helpers/mux-test-assets";
  *
  * 1. TOKEN CONSUMPTION
  *    - Track inputTokens, outputTokens, totalTokens per request
- *    - Compare token usage across providers
+ *    - Compare token usage across provider/model combinations
  *    - Identify opportunities for prompt optimization
  *
  * 2. COST ESTIMATION
- *    - Calculate estimated USD cost per request using THIRD_PARTY_MODEL_PRICING
- *    - Compare costs across providers for budget optimization
+ *    - Calculate estimated USD cost per request using model-specific pricing
+ *    - Compare costs across provider/model combinations for budget optimization
  *    - Target: <$0.012 per request for acceptable operation
  *    - Benchmark: Google ~$0.0003, OpenAI ~$0.0006, Anthropic ~$0.010
  *
@@ -135,7 +135,7 @@ interface EvalOutput extends BurnedInCaptionsResult {
   latencyMs: number;
   /** Token usage from the AI provider. */
   usage: TokenUsage;
-  /** Estimated cost in USD based on token usage and provider pricing. */
+  /** Estimated cost in USD based on token usage and model-specific pricing. */
   estimatedCostUsd: number;
 }
 
@@ -225,7 +225,7 @@ evalite("Burned-in Captions", {
   // ───────────────────────────────────────────────────────────────────────────
   //
   // Each scorer returns a value between 0 and 1. The eval framework aggregates
-  // these scores across all test cases and providers.
+  // these scores across all test cases and provider/model combinations.
   //
   // EFFICACY METRICS (binary pass/fail):
   // - Detection Accuracy: Does hasBurnedInCaptions match ground truth?

@@ -106,7 +106,7 @@ export function resolveEmbeddingModelConfig<P extends SupportedEmbeddingProvider
 // Pricing is in USD per million tokens. These values are used for cost estimation
 // in evaluations and should be periodically verified against official sources.
 //
-// Sources (as of December 2025):
+// Sources (verified on 2026-02-13):
 // - OpenAI: https://openai.com/api/pricing
 // - Anthropic: https://www.anthropic.com/pricing
 // - Google: https://ai.google.dev/pricing
@@ -128,42 +128,6 @@ export interface ModelPricing {
 }
 
 /**
- * Pricing data for the default language models.
- * Used for cost estimation in evaluations and expense tracking.
- *
- * @remarks
- * Prices are subject to change. Verify against official sources before production use.
- */
-export const THIRD_PARTY_MODEL_PRICING: { [K in SupportedProvider]: ModelPricing } = {
-  // OpenAI GPT-5.1
-  // Reference: https://openai.com/api/pricing
-  openai: {
-    inputPerMillion: 1.25,
-    outputPerMillion: 10.00,
-    cachedInputPerMillion: 0.125,
-    pricingUrl: "https://openai.com/api/pricing",
-  },
-
-  // Anthropic Claude Sonnet 4.5
-  // Reference: https://www.anthropic.com/pricing
-  anthropic: {
-    inputPerMillion: 3.00,
-    outputPerMillion: 15.00,
-    cachedInputPerMillion: 0.30, // Prompt caching read cost (≤200K tokens)
-    pricingUrl: "https://www.anthropic.com/pricing",
-  },
-
-  // Google Gemini 3 Flash Preview
-  // Reference: https://ai.google.dev/pricing
-  google: {
-    inputPerMillion: 0.50,
-    outputPerMillion: 3.00,
-    cachedInputPerMillion: 0.05, // Context caching price
-    pricingUrl: "https://ai.google.dev/pricing",
-  },
-};
-
-/**
  * Per-model pricing data for all supported language models.
  * Used for model-specific cost estimation in evaluations and expense tracking.
  *
@@ -181,9 +145,9 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
     pricingUrl: "https://openai.com/api/pricing",
   },
   "gpt-5-mini": {
-    inputPerMillion: 0.30,
-    outputPerMillion: 1.25,
-    cachedInputPerMillion: 0.03,
+    inputPerMillion: 0.25,
+    outputPerMillion: 2.00,
+    cachedInputPerMillion: 0.025,
     pricingUrl: "https://openai.com/api/pricing",
   },
 
@@ -205,9 +169,9 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
     pricingUrl: "https://ai.google.dev/pricing",
   },
   "gemini-2.5-flash": {
-    inputPerMillion: 0.15,
-    outputPerMillion: 0.60,
-    cachedInputPerMillion: 0.015,
+    inputPerMillion: 0.30,
+    outputPerMillion: 2.50,
+    cachedInputPerMillion: 0.03,
     pricingUrl: "https://ai.google.dev/pricing",
   },
 };
@@ -252,6 +216,7 @@ export function calculateModelCost(
 
 /**
  * Calculates the estimated cost for a request based on token usage.
+ * Uses each provider's default model pricing from MODEL_PRICING.
  *
  * @param provider - The AI provider used
  * @param inputTokens - Number of input tokens consumed
@@ -271,19 +236,8 @@ export function calculateCost(
   outputTokens: number,
   cachedInputTokens: number = 0,
 ): number {
-  const pricing = THIRD_PARTY_MODEL_PRICING[provider];
-
-  // Adjust input tokens: cached tokens are charged at cached rate, rest at full rate
-  const uncachedInputTokens = Math.max(0, inputTokens - cachedInputTokens);
-
-  const inputCost = (uncachedInputTokens / 1_000_000) * pricing.inputPerMillion;
-  const outputCost = (outputTokens / 1_000_000) * pricing.outputPerMillion;
-  let cachedCost = 0;
-  if (pricing.cachedInputPerMillion) {
-    cachedCost = (cachedInputTokens / 1_000_000) * pricing.cachedInputPerMillion;
-  }
-
-  return inputCost + outputCost + cachedCost;
+  const defaultModelId = DEFAULT_LANGUAGE_MODELS[provider];
+  return calculateModelCost(defaultModelId, inputTokens, outputTokens, cachedInputTokens);
 }
 
 function requireEnv(value: string | undefined, name: string): string {

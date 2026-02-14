@@ -12,7 +12,7 @@ import { muxTestAssets } from "../helpers/mux-test-assets";
  * Ask Questions Evaluation
  *
  * This eval measures the efficacy, efficiency, and expense of the `askQuestions`
- * workflow across multiple providers (OpenAI, Anthropic, Google) to ensure the
+ * workflow across provider/model combinations to ensure the
  * model returns consistent yes/no answers with grounded reasoning.
  */
 
@@ -44,7 +44,7 @@ interface EvalOutput extends AskQuestionsResult {
   latencyMs: number;
   /** Token usage from the AI provider. */
   usage: TokenUsage;
-  /** Estimated cost in USD based on token usage and provider pricing. */
+  /** Estimated cost in USD based on token usage and model-specific pricing. */
   estimatedCostUsd: number;
 }
 

@@ -16,7 +16,7 @@ import { muxTestAssets } from "../helpers/mux-test-assets";
  * Chapters Evaluation
  *
  * This eval measures the efficacy, efficiency, and expense of the `generateChapters`
- * workflow across multiple AI providers (OpenAI, Anthropic, Google) to ensure consistent,
+ * workflow across provider/model combinations to ensure consistent,
  * structured, and cost-effective chapter segmentation from transcripts.
  *
  * ─────────────────────────────────────────────────────────────────────────────
@@ -116,7 +116,7 @@ interface EvalOutput extends ChaptersResult {
   latencyMs: number;
   /** Token usage from the AI provider. */
   usage: TokenUsage;
-  /** Estimated cost in USD based on token usage and provider pricing. */
+  /** Estimated cost in USD based on token usage and model-specific pricing. */
   estimatedCostUsd: number;
 }
 
