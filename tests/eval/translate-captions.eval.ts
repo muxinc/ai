@@ -6,7 +6,7 @@ import { reportTrace } from "evalite/traces";
 import { z } from "zod";
 
 import { isValidISO639_1, isValidISO639_3, toISO639_1, toISO639_3 } from "../../src/lib/language-codes";
-import { calculateCost, DEFAULT_LANGUAGE_MODELS } from "../../src/lib/providers";
+import { calculateModelCost, EVAL_MODEL_CONFIGS } from "../../src/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "../../src/lib/providers";
 import type { TokenUsage } from "../../src/types";
 import { translateCaptions } from "../../src/workflows";
@@ -17,7 +17,7 @@ import { muxTestAssets } from "../helpers/mux-test-assets";
  * Caption Translation Evaluation
  *
  * This eval measures the efficacy, efficiency, and expense of the `translateCaptions`
- * function across multiple AI providers (OpenAI, Anthropic, Google) to ensure consistent,
+ * function across provider/model combinations to ensure consistent,
  * high-quality, fast, and cost-effective VTT subtitle translation.
  *
  * ─────────────────────────────────────────────────────────────────────────────
@@ -63,7 +63,7 @@ import { muxTestAssets } from "../helpers/mux-test-assets";
  *
  * 1. TOKEN CONSUMPTION
  *    - Track inputTokens, outputTokens, totalTokens per request
- *    - Compare token usage across providers
+ *    - Compare token usage across provider/model combinations
  *
  * 2. COST ESTIMATION
  *    - Calculate estimated USD cost per request
@@ -134,7 +134,7 @@ interface EvalOutput extends TranslationResult {
   latencyMs: number;
   /** Token usage from the AI provider. */
   usage: TokenUsage;
-  /** Estimated cost in USD based on token usage and provider pricing. */
+  /** Estimated cost in USD based on token usage and model-specific pricing. */
   estimatedCostUsd: number;
 }
 
@@ -189,18 +189,13 @@ const testAssets: TestAsset[] = [
   },
 ];
 
-/** AI providers to test for cross-provider consistency. */
-const providers: SupportedProvider[] = [
-  "openai",
-  "anthropic",
-  "google",
-];
-
-const data = providers.flatMap(provider =>
+/** Model configurations to test for cross-provider and cross-model consistency. */
+const data = EVAL_MODEL_CONFIGS.flatMap(({ provider, modelId }) =>
   testAssets.map(asset => ({
     input: {
       assetId: asset.assetId,
       provider,
+      model: modelId,
       sourceLanguage: asset.sourceLanguage,
       targetLanguage: asset.targetLanguage,
       targetLanguageName: asset.targetLanguageName,
@@ -319,24 +314,25 @@ async function scoreTranslationFaithfulness({
 
 evalite("Caption Translation", {
   data,
-  task: async ({ assetId, provider, sourceLanguage, targetLanguage }): Promise<EvalOutput> => {
+  task: async ({ assetId, provider, model, sourceLanguage, targetLanguage }): Promise<EvalOutput> => {
     const startTime = performance.now();
     const result = await translateCaptions(assetId, sourceLanguage, targetLanguage, {
       provider,
+      model,
       uploadToMux: false, // Don't upload during evals
     });
     const latencyMs = performance.now() - startTime;
 
     const usage = result.usage ?? {};
-    const estimatedCostUsd = calculateCost(
-      provider,
+    const estimatedCostUsd = calculateModelCost(
+      model,
       usage.inputTokens ?? 0,
       usage.outputTokens ?? 0,
       usage.cachedInputTokens ?? 0,
     );
 
     reportTrace({
-      input: { assetId, provider, sourceLanguage, targetLanguage },
+      input: { assetId, provider, model, sourceLanguage, targetLanguage },
       output: result,
       usage: {
         inputTokens: usage.inputTokens ?? 0,
@@ -350,7 +346,7 @@ evalite("Caption Translation", {
     return {
       ...result,
       provider,
-      model: DEFAULT_LANGUAGE_MODELS[provider],
+      model,
       latencyMs,
       usage,
       estimatedCostUsd,
@@ -362,7 +358,7 @@ evalite("Caption Translation", {
   // ───────────────────────────────────────────────────────────────────────────
   //
   // Each scorer returns a value between 0 and 1. The eval framework aggregates
-  // these scores across all test cases and providers.
+  // these scores across all test cases and provider/model combinations.
   //
   // EFFICACY METRICS (translation quality):
   // - VTT Format: Is the output valid VTT format?
