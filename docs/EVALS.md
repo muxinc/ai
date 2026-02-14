@@ -4,6 +4,10 @@
 
 This library uses [Evalite](https://v1.evalite.dev/) for AI evaluation testing. Evals measure the efficacy, efficiency, and expense of AI workflows across multiple providers, enabling data-driven decisions about model selection and prompt optimization.
 
+**[View the latest evaluation results →](https://evaluating-mux-ai.vercel.app/)**
+
+Results are published automatically on every push to `main`, so the dashboard always reflects the current state of the library's default models and prompts.
+
 ## The 3 E's Framework
 
 Every eval in this library measures workflows against three dimensions:

@@ -12,6 +12,7 @@ Turn your Mux video and audio assets into structured, actionable data — summar
 - **Ship in minutes, not weeks.** Pre-built workflows turn complex multi-step media AI tasks (fetch transcript, extract frames, call LLM, parse response) into one-liner function calls.
 - **Video and audio.** Works with video assets and [audio-only assets](./docs/AUDIO-ONLY.md) alike — summarize podcasts, moderate audio content, generate chapters from interviews, and more.
 - **Bring your own provider.** Switch between OpenAI, Anthropic, and Google with a single option — no prompt rewrites, no format changes.
+- **Evaluated and transparent.** Every workflow ships with [eval coverage](./docs/EVALS.md) that measures quality, latency, and cost across providers — results are [published publicly](https://evaluating-mux-ai.vercel.app/) on every push to `main` so you can make informed decisions.
 - **Cost-effective defaults.** Every workflow ships with affordable frontier model defaults (`gpt-5.1`, `claude-sonnet-4-5`, `gemini-3-flash-preview`) that balance quality and cost.
 - **Fully typed.** Comprehensive TypeScript types for every workflow input, option, and result — great autocomplete and compile-time safety.
 - **Production-ready.** Built-in retry logic, error handling, signed playback support, and [Workflow DevKit](https://useworkflow.dev) compatibility for observability and orchestration.
@@ -136,6 +137,24 @@ const result = await getSummaryAndTags(assetId, {
 
 This works with `getSummaryAndTags`, `generateChapters`, and `hasBurnedInCaptions`. The [Prompt Customization guide](./docs/PROMPT-CUSTOMIZATION.md) has ready-to-use presets for SEO, social media, e-commerce, and technical analysis, along with tips for writing effective overrides.
 
+## Evaluations
+
+Choosing between OpenAI, Anthropic, and Google for a given workflow isn't guesswork. Every workflow in `@mux/ai` ships with eval coverage that benchmarks providers and models against three dimensions:
+
+- **Efficacy** — Does it produce accurate, high-quality results?
+- **Efficiency** — How fast is it and how many tokens does it consume?
+- **Expense** — What does each request cost?
+
+Evals run automatically on every push to `main` and results are published to a **[public dashboard](https://evaluating-mux-ai.vercel.app/)** so you can compare providers side-by-side before choosing one for your use case.
+
+You can also run evals locally against your own assets:
+
+```bash
+npm run test:eval
+```
+
+See the [Evaluations guide](./docs/EVALS.md) for details on the 3 E's framework, adding your own evals, and cross-provider testing.
+
 ## Primitives
 
 Primitives are low-level building blocks that give you direct access to Mux media data — transcripts, storyboards, thumbnails, and text chunking utilities. Use them when you need full control over your AI prompts or want to build custom workflows.
@@ -183,7 +202,7 @@ import { workflows, primitives } from "@mux/ai";
 | [Workflow Encryption](./docs/WORKFLOW-ENCRYPTION.md) | Encrypting credentials across Workflow DevKit boundaries |
 | [Storage Adapters](./docs/STORAGE-ADAPTERS.md) | Using custom storage SDKs (AWS, Cloudflare R2, MinIO) |
 | [Audio-Only Workflows](./docs/AUDIO-ONLY.md) | Working with audio-only assets (no video track) |
-| [Evaluations](./docs/EVALS.md) | AI evaluation testing with the 3 E's framework |
+| [Evaluations](./docs/EVALS.md) | AI eval testing with the 3 E's framework — [public dashboard](https://evaluating-mux-ai.vercel.app/) |
 | [Examples](./docs/EXAMPLES.md) | Running the example scripts from the repository |
 
 ### Additional Resources
