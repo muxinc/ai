@@ -4,7 +4,7 @@ import { evalite } from "evalite";
 import { answerSimilarity } from "evalite/scorers";
 import { reportTrace } from "evalite/traces";
 
-import { calculateCost, DEFAULT_LANGUAGE_MODELS } from "../../src/lib/providers";
+import { calculateModelCost, EVAL_MODEL_CONFIGS } from "../../src/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "../../src/lib/providers";
 import type { TokenUsage } from "../../src/types";
 import { getSummaryAndTags, SUMMARY_KEYWORD_LIMIT } from "../../src/workflows";
@@ -199,16 +199,10 @@ const testAssets: TestAsset[] = [
   },
 ];
 
-/** AI providers to test for cross-provider consistency. */
-const providers: SupportedProvider[] = [
-  "openai",
-  "anthropic",
-  "google",
-];
-
-const data = providers.flatMap(provider =>
+/** Model configurations to test for cross-provider and cross-model consistency. */
+const data = EVAL_MODEL_CONFIGS.flatMap(({ provider, modelId }) =>
   testAssets.map(asset => ({
-    input: { assetId: asset.assetId, provider },
+    input: { assetId: asset.assetId, provider, model: modelId },
     expected: {
       referenceTitle: asset.referenceTitle,
       referenceDescription: asset.referenceDescription,
@@ -223,16 +217,17 @@ const data = providers.flatMap(provider =>
 
 evalite("Summarization", {
   data,
-  task: async ({ assetId, provider }): Promise<EvalOutput> => {
+  task: async ({ assetId, provider, model }): Promise<EvalOutput> => {
     const startTime = performance.now();
     const result = await getSummaryAndTags(assetId, {
       provider,
+      model,
       includeTranscript: true,
     });
     const latencyMs = performance.now() - startTime;
 
     console.warn(
-      `[summarization][${provider}] ${assetId}`,
+      `[summarization][${provider}/${model}] ${assetId}`,
       {
         title: result.title,
         description: result.description,
@@ -241,15 +236,15 @@ evalite("Summarization", {
     );
 
     const usage = result.usage ?? {};
-    const estimatedCostUsd = calculateCost(
-      provider,
+    const estimatedCostUsd = calculateModelCost(
+      model,
       usage.inputTokens ?? 0,
       usage.outputTokens ?? 0,
       usage.cachedInputTokens ?? 0,
     );
 
     reportTrace({
-      input: { assetId, provider },
+      input: { assetId, provider, model },
       output: result,
       usage: {
         inputTokens: usage.inputTokens ?? 0,
@@ -263,7 +258,7 @@ evalite("Summarization", {
     return {
       ...result,
       provider,
-      model: DEFAULT_LANGUAGE_MODELS[provider],
+      model,
       latencyMs,
       usage,
       estimatedCostUsd,
@@ -603,7 +598,7 @@ evalite("Summarization", {
     },
   ],
 
-  columns: async ({ input, output }: { input: { assetId: string }; output: EvalOutput }) => {
+  columns: async ({ input, output }: { input: { assetId: string; model: ModelIdByProvider[SupportedProvider] }; output: EvalOutput }) => {
     return [
       { label: "Asset ID", value: input.assetId },
       { label: "Provider", value: output.provider },

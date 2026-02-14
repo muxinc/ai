@@ -1,7 +1,7 @@
 import { evalite } from "evalite";
 import { reportTrace } from "evalite/traces";
 
-import { calculateCost, DEFAULT_LANGUAGE_MODELS } from "../../src/lib/providers";
+import { calculateModelCost, EVAL_MODEL_CONFIGS } from "../../src/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "../../src/lib/providers";
 import type { TokenUsage } from "../../src/types";
 import { hasBurnedInCaptions } from "../../src/workflows";
@@ -154,23 +154,17 @@ const assetsWithoutCaptions = [
   muxTestAssets.withoutBurnedInCaptionsAssetId,
 ];
 
-/** AI providers to test for cross-provider consistency. */
-const providers: SupportedProvider[] = [
-  "openai",
-  "anthropic",
-  "google",
-];
-
+/** Model configurations to test for cross-provider and cross-model consistency. */
 const data = [
-  ...providers.flatMap(provider =>
+  ...EVAL_MODEL_CONFIGS.flatMap(({ provider, modelId }) =>
     assetsWithCaptions.map(assetId => ({
-      input: { assetId, provider, groundTruth: "Has Burned-in Captions" },
+      input: { assetId, provider, model: modelId, groundTruth: "Has Burned-in Captions" },
       expected: { hasBurnedInCaptions: true, minConfidence: CONFIDENCE_THRESHOLD } as Expected,
     })),
   ),
-  ...providers.flatMap(provider =>
+  ...EVAL_MODEL_CONFIGS.flatMap(({ provider, modelId }) =>
     assetsWithoutCaptions.map(assetId => ({
-      input: { assetId, provider, groundTruth: "No Burned-in Captions" },
+      input: { assetId, provider, model: modelId, groundTruth: "No Burned-in Captions" },
       expected: { hasBurnedInCaptions: false } as Expected,
     })),
   ),
@@ -182,13 +176,13 @@ const data = [
 
 evalite("Burned-in Captions", {
   data,
-  task: async ({ assetId, provider }): Promise<EvalOutput> => {
+  task: async ({ assetId, provider, model }): Promise<EvalOutput> => {
     const startTime = performance.now();
-    const result = await hasBurnedInCaptions(assetId, { provider });
+    const result = await hasBurnedInCaptions(assetId, { provider, model });
     const latencyMs = performance.now() - startTime;
 
     console.warn(
-      `[burned-in-captions][${provider}] ${assetId}`,
+      `[burned-in-captions][${provider}/${model}] ${assetId}`,
       {
         hasBurnedInCaptions: result.hasBurnedInCaptions,
         confidence: result.confidence,
@@ -197,15 +191,15 @@ evalite("Burned-in Captions", {
     );
 
     const usage = result.usage ?? {};
-    const estimatedCostUsd = calculateCost(
-      provider,
+    const estimatedCostUsd = calculateModelCost(
+      model,
       usage.inputTokens ?? 0,
       usage.outputTokens ?? 0,
       usage.cachedInputTokens ?? 0,
     );
 
     reportTrace({
-      input: { assetId, provider },
+      input: { assetId, provider, model },
       output: result,
       usage: {
         inputTokens: usage.inputTokens ?? 0,
@@ -219,7 +213,7 @@ evalite("Burned-in Captions", {
     return {
       ...result,
       provider,
-      model: DEFAULT_LANGUAGE_MODELS[provider],
+      model,
       latencyMs,
       usage,
       estimatedCostUsd,
