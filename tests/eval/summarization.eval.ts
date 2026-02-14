@@ -4,7 +4,7 @@ import { evalite } from "evalite";
 import { answerSimilarity } from "evalite/scorers";
 import { reportTrace } from "evalite/traces";
 
-import { calculateCost, DEFAULT_LANGUAGE_MODELS } from "../../src/lib/providers";
+import { calculateModelCost, EVAL_MODEL_CONFIGS } from "../../src/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "../../src/lib/providers";
 import type { TokenUsage } from "../../src/types";
 import { getSummaryAndTags, SUMMARY_KEYWORD_LIMIT } from "../../src/workflows";
@@ -15,7 +15,7 @@ import { muxTestAssets } from "../helpers/mux-test-assets";
  * Summarization Evaluation
  *
  * This eval measures the efficacy, efficiency, and expense of the `getSummaryAndTags`
- * function across multiple AI providers (OpenAI, Anthropic, Google) to ensure consistent,
+ * function across provider/model combinations to ensure consistent,
  * high-quality, fast, and cost-effective video metadata generation.
  *
  * ─────────────────────────────────────────────────────────────────────────────
@@ -81,12 +81,12 @@ import { muxTestAssets } from "../helpers/mux-test-assets";
  *
  * 1. TOKEN CONSUMPTION
  *    - Track inputTokens, outputTokens, totalTokens per request
- *    - Compare token usage across providers
+ *    - Compare token usage across provider/model combinations
  *    - Identify opportunities for prompt optimization
  *
  * 2. COST ESTIMATION
- *    - Calculate estimated USD cost per request using THIRD_PARTY_MODEL_PRICING
- *    - Compare costs across providers for budget optimization
+ *    - Calculate estimated USD cost per request using model-specific pricing
+ *    - Compare costs across provider/model combinations for budget optimization
  *    - Target: <$0.005 per request for cost-effective operation
  *    - Benchmark: Google ~$0.0008, OpenAI ~$0.002, Anthropic ~$0.013
  *
@@ -152,7 +152,7 @@ interface EvalOutput extends SummaryAndTagsResult {
   latencyMs: number;
   /** Token usage from the AI provider. */
   usage: TokenUsage;
-  /** Estimated cost in USD based on token usage and provider pricing. */
+  /** Estimated cost in USD based on token usage and model-specific pricing. */
   estimatedCostUsd: number;
 }
 
@@ -199,16 +199,10 @@ const testAssets: TestAsset[] = [
   },
 ];
 
-/** AI providers to test for cross-provider consistency. */
-const providers: SupportedProvider[] = [
-  "openai",
-  "anthropic",
-  "google",
-];
-
-const data = providers.flatMap(provider =>
+/** Model configurations to test for cross-provider and cross-model consistency. */
+const data = EVAL_MODEL_CONFIGS.flatMap(({ provider, modelId }) =>
   testAssets.map(asset => ({
-    input: { assetId: asset.assetId, provider },
+    input: { assetId: asset.assetId, provider, model: modelId },
     expected: {
       referenceTitle: asset.referenceTitle,
       referenceDescription: asset.referenceDescription,
@@ -223,16 +217,17 @@ const data = providers.flatMap(provider =>
 
 evalite("Summarization", {
   data,
-  task: async ({ assetId, provider }): Promise<EvalOutput> => {
+  task: async ({ assetId, provider, model }): Promise<EvalOutput> => {
     const startTime = performance.now();
     const result = await getSummaryAndTags(assetId, {
       provider,
+      model,
       includeTranscript: true,
     });
     const latencyMs = performance.now() - startTime;
 
     console.warn(
-      `[summarization][${provider}] ${assetId}`,
+      `[summarization][${provider}/${model}] ${assetId}`,
       {
         title: result.title,
         description: result.description,
@@ -241,15 +236,15 @@ evalite("Summarization", {
     );
 
     const usage = result.usage ?? {};
-    const estimatedCostUsd = calculateCost(
-      provider,
+    const estimatedCostUsd = calculateModelCost(
+      model,
       usage.inputTokens ?? 0,
       usage.outputTokens ?? 0,
       usage.cachedInputTokens ?? 0,
     );
 
     reportTrace({
-      input: { assetId, provider },
+      input: { assetId, provider, model },
       output: result,
       usage: {
         inputTokens: usage.inputTokens ?? 0,
@@ -263,7 +258,7 @@ evalite("Summarization", {
     return {
       ...result,
       provider,
-      model: DEFAULT_LANGUAGE_MODELS[provider],
+      model,
       latencyMs,
       usage,
       estimatedCostUsd,
@@ -275,7 +270,7 @@ evalite("Summarization", {
   // ───────────────────────────────────────────────────────────────────────────
   //
   // Each scorer returns a value between 0 and 1. The eval framework aggregates
-  // these scores across all test cases and providers.
+  // these scores across all test cases and provider/model combinations.
   //
   // EFFICACY METRICS (content quality):
   // - Title Quality: Is the title well-formed and compelling?
@@ -603,7 +598,7 @@ evalite("Summarization", {
     },
   ],
 
-  columns: async ({ input, output }: { input: { assetId: string }; output: EvalOutput }) => {
+  columns: async ({ input, output }: { input: { assetId: string; model: ModelIdByProvider[SupportedProvider] }; output: EvalOutput }) => {
     return [
       { label: "Asset ID", value: input.assetId },
       { label: "Provider", value: output.provider },

@@ -4,7 +4,7 @@ import { evalite } from "evalite";
 import { answerSimilarity } from "evalite/scorers";
 import { reportTrace } from "evalite/traces";
 
-import { calculateCost, DEFAULT_LANGUAGE_MODELS } from "../../src/lib/providers";
+import { calculateModelCost, EVAL_MODEL_CONFIGS } from "../../src/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "../../src/lib/providers";
 import type { TokenUsage } from "../../src/types";
 import { generateChapters } from "../../src/workflows";
@@ -16,7 +16,7 @@ import { muxTestAssets } from "../helpers/mux-test-assets";
  * Chapters Evaluation
  *
  * This eval measures the efficacy, efficiency, and expense of the `generateChapters`
- * workflow across multiple AI providers (OpenAI, Anthropic, Google) to ensure consistent,
+ * workflow across provider/model combinations to ensure consistent,
  * structured, and cost-effective chapter segmentation from transcripts.
  *
  * ─────────────────────────────────────────────────────────────────────────────
@@ -116,7 +116,7 @@ interface EvalOutput extends ChaptersResult {
   latencyMs: number;
   /** Token usage from the AI provider. */
   usage: TokenUsage;
-  /** Estimated cost in USD based on token usage and provider pricing. */
+  /** Estimated cost in USD based on token usage and model-specific pricing. */
   estimatedCostUsd: number;
 }
 
@@ -210,18 +210,13 @@ const testAssets: TestAsset[] = [
   },
 ];
 
-/** AI providers to test for cross-provider consistency. */
-const providers: SupportedProvider[] = [
-  "openai",
-  "anthropic",
-  "google",
-];
-
-const data = providers.flatMap(provider =>
+/** Model configurations to test for cross-provider and cross-model consistency. */
+const data = EVAL_MODEL_CONFIGS.flatMap(({ provider, modelId }) =>
   testAssets.map(asset => ({
     input: {
       assetId: asset.assetId,
       provider,
+      model: modelId,
       languageCode: asset.languageCode,
       promptOverrides: asset.promptOverrides,
     },
@@ -245,13 +240,13 @@ function getReferenceChapterCount(assetId: string) {
 
 evalite("Chapters", {
   data,
-  task: async ({ assetId, provider, languageCode, promptOverrides }): Promise<EvalOutput> => {
+  task: async ({ assetId, provider, model, languageCode, promptOverrides }): Promise<EvalOutput> => {
     const startTime = performance.now();
-    const result = await generateChapters(assetId, languageCode, { provider, promptOverrides });
+    const result = await generateChapters(assetId, languageCode, { provider, model, promptOverrides });
     const latencyMs = performance.now() - startTime;
 
     console.warn(
-      `[chapters][${provider}] ${assetId}`,
+      `[chapters][${provider}/${model}] ${assetId}`,
       result.chapters.map(chapter => ({
         startTime: chapter.startTime,
         title: chapter.title,
@@ -259,15 +254,15 @@ evalite("Chapters", {
     );
 
     const usage = result.usage ?? {};
-    const estimatedCostUsd = calculateCost(
-      provider,
+    const estimatedCostUsd = calculateModelCost(
+      model,
       usage.inputTokens ?? 0,
       usage.outputTokens ?? 0,
       usage.cachedInputTokens ?? 0,
     );
 
     reportTrace({
-      input: { assetId, provider, languageCode },
+      input: { assetId, provider, model, languageCode },
       output: result,
       usage: {
         inputTokens: usage.inputTokens ?? 0,
@@ -281,7 +276,7 @@ evalite("Chapters", {
     return {
       ...result,
       provider,
-      model: DEFAULT_LANGUAGE_MODELS[provider],
+      model,
       latencyMs,
       usage,
       estimatedCostUsd,

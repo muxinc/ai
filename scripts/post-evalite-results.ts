@@ -48,6 +48,20 @@ interface ProviderStats {
   provider: string;
   model?: string;
   models?: string[];
+  modelBreakdown?: Array<{
+    model: string;
+    caseCount: number;
+    avgLatencyMs?: number;
+    avgCostUsd?: number;
+    avgScore?: number;
+    scorerAverages?: Record<string, number>;
+    confidence?: {
+      positiveAvg?: number;
+      negativeAvg?: number;
+      positiveRange?: [number, number];
+      negativeRange?: [number, number];
+    };
+  }>;
   caseCount: number;
   avgLatencyMs?: number;
   avgCostUsd?: number;
@@ -288,6 +302,26 @@ async function computeWorkflowStats(
     confidenceNegativeMin?: number;
     confidenceNegativeMax?: number;
   }>();
+  const providerModelStats = new Map<string, {
+    provider: string;
+    model: string;
+    caseCount: number;
+    latencySum: number;
+    latencyCount: number;
+    costSum: number;
+    costCount: number;
+    avgScoreSum: number;
+    avgScoreCount: number;
+    scorerSums: Map<string, { sum: number; count: number }>;
+    confidencePositiveSum: number;
+    confidencePositiveCount: number;
+    confidencePositiveMin?: number;
+    confidencePositiveMax?: number;
+    confidenceNegativeSum: number;
+    confidenceNegativeCount: number;
+    confidenceNegativeMin?: number;
+    confidenceNegativeMax?: number;
+  }>();
   const overallScorers = new Map<string, { sum: number; count: number }>();
   const providers = new Set<string>();
   const assets = new Set<string>();
@@ -385,8 +419,36 @@ async function computeWorkflowStats(
       confidenceNegativeMin: undefined,
       confidenceNegativeMax: undefined,
     };
+    const modelStats =
+      model ?
+          (
+            providerModelStats.get(`${provider}:${model}`) ?? {
+              provider,
+              model,
+              caseCount: 0,
+              latencySum: 0,
+              latencyCount: 0,
+              costSum: 0,
+              costCount: 0,
+              avgScoreSum: 0,
+              avgScoreCount: 0,
+              scorerSums: new Map(),
+              confidencePositiveSum: 0,
+              confidencePositiveCount: 0,
+              confidencePositiveMin: undefined,
+              confidencePositiveMax: undefined,
+              confidenceNegativeSum: 0,
+              confidenceNegativeCount: 0,
+              confidenceNegativeMin: undefined,
+              confidenceNegativeMax: undefined,
+            }
+          ) :
+        undefined;
 
     stats.caseCount += 1;
+    if (modelStats) {
+      modelStats.caseCount += 1;
+    }
     if (model) {
       stats.models.add(model);
     }
@@ -397,6 +459,10 @@ async function computeWorkflowStats(
     if (typeof latency === "number") {
       stats.latencySum += latency;
       stats.latencyCount += 1;
+      if (modelStats) {
+        modelStats.latencySum += latency;
+        modelStats.latencyCount += 1;
+      }
     }
 
     const duration = coerceNumber(evalRecord.duration);
@@ -409,12 +475,20 @@ async function computeWorkflowStats(
     if (typeof cost === "number") {
       stats.costSum += cost;
       stats.costCount += 1;
+      if (modelStats) {
+        modelStats.costSum += cost;
+        modelStats.costCount += 1;
+      }
     }
 
     const avgScore = coerceNumber(evalRecord.averageScore);
     if (typeof avgScore === "number") {
       stats.avgScoreSum += avgScore;
       stats.avgScoreCount += 1;
+      if (modelStats) {
+        modelStats.avgScoreSum += avgScore;
+        modelStats.avgScoreCount += 1;
+      }
     }
 
     if (Array.isArray(evalRecord.scores)) {
@@ -431,6 +505,12 @@ async function computeWorkflowStats(
         scorer.sum += scoreValue;
         scorer.count += 1;
         stats.scorerSums.set(scorerName, scorer);
+        if (modelStats) {
+          const modelScorer = modelStats.scorerSums.get(scorerName) ?? { sum: 0, count: 0 };
+          modelScorer.sum += scoreValue;
+          modelScorer.count += 1;
+          modelStats.scorerSums.set(scorerName, modelScorer);
+        }
 
         const overall = overallScorers.get(scorerName) ?? { sum: 0, count: 0 };
         overall.sum += scoreValue;
@@ -456,6 +536,18 @@ async function computeWorkflowStats(
             typeof stats.confidencePositiveMax === "number" ?
                 Math.max(stats.confidencePositiveMax, confidence) :
               confidence;
+          if (modelStats) {
+            modelStats.confidencePositiveSum += confidence;
+            modelStats.confidencePositiveCount += 1;
+            modelStats.confidencePositiveMin =
+              typeof modelStats.confidencePositiveMin === "number" ?
+                  Math.min(modelStats.confidencePositiveMin, confidence) :
+                confidence;
+            modelStats.confidencePositiveMax =
+              typeof modelStats.confidencePositiveMax === "number" ?
+                  Math.max(modelStats.confidencePositiveMax, confidence) :
+                confidence;
+          }
         } else {
           stats.confidenceNegativeSum += confidence;
           stats.confidenceNegativeCount += 1;
@@ -467,11 +559,26 @@ async function computeWorkflowStats(
             typeof stats.confidenceNegativeMax === "number" ?
                 Math.max(stats.confidenceNegativeMax, confidence) :
               confidence;
+          if (modelStats) {
+            modelStats.confidenceNegativeSum += confidence;
+            modelStats.confidenceNegativeCount += 1;
+            modelStats.confidenceNegativeMin =
+              typeof modelStats.confidenceNegativeMin === "number" ?
+                  Math.min(modelStats.confidenceNegativeMin, confidence) :
+                confidence;
+            modelStats.confidenceNegativeMax =
+              typeof modelStats.confidenceNegativeMax === "number" ?
+                  Math.max(modelStats.confidenceNegativeMax, confidence) :
+                confidence;
+          }
         }
       }
     }
 
     providerStats.set(provider, stats);
+    if (modelStats) {
+      providerModelStats.set(`${provider}:${modelStats.model}`, modelStats);
+    }
   }
 
   if (!suiteDurationMs && suiteDurationFallbackCount > 0) {
@@ -507,6 +614,52 @@ async function computeWorkflowStats(
     }
   }
 
+  const providerModelSummaries = Array.from(providerModelStats.values()).map((stats) => {
+    const scorerAverages: Record<string, number> = {};
+    for (const [name, scorer] of stats.scorerSums.entries()) {
+      if (scorer.count > 0) {
+        scorerAverages[name] = scorer.sum / scorer.count;
+      }
+    }
+
+    const confidence =
+      stats.confidencePositiveCount || stats.confidenceNegativeCount ?
+          {
+            positiveAvg:
+          stats.confidencePositiveCount > 0 ?
+            stats.confidencePositiveSum / stats.confidencePositiveCount :
+            undefined,
+            negativeAvg:
+          stats.confidenceNegativeCount > 0 ?
+            stats.confidenceNegativeSum / stats.confidenceNegativeCount :
+            undefined,
+            positiveRange:
+          typeof stats.confidencePositiveMin === "number" &&
+          typeof stats.confidencePositiveMax === "number" ?
+              [stats.confidencePositiveMin, stats.confidencePositiveMax] as [number, number] :
+            undefined,
+            negativeRange:
+          typeof stats.confidenceNegativeMin === "number" &&
+          typeof stats.confidenceNegativeMax === "number" ?
+              [stats.confidenceNegativeMin, stats.confidenceNegativeMax] as [number, number] :
+            undefined,
+          } :
+        undefined;
+
+    return {
+      provider: stats.provider,
+      model: stats.model,
+      caseCount: stats.caseCount,
+      avgLatencyMs:
+        stats.latencyCount > 0 ? stats.latencySum / stats.latencyCount : undefined,
+      avgCostUsd: stats.costCount > 0 ? stats.costSum / stats.costCount : undefined,
+      avgScore:
+        stats.avgScoreCount > 0 ? stats.avgScoreSum / stats.avgScoreCount : undefined,
+      scorerAverages: Object.keys(scorerAverages).length > 0 ? scorerAverages : undefined,
+      confidence,
+    };
+  });
+
   const providerSummaries: ProviderStats[] = Array.from(providerStats.values()).map((stats) => {
     const scorerAverages: Record<string, number> = {};
     for (const [name, scorer] of stats.scorerSums.entries()) {
@@ -539,11 +692,25 @@ async function computeWorkflowStats(
           } :
         undefined;
 
-    const models = Array.from(stats.models);
+    const models = Array.from(stats.models).sort();
+    const modelBreakdown = providerModelSummaries
+      .filter(summary => summary.provider === stats.provider)
+      .sort((a, b) => a.model!.localeCompare(b.model!))
+      .map(summary => ({
+        model: summary.model!,
+        caseCount: summary.caseCount,
+        avgLatencyMs: summary.avgLatencyMs,
+        avgCostUsd: summary.avgCostUsd,
+        avgScore: summary.avgScore,
+        scorerAverages: summary.scorerAverages,
+        confidence: summary.confidence,
+      }));
+
     return {
       provider: stats.provider,
       model: models.length === 1 ? models[0] : undefined,
       models: models.length > 1 ? models : undefined,
+      modelBreakdown: models.length > 1 ? modelBreakdown : undefined,
       caseCount: stats.caseCount,
       avgLatencyMs:
         stats.latencyCount > 0 ? stats.latencySum / stats.latencyCount : undefined,
@@ -555,22 +722,22 @@ async function computeWorkflowStats(
     };
   });
 
-  const recommendationFromSummary = (summary: ProviderStats): ProviderRecommendation => ({
+  const recommendationFromSummary = (summary: { provider: string; model?: string }): ProviderRecommendation => ({
     provider: summary.provider,
-    model: summary.model ?? summary.models?.[0],
+    model: summary.model,
   });
 
-  const qualityCandidate = providerSummaries
+  const qualityCandidate = providerModelSummaries
     .filter(summary => typeof summary.avgScore === "number")
     .sort((a, b) => (b.avgScore ?? 0) - (a.avgScore ?? 0))[0];
-  const latencyCandidate = providerSummaries
+  const latencyCandidate = providerModelSummaries
     .filter(summary => typeof summary.avgLatencyMs === "number")
     .sort(
       (a, b) =>
         (a.avgLatencyMs ?? Number.POSITIVE_INFINITY) -
         (b.avgLatencyMs ?? Number.POSITIVE_INFINITY),
     )[0];
-  const expenseCandidate = providerSummaries
+  const expenseCandidate = providerModelSummaries
     .filter(summary => typeof summary.avgCostUsd === "number")
     .sort(
       (a, b) =>
