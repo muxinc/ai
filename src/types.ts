@@ -73,6 +73,20 @@ export interface WorkflowCredentials {
   anthropicApiKey?: string;
   /** Optional direct Google API key for per-request credential injection. */
   googleApiKey?: string;
+  /** Optional AWS region for Amazon Bedrock (e.g. us-east-1). */
+  awsRegion?: string;
+  /** Optional AWS access key ID for Amazon Bedrock. */
+  awsAccessKeyId?: string;
+  /** Optional AWS secret access key for Amazon Bedrock. */
+  awsSecretAccessKey?: string;
+  /** Optional AWS session token for Amazon Bedrock (temporary credentials). */
+  awsSessionToken?: string;
+  /** Optional Google Cloud project ID for Vertex AI. */
+  googleVertexProject?: string;
+  /** Optional Google Cloud location for Vertex AI (e.g. us-central1). */
+  googleVertexLocation?: string;
+  /** Optional Google Vertex AI API key for express mode authentication. */
+  googleVertexApiKey?: string;
   /** Optional direct Hive API key for per-request credential injection. */
   hiveApiKey?: string;
   /** Optional direct ElevenLabs API key for per-request credential injection. */

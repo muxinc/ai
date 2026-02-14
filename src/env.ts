@@ -60,6 +60,17 @@ const EnvSchema = z.object({
   ANTHROPIC_API_KEY: optionalString("Anthropic API key for Claude-backed workflows.", "Anthropic API key"),
   GOOGLE_GENERATIVE_AI_API_KEY: optionalString("Google Generative AI API key for Gemini-backed workflows.", "Google Generative AI API key"),
 
+  // Amazon Bedrock (AWS credentials)
+  AWS_REGION: optionalString("AWS region for Amazon Bedrock (e.g. us-east-1).", "AWS region"),
+  AWS_ACCESS_KEY_ID: optionalString("AWS access key ID for Amazon Bedrock.", "AWS access key ID"),
+  AWS_SECRET_ACCESS_KEY: optionalString("AWS secret access key for Amazon Bedrock.", "AWS secret access key"),
+  AWS_SESSION_TOKEN: optionalString("AWS session token for Amazon Bedrock (optional, for temporary credentials).", "AWS session token"),
+
+  // Google Vertex AI
+  GOOGLE_VERTEX_PROJECT: optionalString("Google Cloud project ID for Vertex AI.", "Google Vertex project"),
+  GOOGLE_VERTEX_LOCATION: optionalString("Google Cloud location for Vertex AI (e.g. us-central1).", "Google Vertex location"),
+  GOOGLE_VERTEX_API_KEY: optionalString("Google Vertex AI API key for express mode authentication.", "Google Vertex API key"),
+
   ELEVENLABS_API_KEY: optionalString("ElevenLabs API key for audio translation.", "ElevenLabs API key"),
   HIVE_API_KEY: optionalString("Hive Visual Moderation API key.", "Hive API key"),
 

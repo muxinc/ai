@@ -323,3 +323,79 @@ export async function resolveMuxSigningContext(
 
   return { keyId, keySecret };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Amazon Bedrock Credentials
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Resolved configuration for creating an Amazon Bedrock provider instance. */
+export interface BedrockProviderConfig {
+  region?: string;
+  accessKeyId?: string;
+  secretAccessKey?: string;
+  sessionToken?: string;
+}
+
+/**
+ * Resolves Amazon Bedrock credentials from workflow credentials or environment variables.
+ *
+ * Checks direct workflow credentials first (awsRegion, awsAccessKeyId, awsSecretAccessKey,
+ * awsSessionToken), then falls back to AWS_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY,
+ * and AWS_SESSION_TOKEN environment variables.
+ *
+ * Note: The Bedrock AI SDK provider also supports AWS credential chains (e.g. IAM roles,
+ * instance profiles) when explicit credentials are not provided.
+ *
+ * @param credentials - Optional workflow credentials input
+ * @returns BedrockProviderConfig for creating the provider
+ */
+export async function resolveBedrockCredentials(
+  credentials?: WorkflowCredentialsInput,
+): Promise<BedrockProviderConfig> {
+  const resolved = await resolveWorkflowCredentials(credentials);
+  const record = resolved as Record<string, unknown>;
+
+  return {
+    region: readString(record, "awsRegion") ?? env.AWS_REGION,
+    accessKeyId: readString(record, "awsAccessKeyId") ?? env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: readString(record, "awsSecretAccessKey") ?? env.AWS_SECRET_ACCESS_KEY,
+    sessionToken: readString(record, "awsSessionToken") ?? env.AWS_SESSION_TOKEN,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Google Vertex AI Credentials
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Resolved configuration for creating a Google Vertex AI provider instance. */
+export interface VertexProviderConfig {
+  project?: string;
+  location?: string;
+  apiKey?: string;
+}
+
+/**
+ * Resolves Google Vertex AI credentials from workflow credentials or environment variables.
+ *
+ * Checks direct workflow credentials first (googleVertexProject, googleVertexLocation,
+ * googleVertexApiKey), then falls back to GOOGLE_VERTEX_PROJECT, GOOGLE_VERTEX_LOCATION,
+ * and GOOGLE_VERTEX_API_KEY environment variables.
+ *
+ * Note: When no API key is provided, the Vertex AI SDK provider uses Google Application
+ * Default Credentials (ADC) for authentication (e.g. service account, gcloud auth).
+ *
+ * @param credentials - Optional workflow credentials input
+ * @returns VertexProviderConfig for creating the provider
+ */
+export async function resolveVertexCredentials(
+  credentials?: WorkflowCredentialsInput,
+): Promise<VertexProviderConfig> {
+  const resolved = await resolveWorkflowCredentials(credentials);
+  const record = resolved as Record<string, unknown>;
+
+  return {
+    project: readString(record, "googleVertexProject") ?? env.GOOGLE_VERTEX_PROJECT,
+    location: readString(record, "googleVertexLocation") ?? env.GOOGLE_VERTEX_LOCATION,
+    apiKey: readString(record, "googleVertexApiKey") ?? env.GOOGLE_VERTEX_API_KEY,
+  };
+}
