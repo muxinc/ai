@@ -1,33 +1,46 @@
+import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createVertex } from "@ai-sdk/google-vertex";
 import { createOpenAI } from "@ai-sdk/openai";
 
 import env from "@mux/ai/env";
-import { resolveProviderApiKey } from "@mux/ai/lib/workflow-credentials";
+import { resolveProviderApiKey, resolveWorkflowCredentials } from "@mux/ai/lib/workflow-credentials";
 import type { MuxAIOptions, WorkflowCredentialsInput } from "@mux/ai/types";
 
 import type { EmbeddingModel, LanguageModel } from "ai";
 
-export type SupportedProvider = "openai" | "anthropic" | "google";
-export type SupportedEmbeddingProvider = "openai" | "google";
+export type SupportedProvider = "openai" | "anthropic" | "google" | "bedrock" | "vertex";
+export type SupportedEmbeddingProvider = "openai" | "google" | "bedrock" | "vertex";
 
 // Model ID unions inferred from ai-sdk provider call signatures
 type OpenAIModelId = Parameters<ReturnType<typeof createOpenAI>["chat"]>[0];
 type AnthropicModelId = Parameters<ReturnType<typeof createAnthropic>["chat"]>[0];
 type GoogleModelId = Parameters<ReturnType<typeof createGoogleGenerativeAI>["chat"]>[0];
+type BedrockModelId = Parameters<ReturnType<typeof createAmazonBedrock>["languageModel"]>[0];
+type VertexModelId = Parameters<ReturnType<typeof createVertex>["languageModel"]>[0];
 
 type OpenAIEmbeddingModelId = Parameters<ReturnType<typeof createOpenAI>["embedding"]>[0];
 type GoogleEmbeddingModelId = Parameters<ReturnType<typeof createGoogleGenerativeAI>["textEmbeddingModel"]>[0];
+type BedrockEmbeddingModelId = Parameters<ReturnType<typeof createAmazonBedrock>["embeddingModel"]>[0];
+type VertexEmbeddingModelId = Parameters<ReturnType<typeof createVertex>["textEmbeddingModel"]>[0];
+
+type BedrockProviderSettings = Parameters<typeof createAmazonBedrock>[0];
+type VertexProviderSettings = Parameters<typeof createVertex>[0];
 
 export interface ModelIdByProvider {
   openai: OpenAIModelId;
   anthropic: AnthropicModelId;
   google: GoogleModelId;
+  bedrock: BedrockModelId;
+  vertex: VertexModelId;
 }
 
 export interface EmbeddingModelIdByProvider {
   openai: OpenAIEmbeddingModelId;
   google: GoogleEmbeddingModelId;
+  bedrock: BedrockEmbeddingModelId;
+  vertex: VertexEmbeddingModelId;
 }
 
 export interface ModelRequestOptions<P extends SupportedProvider = SupportedProvider> extends MuxAIOptions {
@@ -45,11 +58,15 @@ export const DEFAULT_LANGUAGE_MODELS: { [K in SupportedProvider]: ModelIdByProvi
   openai: "gpt-5.1",
   anthropic: "claude-sonnet-4-5",
   google: "gemini-3-flash-preview",
+  bedrock: "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+  vertex: "gemini-3-flash-preview",
 };
 
 const DEFAULT_EMBEDDING_MODELS: { [K in SupportedEmbeddingProvider]: EmbeddingModelIdByProvider[K] } = {
   openai: "text-embedding-3-small",
   google: "gemini-embedding-001",
+  bedrock: "amazon.titan-embed-text-v2:0",
+  vertex: "text-embedding-005",
 };
 
 export function resolveLanguageModelConfig<P extends SupportedProvider = SupportedProvider>(
@@ -81,6 +98,8 @@ export function resolveEmbeddingModelConfig<P extends SupportedEmbeddingProvider
 // - OpenAI: https://openai.com/api/pricing
 // - Anthropic: https://www.anthropic.com/pricing
 // - Google: https://ai.google.dev/pricing
+// - Amazon Bedrock: https://aws.amazon.com/bedrock/pricing
+// - Google Vertex AI: https://cloud.google.com/vertex-ai/generative-ai/pricing
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -132,6 +151,24 @@ export const THIRD_PARTY_MODEL_PRICING: { [K in SupportedProvider]: ModelPricing
     cachedInputPerMillion: 0.05, // Context caching price
     pricingUrl: "https://ai.google.dev/pricing",
   },
+
+  // Bedrock Claude 3.5 Sonnet
+  // Reference: https://aws.amazon.com/bedrock/pricing
+  bedrock: {
+    inputPerMillion: 3.00,
+    outputPerMillion: 15.00,
+    cachedInputPerMillion: 0.30,
+    pricingUrl: "https://aws.amazon.com/bedrock/pricing",
+  },
+
+  // Vertex Gemini 3 Flash Preview
+  // Reference: https://cloud.google.com/vertex-ai/generative-ai/pricing
+  vertex: {
+    inputPerMillion: 0.50,
+    outputPerMillion: 3.00,
+    cachedInputPerMillion: 0.05,
+    pricingUrl: "https://cloud.google.com/vertex-ai/generative-ai/pricing",
+  },
 };
 
 /**
@@ -177,6 +214,125 @@ function requireEnv(value: string | undefined, name: string): string {
   return value;
 }
 
+function readCredentialString(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function normalizePrivateKey(privateKey: string | undefined): string | undefined {
+  return privateKey?.replace(/\\n/g, "\n");
+}
+
+async function resolveBedrockSettingsFromCredentials(
+  credentials?: WorkflowCredentialsInput,
+): Promise<BedrockProviderSettings> {
+  const resolved = await resolveWorkflowCredentials(credentials);
+  const record = resolved as Record<string, unknown>;
+  const region = readCredentialString(record, "bedrockRegion")
+    ?? env.BEDROCK_AWS_REGION
+    ?? env.AWS_REGION;
+
+  requireEnv(region, "BEDROCK_AWS_REGION or AWS_REGION");
+
+  return {
+    region,
+    apiKey: readCredentialString(record, "bedrockApiKey") ?? env.AWS_BEARER_TOKEN_BEDROCK,
+    accessKeyId: readCredentialString(record, "bedrockAccessKeyId") ?? env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: readCredentialString(record, "bedrockSecretAccessKey") ?? env.AWS_SECRET_ACCESS_KEY,
+    sessionToken: readCredentialString(record, "bedrockSessionToken") ?? env.AWS_SESSION_TOKEN,
+  };
+}
+
+function resolveBedrockSettingsFromEnv(): BedrockProviderSettings {
+  const region = env.BEDROCK_AWS_REGION ?? env.AWS_REGION;
+  requireEnv(region, "BEDROCK_AWS_REGION or AWS_REGION");
+
+  return {
+    region,
+    apiKey: env.AWS_BEARER_TOKEN_BEDROCK,
+    accessKeyId: env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: env.AWS_SECRET_ACCESS_KEY,
+    sessionToken: env.AWS_SESSION_TOKEN,
+  };
+}
+
+async function resolveVertexSettingsFromCredentials(
+  credentials?: WorkflowCredentialsInput,
+): Promise<VertexProviderSettings> {
+  const resolved = await resolveWorkflowCredentials(credentials);
+  const record = resolved as Record<string, unknown>;
+
+  const project = readCredentialString(record, "vertexProject") ?? env.GOOGLE_VERTEX_PROJECT;
+  const location = readCredentialString(record, "vertexLocation") ?? env.GOOGLE_VERTEX_LOCATION;
+  const apiKey = readCredentialString(record, "vertexApiKey") ?? env.GOOGLE_VERTEX_API_KEY;
+
+  requireEnv(project, "GOOGLE_VERTEX_PROJECT");
+  requireEnv(location, "GOOGLE_VERTEX_LOCATION");
+
+  const clientEmail = readCredentialString(record, "vertexClientEmail") ?? env.GOOGLE_CLIENT_EMAIL;
+  const privateKey = normalizePrivateKey(
+    readCredentialString(record, "vertexPrivateKey") ?? env.GOOGLE_PRIVATE_KEY,
+  );
+  const privateKeyId = readCredentialString(record, "vertexPrivateKeyId") ?? env.GOOGLE_PRIVATE_KEY_ID;
+
+  if ((clientEmail && !privateKey) || (!clientEmail && privateKey)) {
+    throw new Error(
+      "Vertex service account credentials must include both vertexClientEmail and vertexPrivateKey (or GOOGLE_CLIENT_EMAIL and GOOGLE_PRIVATE_KEY).",
+    );
+  }
+
+  return {
+    project,
+    location,
+    apiKey,
+    googleAuthOptions:
+      clientEmail && privateKey ?
+        {
+          credentials: {
+            client_email: clientEmail,
+            private_key: privateKey,
+            ...(privateKeyId ? { private_key_id: privateKeyId } : {}),
+          },
+        } :
+        undefined,
+  };
+}
+
+function resolveVertexSettingsFromEnv(): VertexProviderSettings {
+  const project = env.GOOGLE_VERTEX_PROJECT;
+  const location = env.GOOGLE_VERTEX_LOCATION;
+  const apiKey = env.GOOGLE_VERTEX_API_KEY;
+
+  requireEnv(project, "GOOGLE_VERTEX_PROJECT");
+  requireEnv(location, "GOOGLE_VERTEX_LOCATION");
+
+  const clientEmail = env.GOOGLE_CLIENT_EMAIL;
+  const privateKey = normalizePrivateKey(env.GOOGLE_PRIVATE_KEY);
+  const privateKeyId = env.GOOGLE_PRIVATE_KEY_ID;
+
+  if ((clientEmail && !privateKey) || (!clientEmail && privateKey)) {
+    throw new Error(
+      "Vertex service account credentials must include both GOOGLE_CLIENT_EMAIL and GOOGLE_PRIVATE_KEY.",
+    );
+  }
+
+  return {
+    project,
+    location,
+    apiKey,
+    googleAuthOptions:
+      clientEmail && privateKey ?
+        {
+          credentials: {
+            client_email: clientEmail,
+            private_key: privateKey,
+            ...(privateKeyId ? { private_key_id: privateKeyId } : {}),
+          },
+        } :
+        undefined,
+  };
+}
+
 /**
  * Creates a language model instance from serializable config.
  * Use this in steps to instantiate models from config passed through workflow.
@@ -202,6 +358,14 @@ export async function createLanguageModelFromConfig<P extends SupportedProvider 
       const apiKey = await resolveProviderApiKey("google", credentials);
       const google = createGoogleGenerativeAI({ apiKey });
       return google(modelId);
+    }
+    case "bedrock": {
+      const bedrock = createAmazonBedrock(await resolveBedrockSettingsFromCredentials(credentials));
+      return bedrock.languageModel(modelId);
+    }
+    case "vertex": {
+      const vertex = createVertex(await resolveVertexSettingsFromCredentials(credentials));
+      return vertex.languageModel(modelId);
     }
     default: {
       const exhaustiveCheck: never = provider;
@@ -232,6 +396,14 @@ export async function createEmbeddingModelFromConfig<
       const apiKey = await resolveProviderApiKey("google", credentials);
       const google = createGoogleGenerativeAI({ apiKey });
       return google.textEmbeddingModel(modelId);
+    }
+    case "bedrock": {
+      const bedrock = createAmazonBedrock(await resolveBedrockSettingsFromCredentials(credentials));
+      return bedrock.embeddingModel(modelId);
+    }
+    case "vertex": {
+      const vertex = createVertex(await resolveVertexSettingsFromCredentials(credentials));
+      return vertex.textEmbeddingModel(modelId);
     }
     default: {
       const exhaustiveCheck: never = provider;
@@ -289,6 +461,22 @@ export function resolveLanguageModel<P extends SupportedProvider = SupportedProv
         model: google(modelId),
       };
     }
+    case "bedrock": {
+      const bedrock = createAmazonBedrock(resolveBedrockSettingsFromEnv());
+      return {
+        provider,
+        modelId,
+        model: bedrock.languageModel(modelId),
+      };
+    }
+    case "vertex": {
+      const vertex = createVertex(resolveVertexSettingsFromEnv());
+      return {
+        provider,
+        modelId,
+        model: vertex.languageModel(modelId),
+      };
+    }
     default: {
       const exhaustiveCheck: never = provider;
       throw new Error(`Unsupported provider: ${exhaustiveCheck}`);
@@ -330,6 +518,22 @@ export function resolveEmbeddingModel<P extends SupportedEmbeddingProvider = "op
         provider,
         modelId,
         model: google.textEmbeddingModel(modelId),
+      };
+    }
+    case "bedrock": {
+      const bedrock = createAmazonBedrock(resolveBedrockSettingsFromEnv());
+      return {
+        provider,
+        modelId,
+        model: bedrock.embeddingModel(modelId),
+      };
+    }
+    case "vertex": {
+      const vertex = createVertex(resolveVertexSettingsFromEnv());
+      return {
+        provider,
+        modelId,
+        model: vertex.textEmbeddingModel(modelId),
       };
     }
     default: {

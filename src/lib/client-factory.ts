@@ -4,7 +4,7 @@ import type {
   SupportedProvider,
 } from "@mux/ai/lib/providers";
 import {
-  resolveLanguageModel,
+  resolveLanguageModelConfig,
 } from "@mux/ai/lib/providers";
 import type { ApiKeyProvider } from "@mux/ai/lib/workflow-credentials";
 import { resolveMuxClient, resolveProviderApiKey } from "@mux/ai/lib/workflow-credentials";
@@ -49,7 +49,7 @@ export async function createWorkflowConfig<P extends SupportedProvider = Support
 ): Promise<WorkflowConfig<P>> {
   const providerToUse = provider || options.provider || ("openai" as P);
   const muxClient = await resolveMuxClient(options.credentials);
-  const resolved = resolveLanguageModel({
+  const resolved = resolveLanguageModelConfig({
     ...options,
     provider: providerToUse,
   });
