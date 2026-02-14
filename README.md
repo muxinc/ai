@@ -7,7 +7,7 @@
 
 `@mux/ai` does this by providing:
 
-Easy to use, purpose-driven, cost effective, configurable **_workflow functions_** that integrate with a variety of popular AI/LLM providers (OpenAI, Anthropic, Google).
+Easy to use, purpose-driven, cost effective, configurable **_workflow functions_** that integrate with a variety of popular AI/LLM providers (OpenAI, Anthropic, Google, Amazon Bedrock, Google Vertex AI).
 - **Examples:** [`getSummaryAndTags`](#video-summarization), [`getModerationScores`](#content-moderation), [`hasBurnedInCaptions`](#burned-in-caption-detection), [`generateChapters`](#chapter-generation), [`generateEmbeddings`](#search-with-embeddings), [`translateCaptions`](#caption-translation), [`translateAudio`](#audio-dubbing)
 - Workflows automatically ship with `"use workflow"` [compatability with Workflow DevKit](#compatability-with-workflow-devkit)
 
@@ -61,11 +61,20 @@ MUX_TOKEN_SECRET=your_mux_token_secret
 MUX_SIGNING_KEY=your_signing_key_id
 MUX_PRIVATE_KEY=your_base64_encoded_private_key
 
-# You only need to configure API keys for the AI platforms and workflows you're using
+# You only need to configure credentials for the AI platforms and workflows you're using
 OPENAI_API_KEY=your_openai_api_key
 ANTHROPIC_API_KEY=your_anthropic_api_key
 GOOGLE_GENERATIVE_AI_API_KEY=your_google_api_key
 ELEVENLABS_API_KEY=your_elevenlabs_api_key
+
+# Amazon Bedrock (uses AWS credentials)
+AWS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=your_aws_access_key_id
+AWS_SECRET_ACCESS_KEY=your_aws_secret_access_key
+
+# Google Vertex AI (uses GCP project/location)
+GOOGLE_VERTEX_PROJECT=your_gcp_project_id
+GOOGLE_VERTEX_LOCATION=us-central1
 
 # S3-Compatible Storage (required for translation & audio dubbing)
 S3_ENDPOINT=https://your-s3-endpoint.com
@@ -83,13 +92,13 @@ S3_SECRET_ACCESS_KEY=your-secret-key
 
 | Workflow                                                                 | Description                                                       | Providers                 | Default Models                                                     | Mux Asset Requirements | Cloud Infrastructure Requirements |
 | ------------------------------------------------------------------------ | ----------------------------------------------------------------- | ------------------------- | ------------------------------------------------------------------ | ---------------------- | --------------------------------- |
-| [`getSummaryAndTags`](./docs/WORKFLOWS.md#video-summarization)<br/>[API](./docs/API.md#getsummaryandtagsassetid-options) · [Source](./src/workflows/summarization.ts) | Generate titles, descriptions, and tags for an asset              | OpenAI, Anthropic, Google | `gpt-5.1` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google) | Video (required), Captions (optional) | None |
+| [`getSummaryAndTags`](./docs/WORKFLOWS.md#video-summarization)<br/>[API](./docs/API.md#getsummaryandtagsassetid-options) · [Source](./src/workflows/summarization.ts) | Generate titles, descriptions, and tags for an asset              | OpenAI, Anthropic, Google, Bedrock, Vertex | `gpt-5.1` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google), `us.anthropic.claude-sonnet-4-5-20250929-v1:0` (Bedrock), `gemini-3-flash-preview` (Vertex) | Video (required), Captions (optional) | None |
 | [`getModerationScores`](./docs/WORKFLOWS.md#content-moderation)<br/>[API](./docs/API.md#getmoderationscoresassetid-options) · [Source](./src/workflows/moderation.ts) | Detect inappropriate (sexual or violent) content in an asset      | OpenAI, Hive              | `omni-moderation-latest` (OpenAI) or Hive visual moderation task   | Video (required) | None |
-| [`hasBurnedInCaptions`](./docs/WORKFLOWS.md#burned-in-caption-detection)<br/>[API](./docs/API.md#hasburnedincaptionsassetid-options) · [Source](./src/workflows/burned-in-captions.ts) | Detect burned-in captions (hardcoded subtitles) in an asset       | OpenAI, Anthropic, Google | `gpt-5.1` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google) | Video (required) | None |
-| [`askQuestions`](./docs/WORKFLOWS.md#ask-questions)<br/>[API](./docs/API.md#askquestionsassetid-questions-options) · [Source](./src/workflows/ask-questions.ts) | Answer yes/no questions about an asset's content                  | OpenAI, Anthropic, Google | `gpt-5.1` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google) | Video (required), Captions (optional) | None |
-| [`generateChapters`](./docs/WORKFLOWS.md#chapter-generation)<br/>[API](./docs/API.md#generatechaptersassetid-languagecode-options) · [Source](./src/workflows/chapters.ts) | Generate chapter markers for an asset using the transcript        | OpenAI, Anthropic, Google | `gpt-5.1` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google) | Video or audio-only, Captions/Transcripts (required) | None |
-| [`generateEmbeddings`](./docs/WORKFLOWS.md#embeddings)<br/>[API](./docs/API.md#generateembeddingsassetid-options) · [Source](./src/workflows/embeddings.ts) | Generate vector embeddings for an asset's transcript chunks       | OpenAI, Google            | `text-embedding-3-small` (OpenAI), `gemini-embedding-001` (Google) | Video or audio-only, Captions/Transcripts (required) | None |
-| [`translateCaptions`](./docs/WORKFLOWS.md#caption-translation)<br/>[API](./docs/API.md#translatecaptionsassetid-fromlanguagecode-tolanguagecode-options) · [Source](./src/workflows/translate-captions.ts) | Translate an asset's captions into different languages            | OpenAI, Anthropic, Google | `gpt-5.1` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google) | Video or audio-only, Captions/Transcripts (required) | AWS S3 (if `uploadToMux=true`) |
+| [`hasBurnedInCaptions`](./docs/WORKFLOWS.md#burned-in-caption-detection)<br/>[API](./docs/API.md#hasburnedincaptionsassetid-options) · [Source](./src/workflows/burned-in-captions.ts) | Detect burned-in captions (hardcoded subtitles) in an asset       | OpenAI, Anthropic, Google, Bedrock, Vertex | `gpt-5.1` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google), `us.anthropic.claude-sonnet-4-5-20250929-v1:0` (Bedrock), `gemini-3-flash-preview` (Vertex) | Video (required) | None |
+| [`askQuestions`](./docs/WORKFLOWS.md#ask-questions)<br/>[API](./docs/API.md#askquestionsassetid-questions-options) · [Source](./src/workflows/ask-questions.ts) | Answer yes/no questions about an asset's content                  | OpenAI, Anthropic, Google, Bedrock, Vertex | `gpt-5.1` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google), `us.anthropic.claude-sonnet-4-5-20250929-v1:0` (Bedrock), `gemini-3-flash-preview` (Vertex) | Video (required), Captions (optional) | None |
+| [`generateChapters`](./docs/WORKFLOWS.md#chapter-generation)<br/>[API](./docs/API.md#generatechaptersassetid-languagecode-options) · [Source](./src/workflows/chapters.ts) | Generate chapter markers for an asset using the transcript        | OpenAI, Anthropic, Google, Bedrock, Vertex | `gpt-5.1` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google), `us.anthropic.claude-sonnet-4-5-20250929-v1:0` (Bedrock), `gemini-3-flash-preview` (Vertex) | Video or audio-only, Captions/Transcripts (required) | None |
+| [`generateEmbeddings`](./docs/WORKFLOWS.md#embeddings)<br/>[API](./docs/API.md#generateembeddingsassetid-options) · [Source](./src/workflows/embeddings.ts) | Generate vector embeddings for an asset's transcript chunks       | OpenAI, Google, Bedrock, Vertex | `text-embedding-3-small` (OpenAI), `gemini-embedding-001` (Google), `amazon.titan-embed-text-v2:0` (Bedrock), `text-embedding-005` (Vertex) | Video or audio-only, Captions/Transcripts (required) | None |
+| [`translateCaptions`](./docs/WORKFLOWS.md#caption-translation)<br/>[API](./docs/API.md#translatecaptionsassetid-fromlanguagecode-tolanguagecode-options) · [Source](./src/workflows/translate-captions.ts) | Translate an asset's captions into different languages            | OpenAI, Anthropic, Google, Bedrock, Vertex | `gpt-5.1` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google), `us.anthropic.claude-sonnet-4-5-20250929-v1:0` (Bedrock), `gemini-3-flash-preview` (Vertex) | Video or audio-only, Captions/Transcripts (required) | AWS S3 (if `uploadToMux=true`) |
 | [`translateAudio`](./docs/WORKFLOWS.md#audio-dubbing)<br/>[API](./docs/API.md#translateaudioassetid-tolanguagecode-options) · [Source](./src/workflows/translate-audio.ts) | Create AI-dubbed audio tracks in different languages for an asset | ElevenLabs only           | ElevenLabs Dubbing API                                             | Video or audio-only, Audio (required) | AWS S3 (if `uploadToMux=true`) |
 
 ## Compatability with Workflow DevKit
@@ -294,7 +303,7 @@ for (const chunk of result.chunks) {
 - **Prompt Customization**: Override specific prompt sections to tune workflows to your exact use case
 - **Configurable Thresholds**: Set custom sensitivity levels for content moderation
 - **Full TypeScript Support**: Comprehensive types for excellent developer experience and IDE autocomplete
-- **Provider Flexibility**: Switch between OpenAI, Anthropic, Google, and other providers based on your needs
+- **Provider Flexibility**: Switch between OpenAI, Anthropic, Google, Amazon Bedrock, Google Vertex AI, and other providers based on your needs
 - **Composable Building Blocks**: Use primitives to fetch transcripts, thumbnails, and storyboards for custom workflows
 - **Universal Language Support**: Automatic language name detection using `Intl.DisplayNames` for all ISO 639-1 codes
 - **Production Ready**: Built-in retry logic, error handling, and edge case management
@@ -409,6 +418,49 @@ ANTHROPIC_API_KEY=your_anthropic_api_key
 ```bash
 GOOGLE_GENERATIVE_AI_API_KEY=your_google_api_key
 ```
+
+### Amazon Bedrock
+
+**Used by:** `getSummaryAndTags`, `hasBurnedInCaptions`, `askQuestions`, `generateChapters`, `generateEmbeddings`, `translateCaptions`
+
+Amazon Bedrock lets you access foundation models (Claude, Titan, Llama, etc.) through your AWS account. This is ideal for teams with existing AWS spend commitments or enterprise requirements.
+
+**Setup:** [Amazon Bedrock Getting Started](https://docs.aws.amazon.com/bedrock/latest/userguide/getting-started.html)
+
+**Authentication:** Uses standard AWS credentials. The SDK also supports AWS credential chains (IAM roles, instance profiles) when explicit credentials are not provided.
+
+```bash
+AWS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=your_aws_access_key_id
+AWS_SECRET_ACCESS_KEY=your_aws_secret_access_key
+# Optional: for temporary credentials (e.g. STS AssumeRole)
+AWS_SESSION_TOKEN=your_aws_session_token
+```
+
+**Default model:** `us.anthropic.claude-sonnet-4-5-20250929-v1:0` (Claude Sonnet 4.5 via Bedrock)
+
+> **💡 Tip:** Make sure you have [requested access](https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html) to the models you want to use in your AWS region.
+
+### Google Vertex AI
+
+**Used by:** `getSummaryAndTags`, `hasBurnedInCaptions`, `askQuestions`, `generateChapters`, `generateEmbeddings`, `translateCaptions`
+
+Google Vertex AI lets you access Gemini models through your Google Cloud account. This is ideal for teams with existing GCP spend commitments or enterprise requirements.
+
+**Setup:** [Vertex AI Getting Started](https://cloud.google.com/vertex-ai/docs/start/introduction-unified-platform)
+
+**Authentication:** Supports API key (express mode), Application Default Credentials (ADC), or service account credentials.
+
+```bash
+GOOGLE_VERTEX_PROJECT=your_gcp_project_id
+GOOGLE_VERTEX_LOCATION=us-central1
+# Optional: for express mode API key authentication
+GOOGLE_VERTEX_API_KEY=your_vertex_api_key
+```
+
+**Default model:** `gemini-3-flash-preview` (Gemini 3 Flash via Vertex AI)
+
+> **💡 Tip:** When running on GCP (Cloud Run, GKE, etc.), Application Default Credentials are automatically available - you only need to set project and location.
 
 ### ElevenLabs
 

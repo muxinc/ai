@@ -184,7 +184,7 @@ result.answers.forEach(answer => {
 
 ```typescript
 const result = await askQuestions(assetId, questions, {
-  provider: "openai", // "openai", "anthropic", or "google" (default: "openai")
+  provider: "openai", // "openai", "anthropic", "google", "bedrock", or "vertex" (default: "openai")
   model: "gpt-5.1", // Override default model
   answerOptions: ["yes", "no", "unsure"], // Override allowed answers
   includeTranscript: true, // Include transcript (default: true)
@@ -427,7 +427,7 @@ ElevenLabs supports 32+ languages with automatic language name detection via `In
 
 ## Multi-Provider Support
 
-All workflows support multiple AI providers with consistent interfaces.
+All workflows support multiple AI providers with consistent interfaces. In addition to direct API providers (OpenAI, Anthropic, Google), you can also use **Amazon Bedrock** and **Google Vertex AI** for enterprise cloud deployments.
 
 ### Comparing Providers
 
@@ -456,10 +456,24 @@ const googleResult = await getSummaryAndTags(assetId, {
   tone: "professional"
 });
 
+// Amazon Bedrock (default: us.anthropic.claude-sonnet-4-5-20250929-v1:0)
+const bedrockResult = await getSummaryAndTags(assetId, {
+  provider: "bedrock",
+  tone: "professional"
+});
+
+// Google Vertex AI (default: gemini-3-flash-preview)
+const vertexResult = await getSummaryAndTags(assetId, {
+  provider: "vertex",
+  tone: "professional"
+});
+
 // Compare results
 console.log("OpenAI:", openaiResult.title);
 console.log("Anthropic:", anthropicResult.title);
 console.log("Google:", googleResult.title);
+console.log("Bedrock:", bedrockResult.title);
+console.log("Vertex:", vertexResult.title);
 ```
 
 Works with any workflow:
@@ -481,7 +495,55 @@ const anthropicChapters = await generateChapters(assetId, "en", {
 const googleChapters = await generateChapters(assetId, "en", {
   provider: "google"
 });
+
+// Amazon Bedrock (default: us.anthropic.claude-sonnet-4-5-20250929-v1:0)
+const bedrockChapters = await generateChapters(assetId, "en", {
+  provider: "bedrock"
+});
+
+// Google Vertex AI (default: gemini-3-flash-preview)
+const vertexChapters = await generateChapters(assetId, "en", {
+  provider: "vertex"
+});
 ```
+
+### Using Amazon Bedrock
+
+Amazon Bedrock lets you access foundation models through your AWS account, using AWS credentials for authentication. This is ideal for teams with existing AWS spend commitments.
+
+```typescript
+// Uses AWS_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY from env
+const result = await getSummaryAndTags(assetId, {
+  provider: "bedrock"
+});
+
+// Override the default model
+const result = await getSummaryAndTags(assetId, {
+  provider: "bedrock",
+  model: "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
+});
+```
+
+Bedrock also supports AWS credential chains (IAM roles, instance profiles) when explicit credentials are not set. See the [Amazon Bedrock docs](https://docs.aws.amazon.com/bedrock/latest/userguide/) for details.
+
+### Using Google Vertex AI
+
+Google Vertex AI lets you access Gemini models through your Google Cloud account. Authentication supports API key (express mode) or Application Default Credentials (ADC).
+
+```typescript
+// Uses GOOGLE_VERTEX_PROJECT, GOOGLE_VERTEX_LOCATION from env
+const result = await getSummaryAndTags(assetId, {
+  provider: "vertex"
+});
+
+// Override the default model
+const result = await getSummaryAndTags(assetId, {
+  provider: "vertex",
+  model: "gemini-2.5-flash"
+});
+```
+
+When running on GCP (Cloud Run, GKE, etc.), Application Default Credentials are automatically available. See the [Vertex AI docs](https://cloud.google.com/vertex-ai/docs/start/introduction-unified-platform) for details.
 
 ### Overriding Default Models
 
@@ -501,6 +563,12 @@ const fastResult = await getSummaryAndTags(assetId, {
   provider: "google",
   model: "gemini-1.5-flash-8b" // Smallest/fastest Gemini
 });
+
+// Use a different Bedrock model
+const bedrockResult = await getSummaryAndTags(assetId, {
+  provider: "bedrock",
+  model: "us.meta.llama3-3-70b-instruct-v1:0" // Llama on Bedrock
+});
 ```
 
-**Cost Optimization Tip:** The defaults (`gpt-5.1`, `claude-sonnet-4-5`, `gemini-3-flash-preview`) are optimized for cost/quality balance. Only upgrade to more powerful models when quality needs justify the higher cost.
+**Cost Optimization Tip:** The defaults (`gpt-5.1`, `claude-sonnet-4-5`, `gemini-3-flash-preview`) are optimized for cost/quality balance. Bedrock and Vertex give you the same models with potential cost savings through committed cloud spend. Only upgrade to more powerful models when quality needs justify the higher cost.
