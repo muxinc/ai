@@ -38,6 +38,8 @@ OPENAI_API_KEY=your_openai_api_key          # or ANTHROPIC_API_KEY, GOOGLE_GENER
 
 You only need credentials for the AI provider you're using. See the [Credentials guide](./docs/CREDENTIALS.md) for full setup details including signed playback, S3 storage, and all supported providers.
 
+For multi-tenant apps or cases where you need to provide API keys at runtime rather than through environment variables, every workflow accepts a `credentials` option. You can also register a global credentials provider with `setWorkflowCredentialsProvider()` for dynamic key resolution (e.g. per-tenant secrets). When using [Workflow DevKit](https://useworkflow.dev), credentials can be [encrypted](./docs/WORKFLOW-ENCRYPTION.md) before crossing workflow boundaries so plaintext secrets never appear in serialized payloads.
+
 ### Run Your First Workflow
 
 ```ts

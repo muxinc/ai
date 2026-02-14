@@ -130,6 +130,87 @@ S3_SECRET_ACCESS_KEY=your-r2-secret-key
 
 For custom storage SDK usage (AWS SDK v3, MinIO, etc.), see the [Storage Adapters](./STORAGE-ADAPTERS.md) guide.
 
+## Runtime Credentials
+
+Environment variables are the simplest way to get started, but `@mux/ai` also supports providing credentials at runtime on a per-request basis. This is essential for multi-tenant applications where different users or tenants have their own API keys.
+
+### The `credentials` option
+
+Every workflow accepts an optional `credentials` object. Pass it directly to supply API keys at call time instead of relying on environment variables:
+
+```ts
+import { getSummaryAndTags } from "@mux/ai/workflows";
+
+const result = await getSummaryAndTags("asset-id", {
+  provider: "openai",
+  credentials: {
+    muxTokenId: tenant.muxTokenId,
+    muxTokenSecret: tenant.muxTokenSecret,
+    openaiApiKey: tenant.openaiKey,
+  },
+});
+```
+
+Supported credential fields:
+
+| Field | Description |
+| --- | --- |
+| `muxTokenId` | Mux API token ID |
+| `muxTokenSecret` | Mux API token secret |
+| `muxSigningKey` | Mux signing key ID (for signed playback) |
+| `muxPrivateKey` | Mux private key (for signed playback) |
+| `openaiApiKey` | OpenAI API key |
+| `anthropicApiKey` | Anthropic API key |
+| `googleApiKey` | Google Generative AI API key |
+| `hiveApiKey` | Hive API key |
+| `elevenLabsApiKey` | ElevenLabs API key |
+
+### Global credentials provider
+
+For dynamic key resolution — rotating keys, per-tenant secrets fetched from a vault, etc. — register a global provider that runs before every workflow:
+
+```ts
+import { setWorkflowCredentialsProvider } from "@mux/ai";
+
+setWorkflowCredentialsProvider(async () => ({
+  muxTokenId: await getSecret("mux-token-id"),
+  muxTokenSecret: await getSecret("mux-token-secret"),
+  openaiApiKey: await getSecretForCurrentTenant("openai-key"),
+}));
+```
+
+### Resolution order
+
+Credentials are merged from multiple sources in order of precedence:
+
+1. **Credentials provider** (`setWorkflowCredentialsProvider`) — highest priority
+2. **Direct `credentials` option** passed to the workflow call
+3. **Environment variables** — lowest priority fallback
+
+This means you can set shared credentials via environment variables and override specific keys per-request or per-tenant.
+
+### Encrypted credentials (Workflow DevKit)
+
+When running workflows through [Workflow DevKit](https://useworkflow.dev), inputs and outputs are serialized for observability. To avoid plaintext secrets in those payloads, encrypt credentials before passing them:
+
+```ts
+import { encryptForWorkflow } from "@mux/ai";
+import { start } from "workflow/api";
+import { getSummaryAndTags } from "@mux/ai/workflows";
+
+const encrypted = await encryptForWorkflow(
+  { muxTokenId: "...", muxTokenSecret: "...", openaiApiKey: "..." },
+  process.env.MUX_AI_WORKFLOW_SECRET_KEY!,
+);
+
+const run = await start(getSummaryAndTags, [
+  "asset-id",
+  { provider: "openai", credentials: encrypted },
+]);
+```
+
+See the [Workflow Encryption guide](./WORKFLOW-ENCRYPTION.md) for full setup details.
+
 ## Full `.env` Example
 
 Here's a complete example showing all possible environment variables:
