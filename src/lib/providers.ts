@@ -12,9 +12,10 @@ export type SupportedProvider = "openai" | "anthropic" | "google";
 export type SupportedEmbeddingProvider = "openai" | "google";
 
 // Model ID unions inferred from ai-sdk provider call signatures
-type OpenAIModelId = Parameters<ReturnType<typeof createOpenAI>["chat"]>[0];
+// Include additive model IDs that may lag behind ai-sdk type releases.
+type OpenAIModelId = Parameters<ReturnType<typeof createOpenAI>["chat"]>[0] | "gpt-5-mini";
 type AnthropicModelId = Parameters<ReturnType<typeof createAnthropic>["chat"]>[0];
-type GoogleModelId = Parameters<ReturnType<typeof createGoogleGenerativeAI>["chat"]>[0];
+type GoogleModelId = Parameters<ReturnType<typeof createGoogleGenerativeAI>["chat"]>[0] | "gemini-2.5-flash";
 
 type OpenAIEmbeddingModelId = Parameters<ReturnType<typeof createOpenAI>["embedding"]>[0];
 type GoogleEmbeddingModelId = Parameters<ReturnType<typeof createGoogleGenerativeAI>["textEmbeddingModel"]>[0];
@@ -45,6 +46,12 @@ export const DEFAULT_LANGUAGE_MODELS: { [K in SupportedProvider]: ModelIdByProvi
   openai: "gpt-5.1",
   anthropic: "claude-sonnet-4-5",
   google: "gemini-3-flash-preview",
+};
+
+export const LANGUAGE_MODEL_OPTIONS: { [K in SupportedProvider]: readonly ModelIdByProvider[K][] } = {
+  openai: ["gpt-5.1", "gpt-5-mini"],
+  anthropic: ["claude-sonnet-4-5"],
+  google: ["gemini-3-flash-preview", "gemini-2.5-flash"],
 };
 
 const DEFAULT_EMBEDDING_MODELS: { [K in SupportedEmbeddingProvider]: EmbeddingModelIdByProvider[K] } = {
