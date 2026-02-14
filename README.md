@@ -15,6 +15,7 @@ Turn your Mux video and audio assets into structured, actionable data — summar
 - **Cost-effective defaults.** Every workflow ships with affordable frontier model defaults (`gpt-5.1`, `claude-sonnet-4-5`, `gemini-3-flash-preview`) that balance quality and cost.
 - **Fully typed.** Comprehensive TypeScript types for every workflow input, option, and result — great autocomplete and compile-time safety.
 - **Production-ready.** Built-in retry logic, error handling, signed playback support, and [Workflow DevKit](https://useworkflow.dev) compatibility for observability and orchestration.
+- **Customizable prompts.** Override individual prompt sections with `promptOverrides` to tune outputs for SEO, social media, e-commerce, or any use case — no prompt engineering from scratch.
 - **Composable.** Start with high-level workflows, drop down to primitives when you need full control over prompts and data.
 
 ## Quick Start
@@ -116,6 +117,23 @@ for (const chunk of result.chunks) {
 }
 ```
 
+## Prompt Customization
+
+Every workflow prompt is built from a structured template of named sections. The `promptOverrides` option lets you swap out individual sections with your own instructions while keeping the battle-tested defaults for everything else — no need to rewrite entire prompts.
+
+```ts
+const result = await getSummaryAndTags(assetId, {
+  provider: "openai",
+  promptOverrides: {
+    title: "Create a search-optimized title (50-60 chars) with the primary keyword front-loaded.",
+    keywords: "Focus on high search volume terms and long-tail keyword phrases.",
+    // task, description, qualityGuidelines → keep defaults
+  },
+});
+```
+
+This works with `getSummaryAndTags`, `generateChapters`, and `hasBurnedInCaptions`. The [Prompt Customization guide](./docs/PROMPT-CUSTOMIZATION.md) has ready-to-use presets for SEO, social media, e-commerce, and technical analysis, along with tips for writing effective overrides.
+
 ## Primitives
 
 Primitives are low-level building blocks that give you direct access to Mux media data — transcripts, storyboards, thumbnails, and text chunking utilities. Use them when you need full control over your AI prompts or want to build custom workflows.
@@ -157,6 +175,7 @@ import { workflows, primitives } from "@mux/ai";
 | [Workflows](./docs/WORKFLOWS.md) | Detailed guide for each pre-built workflow with examples and options |
 | [API Reference](./docs/API.md) | Complete API docs — all function signatures, parameters, and return types |
 | [Primitives](./docs/PRIMITIVES.md) | Low-level building blocks for custom workflows |
+| [Prompt Customization](./docs/PROMPT-CUSTOMIZATION.md) | Overriding prompt sections with `promptOverrides` for custom use cases |
 | [Credentials](./docs/CREDENTIALS.md) | Setting up Mux, AI provider, and cloud storage credentials |
 | [Workflow DevKit](./docs/WORKFLOW-DEVKIT.md) | Integration with Workflow DevKit for observability and orchestration |
 | [Workflow Encryption](./docs/WORKFLOW-ENCRYPTION.md) | Encrypting credentials across Workflow DevKit boundaries |
