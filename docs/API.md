@@ -312,7 +312,7 @@ player.addChapters([
 
 ## `translateAudio(assetId, toLanguageCode, options?)`
 
-Creates AI-dubbed audio tracks from existing media content using ElevenLabs voice cloning and translation. Uses the default audio track on your asset, language is auto-detected.
+Creates AI-dubbed audio tracks from existing media content using ElevenLabs voice cloning and translation. Uses the default audio track on your asset. Source language is auto-detected unless `fromLanguageCode` is provided.
 
 **Parameters:**
 
@@ -323,6 +323,7 @@ Creates AI-dubbed audio tracks from existing media content using ElevenLabs voic
 **Options:**
 
 - `provider?: 'elevenlabs'` - AI provider (default: 'elevenlabs')
+- `fromLanguageCode?: string` - Optional source language code passed to ElevenLabs `source_lang` (ISO 639-1 or ISO 639-3, default: auto-detect)
 - `numSpeakers?: number` - Number of speakers (default: 0 for auto-detect)
 - `uploadToMux?: boolean` - Whether to upload dubbed track to Mux (default: true)
 - `s3Endpoint?: string` - S3-compatible storage endpoint
