@@ -235,7 +235,116 @@ const triState = await askQuestions("asset-id", questions, {
 - Questions should have clear answers that map to your allowed options
 - The AI prioritizes visual evidence when transcript and visuals conflict
 
-## `translateCaptions(assetId, fromLanguageCode, toLanguageCode, options)`
+## `generateEngagementInsights(assetId, options?)`
+
+Generate AI-powered insights explaining viewer engagement patterns by analyzing hotspot data, heatmap statistics, visual frames, and transcripts.
+
+**Parameters:**
+
+- `assetId` (string) - Mux video asset ID with engagement data
+- `options` (optional) - Configuration options
+
+**Options:**
+
+- `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
+- `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
+- `hotspotLimit?: number` - Number of engagement moments to analyze (default: 5, range: 1-10)
+- `insightType?: 'informational' | 'actionable' | 'both'` - Type of insights to generate (default: 'informational')
+- `timeframe?: string` - Engagement data timeframe (default: '[7:days]')
+  - Examples: `'[1:hour]'`, `'[24:hours]'`, `'[7:days]'`, `'[30:days]'`
+
+**Returns:**
+
+```typescript
+interface EngagementInsightsResult {
+  assetId: string;
+  momentInsights: Array<{
+    startMs: number; // Start time in milliseconds
+    endMs: number; // End time in milliseconds
+    timestamp: string; // Human-readable timestamp (e.g., "2:15")
+    engagementScore: number; // Normalized score (0.0-1.0)
+    type: 'high' | 'low'; // Engagement type
+    insight: string; // Explanation of engagement pattern
+    recommendation?: string; // Optional optimization recommendation
+    confidence: number; // Confidence score (0.0-1.0)
+  }>;
+  overallInsight: {
+    summary: string; // Overall engagement summary
+    trends: string[]; // Key trends identified
+    recommendations?: string[]; // Optional optimization recommendations
+  };
+  engagementData: {
+    hotspots: Array<{ // Raw hotspot data
+      startMs: number;
+      endMs: number;
+      score: number;
+    }>;
+    heatmapStats: { // Computed statistics
+      average: number;
+      peak: { index: number; value: number; timestamp: string };
+      lowest: { index: number; value: number; timestamp: string };
+      significantDrops: Array<{
+        startIndex: number;
+        endIndex: number;
+        dropPercentage: number;
+        timestamp: string;
+      }>;
+    };
+    timeframe: string;
+  };
+  usage?: { // Token usage statistics
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
+}
+```
+
+**Examples:**
+
+```typescript
+// Basic usage - informational insights
+const result = await generateEngagementInsights("asset-id");
+
+console.log(result.momentInsights[0].insight);
+// "The cooking demonstration at 2:15 has 3x average engagement..."
+
+// Actionable recommendations for content creators
+const result = await generateEngagementInsights("asset-id", {
+  insightType: "actionable",
+  hotspotLimit: 5
+});
+
+result.momentInsights.forEach(insight => {
+  console.log(`${insight.timestamp}: ${insight.recommendation}`);
+});
+
+// Comprehensive analysis with both insights and recommendations
+const result = await generateEngagementInsights("asset-id", {
+  insightType: "both",
+  timeframe: "[30:days]"
+});
+
+console.log(result.overallInsight.summary);
+console.log("Trends:", result.overallInsight.trends);
+console.log("Recommendations:", result.overallInsight.recommendations);
+```
+
+**Requirements:**
+
+- Asset must have engagement data (views with re-watch activity)
+- Newer or low-view videos may not have sufficient engagement data
+- Works with both video and audio-only assets (audio-only skips visual analysis)
+
+**Use Cases:**
+
+- Content optimization based on viewer behavior
+- Understanding what drives re-watching and engagement
+- Identifying pacing issues and drop-off points
+- A/B testing video variations
+- Providing actionable feedback to content creators
+
+## `translateCaptions(assetId, fromLanguageCode, toLanguageCode, options?)`
 
 Translates existing captions from one language to another and optionally adds them as a new track to the Mux asset.
 
