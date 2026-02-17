@@ -2,11 +2,11 @@ import { generateText, Output } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
-import { getAssetDurationSecondsFromAsset, getPlaybackIdForAssetWithClient } from "@mux/ai/lib/mux-assets";
+import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
 import { createPromptBuilder } from "@mux/ai/lib/prompt-builder";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
-import { resolveMuxClient, resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
+import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
 import type { HeatmapResponse } from "@mux/ai/primitives/heatmap";
 import { getHeatmapForAsset } from "@mux/ai/primitives/heatmap";
 import type { Hotspot } from "@mux/ai/primitives/hotspots";
@@ -597,12 +597,11 @@ export async function generateEngagementInsights(
     model,
     provider: provider as SupportedProvider,
   });
-  const muxClient = await resolveMuxClient(credentials);
 
   // Fetch asset metadata and playback ID
-  const { asset, playbackId, policy } = await getPlaybackIdForAssetWithClient(
+  const { asset, playbackId, policy } = await getPlaybackIdForAsset(
     assetId,
-    muxClient,
+    credentials,
   );
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(asset);
 
@@ -613,7 +612,7 @@ export async function generateEngagementInsights(
   // Check if audio-only
   const isAudioOnly =
     asset.aspect_ratio === null ||
-    !asset.tracks?.some(track => track.type === "video");
+    !asset.tracks?.some((track: any) => track.type === "video");
 
   // Resolve signing context
   const signingContext = await resolveMuxSigningContext(credentials);
