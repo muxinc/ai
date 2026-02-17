@@ -1,12 +1,14 @@
 # API Reference
 
+All workflows accept an optional `credentials` object for [runtime credential injection](./CREDENTIALS.md#runtime-credentials). This is inherited from the base `MuxAIOptions` interface and is not repeated for each workflow below.
+
 ## `getSummaryAndTags(assetId, options?)`
 
-Analyzes a Mux video asset and returns AI-generated metadata.
+Analyzes a Mux video or audio asset and returns AI-generated metadata.
 
 **Parameters:**
 
-- `assetId` (string) - Mux video asset ID
+- `assetId` (string) - Mux asset ID (video or audio-only)
 - `options` (optional) - Configuration options
 
 **Options:**
@@ -14,7 +16,7 @@ Analyzes a Mux video asset and returns AI-generated metadata.
 - `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
 - `tone?: 'neutral' | 'playful' | 'professional'` - Analysis tone (default: 'neutral')
 - `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
-- `includeTranscript?: boolean` - Include video transcript in analysis (default: true)
+- `includeTranscript?: boolean` - Include transcript in analysis (default: true)
 - `cleanTranscript?: boolean` - Remove VTT timestamps and formatting from transcript (default: true)
 - `imageSubmissionMode?: 'url' | 'base64'` - How to submit storyboard to AI providers (default: 'url')
 - `imageDownloadOptions?: object` - Options for image download when using base64 mode
@@ -35,10 +37,12 @@ Analyzes a Mux video asset and returns AI-generated metadata.
 ```typescript
 interface SummaryAndTagsResult {
   assetId: string;
-  title: string; // Short title (max 100 chars)
+  title: string; // Short title
   description: string; // Detailed description
-  tags: string[]; // Relevant keywords
-  storyboardUrl: string; // Video storyboard URL
+  tags: string[]; // Up to 10 relevant keywords
+  storyboardUrl?: string; // Video storyboard URL (undefined for audio-only assets)
+  usage?: TokenUsage; // Token usage from the AI provider
+  transcriptText?: string; // Raw transcript text (when includeTranscript is true)
 }
 ```
 
@@ -62,6 +66,7 @@ Analyzes a Mux asset for inappropriate content using OpenAI's Moderation API or 
 - `thresholds?: { sexual?: number; violence?: number }` - Custom thresholds (default: {sexual: 0.7, violence: 0.8})
 - `thumbnailInterval?: number` - Seconds between thumbnails for long videos (default: 10)
 - `thumbnailWidth?: number` - Thumbnail width in pixels (default: 640)
+- `maxSamples?: number` - Maximum number of thumbnails to sample. When set, samples are evenly distributed with first and last frames pinned. (default: unlimited)
 - `maxConcurrent?: number` - Maximum concurrent API requests (default: 5)
 - `imageSubmissionMode?: 'url' | 'base64'` - How to submit images to AI providers (default: 'url')
 - `imageDownloadOptions?: object` - Options for image download when using base64 mode
@@ -70,8 +75,6 @@ Analyzes a Mux asset for inappropriate content using OpenAI's Moderation API or 
   - `retryDelay?: number` - Base delay between retries in milliseconds (default: 1000)
   - `maxRetryDelay?: number` - Maximum delay between retries in milliseconds (default: 10000)
   - `exponentialBackoff?: boolean` - Whether to use exponential backoff (default: true)
-
-Credentials (`MUX_TOKEN_ID`, `MUX_TOKEN_SECRET`, `OPENAI_API_KEY`, `HIVE_API_KEY`) are read from environment variables by default. For Workflow Dev Kit multi-tenant usage, pass encrypted `credentials` in options (see README).
 
 **Hive note (audio-only):** transcript moderation submits `text_data` and requires a Hive **Text Moderation** project/API key. If you use a Visual Moderation key, Hive will reject the request (see [Hive Text Moderation docs](https://docs.thehive.ai/docs/classification-text)).
 
@@ -87,6 +90,7 @@ Credentials (`MUX_TOKEN_ID`, `MUX_TOKEN_SECRET`, `OPENAI_API_KEY`, `HIVE_API_KEY
     sexual: number; // 0-1 score
     violence: number; // 0-1 score
     error: boolean;
+    errorMessage?: string;
   }>;
   maxScores: { // Highest scores across all thumbnails (or transcript chunks for audio-only)
     sexual: number;
@@ -97,6 +101,7 @@ Credentials (`MUX_TOKEN_ID`, `MUX_TOKEN_SECRET`, `OPENAI_API_KEY`, `HIVE_API_KEY
     sexual: number;
     violence: number;
   };
+  usage?: TokenUsage; // Workflow usage metadata
 }
 ```
 
@@ -120,6 +125,11 @@ Analyzes video frames to detect burned-in captions (hardcoded subtitles) that ar
   - `retryDelay?: number` - Base delay between retries in milliseconds (default: 1000)
   - `maxRetryDelay?: number` - Maximum delay between retries in milliseconds (default: 10000)
   - `exponentialBackoff?: boolean` - Whether to use exponential backoff (default: true)
+- `promptOverrides?: object` - Override specific sections of the detection prompt
+  - `task?: string` - Override the main analysis task instruction
+  - `analysisSteps?: string` - Override the step-by-step analysis procedure
+  - `positiveIndicators?: string` - Override criteria for classifying text as captions
+  - `negativeIndicators?: string` - Override criteria for ruling out captions
 
 **Returns:**
 
@@ -130,6 +140,7 @@ Analyzes video frames to detect burned-in captions (hardcoded subtitles) that ar
   confidence: number; // Confidence score (0.0-1.0)
   detectedLanguage: string | null; // Language of detected captions, or null
   storyboardUrl: string; // URL to analyzed storyboard
+  usage?: TokenUsage; // Token usage from the AI provider
 }
 ```
 
@@ -139,7 +150,7 @@ Analyzes video frames to detect burned-in captions (hardcoded subtitles) that ar
 - Distinguishes between actual captions and marketing/end-card text
 - Text appearing only in final 1-2 frames is classified as marketing copy
 - Caption text must appear across multiple frames throughout the timeline
-- Both providers use optimized prompts to minimize false positives
+- Optimized prompts minimize false positives
 
 ## `askQuestions(assetId, questions, options?)`
 
@@ -181,11 +192,7 @@ interface AskQuestionsResult {
     reasoning: string; // AI's explanation based on observable evidence
   }>;
   storyboardUrl: string; // URL to analyzed storyboard
-  usage?: { // Token usage statistics
-    inputTokens: number;
-    outputTokens: number;
-    totalTokens: number;
-  };
+  usage?: TokenUsage; // Token usage from the AI provider
   transcriptText?: string; // Raw transcript (when includeTranscript is true)
 }
 ```
@@ -228,7 +235,7 @@ const triState = await askQuestions("asset-id", questions, {
 - Questions should have clear answers that map to your allowed options
 - The AI prioritizes visual evidence when transcript and visuals conflict
 
-## `translateCaptions(assetId, fromLanguageCode, toLanguageCode, options?)`
+## `translateCaptions(assetId, fromLanguageCode, toLanguageCode, options)`
 
 Translates existing captions from one language to another and optionally adds them as a new track to the Mux asset.
 
@@ -237,12 +244,12 @@ Translates existing captions from one language to another and optionally adds th
 - `assetId` (string) - Mux asset ID (video or audio-only)
 - `fromLanguageCode` (string) - Source language code (e.g., 'en', 'es', 'fr')
 - `toLanguageCode` (string) - Target language code (e.g., 'es', 'fr', 'de')
-- `options` (optional) - Configuration options
+- `options` - Configuration options
 
 **Options:**
 
 - `provider: 'openai' | 'anthropic' | 'google'` - AI provider (required)
-- `model?: string` - Model to use (defaults to the provider's chat-vision model if omitted)
+- `model?: string` - Model to use (defaults to the provider's chat model if omitted)
 - `uploadToMux?: boolean` - Whether to upload translated track to Mux (default: true)
 - `s3Endpoint?: string` - S3-compatible storage endpoint
 - `s3Region?: string` - S3 region (default: 'auto')
@@ -256,10 +263,13 @@ interface TranslateCaptionsResult {
   assetId: string;
   sourceLanguageCode: string;
   targetLanguageCode: string;
+  sourceLanguage: LanguageCodePair; // { iso639_1: string; iso639_3: string }
+  targetLanguage: LanguageCodePair; // { iso639_1: string; iso639_3: string }
   originalVtt: string; // Original VTT content
   translatedVtt: string; // Translated VTT content
   uploadedTrackId?: string; // Mux track ID (if uploaded)
   presignedUrl?: string; // S3 presigned URL (expires in 1 hour)
+  usage?: TokenUsage; // Token usage from the AI provider
 }
 ```
 
@@ -272,7 +282,7 @@ Generates AI-powered chapter markers by analyzing video or audio transcripts. Cr
 
 **Parameters:**
 
-- `assetId` (string) - Mux video asset ID
+- `assetId` (string) - Mux asset ID (video or audio-only)
 - `languageCode` (string) - Language code for captions (e.g., 'en', 'es', 'fr')
 - `options` (optional) - Configuration options
 
@@ -280,6 +290,13 @@ Generates AI-powered chapter markers by analyzing video or audio transcripts. Cr
 
 - `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
 - `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
+- `promptOverrides?: object` - Override specific sections of the chaptering prompt
+  - `task?: string` - Override the main task instruction
+  - `outputFormat?: string` - Override the expected output format description
+  - `chapterGuidelines?: string` - Override chapter count and formatting guidelines
+  - `titleGuidelines?: string` - Override chapter title style guidelines
+- `minChaptersPerHour?: number` - Minimum chapters to generate per hour of content (default: 3)
+- `maxChaptersPerHour?: number` - Maximum chapters to generate per hour of content (default: 8)
 
 **Returns:**
 
@@ -291,6 +308,7 @@ Generates AI-powered chapter markers by analyzing video or audio transcripts. Cr
     startTime: number; // Chapter start time in seconds
     title: string; // Descriptive chapter title
   }>;
+  usage?: TokenUsage; // Token usage from the AI provider
 }
 ```
 
@@ -337,15 +355,17 @@ Creates AI-dubbed audio tracks from existing media content using ElevenLabs voic
 interface TranslateAudioResult {
   assetId: string;
   targetLanguageCode: string;
+  targetLanguage: LanguageCodePair; // { iso639_1: string; iso639_3: string }
   dubbingId: string; // ElevenLabs dubbing job ID
   uploadedTrackId?: string; // Mux audio track ID (if uploaded)
   presignedUrl?: string; // S3 presigned URL (expires in 1 hour)
+  usage?: TokenUsage; // Workflow usage metadata
 }
 ```
 
 **Requirements:**
 
-- Asset must have an `audio.m4a` static rendition
+- Asset must have an `audio.m4a` static rendition (auto-requested if missing)
 - ElevenLabs API key with Creator plan or higher
 - S3-compatible storage for Mux ingestion
 
@@ -361,7 +381,7 @@ Generate vector embeddings for transcript chunks from video or audio assets for 
 
 **Parameters:**
 
-- `assetId` (string) - Mux asset ID
+- `assetId` (string) - Mux asset ID (video or audio-only)
 - `options` (optional) - Configuration options
 
 **Options:**
@@ -373,7 +393,8 @@ Generate vector embeddings for transcript chunks from video or audio assets for 
   - `maxTokens?: number` - Maximum tokens per chunk (default: 500)
   - `overlap?: number` - Token overlap between chunks (for type: 'token', default: 100)
   - `overlapCues?: number` - VTT cue overlap between chunks (for type: 'vtt', default: 2)
-- `languageCode?: string` - Language code for transcript (default: 'en')
+- `languageCode?: string` - Language code for transcript (default: first available track)
+- `batchSize?: number` - Maximum number of chunks to process concurrently (default: 5)
 
 **Returns:**
 
@@ -399,14 +420,15 @@ Generate vector embeddings for transcript chunks from video or audio assets for 
     embeddingDimensions: number;
     generatedAt: string;
   };
+  usage?: TokenUsage; // Workflow usage metadata
 }
 ```
 
 ## Custom Prompts with `promptOverrides`
 
-Customize specific sections of the summarization prompt for different use cases like SEO, social media, or technical analysis.
+Customize specific sections of the summarization prompt for different use cases like SEO, social media, or technical analysis. See the [Prompt Customization guide](./PROMPT-CUSTOMIZATION.md) for a full overview of the prompt builder pattern.
 
-**Tip:** Before adding overrides, read through the default summarization prompt template in `src/functions/summarization.ts` (the `summarizationPromptBuilder` config) so that you have clear context on what each section does and what you're changing.
+**Tip:** Before adding overrides, read through the default summarization prompt template in `src/workflows/summarization.ts` (the `summarizationPromptBuilder` config) so that you have clear context on what each section does and what you're changing.
 
 ```typescript
 import { getSummaryAndTags } from "@mux/ai/workflows";
@@ -452,3 +474,34 @@ const technicalResult = await getSummaryAndTags(assetId, {
 | `qualityGuidelines` | General quality instructions |
 
 Each override can be a simple string (replaces the section content) or a full `PromptSection` object for advanced control over XML tag names and attributes.
+
+## Common Types
+
+### `TokenUsage`
+
+Returned by all workflows in the `usage` field:
+
+```typescript
+interface TokenUsage {
+  inputTokens?: number; // Tokens in the input prompt
+  outputTokens?: number; // Tokens generated in the output
+  totalTokens?: number; // Total tokens consumed
+  reasoningTokens?: number; // Chain-of-thought reasoning tokens
+  cachedInputTokens?: number; // Input tokens served from cache
+  metadata?: {
+    assetDurationSeconds?: number;
+    thumbnailCount?: number;
+  };
+}
+```
+
+### `LanguageCodePair`
+
+Returned by `translateCaptions` and `translateAudio`:
+
+```typescript
+interface LanguageCodePair {
+  iso639_1: string; // Two-letter code (e.g., "en", "es") — use for Mux/browser players
+  iso639_3: string; // Three-letter code (e.g., "eng", "spa") — use for ElevenLabs
+}
+```
