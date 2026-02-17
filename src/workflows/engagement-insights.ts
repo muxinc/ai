@@ -92,12 +92,6 @@ export interface EngagementInsightsResult {
   momentInsights: MomentInsight[];
   /** Overall engagement analysis */
   overallInsight: OverallInsight;
-  /** Engagement data used for analysis */
-  engagementData: {
-    hotspots: Hotspot[];
-    heatmapStats: HeatmapStatistics;
-    timeframe: string;
-  };
   /** Token usage from the AI provider (for efficiency/cost analysis). */
   usage?: TokenUsage;
 }
@@ -731,11 +725,6 @@ export async function generateEngagementInsights(
     assetId,
     momentInsights: transformedMomentInsights,
     overallInsight: transformedOverallInsight,
-    engagementData: {
-      hotspots,
-      heatmapStats,
-      timeframe,
-    },
     usage: usageWithMetadata,
   };
 }

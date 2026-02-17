@@ -316,11 +316,6 @@ The workflow combines multiple data sources for comprehensive analysis:
       "Shorten intro segments"
     ]
   },
-  engagementData: {
-    hotspots: [...], // Raw hotspot data
-    heatmapStats: {...}, // Computed statistics
-    timeframe: "[7:days]"
-  },
   usage: {...} // Token usage stats
 }
 ```

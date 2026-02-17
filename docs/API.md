@@ -241,7 +241,7 @@ Generate AI-powered insights explaining viewer engagement patterns by analyzing 
 
 **Parameters:**
 
-- `assetId` (string) - Mux video asset ID with engagement data
+- `assetId` (string) - Mux asset ID
 - `options` (optional) - Configuration options
 
 **Options:**
@@ -251,7 +251,7 @@ Generate AI-powered insights explaining viewer engagement patterns by analyzing 
 - `hotspotLimit?: number` - Number of engagement moments to analyze (default: 5, range: 1-10)
 - `insightType?: 'informational' | 'actionable' | 'both'` - Type of insights to generate (default: 'informational')
 - `timeframe?: string` - Engagement data timeframe (default: '[7:days]')
-  - Examples: `'[1:hour]'`, `'[24:hours]'`, `'[7:days]'`, `'[30:days]'`
+  - Examples: `'[60:minutes]'`, `'[24:hours]'`, `'[7:days]'`, `'[30:days]'`
 
 **Returns:**
 
@@ -272,25 +272,6 @@ interface EngagementInsightsResult {
     summary: string; // Overall engagement summary
     trends: string[]; // Key trends identified
     recommendations?: string[]; // Optional optimization recommendations
-  };
-  engagementData: {
-    hotspots: Array<{ // Raw hotspot data
-      startMs: number;
-      endMs: number;
-      score: number;
-    }>;
-    heatmapStats: { // Computed statistics
-      average: number;
-      peak: { index: number; value: number; timestamp: string };
-      lowest: { index: number; value: number; timestamp: string };
-      significantDrops: Array<{
-        startIndex: number;
-        endIndex: number;
-        dropPercentage: number;
-        timestamp: string;
-      }>;
-    };
-    timeframe: string;
   };
   usage?: { // Token usage statistics
     inputTokens: number;
@@ -332,7 +313,6 @@ console.log("Recommendations:", result.overallInsight.recommendations);
 
 **Requirements:**
 
-- Asset must have engagement data (views with re-watch activity)
 - Newer or low-view videos may not have sufficient engagement data
 - Works with both video and audio-only assets (audio-only skips visual analysis)
 

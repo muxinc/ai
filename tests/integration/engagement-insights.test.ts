@@ -67,7 +67,6 @@ describe("engagement Insights Integration Tests", () => {
       expect(result).toHaveProperty("assetId", testAssetId);
       expect(result).toHaveProperty("momentInsights");
       expect(result).toHaveProperty("overallInsight");
-      expect(result).toHaveProperty("engagementData");
       expect(Array.isArray(result.momentInsights)).toBe(true);
     },
   );
@@ -163,42 +162,18 @@ describe("engagement Insights Integration Tests", () => {
     // Note: We fetch limit peaks + limit valleys, so max is limit * 2
   });
 
-  it("should include complete result structure with engagement data, usage stats, and custom timeframe", async () => {
+  it("should include complete result structure with usage stats", async () => {
     const result = await generateEngagementInsights(testAssetId, {
       hotspotLimit: 3,
-      timeframe: "[30:days]",
     });
 
-    // Check engagement data
-    expect(result).toHaveProperty("engagementData");
-    expect(result.engagementData).toHaveProperty("hotspots");
-    expect(result.engagementData).toHaveProperty("heatmapStats");
-    expect(result.engagementData).toHaveProperty("timeframe");
-    expect(result.engagementData.timeframe).toBe("[30:days]");
-
-    // Check hotspots structure
-    expect(Array.isArray(result.engagementData.hotspots)).toBe(true);
-    result.engagementData.hotspots.forEach((hotspot) => {
-      expect(hotspot).toHaveProperty("startMs");
-      expect(hotspot).toHaveProperty("endMs");
-      expect(hotspot).toHaveProperty("score");
-      expect(hotspot.score).toBeGreaterThanOrEqual(0);
-      expect(hotspot.score).toBeLessThanOrEqual(1);
-    });
-
-    // Check heatmap stats structure
-    const stats = result.engagementData.heatmapStats;
-    expect(stats).toHaveProperty("average");
-    expect(stats).toHaveProperty("peak");
-    expect(stats.peak).toHaveProperty("index");
-    expect(stats.peak).toHaveProperty("value");
-    expect(stats.peak).toHaveProperty("timestamp");
-    expect(stats).toHaveProperty("lowest");
-    expect(stats).toHaveProperty("significantDrops");
-    expect(Array.isArray(stats.significantDrops)).toBe(true);
+    // Check result structure
+    expect(result).toHaveProperty("assetId");
+    expect(result).toHaveProperty("momentInsights");
+    expect(result).toHaveProperty("overallInsight");
+    expect(result).toHaveProperty("usage");
 
     // Check token usage statistics
-    expect(result).toHaveProperty("usage");
     expect(result.usage).toBeDefined();
     expect(result.usage).toHaveProperty("inputTokens");
     expect(result.usage).toHaveProperty("outputTokens");

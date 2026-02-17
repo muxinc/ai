@@ -5,9 +5,6 @@
 
 Easy to use, purpose-driven, cost effective, configurable **_workflow functions_** in a TypeScript SDK for building AI-powered video and audio workflows on the server, powered by [Mux](https://www.mux.com), with support for popular AI/LLM providers (OpenAI, Anthropic, Google).
 
-`@mux/ai` does this by providing:
-
-Easy to use, purpose-driven, cost effective, configurable **_workflow functions_** that integrate with a variety of popular AI/LLM providers (OpenAI, Anthropic, Google).
 - **Examples:** [`getSummaryAndTags`](#video-summarization), [`getModerationScores`](#content-moderation), [`hasBurnedInCaptions`](#burned-in-caption-detection), [`generateEngagementInsights`](#engagement-insights), [`generateChapters`](#chapter-generation), [`generateEmbeddings`](#search-with-embeddings), [`translateCaptions`](#caption-translation), [`translateAudio`](#audio-dubbing)
 - Workflows automatically ship with `"use workflow"` [compatability with Workflow DevKit](#compatability-with-workflow-devkit)
 
@@ -34,26 +31,6 @@ OPENAI_API_KEY=your_openai_api_key          # or ANTHROPIC_API_KEY, GOOGLE_GENER
 You only need credentials for the AI provider you're using. See the [Credentials guide](./docs/CREDENTIALS.md) for full setup details including signed playback, S3 storage, and all supported providers.
 
 For multi-tenant apps or cases where you need to provide API keys at runtime rather than through environment variables, every workflow accepts a `credentials` option. You can also register a global credentials provider with `setWorkflowCredentialsProvider()` for dynamic key resolution (e.g. per-tenant secrets). When using [Workflow DevKit](https://useworkflow.dev), credentials can be [encrypted](./docs/WORKFLOW-ENCRYPTION.md) before crossing workflow boundaries so plaintext secrets never appear in serialized payloads.
-
-## Available pre-built workflows
-
-| Workflow                                                                 | Description                                                       | Providers                 | Default Models                                                     | Mux Asset Requirements | Cloud Infrastructure Requirements |
-| ------------------------------------------------------------------------ | ----------------------------------------------------------------- | ------------------------- | ------------------------------------------------------------------ | ---------------------- | --------------------------------- |
-| [`getSummaryAndTags`](./docs/WORKFLOWS.md#video-summarization)<br/>[API](./docs/API.md#getsummaryandtagsassetid-options) · [Source](./src/workflows/summarization.ts) | Generate titles, descriptions, and tags for an asset              | OpenAI, Anthropic, Google | `gpt-5.1` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google) | Video (required), Captions (optional) | None |
-| [`getModerationScores`](./docs/WORKFLOWS.md#content-moderation)<br/>[API](./docs/API.md#getmoderationscoresassetid-options) · [Source](./src/workflows/moderation.ts) | Detect inappropriate (sexual or violent) content in an asset      | OpenAI, Hive              | `omni-moderation-latest` (OpenAI) or Hive visual moderation task   | Video (required) | None |
-| [`hasBurnedInCaptions`](./docs/WORKFLOWS.md#burned-in-caption-detection)<br/>[API](./docs/API.md#hasburnedincaptionsassetid-options) · [Source](./src/workflows/burned-in-captions.ts) | Detect burned-in captions (hardcoded subtitles) in an asset       | OpenAI, Anthropic, Google | `gpt-5.1` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google) | Video (required) | None |
-| [`askQuestions`](./docs/WORKFLOWS.md#ask-questions)<br/>[API](./docs/API.md#askquestionsassetid-questions-options) · [Source](./src/workflows/ask-questions.ts) | Answer yes/no questions about an asset's content                  | OpenAI, Anthropic, Google | `gpt-5.1` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google) | Video (required), Captions (optional) | None |
-| [`generateEngagementInsights`](./docs/WORKFLOWS.md#engagement-insights)<br/>[API](./docs/API.md#generateengagementinsightsassetid-options) · [Source](./src/workflows/engagement-insights.ts) | Generate AI-powered insights explaining viewer engagement patterns | OpenAI, Anthropic, Google | `gpt-5.1` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google) | Video (required), Engagement data (required), Captions (optional) | None |
-| [`generateChapters`](./docs/WORKFLOWS.md#chapter-generation)<br/>[API](./docs/API.md#generatechaptersassetid-languagecode-options) · [Source](./src/workflows/chapters.ts) | Generate chapter markers for an asset using the transcript        | OpenAI, Anthropic, Google | `gpt-5.1` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google) | Video or audio-only, Captions/Transcripts (required) | None |
-| [`generateEmbeddings`](./docs/WORKFLOWS.md#embeddings)<br/>[API](./docs/API.md#generateembeddingsassetid-options) · [Source](./src/workflows/embeddings.ts) | Generate vector embeddings for an asset's transcript chunks       | OpenAI, Google            | `text-embedding-3-small` (OpenAI), `gemini-embedding-001` (Google) | Video or audio-only, Captions/Transcripts (required) | None |
-| [`translateCaptions`](./docs/WORKFLOWS.md#caption-translation)<br/>[API](./docs/API.md#translatecaptionsassetid-fromlanguagecode-tolanguagecode-options) · [Source](./src/workflows/translate-captions.ts) | Translate an asset's captions into different languages            | OpenAI, Anthropic, Google | `gpt-5.1` (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google) | Video or audio-only, Captions/Transcripts (required) | AWS S3 (if `uploadToMux=true`) |
-| [`translateAudio`](./docs/WORKFLOWS.md#audio-dubbing)<br/>[API](./docs/API.md#translateaudioassetid-tolanguagecode-options) · [Source](./src/workflows/translate-audio.ts) | Create AI-dubbed audio tracks in different languages for an asset | ElevenLabs only           | ElevenLabs Dubbing API                                             | Video or audio-only, Audio (required) | AWS S3 (if `uploadToMux=true`) |
-
-## Compatability with Workflow DevKit
-
-All workflows are compatible with [Workflow DevKit](https://useworkflow.dev). The workflows in this SDK are exported with `"use workflow"` directives and `"use step"` directives in the code.
-
-If you are using Workflow DevKit in your project, then you must call workflow functions like this:
 
 ### Run Your First Workflow
 

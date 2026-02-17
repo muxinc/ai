@@ -65,7 +65,6 @@ describe("engagement Insights Integration Tests", () => {
     expect(result).toHaveProperty("assetId", testAssetId);
     expect(result).toHaveProperty("momentInsights");
     expect(result).toHaveProperty("overallInsight");
-    expect(result).toHaveProperty("engagementData");
     expect(Array.isArray(result.momentInsights)).toBe(true);
   });
 });
