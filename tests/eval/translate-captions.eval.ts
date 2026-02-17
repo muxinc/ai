@@ -11,6 +11,7 @@ import type { ModelIdByProvider, SupportedProvider } from "../../src/lib/provide
 import type { TokenUsage } from "../../src/types";
 import { translateCaptions } from "../../src/workflows";
 import type { TranslationResult } from "../../src/workflows";
+import { getLatencyPerformanceDescription, scoreLatencyPerformance } from "../helpers/latency-performance";
 import { muxTestAssets } from "../helpers/mux-test-assets";
 
 /**
@@ -646,17 +647,13 @@ evalite("Caption Translation", {
     // LATENCY: Wall clock time performance
     {
       name: "latency-performance",
-      description: `Scores latency: 1.0 for <${LATENCY_THRESHOLD_GOOD_MS}ms, scaled down to 0 for >${LATENCY_THRESHOLD_ACCEPTABLE_MS}ms.`,
+      description: getLatencyPerformanceDescription(LATENCY_THRESHOLD_GOOD_MS, LATENCY_THRESHOLD_ACCEPTABLE_MS),
       scorer: ({ output }: { output: EvalOutput }) => {
-        const { latencyMs } = output;
-        if (latencyMs <= LATENCY_THRESHOLD_GOOD_MS) {
-          return 1;
-        }
-        if (latencyMs >= LATENCY_THRESHOLD_ACCEPTABLE_MS) {
-          return Math.max(0, 1 - (latencyMs - LATENCY_THRESHOLD_ACCEPTABLE_MS) / LATENCY_THRESHOLD_ACCEPTABLE_MS);
-        }
-        // Linear interpolation between good and acceptable
-        return 1 - 0.5 * ((latencyMs - LATENCY_THRESHOLD_GOOD_MS) / (LATENCY_THRESHOLD_ACCEPTABLE_MS - LATENCY_THRESHOLD_GOOD_MS));
+        return scoreLatencyPerformance(
+          output.latencyMs,
+          LATENCY_THRESHOLD_GOOD_MS,
+          LATENCY_THRESHOLD_ACCEPTABLE_MS,
+        );
       },
     },
 
