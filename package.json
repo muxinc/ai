@@ -1,7 +1,7 @@
 {
   "name": "@mux/ai",
   "type": "module",
-  "version": "0.7.3",
+  "version": "0.7.4",
   "description": "AI library for Mux",
   "author": "Mux",
   "license": "Apache-2.0",
