@@ -1,12 +1,11 @@
-/* eslint-disable node/no-process-env */
-
 import { Command } from "commander";
 import { runEvalite } from "evalite/runner";
 
 import { LANGUAGE_MODELS, resolveEvalModelConfigsFromEnv } from "../src/lib/providers";
+import type { EvalModelSelection } from "../src/lib/providers";
 
 interface Options {
-  modelSet: "default" | "all";
+  modelSet: EvalModelSelection;
   models?: string;
 }
 

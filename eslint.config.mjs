@@ -42,4 +42,9 @@ export default antfu({
     // Operators at end of line, not beginning
     "style/operator-linebreak": ["error", "after"],
   },
+}, {
+  files: ["scripts/**/*.ts"],
+  rules: {
+    "node/no-process-env": ["off"],
+  },
 });
