@@ -191,16 +191,16 @@ const TOKEN_THRESHOLD_EFFICIENT = 4000;
 const COST_THRESHOLD_USD = 0.012;
 ```
 
-## Cross-Provider Testing
+## Cross-Provider and Cross-Model Testing
 
-All evals test across multiple providers to compare results:
+All evals test across multiple providers and models to compare results. The `EVAL_MODEL_CONFIGS` constant provides a flattened list of every (provider, model) pair:
 
 ```typescript
-const providers: SupportedProvider[] = ["openai", "anthropic", "google"];
+import { EVAL_MODEL_CONFIGS } from "../../src/lib/providers";
 
-const data = providers.flatMap(provider =>
+const data = EVAL_MODEL_CONFIGS.flatMap(({ provider, modelId }) =>
   testAssets.map(asset => ({
-    input: { assetId: asset.assetId, provider },
+    input: { assetId: asset.assetId, provider, model: modelId },
     expected: asset.expected,
   })),
 );
@@ -208,25 +208,27 @@ const data = providers.flatMap(provider =>
 
 This enables side-by-side comparison of:
 
-- Quality differences between providers
+- Quality differences between providers and models
 - Latency characteristics
 - Token consumption patterns
 - Cost per request
 
 ## Model Pricing
 
-Evals calculate estimated costs using provider pricing for the default models:
+Evals calculate estimated costs using per-model pricing for all supported models:
 
 | Provider | Model | Input (per 1M tokens) | Output (per 1M tokens) |
 |----------|-------|----------------------|------------------------|
-| OpenAI | gpt-5.1 | $1.25 | $10.00 |
-| Anthropic | claude-sonnet-4-5 | $3.00 | $15.00 |
-| Google | gemini-3-flash-preview | $0.50 | $3.00 |
+| OpenAI | gpt-5.1 (default) | $1.25 | $10.00 |
+| OpenAI | gpt-5-mini | $0.25 | $2.00 |
+| Anthropic | claude-sonnet-4-5 (default) | $3.00 | $15.00 |
+| Google | gemini-3-flash-preview (default) | $0.50 | $3.00 |
+| Google | gemini-2.5-flash | $0.30 | $2.50 |
 
 Pricing sources (verify periodically):
 - [OpenAI Pricing](https://openai.com/api/pricing)
 - [Anthropic Pricing](https://www.anthropic.com/pricing)
-- [Google AI Pricing](https://ai.google.dev/pricing)
+- [Google AI Pricing](https://ai.google.dev/gemini-api/docs/pricing)
 
 ## Resources
 
