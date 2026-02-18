@@ -2,6 +2,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 
+import type { Env } from "@mux/ai/env";
 import env from "@mux/ai/env";
 import { resolveProviderApiKey } from "@mux/ai/lib/workflow-credentials";
 import type { MuxAIOptions, WorkflowCredentialsInput } from "@mux/ai/types";
@@ -71,15 +72,118 @@ export interface EvalModelConfig {
   modelId: ModelIdByProvider[SupportedProvider];
 }
 
+export type EvalModelSelection = "default" | "all";
+
+export interface ResolveEvalModelConfigsOptions {
+  selection?: EvalModelSelection;
+  modelPairs?: string[];
+}
+
+function getDefaultEvalModelConfigs(): EvalModelConfig[] {
+  return (Object.entries(DEFAULT_LANGUAGE_MODELS) as [SupportedProvider, ModelIdByProvider[SupportedProvider]][])
+    .map(([provider, modelId]) => ({ provider, modelId }));
+}
+
+function getAllEvalModelConfigs(): EvalModelConfig[] {
+  return (Object.entries(LANGUAGE_MODELS) as [SupportedProvider, ModelIdByProvider[SupportedProvider][]][])
+    .flatMap(([provider, models]) => models.map(modelId => ({ provider, modelId })));
+}
+
+function isSupportedProvider(value: string): value is SupportedProvider {
+  return value === "openai" || value === "anthropic" || value === "google";
+}
+
+function parseEvalModelPair(value: string): EvalModelConfig {
+  const trimmed = value.trim();
+  const [providerRaw, modelIdRaw] = trimmed.split(":", 2);
+  const provider = providerRaw?.trim();
+  const modelId = modelIdRaw?.trim();
+
+  if (!provider || !modelId) {
+    throw new Error(
+      `Invalid eval model pair "${value}". Use "provider:model" (example: "openai:gpt-5.1").`,
+    );
+  }
+
+  if (!isSupportedProvider(provider)) {
+    throw new Error(
+      `Unsupported eval provider "${provider}" in "${value}". Supported providers: ${Object.keys(LANGUAGE_MODELS).join(", ")}.`,
+    );
+  }
+
+  const supportedModels = LANGUAGE_MODELS[provider] as string[];
+  if (!supportedModels.includes(modelId)) {
+    throw new Error(
+      `Unsupported eval model "${modelId}" for provider "${provider}". Supported models: ${supportedModels.join(", ")}.`,
+    );
+  }
+
+  return {
+    provider,
+    modelId: modelId as ModelIdByProvider[SupportedProvider],
+  };
+}
+
+/**
+ * Resolves eval model configurations.
+ *
+ * Selection order:
+ * 1) Explicit model pairs (provider:model)
+ * 2) Selection mode ("default" | "all")
+ * 3) Default mode ("default")
+ */
+export function resolveEvalModelConfigs(options: ResolveEvalModelConfigsOptions = {}): EvalModelConfig[] {
+  const explicitPairs = options.modelPairs?.map(value => value.trim()).filter(Boolean) ?? [];
+  if (explicitPairs.length > 0) {
+    const dedupedPairs = Array.from(new Set(explicitPairs));
+    return dedupedPairs.map(parseEvalModelPair);
+  }
+
+  const selection = options.selection ?? "default";
+  if (selection === "all") {
+    return getAllEvalModelConfigs();
+  }
+
+  return getDefaultEvalModelConfigs();
+}
+
+/**
+ * Environment variables for selecting eval models at runtime.
+ *
+ * - MUX_AI_EVAL_MODEL_SET: "default" | "all" (default: "default")
+ * - MUX_AI_EVAL_MODELS: comma-separated "provider:model" pairs
+ *   (takes precedence over MUX_AI_EVAL_MODEL_SET)
+ */
+export function resolveEvalModelConfigsFromEnv(environment: Env = env): EvalModelConfig[] {
+  const rawSelection = environment.MUX_AI_EVAL_MODEL_SET?.trim();
+  const rawModelPairs = environment.MUX_AI_EVAL_MODELS?.trim();
+  let selection: EvalModelSelection;
+  if (!rawSelection || rawSelection === "default") {
+    selection = "default";
+  } else if (rawSelection === "all") {
+    selection = "all";
+  } else {
+    throw new Error(
+      `Invalid MUX_AI_EVAL_MODEL_SET="${rawSelection}". Expected "default" or "all".`,
+    );
+  }
+
+  let modelPairs: string[] | undefined;
+  if (rawModelPairs) {
+    modelPairs = rawModelPairs.split(",").map(value => value.trim()).filter(Boolean);
+  }
+
+  return resolveEvalModelConfigs({
+    selection,
+    modelPairs,
+  });
+}
+
 /**
  * Flattened list of (provider, modelId) pairs for evaluation iteration.
- * Enables eval suites to test all supported models across all providers.
+ * Resolved from env so eval runs can target default models, all models, or an explicit list.
  */
-export const EVAL_MODEL_CONFIGS: EvalModelConfig[] = (
-  Object.entries(LANGUAGE_MODELS) as [SupportedProvider, ModelIdByProvider[SupportedProvider][]][]
-).flatMap(([provider, models]) =>
-  models.map(modelId => ({ provider, modelId })),
-);
+export const EVAL_MODEL_CONFIGS: EvalModelConfig[] = resolveEvalModelConfigsFromEnv();
 
 export function resolveLanguageModelConfig<P extends SupportedProvider = SupportedProvider>(
   options: ModelRequestOptions<P> = {},

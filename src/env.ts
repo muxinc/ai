@@ -55,6 +55,10 @@ const EnvSchema = z.object({
   MUX_TEST_ASSET_ID_AUDIO_ONLY: optionalString("Mux test asset ID for audio-only assets.", "Mux test asset id for audio-only assets for testing"),
   MUX_TEST_ASSET_ID_VIOLENT_AUDIO_ONLY: optionalString("Mux test asset ID for audio-only assets with violent content.", "Mux test asset id for audio-only assets with violent content for testing"),
 
+  // Eval config
+  MUX_AI_EVAL_MODEL_SET: optionalString("Eval model selection mode.", "Choose between 'default' (provider defaults only) or 'all' (all configured models)"),
+  MUX_AI_EVAL_MODELS: optionalString("Comma-separated eval model pairs.", "Comma-separated provider:model pairs (e.g. 'openai:gpt-5.1,anthropic:claude-sonnet-4-5,google:gemini-3-flash-preview')"),
+
   // AI Providers
   OPENAI_API_KEY: optionalString("OpenAI API key for OpenAI-backed workflows.", "OpenAI API key"),
   ANTHROPIC_API_KEY: optionalString("Anthropic API key for Claude-backed workflows.", "Anthropic API key"),

@@ -4,6 +4,15 @@ on:
   push:
     branches: [main]
   workflow_dispatch: # Allows manual triggering from any branch
+    inputs:
+      eval_model_set:
+        description: "Eval model selection mode"
+        required: false
+        default: "default"
+        type: choice
+        options:
+          - default
+          - all
 
 jobs:
   build-and-deploy:
@@ -20,6 +29,7 @@ jobs:
 
       - name: Run Evalite and Export Results
         env:
+          MUX_AI_EVAL_MODEL_SET: ${{ github.event.inputs.eval_model_set || 'default' }}
           MUX_TOKEN_ID: ${{ secrets.MUX_TOKEN_ID }}
           MUX_TOKEN_SECRET: ${{ secrets.MUX_TOKEN_SECRET }}
           MUX_SIGNING_KEY: ${{ secrets.MUX_SIGNING_KEY }}
