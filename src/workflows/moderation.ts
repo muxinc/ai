@@ -112,11 +112,10 @@ const DEFAULT_PROVIDER = "openai";
 const HIVE_ENDPOINT = "https://api.thehive.ai/api/v2/task/sync";
 const HIVE_SEXUAL_CATEGORIES = [
   "general_nsfw",
-  "general_suggestive",
   "yes_sexual_activity",
-  "sex_toys",
-  "nudity_female",
-  "nudity_male",
+  "yes_sex_toy",
+  "yes_female_nudity",
+  "yes_male_nudity",
 ];
 
 const HIVE_VIOLENCE_CATEGORIES = [
@@ -128,10 +127,8 @@ const HIVE_VIOLENCE_CATEGORIES = [
   "hanging",
   "noose",
   "human_corpse",
-  "emaciated_body",
-  "self_harm",
-  "animal_abuse",
-  "fights",
+  "yes_emaciated_body",
+  "yes_self_harm",
   "garm_death_injury_or_military_conflict",
 ];
 
