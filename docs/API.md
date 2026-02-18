@@ -328,6 +328,128 @@ player.addChapters([
 ]);
 ```
 
+## `generateHighlightClips(assetId, options?)`
+
+Generates highlight clips from a video based on engagement hotspots. Analyzes high-engagement moments, finds optimal clip boundaries, generates compelling metadata, and optionally creates clip assets in Mux.
+
+**Parameters:**
+
+- `assetId` (string) - Mux video asset ID
+- `options` (optional) - Configuration options
+
+**Options:**
+
+- `maxClips?: number` - Maximum number of clips to generate (default: 5)
+- `minClipDuration?: number` - Minimum clip duration in seconds (default: 15)
+- `maxClipDuration?: number` - Maximum clip duration in seconds (default: 90)
+- `targetDuration?: number` - Preferred clip duration in seconds (optional)
+- `timeframe?: string` - Engagement data timeframe (default: "[7:days]")
+- `dryRun?: boolean` - Skip asset creation, return analysis only (default: false)
+- `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
+- `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
+
+**Returns:**
+
+```typescript
+{
+  assetId: string;
+  clips: Array<{
+    // Timing
+    startTime: number;                    // Start time in seconds
+    endTime: number;                      // End time in seconds
+    duration: number;                     // Clip duration in seconds
+
+    // Metadata
+    title: string;                        // Compelling title under 60 characters
+    description: string;                  // 1-2 sentence description
+    keywords: string[];                   // 3-5 searchable keywords
+
+    // Engagement context
+    engagementScore: number;              // Original hotspot score (0-1)
+    suggestedPlatforms: string[];         // e.g., ["TikTok", "Instagram Reels"]
+
+    // URLs (if not dryRun)
+    clipAssetId?: string;                 // Mux asset ID for the clip
+    clipPlaybackId?: string;              // Playback ID
+    clipUrl?: string;                     // HLS playback URL
+    thumbnailUrl?: string;                // Thumbnail image URL
+    assetStatus?: string;                 // "preparing" | "ready" | "errored"
+  }>;
+  usage?: TokenUsage;                     // Token usage from the AI provider
+  totalClipsGenerated: number;
+  totalEngagementScore: number;
+}
+```
+
+**How It Works:**
+
+1. Fetches engagement hotspots from Mux Data API
+2. Analyzes full transcript for context and themes
+3. For each hotspot, AI finds optimal clip boundaries:
+   - Respects sentence/scene boundaries
+   - Ensures complete thoughts (not cut mid-sentence)
+   - Stays within duration constraints
+4. Generates compelling metadata using full video context
+5. Suggests platforms based on content type, pacing, and style
+6. Creates clip assets in Mux (unless `dryRun: true`)
+7. Returns immediately with asset IDs (assets process asynchronously)
+
+**Platform Suggestions:**
+
+The AI suggests platforms based on:
+- **Content type**: Tutorial → YouTube, Entertainment → TikTok, Professional → LinkedIn
+- **Pacing**: Fast-paced → TikTok/Reels, Measured → YouTube
+- **Language style**: Casual → TikTok, Formal → LinkedIn
+- **Visual complexity**: Simple visuals → mobile-first platforms
+- **Typical content length** for each platform
+
+**Example:**
+
+```typescript
+import { generateHighlightClips } from "@mux/ai/workflows";
+
+// Generate clips (dry run)
+const result = await generateHighlightClips("your-asset-id", {
+  provider: "openai",
+  maxClips: 5,
+  minClipDuration: 15,
+  maxClipDuration: 60,
+  dryRun: true // Just analyze, don't create assets
+});
+
+console.log(`Generated ${result.totalClipsGenerated} clips`);
+result.clips.forEach(clip => {
+  console.log(`${clip.title} (${clip.duration}s)`);
+  console.log(`Platforms: ${clip.suggestedPlatforms.join(", ")}`);
+});
+
+// Create actual clip assets
+const withAssets = await generateHighlightClips("your-asset-id", {
+  provider: "openai",
+  maxClips: 3,
+  dryRun: false // Create clip assets in Mux
+});
+
+withAssets.clips.forEach(clip => {
+  console.log(`Clip URL: ${clip.clipUrl}`);
+  console.log(`Status: ${clip.assetStatus}`); // "preparing"
+  // Poll Mux API for status updates
+});
+```
+
+**Requirements:**
+
+- Asset must have engagement data (views) from Mux Data
+- Transcript recommended for better boundary detection
+- When creating assets (`dryRun: false`), clips are created asynchronously
+- Use Mux API or dashboard to check asset status
+
+**Limitations:**
+
+- Only works with video assets (not audio-only)
+- Requires engagement data from Mux Data API
+- Clip assets are created with `playback_policy: ["public"]` by default
+
 ## `translateAudio(assetId, toLanguageCode, options?)`
 
 Creates AI-dubbed audio tracks from existing media content using ElevenLabs voice cloning and translation. Uses the default audio track on your asset. Source language is auto-detected unless `fromLanguageCode` is provided.
