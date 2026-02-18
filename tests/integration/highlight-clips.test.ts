@@ -10,6 +10,7 @@ describe("highlightClips Integration Tests", () => {
 
   it.each(providers)(
     "should return valid result for %s provider in dry-run mode",
+    { timeout: 60000 },
     async (provider) => {
       const result = await generateHighlightClips(assetId, {
         provider,
@@ -57,10 +58,9 @@ describe("highlightClips Integration Tests", () => {
         expect(clip.clipPlaybackId).toBeUndefined();
       }
     },
-    { timeout: 60000 },
   );
 
-  it("should respect custom duration constraints", async () => {
+  it("should respect custom duration constraints", { timeout: 60000 }, async () => {
     const result = await generateHighlightClips(assetId, {
       provider: "openai",
       dryRun: true,
@@ -75,9 +75,9 @@ describe("highlightClips Integration Tests", () => {
         expect(clip.duration).toBeLessThanOrEqual(45);
       });
     }
-  }, { timeout: 60000 });
+  });
 
-  it("should handle assets with no engagement hotspots", async () => {
+  it("should handle assets with no engagement hotspots", { timeout: 60000 }, async () => {
     // This might not have hotspots or might return empty
     const result = await generateHighlightClips(assetId, {
       provider: "openai",
@@ -90,5 +90,5 @@ describe("highlightClips Integration Tests", () => {
     expect(result).toHaveProperty("assetId", assetId);
     expect(result).toHaveProperty("clips");
     expect(Array.isArray(result.clips)).toBe(true);
-  }, { timeout: 60000 });
+  });
 });
