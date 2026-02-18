@@ -110,7 +110,7 @@ const DEFAULT_THRESHOLDS = {
 const DEFAULT_PROVIDER = "openai";
 
 const HIVE_ENDPOINT = "https://api.thehive.ai/api/v2/task/sync";
-const HIVE_SEXUAL_CATEGORIES = [
+export const HIVE_SEXUAL_CATEGORIES = [
   "general_nsfw",
   "yes_sexual_activity",
   "yes_sex_toy",
@@ -118,7 +118,7 @@ const HIVE_SEXUAL_CATEGORIES = [
   "yes_male_nudity",
 ];
 
-const HIVE_VIOLENCE_CATEGORIES = [
+export const HIVE_VIOLENCE_CATEGORIES = [
   "gun_in_hand",
   "gun_not_in_hand",
   "knife_in_hand",
@@ -322,6 +322,12 @@ function getHiveCategoryScores(
   const scoreMap = Object.fromEntries(
     classes.map(c => [c.class, c.score]),
   );
+  const missingCategories = categoryNames.filter(category => !(category in scoreMap));
+  if (missingCategories.length > 0) {
+    console.warn(
+      `Hive response missing expected categories: ${missingCategories.join(", ")}`,
+    );
+  }
   const scores = categoryNames.map(category => scoreMap[category] || 0);
   return Math.max(...scores, 0);
 }
