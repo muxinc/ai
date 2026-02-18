@@ -96,8 +96,8 @@
     "example:translate-captions": "npx tsx examples/translate-captions/basic-example.ts",
     "example:translate-captions:aws-sdk": "npx tsx examples/translate-captions/aws-sdk-storage-adapter-example.ts",
     "example:translate-audio": "npx tsx examples/translate-audio/basic-example.ts",
-    "evalite:post-results:dev": "npx tsx scripts/export-evalite-results.ts && npx tsx scripts/post-evalite-results.ts -d -k",
-    "evalite:post-results:production": "npx tsx scripts/export-evalite-results.ts && npx tsx scripts/post-evalite-results.ts",
+    "evalite:post-results:dev": "npx tsx scripts/export-evalite-results.ts --model-set all && npx tsx scripts/post-evalite-results.ts -d -k",
+    "evalite:post-results:production": "npx tsx scripts/export-evalite-results.ts --model-set all && npx tsx scripts/post-evalite-results.ts",
     "prepare": "husky"
   },
   "peerDependencies": {

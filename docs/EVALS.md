@@ -59,6 +59,29 @@ npx evalite serve tests/eval
 
 This runs all `*.eval.ts` files in one pass and opens the Evalite UI at `http://localhost:3006` for exploring results. There is no watch mode—you'll need to manually re-run when you're ready to test changes.
 
+By default, evals run against provider default models only:
+
+- `openai:gpt-5.1`
+- `anthropic:claude-sonnet-4-5`
+- `google:gemini-3-flash-preview`
+
+To run all configured models in `LANGUAGE_MODELS`:
+
+```bash
+npx tsx scripts/export-evalite-results.ts --model-set all
+```
+
+To run an explicit list:
+
+```bash
+npx tsx scripts/export-evalite-results.ts --models openai:gpt-5.1,openai:gpt-5-mini,google:gemini-2.5-flash
+```
+
+The same behavior is available via env vars:
+
+- `MUX_AI_EVAL_MODEL_SET=default|all`
+- `MUX_AI_EVAL_MODELS=provider:model,provider:model` (takes precedence over `MUX_AI_EVAL_MODEL_SET`)
+
 **Running a single eval file:**
 
 ```bash
@@ -193,7 +216,13 @@ const COST_THRESHOLD_USD = 0.012;
 
 ## Cross-Provider and Cross-Model Testing
 
-All evals test across multiple providers and models to compare results. The `EVAL_MODEL_CONFIGS` constant provides a flattened list of every (provider, model) pair:
+All evals iterate over `EVAL_MODEL_CONFIGS`, which is resolved at runtime and can represent:
+
+- provider defaults only (`MUX_AI_EVAL_MODEL_SET=default`, the default)
+- all configured models (`MUX_AI_EVAL_MODEL_SET=all`)
+- an explicit list (`MUX_AI_EVAL_MODELS=provider:model,...`)
+
+The `EVAL_MODEL_CONFIGS` constant provides the flattened `(provider, model)` pairs for each run:
 
 ```typescript
 import { EVAL_MODEL_CONFIGS } from "../../src/lib/providers";

@@ -4,6 +4,16 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      eval_model_set:
+        description: Eval model selection mode
+        required: false
+        default: default
+        type: choice
+        options:
+          - default
+          - all
 
 jobs:
   evals:
@@ -21,6 +31,7 @@ jobs:
 
       - name: Run Evalite
         env:
+          MUX_AI_EVAL_MODEL_SET: ${{ github.event.inputs.eval_model_set || 'default' }}
           MUX_TOKEN_ID: ${{ secrets.MUX_TOKEN_ID }}
           MUX_TOKEN_SECRET: ${{ secrets.MUX_TOKEN_SECRET }}
           MUX_SIGNING_KEY: ${{ secrets.MUX_SIGNING_KEY }}

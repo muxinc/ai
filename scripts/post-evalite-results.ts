@@ -1,4 +1,3 @@
-/* eslint-disable node/no-process-env */
 import { execSync } from "node:child_process";
 import { readFile, unlink } from "node:fs/promises";
 import path from "node:path";
