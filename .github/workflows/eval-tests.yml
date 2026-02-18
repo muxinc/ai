@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       eval_model_set:
-        description: "Eval model selection mode"
+        description: Eval model selection mode
         required: false
-        default: "default"
+        default: default
         type: choice
         options:
           - default
