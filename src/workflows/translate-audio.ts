@@ -436,7 +436,7 @@ export async function translateAudio(
   // Build audio URL (signed if needed)
   let audioUrl = `https://stream.mux.com/${playbackId}/audio.m4a`;
   if (policy === "signed") {
-    audioUrl = await signUrl(audioUrl, playbackId, undefined, "video", undefined, credentials);
+    audioUrl = await signUrl(audioUrl, playbackId, "video", undefined, credentials);
   }
 
   // Fetch audio from Mux
