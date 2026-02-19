@@ -303,6 +303,197 @@ const vttResult = await generateEmbeddings("your-mux-asset-id", {
 });
 ```
 
+## Highlight Clip Generation
+
+`generateHighlightClips` creates shareable highlight clips from your video content based on audience engagement data. It identifies high-engagement moments, finds natural clip boundaries, generates compelling metadata, and optionally creates clip assets in Mux.
+
+### How It Works
+
+1. **Fetches Engagement Hotspots**: Uses Mux Data API to identify the most engaging moments in your video
+2. **Context Analysis**: Analyzes the full transcript to understand overall themes, style, and topics
+3. **Intelligent Boundaries**: For each hotspot, AI finds optimal clip boundaries:
+   - Respects sentence and scene boundaries
+   - Ensures complete thoughts (not cut mid-sentence)
+   - Stays within your duration constraints
+4. **Metadata Generation**: Creates compelling titles, descriptions, and keywords using full video context
+5. **Platform Recommendations**: Suggests suitable platforms based on content type, pacing, and style
+6. **Asset Creation**: Optionally creates clip assets in Mux for immediate distribution
+
+### Basic Usage
+
+```typescript
+import { generateHighlightClips } from "@mux/ai/workflows";
+
+const result = await generateHighlightClips("your-asset-id", {
+  provider: "openai",
+  maxClips: 5,
+  minClipDuration: 15,
+  maxClipDuration: 90,
+  timeframe: "[7:days]",
+  dryRun: false // Create actual clip assets
+});
+
+console.log(`Generated ${result.totalClipsGenerated} clips`);
+result.clips.forEach((clip, i) => {
+  console.log(`\nClip ${i + 1}: ${clip.title}`);
+  console.log(`Duration: ${clip.duration}s (${clip.startTime}s - ${clip.endTime}s)`);
+  console.log(`Description: ${clip.description}`);
+  console.log(`Keywords: ${clip.keywords.join(", ")}`);
+  console.log(`Platforms: ${clip.suggestedPlatforms.join(", ")}`);
+  console.log(`Engagement: ${(clip.engagementScore * 100).toFixed(1)}%`);
+
+  if (clip.clipAssetId) {
+    console.log(`Asset ID: ${clip.clipAssetId}`);
+    console.log(`Playback URL: ${clip.clipUrl}`);
+    console.log(`Status: ${clip.assetStatus}`);
+  }
+});
+```
+
+### Dry Run Mode
+
+Use `dryRun: true` to analyze clips without creating assets:
+
+```typescript
+const analysis = await generateHighlightClips("your-asset-id", {
+  dryRun: true, // Just analyze, don't create assets
+  maxClips: 10,
+});
+
+// Review clip suggestions before creating assets
+if (analysis.clips.length > 0) {
+  console.log("Suggested clips:");
+  analysis.clips.forEach(clip => {
+    console.log(`- ${clip.title} (${clip.duration}s)`);
+  });
+}
+```
+
+### Duration Constraints
+
+Control clip length with duration options:
+
+```typescript
+// Fixed duration clips (around 30 seconds)
+const shortClips = await generateHighlightClips("your-asset-id", {
+  minClipDuration: 25,
+  maxClipDuration: 35,
+  targetDuration: 30, // AI will prefer this duration
+  maxClips: 3,
+});
+
+// Flexible duration (15s - 90s)
+const flexibleClips = await generateHighlightClips("your-asset-id", {
+  minClipDuration: 15,
+  maxClipDuration: 90,
+  // No targetDuration - AI chooses based on content
+});
+```
+
+### Platform Optimization
+
+The AI suggests platforms based on your content:
+
+```typescript
+const result = await generateHighlightClips("your-asset-id", {
+  maxClips: 5,
+});
+
+result.clips.forEach(clip => {
+  console.log(`${clip.title}:`);
+  console.log(`Suggested for: ${clip.suggestedPlatforms.join(", ")}`);
+
+  // Example suggestions:
+  // - Fast-paced, casual content → ["TikTok", "Instagram Reels"]
+  // - Tutorial content → ["YouTube Shorts", "YouTube"]
+  // - Professional content → ["LinkedIn", "YouTube"]
+});
+```
+
+**Platform suggestion factors:**
+- Content type (tutorial, entertainment, professional, educational)
+- Pacing and speaking style
+- Language formality (casual vs. formal)
+- Visual complexity
+- Typical content length for each platform
+
+### Timeframe Options
+
+Control which engagement data to use:
+
+```typescript
+// Last 7 days (default)
+await generateHighlightClips("your-asset-id", {
+  timeframe: "[7:days]"
+});
+
+// Last 24 hours
+await generateHighlightClips("your-asset-id", {
+  timeframe: "[24:hours]"
+});
+
+// Last 30 days
+await generateHighlightClips("your-asset-id", {
+  timeframe: "[30:days]"
+});
+
+// All time
+await generateHighlightClips("your-asset-id", {
+  timeframe: "[365:days]"
+});
+```
+
+### Asset Creation
+
+When `dryRun: false` (default), clips are created as Mux assets:
+
+```typescript
+const result = await generateHighlightClips("your-asset-id", {
+  dryRun: false, // Create assets
+  maxClips: 3,
+});
+
+result.clips.forEach(clip => {
+  console.log(`Asset ID: ${clip.clipAssetId}`);
+  console.log(`Playback ID: ${clip.clipPlaybackId}`);
+  console.log(`HLS URL: ${clip.clipUrl}`);
+  console.log(`Thumbnail: ${clip.thumbnailUrl}`);
+  console.log(`Status: ${clip.assetStatus}`); // "preparing"
+});
+
+// Assets are created asynchronously
+// Poll Mux API to check when they're ready:
+// GET https://api.mux.com/video/v1/assets/{clipAssetId}
+```
+
+### Requirements
+
+- Asset must have engagement data from Mux Data API
+- Transcript highly recommended for better clip boundaries
+- For asset creation, requires Mux Video API credentials
+
+### Best Practices
+
+1. **Use transcripts**: Assets with transcripts get better clip boundaries
+2. **Start with dry run**: Review clip suggestions before creating assets
+3. **Adjust duration constraints**: Based on your target platforms
+4. **Choose appropriate timeframe**: Recent data often more relevant
+5. **Review engagement scores**: Higher scores indicate more engaging clips
+
+### Limitations
+
+- **Video only**: Does not support audio-only assets
+- **Requires engagement data**: Asset must have views tracked by Mux Data
+- **Async asset creation**: Clips are created with status "preparing", poll for "ready"
+- **Public playback**: Created clips use `playback_policy: ["public"]` by default
+
+### Use Cases
+
+- **Social media content**: Create TikTok/Reels from long-form videos
+- **Video highlights**: Extract best moments for marketing
+- **Content repurposing**: Turn webinars into shareable clips
+- **Engagement analysis**: Identify what resonates with your audience
+
 ## Caption Translation
 
 Translate existing captions to different languages and add as new tracks (video or audio-only assets).

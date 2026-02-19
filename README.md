@@ -74,6 +74,7 @@ Workflows are high-level functions that handle complete media AI tasks end-to-en
 | [`askQuestions`](./docs/WORKFLOWS.md#ask-questions) | Answer yes/no questions about asset content | OpenAI, Anthropic, Google | — |
 | [`generateChapters`](./docs/WORKFLOWS.md#chapter-generation) | Create chapter markers from transcripts | OpenAI, Anthropic, Google | Yes |
 | [`generateEmbeddings`](./docs/WORKFLOWS.md#embeddings) | Generate vector embeddings for semantic search | OpenAI, Google | Yes |
+| [`generateHighlightClips`](./docs/WORKFLOWS.md#highlight-clip-generation) | Find engaging moments and create shareable clips | OpenAI, Anthropic, Google | — |
 | [`translateCaptions`](./docs/WORKFLOWS.md#caption-translation) | Translate captions into other languages | OpenAI, Anthropic, Google | Yes |
 | [`translateAudio`](./docs/WORKFLOWS.md#audio-dubbing) | Create AI-dubbed audio tracks | ElevenLabs | Yes |
 
