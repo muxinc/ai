@@ -273,13 +273,6 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
     cachedInputPerMillion: 0.025,
     pricingUrl: "https://openai.com/api/pricing",
   },
-  "openai/gpt-5-mini": {
-    inputPerMillion: 0.25,
-    outputPerMillion: 2.00,
-    cachedInputPerMillion: 0.025,
-    pricingUrl: "https://openai.com/api/pricing",
-  },
-
   // Anthropic models
   // Reference: https://www.anthropic.com/pricing
   "claude-sonnet-4-5": {
@@ -346,6 +339,8 @@ export function calculateModelCost(
 /**
  * Calculates the estimated cost for a request based on token usage.
  * Uses each provider's default model pricing from MODEL_PRICING.
+ * Provider "vercel" is intentionally excluded because AI Gateway model pricing
+ * is open-ended and depends on the routed model.
  *
  * @param provider - The AI provider used
  * @param inputTokens - Number of input tokens consumed
@@ -365,6 +360,12 @@ export function calculateCost(
   outputTokens: number,
   cachedInputTokens: number = 0,
 ): number {
+  if (provider === "vercel") {
+    throw new Error(
+      "calculateCost does not support provider 'vercel'. Vercel AI Gateway can route to many model families with different prices. Use calculateModelCost(modelId, ...) with explicit pricing data instead.",
+    );
+  }
+
   const defaultModelId = DEFAULT_LANGUAGE_MODELS[provider];
   return calculateModelCost(defaultModelId, inputTokens, outputTokens, cachedInputTokens);
 }
