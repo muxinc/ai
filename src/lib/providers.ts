@@ -1,4 +1,5 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
+import { createGatewayProvider } from "@ai-sdk/gateway";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 
@@ -7,10 +8,14 @@ import env from "@mux/ai/env";
 import { resolveProviderApiKey } from "@mux/ai/lib/workflow-credentials";
 import type { MuxAIOptions, WorkflowCredentialsInput } from "@mux/ai/types";
 
+import type { GatewayModelId } from "@ai-sdk/gateway";
 import type { EmbeddingModel, LanguageModel } from "ai";
 
-export type SupportedProvider = "openai" | "anthropic" | "google";
+export type SupportedProvider = "openai" | "anthropic" | "google" | "vercel";
 export type SupportedEmbeddingProvider = "openai" | "google";
+
+/** Providers eligible for evaluation runs (excludes gateway providers like Vercel). */
+export type EvalSupportedProvider = Exclude<SupportedProvider, "vercel">;
 
 // Model ID unions inferred from ai-sdk provider call signatures
 type OpenAIModelId = Parameters<ReturnType<typeof createOpenAI>["chat"]>[0];
@@ -24,6 +29,7 @@ export interface ModelIdByProvider {
   openai: OpenAIModelId;
   anthropic: AnthropicModelId;
   google: GoogleModelId;
+  vercel: GatewayModelId;
 }
 
 export interface EmbeddingModelIdByProvider {
@@ -46,6 +52,7 @@ export const DEFAULT_LANGUAGE_MODELS: { [K in SupportedProvider]: ModelIdByProvi
   openai: "gpt-5.1",
   anthropic: "claude-sonnet-4-5",
   google: "gemini-3-flash-preview",
+  vercel: "openai/gpt-5.1",
 };
 
 const DEFAULT_EMBEDDING_MODELS: { [K in SupportedEmbeddingProvider]: EmbeddingModelIdByProvider[K] } = {
@@ -54,11 +61,12 @@ const DEFAULT_EMBEDDING_MODELS: { [K in SupportedEmbeddingProvider]: EmbeddingMo
 };
 
 /**
- * All language models available per provider.
+ * All language models available per eval-eligible provider.
  * Includes the default model plus any additional models for evaluation and selection.
  * New models are additive — existing defaults are unchanged.
+ * Gateway providers (e.g. Vercel) are excluded from evaluation.
  */
-export const LANGUAGE_MODELS: { [K in SupportedProvider]: ModelIdByProvider[K][] } = {
+export const LANGUAGE_MODELS: { [K in EvalSupportedProvider]: ModelIdByProvider[K][] } = {
   openai: ["gpt-5.1", "gpt-5-mini"],
   anthropic: ["claude-sonnet-4-5"],
   google: ["gemini-3-flash-preview", "gemini-2.5-flash"],
@@ -68,8 +76,8 @@ export const LANGUAGE_MODELS: { [K in SupportedProvider]: ModelIdByProvider[K][]
  * A (provider, modelId) pair used for evaluation iteration.
  */
 export interface EvalModelConfig {
-  provider: SupportedProvider;
-  modelId: ModelIdByProvider[SupportedProvider];
+  provider: EvalSupportedProvider;
+  modelId: ModelIdByProvider[EvalSupportedProvider];
 }
 
 export type EvalModelSelection = "default" | "all";
@@ -80,16 +88,16 @@ export interface ResolveEvalModelConfigsOptions {
 }
 
 function getDefaultEvalModelConfigs(): EvalModelConfig[] {
-  return (Object.entries(DEFAULT_LANGUAGE_MODELS) as [SupportedProvider, ModelIdByProvider[SupportedProvider]][])
-    .map(([provider, modelId]) => ({ provider, modelId }));
+  return (Object.entries(LANGUAGE_MODELS) as [EvalSupportedProvider, ModelIdByProvider[EvalSupportedProvider][]][])
+    .map(([provider, models]) => ({ provider, modelId: models[0] }));
 }
 
 function getAllEvalModelConfigs(): EvalModelConfig[] {
-  return (Object.entries(LANGUAGE_MODELS) as [SupportedProvider, ModelIdByProvider[SupportedProvider][]][])
+  return (Object.entries(LANGUAGE_MODELS) as [EvalSupportedProvider, ModelIdByProvider[EvalSupportedProvider][]][])
     .flatMap(([provider, models]) => models.map(modelId => ({ provider, modelId })));
 }
 
-function isSupportedProvider(value: string): value is SupportedProvider {
+function isEvalSupportedProvider(value: string): value is EvalSupportedProvider {
   return value === "openai" || value === "anthropic" || value === "google";
 }
 
@@ -105,7 +113,7 @@ function parseEvalModelPair(value: string): EvalModelConfig {
     );
   }
 
-  if (!isSupportedProvider(provider)) {
+  if (!isEvalSupportedProvider(provider)) {
     throw new Error(
       `Unsupported eval provider "${provider}" in "${value}". Supported providers: ${Object.keys(LANGUAGE_MODELS).join(", ")}.`,
     );
@@ -377,6 +385,11 @@ export async function createLanguageModelFromConfig<P extends SupportedProvider 
       const google = createGoogleGenerativeAI({ apiKey });
       return google(modelId);
     }
+    case "vercel": {
+      const apiKey = await resolveProviderApiKey("vercel", credentials);
+      const gateway = createGatewayProvider({ apiKey });
+      return gateway(modelId as GatewayModelId);
+    }
     default: {
       const exhaustiveCheck: never = provider;
       throw new Error(`Unsupported provider: ${exhaustiveCheck}`);
@@ -461,6 +474,19 @@ export function resolveLanguageModel<P extends SupportedProvider = SupportedProv
         provider,
         modelId,
         model: google(modelId),
+      };
+    }
+    case "vercel": {
+      const apiKey = env.VERCEL_AI_GATEWAY_API_KEY;
+      requireEnv(apiKey, "VERCEL_AI_GATEWAY_API_KEY");
+      const gateway = createGatewayProvider({
+        apiKey,
+      });
+
+      return {
+        provider,
+        modelId,
+        model: gateway(modelId as GatewayModelId),
       };
     }
     default: {
