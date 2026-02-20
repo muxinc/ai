@@ -1,3 +1,4 @@
+import { getMuxStoryboardBaseUrl } from "@mux/ai/lib/mux-image-url";
 import { signUrl } from "@mux/ai/lib/url-signing";
 import type { WorkflowCredentialsInput } from "@mux/ai/types";
 
@@ -19,7 +20,7 @@ export async function getStoryboardUrl(
   credentials?: WorkflowCredentialsInput,
 ): Promise<string> {
   "use step";
-  const baseUrl = `https://image.mux.com/${playbackId}/storyboard.png`;
+  const baseUrl = getMuxStoryboardBaseUrl(playbackId);
 
   if (shouldSign) {
     return signUrl(baseUrl, playbackId, "storyboard", { width }, credentials);
