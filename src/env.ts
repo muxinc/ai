@@ -67,6 +67,7 @@ const EnvSchema = z.object({
   OPENAI_API_KEY: optionalString("OpenAI API key for OpenAI-backed workflows.", "OpenAI API key"),
   ANTHROPIC_API_KEY: optionalString("Anthropic API key for Claude-backed workflows.", "Anthropic API key"),
   GOOGLE_GENERATIVE_AI_API_KEY: optionalString("Google Generative AI API key for Gemini-backed workflows.", "Google Generative AI API key"),
+  AI_GATEWAY_API_KEY: optionalString("Vercel AI Gateway API key for Gateway-backed workflows.", "Vercel AI Gateway API key"),
 
   ELEVENLABS_API_KEY: optionalString("ElevenLabs API key for audio translation.", "ElevenLabs API key"),
   HIVE_API_KEY: optionalString("Hive Visual Moderation API key.", "Hive API key"),

@@ -73,6 +73,16 @@ ANTHROPIC_API_KEY=your_anthropic_api_key
 GOOGLE_GENERATIVE_AI_API_KEY=your_google_api_key
 ```
 
+### Vercel AI Gateway
+
+**Used by:** `getSummaryAndTags`, `hasBurnedInCaptions`, `askQuestions`, `generateChapters`, `translateCaptions`
+
+**Get your API key:** [Vercel AI Gateway](https://vercel.com/ai-gateway)
+
+```bash
+AI_GATEWAY_API_KEY=your_ai_gateway_api_key
+```
+
 ### ElevenLabs
 
 **Used by:** `translateAudio` (audio dubbing)
@@ -162,6 +172,7 @@ Supported credential fields:
 | `openaiApiKey` | OpenAI API key |
 | `anthropicApiKey` | Anthropic API key |
 | `googleApiKey` | Google Generative AI API key |
+| `aiGatewayApiKey` | Vercel AI Gateway API key |
 | `hiveApiKey` | Hive API key |
 | `elevenLabsApiKey` | ElevenLabs API key |
 
@@ -228,6 +239,7 @@ MUX_PRIVATE_KEY=your_base64_encoded_private_key
 OPENAI_API_KEY=your_openai_api_key
 ANTHROPIC_API_KEY=your_anthropic_api_key
 GOOGLE_GENERATIVE_AI_API_KEY=your_google_api_key
+AI_GATEWAY_API_KEY=your_ai_gateway_api_key
 ELEVENLABS_API_KEY=your_elevenlabs_api_key
 HIVE_API_KEY=your_hive_api_key
 

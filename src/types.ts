@@ -75,6 +75,8 @@ export interface WorkflowCredentials {
   anthropicApiKey?: string;
   /** Optional direct Google API key for per-request credential injection. */
   googleApiKey?: string;
+  /** Optional direct Vercel AI Gateway API key for per-request credential injection. */
+  aiGatewayApiKey?: string;
   /** Optional direct Hive API key for per-request credential injection. */
   hiveApiKey?: string;
   /** Optional direct ElevenLabs API key for per-request credential injection. */

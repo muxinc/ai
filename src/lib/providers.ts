@@ -1,4 +1,5 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
+import { createGateway } from "@ai-sdk/gateway";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 
@@ -9,13 +10,15 @@ import type { MuxAIOptions, WorkflowCredentialsInput } from "@mux/ai/types";
 
 import type { EmbeddingModel, LanguageModel } from "ai";
 
-export type SupportedProvider = "openai" | "anthropic" | "google";
+export type EvalSupportedProvider = "openai" | "anthropic" | "google";
+export type SupportedProvider = EvalSupportedProvider | "vercel";
 export type SupportedEmbeddingProvider = "openai" | "google";
 
 // Model ID unions inferred from ai-sdk provider call signatures
 type OpenAIModelId = Parameters<ReturnType<typeof createOpenAI>["chat"]>[0];
 type AnthropicModelId = Parameters<ReturnType<typeof createAnthropic>["chat"]>[0];
 type GoogleModelId = Parameters<ReturnType<typeof createGoogleGenerativeAI>["chat"]>[0];
+type VercelModelId = Parameters<ReturnType<typeof createGateway>["chat"]>[0];
 
 type OpenAIEmbeddingModelId = Parameters<ReturnType<typeof createOpenAI>["embedding"]>[0];
 type GoogleEmbeddingModelId = Parameters<ReturnType<typeof createGoogleGenerativeAI>["textEmbeddingModel"]>[0];
@@ -24,6 +27,7 @@ export interface ModelIdByProvider {
   openai: OpenAIModelId;
   anthropic: AnthropicModelId;
   google: GoogleModelId;
+  vercel: VercelModelId;
 }
 
 export interface EmbeddingModelIdByProvider {
@@ -46,6 +50,7 @@ export const DEFAULT_LANGUAGE_MODELS: { [K in SupportedProvider]: ModelIdByProvi
   openai: "gpt-5.1",
   anthropic: "claude-sonnet-4-5",
   google: "gemini-3-flash-preview",
+  vercel: "openai/gpt-5-mini",
 };
 
 const DEFAULT_EMBEDDING_MODELS: { [K in SupportedEmbeddingProvider]: EmbeddingModelIdByProvider[K] } = {
@@ -62,14 +67,28 @@ export const LANGUAGE_MODELS: { [K in SupportedProvider]: ModelIdByProvider[K][]
   openai: ["gpt-5.1", "gpt-5-mini"],
   anthropic: ["claude-sonnet-4-5"],
   google: ["gemini-3-flash-preview", "gemini-2.5-flash"],
+  // Vercel AI Gateway model IDs are provider-prefixed.
+  vercel: ["openai/gpt-5-mini"],
+};
+
+const EVAL_DEFAULT_LANGUAGE_MODELS: { [K in EvalSupportedProvider]: ModelIdByProvider[K] } = {
+  openai: DEFAULT_LANGUAGE_MODELS.openai,
+  anthropic: DEFAULT_LANGUAGE_MODELS.anthropic,
+  google: DEFAULT_LANGUAGE_MODELS.google,
+};
+
+const EVAL_LANGUAGE_MODELS: { [K in EvalSupportedProvider]: ModelIdByProvider[K][] } = {
+  openai: LANGUAGE_MODELS.openai,
+  anthropic: LANGUAGE_MODELS.anthropic,
+  google: LANGUAGE_MODELS.google,
 };
 
 /**
  * A (provider, modelId) pair used for evaluation iteration.
  */
 export interface EvalModelConfig {
-  provider: SupportedProvider;
-  modelId: ModelIdByProvider[SupportedProvider];
+  provider: EvalSupportedProvider;
+  modelId: ModelIdByProvider[EvalSupportedProvider];
 }
 
 export type EvalModelSelection = "default" | "all";
@@ -80,16 +99,16 @@ export interface ResolveEvalModelConfigsOptions {
 }
 
 function getDefaultEvalModelConfigs(): EvalModelConfig[] {
-  return (Object.entries(DEFAULT_LANGUAGE_MODELS) as [SupportedProvider, ModelIdByProvider[SupportedProvider]][])
+  return (Object.entries(EVAL_DEFAULT_LANGUAGE_MODELS) as [EvalSupportedProvider, ModelIdByProvider[EvalSupportedProvider]][])
     .map(([provider, modelId]) => ({ provider, modelId }));
 }
 
 function getAllEvalModelConfigs(): EvalModelConfig[] {
-  return (Object.entries(LANGUAGE_MODELS) as [SupportedProvider, ModelIdByProvider[SupportedProvider][]][])
+  return (Object.entries(EVAL_LANGUAGE_MODELS) as [EvalSupportedProvider, ModelIdByProvider[EvalSupportedProvider][]][])
     .flatMap(([provider, models]) => models.map(modelId => ({ provider, modelId })));
 }
 
-function isSupportedProvider(value: string): value is SupportedProvider {
+function isSupportedEvalProvider(value: string): value is EvalSupportedProvider {
   return value === "openai" || value === "anthropic" || value === "google";
 }
 
@@ -105,13 +124,13 @@ function parseEvalModelPair(value: string): EvalModelConfig {
     );
   }
 
-  if (!isSupportedProvider(provider)) {
+  if (!isSupportedEvalProvider(provider)) {
     throw new Error(
-      `Unsupported eval provider "${provider}" in "${value}". Supported providers: ${Object.keys(LANGUAGE_MODELS).join(", ")}.`,
+      `Unsupported eval provider "${provider}" in "${value}". Supported providers: ${Object.keys(EVAL_LANGUAGE_MODELS).join(", ")}.`,
     );
   }
 
-  const supportedModels = LANGUAGE_MODELS[provider] as string[];
+  const supportedModels = EVAL_LANGUAGE_MODELS[provider] as string[];
   if (!supportedModels.includes(modelId)) {
     throw new Error(
       `Unsupported eval model "${modelId}" for provider "${provider}". Supported models: ${supportedModels.join(", ")}.`,
@@ -120,7 +139,7 @@ function parseEvalModelPair(value: string): EvalModelConfig {
 
   return {
     provider,
-    modelId: modelId as ModelIdByProvider[SupportedProvider],
+    modelId: modelId as ModelIdByProvider[EvalSupportedProvider],
   };
 }
 
@@ -254,6 +273,12 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
     cachedInputPerMillion: 0.025,
     pricingUrl: "https://openai.com/api/pricing",
   },
+  "openai/gpt-5-mini": {
+    inputPerMillion: 0.25,
+    outputPerMillion: 2.00,
+    cachedInputPerMillion: 0.025,
+    pricingUrl: "https://openai.com/api/pricing",
+  },
 
   // Anthropic models
   // Reference: https://www.anthropic.com/pricing
@@ -377,6 +402,11 @@ export async function createLanguageModelFromConfig<P extends SupportedProvider 
       const google = createGoogleGenerativeAI({ apiKey });
       return google(modelId);
     }
+    case "vercel": {
+      const apiKey = await resolveProviderApiKey("vercel", credentials);
+      const gateway = createGateway({ apiKey });
+      return gateway(modelId);
+    }
     default: {
       const exhaustiveCheck: never = provider;
       throw new Error(`Unsupported provider: ${exhaustiveCheck}`);
@@ -461,6 +491,19 @@ export function resolveLanguageModel<P extends SupportedProvider = SupportedProv
         provider,
         modelId,
         model: google(modelId),
+      };
+    }
+    case "vercel": {
+      const apiKey = env.AI_GATEWAY_API_KEY;
+      requireEnv(apiKey, "AI_GATEWAY_API_KEY");
+      const gateway = createGateway({
+        apiKey,
+      });
+
+      return {
+        provider,
+        modelId,
+        model: gateway(modelId),
       };
     }
     default: {
