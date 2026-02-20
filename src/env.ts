@@ -35,9 +35,9 @@ const EnvSchema = z.object({
 
   MUX_SIGNING_KEY: optionalString("Mux signing key ID for signed playback URLs.", "Used to sign playback URLs"),
   MUX_PRIVATE_KEY: optionalString("Mux signing private key for signed playback URLs.", "Used to sign playback URLs"),
-  MUX_IMAGE_HOST_OVERRIDE: optionalString(
-    "Override for Mux image host (defaults to image.mux.com).",
-    "Mux image host override",
+  MUX_IMAGE_URL_OVERRIDE: optionalString(
+    "Override for Mux image base URL (defaults to https://image.mux.com).",
+    "Mux image URL override",
   ),
 
   // Test-only helpers (used by this repo's integration tests)

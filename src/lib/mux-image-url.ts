@@ -1,8 +1,8 @@
 import env from "@mux/ai/env";
 
-const DEFAULT_MUX_IMAGE_HOST = "image.mux.com";
+const DEFAULT_MUX_IMAGE_ORIGIN = "https://image.mux.com";
 
-function normalizeMuxImageHost(value: string): string {
+function normalizeMuxImageOrigin(value: string): string {
   const trimmed = value.trim();
   const candidate = trimmed.includes("://") ? trimmed : `https://${trimmed}`;
 
@@ -11,7 +11,7 @@ function normalizeMuxImageHost(value: string): string {
     parsed = new URL(candidate);
   } catch {
     throw new Error(
-      "Invalid MUX_IMAGE_HOST_OVERRIDE. Provide a hostname like " +
+      "Invalid MUX_IMAGE_URL_OVERRIDE. Provide a hostname like " +
       `"image.example.mux.com" (or a URL origin such as "https://image.example.mux.com").`,
     );
   }
@@ -24,26 +24,26 @@ function normalizeMuxImageHost(value: string): string {
     (parsed.pathname && parsed.pathname !== "/")
   ) {
     throw new Error(
-      "Invalid MUX_IMAGE_HOST_OVERRIDE. Only a hostname/origin is allowed " +
+      "Invalid MUX_IMAGE_URL_OVERRIDE. Only a hostname/origin is allowed " +
       "(no credentials, query params, hash fragments, or path).",
     );
   }
 
-  return parsed.host;
+  return parsed.origin;
 }
 
-export function getMuxImageHost(): string {
-  const override = env.MUX_IMAGE_HOST_OVERRIDE;
+export function getMuxImageOrigin(): string {
+  const override = env.MUX_IMAGE_URL_OVERRIDE;
   if (!override) {
-    return DEFAULT_MUX_IMAGE_HOST;
+    return DEFAULT_MUX_IMAGE_ORIGIN;
   }
 
-  return normalizeMuxImageHost(override);
+  return normalizeMuxImageOrigin(override);
 }
 
 export function getMuxImageBaseUrl(playbackId: string, assetType: "storyboard" | "thumbnail"): string {
-  const host = getMuxImageHost();
-  return `https://${host}/${playbackId}/${assetType}.png`;
+  const origin = getMuxImageOrigin();
+  return `${origin}/${playbackId}/${assetType}.png`;
 }
 
 export function getMuxStoryboardBaseUrl(playbackId: string): string {

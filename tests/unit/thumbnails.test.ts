@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { reloadEnv } from "../../src/env";
-import { getMuxImageHost } from "../../src/lib/mux-image-url";
+import { getMuxImageOrigin } from "../../src/lib/mux-image-url";
 import { getThumbnailUrls } from "../../src/primitives/thumbnails";
 
 describe("getThumbnailUrls", () => {
@@ -198,14 +198,14 @@ describe("getThumbnailUrls", () => {
       });
 
       urls.forEach((url) => {
-        expect(url).toContain(`https://${getMuxImageHost()}/${testPlaybackId}/thumbnail.png`);
+        expect(url).toContain(`${getMuxImageOrigin()}/${testPlaybackId}/thumbnail.png`);
         expect(url).toContain("time=");
         expect(url).toContain("width=");
       });
     });
 
-    it("should use MUX_IMAGE_HOST_OVERRIDE when configured", async () => {
-      vi.stubEnv("MUX_IMAGE_HOST_OVERRIDE", "image.example.com");
+    it("should use MUX_IMAGE_URL_OVERRIDE when configured", async () => {
+      vi.stubEnv("MUX_IMAGE_URL_OVERRIDE", "image.example.com");
       reloadEnv();
 
       const duration = 30;
