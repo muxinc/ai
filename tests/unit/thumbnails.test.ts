@@ -1,9 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { reloadEnv } from "../../src/env";
+import { getMuxImageOrigin } from "../../src/lib/mux-image-url";
 import { getThumbnailUrls } from "../../src/primitives/thumbnails";
 
 describe("getThumbnailUrls", () => {
   const testPlaybackId = "test-playback-id";
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    reloadEnv();
+  });
 
   describe("basic thumbnail generation", () => {
     it("should generate thumbnails at default 10 second intervals", async () => {
@@ -192,9 +198,23 @@ describe("getThumbnailUrls", () => {
       });
 
       urls.forEach((url) => {
-        expect(url).toContain(`https://image.mux.com/${testPlaybackId}/thumbnail.png`);
+        expect(url).toContain(`${getMuxImageOrigin()}/${testPlaybackId}/thumbnail.png`);
         expect(url).toContain("time=");
         expect(url).toContain("width=");
+      });
+    });
+
+    it("should use MUX_IMAGE_URL_OVERRIDE when configured", async () => {
+      vi.stubEnv("MUX_IMAGE_URL_OVERRIDE", "image.example.com");
+      reloadEnv();
+
+      const duration = 30;
+      const urls = await getThumbnailUrls(testPlaybackId, duration, {
+        shouldSign: false,
+      });
+
+      urls.forEach((url) => {
+        expect(url).toContain(`https://image.example.com/${testPlaybackId}/thumbnail.png`);
       });
     });
   });

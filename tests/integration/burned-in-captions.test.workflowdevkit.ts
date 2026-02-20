@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { start } from "workflow/api";
 
+import { getMuxImageOrigin } from "../../src/lib/mux-image-url";
 import type { SupportedProvider } from "../../src/lib/providers";
 import { hasBurnedInCaptions } from "../../src/workflows";
 import { muxTestAssets } from "../helpers/mux-test-assets";
@@ -42,7 +43,7 @@ describe("Burned-in Captions Integration Tests for Workflow DevKit", () => {
 
     // Verify storyboardUrl is a valid URL
     expect(typeof result.storyboardUrl).toBe("string");
-    expect(result.storyboardUrl).toContain("image.mux.com");
+    expect(result.storyboardUrl).toContain(getMuxImageOrigin());
 
     // Verify usage stats
     expect(result.usage).toBeDefined();

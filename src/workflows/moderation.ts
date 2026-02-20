@@ -8,6 +8,7 @@ import {
   getVideoTrackMaxFrameRateFromAsset,
   isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
+import { getMuxThumbnailBaseUrl } from "@mux/ai/lib/mux-image-url";
 import { planSamplingTimestamps } from "@mux/ai/lib/sampling-plan";
 import { signUrl } from "@mux/ai/lib/url-signing";
 import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
@@ -457,7 +458,7 @@ async function getThumbnailUrlsFromTimestamps(
 ): Promise<string[]> {
   "use step";
   const { width, shouldSign, credentials } = options;
-  const baseUrl = `https://image.mux.com/${playbackId}/thumbnail.png`;
+  const baseUrl = getMuxThumbnailBaseUrl(playbackId);
 
   const urlPromises = timestampsMs.map(async (tsMs) => {
     const time = Number((tsMs / 1000).toFixed(2));
