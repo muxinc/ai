@@ -46,11 +46,10 @@ export interface ResolvedModel<P extends SupportedProvider = SupportedProvider> 
   model: LanguageModel;
 }
 
-export const DEFAULT_LANGUAGE_MODELS: { [K in SupportedProvider]: ModelIdByProvider[K] } = {
+export const DEFAULT_LANGUAGE_MODELS: { [K in EvalSupportedProvider]: ModelIdByProvider[K] } = {
   openai: "gpt-5.1",
   anthropic: "claude-sonnet-4-5",
   google: "gemini-3-flash-preview",
-  vercel: "openai/gpt-5-mini",
 };
 
 const DEFAULT_EMBEDDING_MODELS: { [K in SupportedEmbeddingProvider]: EmbeddingModelIdByProvider[K] } = {
@@ -63,25 +62,15 @@ const DEFAULT_EMBEDDING_MODELS: { [K in SupportedEmbeddingProvider]: EmbeddingMo
  * Includes the default model plus any additional models for evaluation and selection.
  * New models are additive — existing defaults are unchanged.
  */
-export const LANGUAGE_MODELS: { [K in SupportedProvider]: ModelIdByProvider[K][] } = {
+export const LANGUAGE_MODELS: { [K in EvalSupportedProvider]: ModelIdByProvider[K][] } = {
   openai: ["gpt-5.1", "gpt-5-mini"],
   anthropic: ["claude-sonnet-4-5"],
   google: ["gemini-3-flash-preview", "gemini-2.5-flash"],
-  // Vercel AI Gateway model IDs are provider-prefixed.
-  vercel: ["openai/gpt-5-mini"],
 };
 
-const EVAL_DEFAULT_LANGUAGE_MODELS: { [K in EvalSupportedProvider]: ModelIdByProvider[K] } = {
-  openai: DEFAULT_LANGUAGE_MODELS.openai,
-  anthropic: DEFAULT_LANGUAGE_MODELS.anthropic,
-  google: DEFAULT_LANGUAGE_MODELS.google,
-};
+const EVAL_DEFAULT_LANGUAGE_MODELS = DEFAULT_LANGUAGE_MODELS;
 
-const EVAL_LANGUAGE_MODELS: { [K in EvalSupportedProvider]: ModelIdByProvider[K][] } = {
-  openai: LANGUAGE_MODELS.openai,
-  anthropic: LANGUAGE_MODELS.anthropic,
-  google: LANGUAGE_MODELS.google,
-};
+const EVAL_LANGUAGE_MODELS = LANGUAGE_MODELS;
 
 /**
  * A (provider, modelId) pair used for evaluation iteration.
@@ -204,11 +193,27 @@ export function resolveEvalModelConfigsFromEnv(environment: Env = env): EvalMode
  */
 export const EVAL_MODEL_CONFIGS: EvalModelConfig[] = resolveEvalModelConfigsFromEnv();
 
+function resolveRequestedLanguageModelId<P extends SupportedProvider>(
+  provider: P,
+  requestedModelId: ModelIdByProvider[P] | undefined,
+): ModelIdByProvider[P] {
+  if (provider === "vercel") {
+    if (!requestedModelId) {
+      throw new Error(
+        "Provider \"vercel\" requires an explicit model (e.g. \"openai/gpt-5-mini\"). AI Gateway model routing is open-ended and has no fixed default in @mux/ai.",
+      );
+    }
+    return requestedModelId;
+  }
+
+  return (requestedModelId ?? DEFAULT_LANGUAGE_MODELS[provider as EvalSupportedProvider]) as ModelIdByProvider[P];
+}
+
 export function resolveLanguageModelConfig<P extends SupportedProvider = SupportedProvider>(
   options: ModelRequestOptions<P> = {},
 ): { provider: P; modelId: ModelIdByProvider[P] } {
   const provider = options.provider || ("openai" as P);
-  const modelId = (options.model || DEFAULT_LANGUAGE_MODELS[provider]) as ModelIdByProvider[P];
+  const modelId = resolveRequestedLanguageModelId(provider, options.model);
 
   return { provider, modelId };
 }
@@ -452,7 +457,7 @@ export function resolveLanguageModel<P extends SupportedProvider = SupportedProv
   options: ModelRequestOptions<P> = {},
 ): ResolvedModel<P> {
   const provider = options.provider || ("openai" as P);
-  const modelId = (options.model || DEFAULT_LANGUAGE_MODELS[provider]) as ModelIdByProvider[P];
+  const modelId = resolveRequestedLanguageModelId(provider, options.model);
 
   switch (provider) {
     case "openai": {

@@ -13,7 +13,7 @@ import { z } from "zod";
 import env from "../src/env";
 import { getAssetDurationSeconds } from "../src/lib/mux-assets";
 import { DEFAULT_LANGUAGE_MODELS } from "../src/lib/providers";
-import type { SupportedProvider } from "../src/lib/providers";
+import type { EvalSupportedProvider } from "../src/lib/providers";
 
 import type { LanguageModel } from "ai";
 
@@ -215,7 +215,7 @@ const VALID_WORKFLOW_KEYS: WorkflowKey[] = WORKFLOW_MATCHERS.map(m => m.key);
 interface Options {
   dryRun: boolean;
   keepFile: boolean;
-  provider?: SupportedProvider;
+  provider?: EvalSupportedProvider;
   model?: string;
   workflows?: WorkflowKey[];
 }
@@ -884,7 +884,7 @@ interface ResolvedModel {
 }
 
 interface GenerateInsightsOptions {
-  provider?: SupportedProvider;
+  provider?: EvalSupportedProvider;
   model?: string;
   workflows?: WorkflowKey[];
 }
