@@ -5,7 +5,7 @@ import { z } from "zod";
 import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
 import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
-import { createPromptBuilder, createTranscriptSection } from "@mux/ai/lib/prompt-builder";
+import { createPromptBuilder, createTranscriptSection, renderSection } from "@mux/ai/lib/prompt-builder";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
 import { withRetry } from "@mux/ai/lib/retry";
@@ -198,17 +198,16 @@ function buildUserPrompt(
       Allowed answers: ${answerList}
     </response_options>`;
 
+  const questionsSection = askQuestionsPromptBuilder.build({ questions: questionsContent });
+
   if (!transcriptText) {
-    return `${askQuestionsPromptBuilder.build({ questions: questionsContent })}\n\n${responseOptions}`;
+    return `${questionsSection}\n\n${responseOptions}`;
   }
 
   const format = isCleanTranscript ? "plain text" : "WebVTT";
-  const transcriptSection = createTranscriptSection(transcriptText, format);
+  const transcriptSection = renderSection(createTranscriptSection(transcriptText, format));
 
-  return `${askQuestionsPromptBuilder.buildWithContext(
-    { questions: questionsContent },
-    [transcriptSection],
-  )}\n\n${responseOptions}`;
+  return `${transcriptSection}\n\n${questionsSection}\n\n${responseOptions}`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -90,10 +90,7 @@ export type TranslationPayload = z.infer<typeof translationSchema>;
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SYSTEM_PROMPT =
-  "You are a subtitle translation expert. " +
-  "Translate VTT subtitle files to the target language specified by the user. " +
-  "Preserve all timestamps and VTT formatting exactly as they appear. " +
-  "Return JSON with a single key \"translation\" containing the translated VTT content.";
+  "You are a subtitle translation expert. Translate VTT subtitle files to the target language specified by the user. Preserve all timestamps and VTT formatting exactly as they appear. Return JSON with a single key \"translation\" containing the translated VTT content.";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Implementation
