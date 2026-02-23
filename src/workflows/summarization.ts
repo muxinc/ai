@@ -119,6 +119,12 @@ export interface SummarizationOptions extends MuxAIOptions {
    * Useful for customizing the AI's output for specific use cases (SEO, social media, etc.)
    */
   promptOverrides?: SummarizationPromptOverrides;
+  /** Desired title length in characters. */
+  titleLength?: number;
+  /** Desired description length in characters. */
+  descriptionLength?: number;
+  /** Desired number of tags. */
+  tagCount?: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -350,6 +356,9 @@ interface UserPromptContext {
   isCleanTranscript?: boolean;
   promptOverrides?: SummarizationPromptOverrides;
   isAudioOnly?: boolean;
+  titleLength?: number;
+  descriptionLength?: number;
+  tagCount?: number;
 }
 
 function buildUserPrompt({
@@ -358,6 +367,9 @@ function buildUserPrompt({
   isCleanTranscript = true,
   promptOverrides,
   isAudioOnly = false,
+  titleLength,
+  descriptionLength,
+  tagCount,
 }: UserPromptContext): string {
   // Build dynamic context sections
   const contextSections = [createToneSection(TONE_INSTRUCTIONS[tone])];
@@ -369,7 +381,34 @@ function buildUserPrompt({
 
   // Use audio-only prompt builder for audio-only assets
   const promptBuilder = isAudioOnly ? audioOnlyPromptBuilder : summarizationPromptBuilder;
-  return promptBuilder.buildWithContext(promptOverrides, contextSections);
+
+  // Build internal overrides from length/count params (user overrides always win)
+  const internalOverrides: SummarizationPromptOverrides = {};
+
+  if (titleLength != null && !promptOverrides?.title) {
+    internalOverrides.title = promptBuilder.template.title.content.replace(
+      /typically under 10 words/,
+      `Aim for approximately ${titleLength} characters`,
+    );
+  }
+
+  if (descriptionLength != null && !promptOverrides?.description) {
+    internalOverrides.description = promptBuilder.template.description.content.replace(
+      /2-4 sentences/,
+      `approximately ${descriptionLength} characters`,
+    );
+  }
+
+  if (tagCount != null && !promptOverrides?.keywords) {
+    internalOverrides.keywords = promptBuilder.template.keywords.content.replace(
+      `up to ${SUMMARY_KEYWORD_LIMIT}`,
+      `up to ${tagCount}`,
+    );
+  }
+
+  const mergedOverrides = { ...internalOverrides, ...promptOverrides };
+
+  return promptBuilder.buildWithContext(mergedOverrides, contextSections);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -471,7 +510,7 @@ async function analyzeAudioOnly(
   };
 }
 
-function normalizeKeywords(keywords?: string[]): string[] {
+function normalizeKeywords(keywords?: string[], limit: number = SUMMARY_KEYWORD_LIMIT): string[] {
   if (!Array.isArray(keywords) || keywords.length === 0) {
     return [];
   }
@@ -493,7 +532,7 @@ function normalizeKeywords(keywords?: string[]): string[] {
     uniqueLowercase.add(lower);
     normalized.push(trimmed);
 
-    if (normalized.length === SUMMARY_KEYWORD_LIMIT) {
+    if (normalized.length === limit) {
       break;
     }
   }
@@ -516,6 +555,9 @@ export async function getSummaryAndTags(
     imageDownloadOptions,
     promptOverrides,
     credentials,
+    titleLength,
+    descriptionLength,
+    tagCount,
   } = options ?? {};
 
   // Validate tone parameter
@@ -573,6 +615,9 @@ export async function getSummaryAndTags(
     isCleanTranscript: cleanTranscript,
     promptOverrides,
     isAudioOnly,
+    titleLength,
+    descriptionLength,
+    tagCount,
   });
 
   let analysisResponse: AnalysisResponse;
@@ -644,7 +689,7 @@ export async function getSummaryAndTags(
     assetId,
     title: analysisResponse.result.title,
     description: analysisResponse.result.description,
-    tags: normalizeKeywords(analysisResponse.result.keywords),
+    tags: normalizeKeywords(analysisResponse.result.keywords, tagCount ?? SUMMARY_KEYWORD_LIMIT),
     storyboardUrl: imageUrl, // undefined for audio-only assets
     usage: {
       ...analysisResponse.usage,
