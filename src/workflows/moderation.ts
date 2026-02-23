@@ -104,7 +104,7 @@ export interface ModerationOptions extends MuxAIOptions {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const DEFAULT_THRESHOLDS = {
-  sexual: 0.7,
+  sexual: 0.8,
   violence: 0.8,
 };
 
