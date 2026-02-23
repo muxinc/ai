@@ -21,11 +21,17 @@ program
   .option("-m, --model <model>", "Model name (overrides default for provider)")
   .option("-t, --tone <tone>", "Tone for summary (neutral, playful, professional)", "neutral")
   .option("--no-transcript", "Exclude transcript from analysis")
+  .option("--title-length <chars>", "Desired title length in characters", parseInt)
+  .option("--description-length <chars>", "Desired description length in characters", parseInt)
+  .option("--tag-count <count>", "Desired number of tags", parseInt)
   .action(async (assetId: string, options: {
     provider: Provider;
     model?: string;
     tone: ToneType;
     transcript: boolean;
+    titleLength?: number;
+    descriptionLength?: number;
+    tagCount?: number;
   }) => {
     // Validate provider
     if (!["openai", "anthropic", "google"].includes(options.provider)) {
@@ -45,7 +51,11 @@ program
     console.log("Asset ID:", assetId);
     console.log(`Provider: ${options.provider} (${model})`);
     console.log(`Tone: ${options.tone}`);
-    console.log(`Include Transcript: ${options.transcript}\n`);
+    console.log(`Include Transcript: ${options.transcript}`);
+    if (options.titleLength) console.log(`Title Length: ~${options.titleLength} chars`);
+    if (options.descriptionLength) console.log(`Description Length: ~${options.descriptionLength} chars`);
+    if (options.tagCount) console.log(`Tag Count: ${options.tagCount}`);
+    console.log();
 
     try {
       // Uses the default prompt built into the library
@@ -55,6 +65,9 @@ program
         provider: options.provider,
         model,
         includeTranscript: options.transcript,
+        titleLength: options.titleLength,
+        descriptionLength: options.descriptionLength,
+        tagCount: options.tagCount,
       });
 
       console.log("📝 Title:");
