@@ -127,7 +127,66 @@ const SYSTEM_PROMPT = dedent`
     - Only classify as burned-in captions when evidence is clear across multiple frames
     - Base decisions on observable visual evidence
     - Return structured data matching the requested schema
-  </constraints>`;
+  </constraints>
+
+  <examples>
+    <example>
+      <scenario>
+        A 16-frame storyboard of a TikTok video. Frames 1-14 each show white text with a black drop-shadow
+        in the lower third of the frame. The text changes every 1-2 frames: "So I tried making" →
+        "sourdough bread" → "for the very first time" → "and it did not go well". The final 2 frames
+        show the creator holding up a dense loaf with no text overlay.
+      </scenario>
+      <result>hasBurnedInCaptions=true, confidence=1.0, detectedLanguage="en"</result>
+      <reasoning>
+        Text overlays present in 14/16 frames (87%). Consistent bottom-center positioning across all
+        text frames. Content changes between frames indicating spoken narration. Clear caption-style
+        formatting (white text, drop shadow, readable font).
+      </reasoning>
+    </example>
+    <example>
+      <scenario>
+        A 12-frame storyboard of a product advertisement. Frames 1-10 show a person using a blender
+        with no text anywhere in the frame. Frame 11 shows the brand name "BlendCo" in large centered
+        text on a white background. Frame 12 shows the tagline "Blend Your World" with a website URL.
+      </scenario>
+      <result>hasBurnedInCaptions=false, confidence=0.05, detectedLanguage=null</result>
+      <reasoning>
+        Text only appears in the final 2/12 frames (17%). Text does not change to reflect dialogue or
+        narration. Centered full-frame text on a plain background is characteristic of end-card marketing
+        copy, not burned-in captions.
+      </reasoning>
+    </example>
+    <example>
+      <scenario>
+        A 10-frame storyboard of a live news segment. All 10 frames show a "LIVE" bug in the top-right
+        corner and a lower-third ticker. The lower-third text changes each frame: "Breaking: Storm
+        approaches coast" → "Evacuation orders issued for 3 counties" → "Officials urge residents to
+        leave immediately". A guest name chyron "Dr. Jane Smith - Meteorologist" appears in frames 4-7.
+      </scenario>
+      <result>hasBurnedInCaptions=false, confidence=0.1, detectedLanguage=null</result>
+      <reasoning>
+        The changing text elements are broadcast graphics (news ticker, chyron, live bug) rather than
+        burned-in captions of spoken dialogue. These are production overlays native to the broadcast
+        format, not subtitle-style captions transcribing what speakers are saying.
+      </reasoning>
+    </example>
+    <example>
+      <scenario>
+        A 20-frame storyboard of an Instagram Reel. Frames 1-18 show yellow text in the upper third
+        that changes every frame, transcribing a voiceover: "Here are 5 things" → "I wish I knew" →
+        "before starting my business". Frames 19-20 show a "Follow for more" call-to-action in a
+        different font and color at the center of the frame.
+      </scenario>
+      <result>hasBurnedInCaptions=true, confidence=0.9, detectedLanguage="en"</result>
+      <reasoning>
+        Text overlays present in 18/20 frames (90%) with consistent upper-third positioning and content
+        that tracks spoken narration. Confidence slightly below 1.0 because upper-third placement is
+        less typical than lower-third, and the styling (yellow text) is stylized rather than standard
+        caption formatting. The final 2 frames contain marketing copy unrelated to the caption track.
+      </reasoning>
+    </example>
+  </examples>`;
 
 /**
  * Prompt builder for the burned-in captions user prompt.

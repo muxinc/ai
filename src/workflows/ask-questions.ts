@@ -165,16 +165,6 @@ const SYSTEM_PROMPT = dedent`
     - Be specific and evidence-based
   </language_guidelines>`;
 
-function buildSystemPrompt(allowedAnswers: string[]): string {
-  const answerList = allowedAnswers.map(answer => `"${answer}"`).join(", ");
-
-  return `${SYSTEM_PROMPT}\n\n${dedent`
-    <response_options>
-      Allowed answers: ${answerList}
-    </response_options>
-  `}`;
-}
-
 type AskQuestionsPromptSections = "questions";
 
 const askQuestionsPromptBuilder = createPromptBuilder<AskQuestionsPromptSections>({
@@ -189,6 +179,7 @@ const askQuestionsPromptBuilder = createPromptBuilder<AskQuestionsPromptSections
 
 function buildUserPrompt(
   questions: Question[],
+  allowedAnswers: string[],
   transcriptText?: string,
   isCleanTranscript: boolean = true,
 ): string {
@@ -201,17 +192,23 @@ function buildUserPrompt(
 
     ${questionsList}`;
 
+  const answerList = allowedAnswers.map(answer => `"${answer}"`).join(", ");
+  const responseOptions = dedent`
+    <response_options>
+      Allowed answers: ${answerList}
+    </response_options>`;
+
   if (!transcriptText) {
-    return askQuestionsPromptBuilder.build({ questions: questionsContent });
+    return `${askQuestionsPromptBuilder.build({ questions: questionsContent })}\n\n${responseOptions}`;
   }
 
   const format = isCleanTranscript ? "plain text" : "WebVTT";
   const transcriptSection = createTranscriptSection(transcriptText, format);
 
-  return askQuestionsPromptBuilder.buildWithContext(
+  return `${askQuestionsPromptBuilder.buildWithContext(
     { questions: questionsContent },
     [transcriptSection],
-  );
+  )}\n\n${responseOptions}`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -387,9 +384,9 @@ export async function askQuestions(
         })).transcriptText :
       "";
 
-  // Build the user prompt with questions and optional transcript
-  const userPrompt = buildUserPrompt(questions, transcriptText, cleanTranscript);
-  const systemPrompt = buildSystemPrompt(normalizedAnswerOptions);
+  // Build the user prompt with questions, allowed answers, and optional transcript
+  const userPrompt = buildUserPrompt(questions, allowedAnswers, transcriptText, cleanTranscript);
+  const systemPrompt = SYSTEM_PROMPT;
 
   // Generate storyboard URL (signed if needed)
   const imageUrl = await getStoryboardUrl(

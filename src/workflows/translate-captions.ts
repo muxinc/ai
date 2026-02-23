@@ -86,6 +86,16 @@ export const translationSchema = z.object({
 export type TranslationPayload = z.infer<typeof translationSchema>;
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Prompts
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SYSTEM_PROMPT =
+  "You are a subtitle translation expert. " +
+  "Translate VTT subtitle files to the target language specified by the user. " +
+  "Preserve all timestamps and VTT formatting exactly as they appear. " +
+  "Return JSON with a single key \"translation\" containing the translated VTT content.";
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -124,8 +134,12 @@ async function translateVttWithAI({
     output: Output.object({ schema: translationSchema }),
     messages: [
       {
+        role: "system",
+        content: SYSTEM_PROMPT,
+      },
+      {
         role: "user",
-        content: `Translate the following VTT subtitle file from ${fromLanguageCode} to ${toLanguageCode}. Preserve all timestamps and VTT formatting exactly as they appear. Return JSON with a single key "translation" containing the translated VTT.\n\n${vttContent}`,
+        content: `Translate from ${fromLanguageCode} to ${toLanguageCode}:\n\n${vttContent}`,
       },
     ],
   });
