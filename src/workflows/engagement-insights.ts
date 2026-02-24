@@ -28,7 +28,7 @@ export interface EngagementInsightsOptions extends MuxAIOptions {
   hotspotLimit?: number;
   /** Type of insights to generate (default: 'informational') */
   insightType?: "informational" | "actionable" | "both";
-  /** Timeframe for engagement data (default: '[7:days]') */
+  /** Timeframe for engagement data (default: '7:days') */
   timeframe?: string;
 }
 
@@ -582,7 +582,7 @@ export async function generateEngagementInsights(
     model,
     hotspotLimit = 5,
     insightType = "informational",
-    timeframe = "[7:days]",
+    timeframe = "7:days",
     credentials,
   } = options;
 
