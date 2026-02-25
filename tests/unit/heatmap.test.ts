@@ -14,27 +14,35 @@ const MOCK_HEATMAP_DATA = Array.from({ length: 100 }, (_, i) =>
   Math.round((1.0 + Math.sin(i / 10) * 0.5) * 100) / 100);
 
 const MOCK_API_RESPONSE = {
-  asset_id: "test-asset-123",
-  heatmap: MOCK_HEATMAP_DATA,
   timeframe: [1770831101, 1770917501] as [number, number],
+  data: {
+    asset_id: "test-asset-123",
+    heatmap: MOCK_HEATMAP_DATA,
+  },
 };
 
 const MOCK_VIDEO_RESPONSE = {
-  video_id: "test-video-123",
-  heatmap: MOCK_HEATMAP_DATA,
   timeframe: [1770831101, 1770917501] as [number, number],
+  data: {
+    video_id: "test-video-123",
+    heatmap: MOCK_HEATMAP_DATA,
+  },
 };
 
 const MOCK_PLAYBACK_RESPONSE = {
-  playback_id: "test-playback-123",
-  heatmap: MOCK_HEATMAP_DATA,
   timeframe: [1770831101, 1770917501] as [number, number],
+  data: {
+    playback_id: "test-playback-123",
+    heatmap: MOCK_HEATMAP_DATA,
+  },
 };
 
 const MOCK_EMPTY_HEATMAP_RESPONSE = {
-  asset_id: "test-asset-empty",
-  heatmap: Array.from({ length: 100 }).fill(0),
   timeframe: [1770831101, 1770917501] as [number, number],
+  data: {
+    asset_id: "test-asset-empty",
+    heatmap: Array.from({ length: 100 }).fill(0),
+  },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -102,17 +110,17 @@ describe("getHeatmapForAsset", () => {
     await getHeatmapForAsset("test-asset-123");
 
     expect(mockMuxGet).toHaveBeenCalledWith(
-      expect.stringContaining("timeframe%5B%5D=%5B24%3Ahours%5D"),
+      expect.stringContaining("timeframe%5B%5D=24%3Ahours"),
     );
   });
 
   it("passes custom timeframe option", async () => {
     mockMuxGet.mockResolvedValue(MOCK_API_RESPONSE);
 
-    await getHeatmapForAsset("test-asset-123", { timeframe: "[7:days]" });
+    await getHeatmapForAsset("test-asset-123", { timeframe: "7:days" });
 
     expect(mockMuxGet).toHaveBeenCalledWith(
-      expect.stringContaining("timeframe%5B%5D=%5B7%3Adays%5D"),
+      expect.stringContaining("timeframe%5B%5D=7%3Adays"),
     );
   });
 
