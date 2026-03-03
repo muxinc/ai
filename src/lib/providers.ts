@@ -61,7 +61,7 @@ const DEFAULT_EMBEDDING_MODELS: { [K in SupportedEmbeddingProvider]: EmbeddingMo
 export const LANGUAGE_MODELS: { [K in SupportedProvider]: ModelIdByProvider[K][] } = {
   openai: ["gpt-5.1", "gpt-5-mini"],
   anthropic: ["claude-sonnet-4-5"],
-  google: ["gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-2.5-flash"],
+  google: ["gemini-3-flash-preview", "gemini-3.1-flash-lite-preview", "gemini-2.5-flash"],
 };
 
 export type ModelDeprecationPhase = "warn" | "blocked";
