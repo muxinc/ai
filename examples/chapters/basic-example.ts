@@ -15,9 +15,11 @@ program
   .argument("<asset-id>", "Mux asset ID to analyze")
   .option("-l, --language <code>", "Language code for transcription", "en")
   .option("-p, --provider <provider>", "AI provider (openai, anthropic, google)", "openai")
+  .option("--output-language <code>", "Output language as BCP 47 code (e.g. 'fr', 'ja') or 'auto'")
   .action(async (assetId: string, options: {
     language: string;
     provider: Provider;
+    outputLanguage?: string;
   }) => {
     // Validate provider
     if (!["openai", "anthropic", "google"].includes(options.provider)) {
@@ -27,13 +29,16 @@ program
 
     console.log(`🎯 Generating chapters for asset: ${assetId}`);
     console.log(`📝 Language: ${options.language}`);
-    console.log(`🤖 Provider: ${options.provider}\n`);
+    console.log(`🤖 Provider: ${options.provider}`);
+    if (options.outputLanguage) console.log(`🌐 Output Language: ${options.outputLanguage}`);
+    console.log();
 
     try {
       const start = Date.now();
 
       const result = await generateChapters(assetId, options.language, {
         provider: options.provider,
+        outputLanguageCode: options.outputLanguage,
         promptOverrides: {
           titleGuidelines: "Use concise titles under 6 words.",
         },
