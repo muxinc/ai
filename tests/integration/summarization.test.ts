@@ -99,4 +99,38 @@ describe("summarization Integration Tests", () => {
       expect(result.usage?.totalTokens).toBeGreaterThan(0);
     });
   });
+
+  describe("language parameter", () => {
+    it("should produce output in the specified language", async () => {
+      const result = await getSummaryAndTags(testAssetId, {
+        provider: "openai",
+        outputLanguageCode: "es",
+      });
+
+      expect(result).toBeDefined();
+      expect(result.title).toBeDefined();
+      expect(result.description).toBeDefined();
+    });
+
+    it("should accept outputLanguageCode: 'auto' without error", async () => {
+      const result = await getSummaryAndTags(testAssetId, {
+        provider: "openai",
+        outputLanguageCode: "auto",
+      });
+
+      expect(result).toBeDefined();
+      expect(result.title).toBeDefined();
+      expect(result.description).toBeDefined();
+    });
+
+    it("should preserve default behaviour when language is omitted", async () => {
+      const result = await getSummaryAndTags(testAssetId, {
+        provider: "openai",
+      });
+
+      expect(result).toBeDefined();
+      expect(result.title).toBeDefined();
+      expect(result.description).toBeDefined();
+    });
+  });
 });

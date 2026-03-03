@@ -13,9 +13,11 @@ import type {
   PromptOverrides,
 } from "@mux/ai/lib/prompt-builder";
 import {
+  createLanguageSection,
   createPromptBuilder,
   createToneSection,
   createTranscriptSection,
+  resolveLanguageName,
 } from "@mux/ai/lib/prompt-builder";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
@@ -125,6 +127,11 @@ export interface SummarizationOptions extends MuxAIOptions {
   descriptionLength?: number;
   /** Desired number of tags. */
   tagCount?: number;
+  /**
+   * BCP 47 language code for the output (e.g. "en", "fr", "ja"), or "auto"
+   * to detect from the transcript track. When omitted, the LLM decides.
+   */
+  outputLanguageCode?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -290,6 +297,7 @@ const SYSTEM_PROMPT = dedent`
     - Do not fabricate details or make unsupported assumptions
     - Return structured data matching the requested schema
     - Output only the JSON object; no markdown or extra text
+    - When a <language> section is provided, all output text MUST be written in that language
   </constraints>
 
   <tone_guidance>
@@ -345,6 +353,7 @@ const AUDIO_ONLY_SYSTEM_PROMPT = dedent`
     - Return structured data matching the requested schema
     - Focus entirely on audio/spoken content - there are no visual elements
     - Output only the JSON object; no markdown or extra text
+    - When a <language> section is provided, all output text MUST be written in that language
   </constraints>
 
   <tone_guidance>
@@ -377,6 +386,7 @@ interface UserPromptContext {
   titleLength?: number;
   descriptionLength?: number;
   tagCount?: number;
+  languageName?: string;
 }
 
 function buildUserPrompt({
@@ -388,9 +398,14 @@ function buildUserPrompt({
   titleLength,
   descriptionLength,
   tagCount,
+  languageName,
 }: UserPromptContext): string {
   // Build dynamic context sections
   const contextSections = [createToneSection(TONE_INSTRUCTIONS[tone])];
+
+  if (languageName) {
+    contextSections.push(createLanguageSection(languageName));
+  }
 
   if (transcriptText) {
     const format = isCleanTranscript ? "plain text" : "WebVTT";
@@ -552,6 +567,7 @@ export async function getSummaryAndTags(
     titleLength,
     descriptionLength,
     tagCount,
+    outputLanguageCode,
   } = options ?? {};
 
   // Validate tone parameter
@@ -592,15 +608,27 @@ export async function getSummaryAndTags(
     );
   }
 
-  const transcriptText =
+  const transcriptResult =
     includeTranscript ?
-        (await fetchTranscriptForAsset(assetData, playbackId, {
+        await fetchTranscriptForAsset(assetData, playbackId, {
           cleanTranscript,
           shouldSign: policy === "signed",
           credentials: workflowCredentials,
           required: isAudioOnly,
-        })).transcriptText :
-      "";
+        }) :
+      undefined;
+  const transcriptText = transcriptResult?.transcriptText ?? "";
+
+  // Resolve output language: "auto" detects from transcript track, explicit code is converted to a display name
+  let languageName: string | undefined;
+  if (outputLanguageCode === "auto") {
+    const trackLanguage = transcriptResult?.track?.language_code;
+    if (trackLanguage) {
+      languageName = resolveLanguageName(trackLanguage);
+    }
+  } else if (outputLanguageCode) {
+    languageName = resolveLanguageName(outputLanguageCode);
+  }
 
   // Build the user prompt with all context and any overrides
   const userPrompt = buildUserPrompt({
@@ -612,6 +640,7 @@ export async function getSummaryAndTags(
     titleLength,
     descriptionLength,
     tagCount,
+    languageName,
   });
 
   let analysisResponse: AnalysisResponse;

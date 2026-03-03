@@ -8,7 +8,7 @@ import {
   isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
 import type { PromptOverrides, PromptSection } from "@mux/ai/lib/prompt-builder";
-import { createPromptBuilder } from "@mux/ai/lib/prompt-builder";
+import { createLanguageSection, createPromptBuilder, resolveLanguageName } from "@mux/ai/lib/prompt-builder";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
 import { withRetry } from "@mux/ai/lib/retry";
@@ -92,6 +92,11 @@ export interface ChaptersOptions extends MuxAIOptions {
    * Defaults to 8.
    */
   maxChaptersPerHour?: number;
+  /**
+   * BCP 47 language code for chapter titles (e.g. "en", "fr", "ja"), or "auto"
+   * to detect from the transcript track. When omitted, the LLM decides.
+   */
+  outputLanguageCode?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -175,7 +180,8 @@ const chapterSystemPromptBuilder = createPromptBuilder<ChapterSystemPromptSectio
       content: dedent`
         - Only use information present in the transcript
         - Return structured data that matches the requested JSON schema
-        - Do not add commentary or extra text outside the JSON`,
+        - Do not add commentary or extra text outside the JSON
+        - When a <language> section is provided, all chapter titles MUST be written in that language`,
     },
     qualityGuidelines: {
       tag: "quality_guidelines",
@@ -243,11 +249,13 @@ function buildUserPrompt({
   promptOverrides,
   minChaptersPerHour = 3,
   maxChaptersPerHour = 8,
+  languageName,
 }: {
   timestampedTranscript: string;
   promptOverrides?: ChaptersPromptOverrides;
   minChaptersPerHour?: number;
   maxChaptersPerHour?: number;
+  languageName?: string;
 }): string {
   const contextSections: PromptSection[] = [
     {
@@ -256,6 +264,10 @@ function buildUserPrompt({
       attributes: { format: "seconds" },
     },
   ];
+
+  if (languageName) {
+    contextSections.push(createLanguageSection(languageName));
+  }
 
   // Build dynamic chapter guidelines with configurable min/max per hour
   const dynamicChapterGuidelines = dedent`
@@ -286,6 +298,7 @@ export async function generateChapters(
     minChaptersPerHour,
     maxChaptersPerHour,
     credentials,
+    outputLanguageCode,
   } = options;
 
   const modelConfig = resolveLanguageModelConfig({
@@ -340,11 +353,21 @@ export async function generateChapters(
     throw new Error(`No usable content found in ${contentLabel}`);
   }
 
+  // Resolve output language: "auto" detects from transcript track, explicit code is converted to a display name
+  let languageName: string | undefined;
+  if (outputLanguageCode === "auto") {
+    const trackLanguage = transcriptResult.track?.language_code ?? languageCode;
+    languageName = resolveLanguageName(trackLanguage);
+  } else if (outputLanguageCode) {
+    languageName = resolveLanguageName(outputLanguageCode);
+  }
+
   const userPrompt = buildUserPrompt({
     timestampedTranscript,
     promptOverrides,
     minChaptersPerHour,
     maxChaptersPerHour,
+    languageName,
   });
 
   // Generate chapters using AI SDK

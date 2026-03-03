@@ -222,3 +222,27 @@ export function createToneSection(instruction: string): PromptSection {
     content: instruction,
   };
 }
+
+/**
+ * Converts a BCP 47 language code to a human-readable display name.
+ * Falls back to the raw code if Intl.DisplayNames can't resolve it.
+ */
+export function resolveLanguageName(code: string): string {
+  try {
+    const displayNames = new Intl.DisplayNames(["en"], { type: "language" });
+    return displayNames.of(code) ?? code;
+  } catch {
+    return code;
+  }
+}
+
+/**
+ * Creates a language section for inclusion in prompts.
+ * Instructs the model to produce all output in the specified language.
+ */
+export function createLanguageSection(languageName: string): PromptSection {
+  return {
+    tag: "language",
+    content: `All output (title, description, keywords, chapter titles) MUST be written in ${languageName}.`,
+  };
+}
