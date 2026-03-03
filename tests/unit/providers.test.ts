@@ -36,8 +36,8 @@ describe("language model deprecations", () => {
 
     expect(warnSpy).toHaveBeenCalledTimes(1);
     const firstWarning = String(warnSpy.mock.calls[0]?.[0]);
-    expect(firstWarning).toContain("google:gemini-2.5-flash");
-    expect(firstWarning).toContain("google:gemini-3.1-flash-lite-preview");
+    expect(firstWarning).toContain("provider=\"google\" model=\"gemini-2.5-flash\"");
+    expect(firstWarning).toContain("provider=\"google\" model=\"gemini-3.1-flash-lite-preview\"");
     expect(firstWarning).toContain("Planned removal date");
   });
 

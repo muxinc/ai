@@ -120,15 +120,15 @@ function maybeWarnOrThrowForDeprecatedLanguageModel(provider: SupportedProvider,
   }
 
   const replacementText = deprecation.replacementModelId ?
-    ` Use "${provider}:${deprecation.replacementModelId}" instead.` :
+    ` Use replacement provider="${provider}" model="${deprecation.replacementModelId}" instead.` :
     "";
   const sunsetText = deprecation.sunsetOn ? ` Planned removal date: ${deprecation.sunsetOn}.` : "";
   const reasonText = deprecation.reason ? ` Reason: ${deprecation.reason}` : "";
 
   const message =
     deprecation.phase === "blocked" ?
-      `Language model "${provider}:${modelId}" is no longer supported.${replacementText}${reasonText}` :
-      `Language model "${provider}:${modelId}" is deprecated and in a grace period.${replacementText}${sunsetText}${reasonText}`;
+      `Language model is no longer supported for provider="${provider}" model="${modelId}".${replacementText}${reasonText}` :
+      `Language model is deprecated and in a grace period for provider="${provider}" model="${modelId}".${replacementText}${sunsetText}${reasonText}`;
 
   if (deprecation.phase === "blocked") {
     throw new Error(message);
