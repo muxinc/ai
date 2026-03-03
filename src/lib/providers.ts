@@ -64,6 +64,89 @@ export const LANGUAGE_MODELS: { [K in SupportedProvider]: ModelIdByProvider[K][]
   google: ["gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-2.5-flash"],
 };
 
+export type ModelDeprecationPhase = "warn" | "blocked";
+
+/**
+ * Lifecycle metadata for a language model that is being phased out.
+ *
+ * @remarks
+ * - "warn": model is still supported, but logs migration guidance.
+ * - "blocked": model is no longer supported and throws with migration guidance.
+ */
+export interface LanguageModelDeprecation {
+  provider: SupportedProvider;
+  modelId: string;
+  replacementModelId?: string;
+  phase: ModelDeprecationPhase;
+  deprecatedOn: string;
+  sunsetOn?: string;
+  reason?: string;
+}
+
+/**
+ * Deprecated language models that remain supported during a grace period.
+ * This enables gradual migration while clearly signaling planned removal.
+ */
+export const LANGUAGE_MODEL_DEPRECATIONS: LanguageModelDeprecation[] = [
+  {
+    provider: "google",
+    modelId: "gemini-2.5-flash",
+    replacementModelId: "gemini-3.1-flash-lite-preview",
+    phase: "warn",
+    deprecatedOn: "2026-03-03",
+    sunsetOn: "2026-06-30",
+    reason: "Gemini 3.1 Flash-Lite Preview offers better quality/latency/cost balance in current evals.",
+  },
+];
+
+const warnedDeprecatedLanguageModels = new Set<string>();
+
+/**
+ * Returns deprecation metadata for a provider/model pair, if any.
+ */
+export function getLanguageModelDeprecation(
+  provider: SupportedProvider,
+  modelId: string,
+): LanguageModelDeprecation | undefined {
+  return LANGUAGE_MODEL_DEPRECATIONS.find(
+    deprecation => deprecation.provider === provider && deprecation.modelId === modelId,
+  );
+}
+
+function maybeWarnOrThrowForDeprecatedLanguageModel(provider: SupportedProvider, modelId: string): void {
+  const deprecation = getLanguageModelDeprecation(provider, modelId);
+  if (!deprecation) {
+    return;
+  }
+
+  const replacementText = deprecation.replacementModelId ?
+    ` Use "${provider}:${deprecation.replacementModelId}" instead.` :
+    "";
+  const sunsetText = deprecation.sunsetOn ? ` Planned removal date: ${deprecation.sunsetOn}.` : "";
+  const reasonText = deprecation.reason ? ` Reason: ${deprecation.reason}` : "";
+
+  const message =
+    deprecation.phase === "blocked" ?
+      `Language model "${provider}:${modelId}" is no longer supported.${replacementText}${reasonText}` :
+      `Language model "${provider}:${modelId}" is deprecated and in a grace period.${replacementText}${sunsetText}${reasonText}`;
+
+  if (deprecation.phase === "blocked") {
+    throw new Error(message);
+  }
+
+  const warningKey = `${provider}:${modelId}`;
+  if (warnedDeprecatedLanguageModels.has(warningKey)) {
+    return;
+  }
+
+  warnedDeprecatedLanguageModels.add(warningKey);
+  console.warn(message);
+}
+
+export function resetLanguageModelDeprecationWarningsForTests(): void {
+  warnedDeprecatedLanguageModels.clear();
+}
+
 /**
  * A (provider, modelId) pair used for evaluation iteration.
  */
@@ -117,6 +200,8 @@ function parseEvalModelPair(value: string): EvalModelConfig {
       `Unsupported eval model "${modelId}" for provider "${provider}". Supported models: ${supportedModels.join(", ")}.`,
     );
   }
+
+  maybeWarnOrThrowForDeprecatedLanguageModel(provider, modelId);
 
   return {
     provider,
@@ -190,6 +275,7 @@ export function resolveLanguageModelConfig<P extends SupportedProvider = Support
 ): { provider: P; modelId: ModelIdByProvider[P] } {
   const provider = options.provider || ("openai" as P);
   const modelId = (options.model || DEFAULT_LANGUAGE_MODELS[provider]) as ModelIdByProvider[P];
+  maybeWarnOrThrowForDeprecatedLanguageModel(provider, modelId);
 
   return { provider, modelId };
 }
@@ -367,6 +453,8 @@ export async function createLanguageModelFromConfig<P extends SupportedProvider 
   modelId: ModelIdByProvider[P],
   credentials?: WorkflowCredentialsInput,
 ): Promise<LanguageModel> {
+  maybeWarnOrThrowForDeprecatedLanguageModel(provider, modelId);
+
   switch (provider) {
     case "openai": {
       const apiKey = await resolveProviderApiKey("openai", credentials);
@@ -428,6 +516,7 @@ export function resolveLanguageModel<P extends SupportedProvider = SupportedProv
 ): ResolvedModel<P> {
   const provider = options.provider || ("openai" as P);
   const modelId = (options.model || DEFAULT_LANGUAGE_MODELS[provider]) as ModelIdByProvider[P];
+  maybeWarnOrThrowForDeprecatedLanguageModel(provider, modelId);
 
   switch (provider) {
     case "openai": {
