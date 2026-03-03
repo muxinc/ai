@@ -61,7 +61,7 @@ const DEFAULT_EMBEDDING_MODELS: { [K in SupportedEmbeddingProvider]: EmbeddingMo
 export const LANGUAGE_MODELS: { [K in SupportedProvider]: ModelIdByProvider[K][] } = {
   openai: ["gpt-5.1", "gpt-5-mini"],
   anthropic: ["claude-sonnet-4-5"],
-  google: ["gemini-3-flash-preview", "gemini-2.5-flash"],
+  google: ["gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-2.5-flash"],
 };
 
 /**
@@ -266,6 +266,12 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
 
   // Google models
   // Reference: https://ai.google.dev/pricing
+  "gemini-3.1-flash-lite-preview": {
+    inputPerMillion: 0.25,
+    outputPerMillion: 1.50,
+    cachedInputPerMillion: 0.025,
+    pricingUrl: "https://ai.google.dev/gemini-api/docs/pricing",
+  },
   "gemini-3-flash-preview": {
     inputPerMillion: 0.50,
     outputPerMillion: 3.00,
