@@ -4,17 +4,17 @@ import { reportTrace } from "evalite/traces";
 import { calculateModelCost, EVAL_MODEL_CONFIGS } from "../../src/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "../../src/lib/providers";
 import type { TokenUsage } from "../../src/types";
-import { getSummaryAndTags } from "../../src/workflows";
-import type { SummaryAndTagsResult } from "../../src/workflows";
+import { generateChapters } from "../../src/workflows";
+import type { ChaptersResult } from "../../src/workflows";
 import { getLatencyPerformanceDescription, scoreLatencyPerformance } from "../helpers/latency-performance";
 import { muxTestAssets } from "../helpers/mux-test-assets";
 
 /**
- * Summarization Language Cost Eval
+ * Chapters Language Cost Eval
  *
- * Measures the relative cost/performance impact of requesting output in a
- * different language vs the baseline (no language specified) and vs explicitly
- * requesting the same language.
+ * Measures the relative cost/performance impact of requesting chapter output
+ * in a different language vs the baseline (no language specified) and vs
+ * explicitly requesting the same language.
  *
  * Three variants per provider/model:
  *  - baseline:           outputLanguageCode omitted
@@ -26,10 +26,11 @@ import { muxTestAssets } from "../helpers/mux-test-assets";
 // Thresholds
 // ─────────────────────────────────────────────────────────────────────────────
 
-const TITLE_MAX_LENGTH = 100;
+const TITLE_MIN_LENGTH = 3;
+const TITLE_MAX_LENGTH = 80;
 const LATENCY_THRESHOLD_GOOD_MS = 8000;
 const LATENCY_THRESHOLD_ACCEPTABLE_MS = 20000;
-const TOKEN_THRESHOLD_EFFICIENT = 4000;
+const TOKEN_THRESHOLD_EFFICIENT = 5000;
 const COST_THRESHOLD_USD = 0.015;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -38,7 +39,7 @@ const COST_THRESHOLD_USD = 0.015;
 
 type LanguageVariant = "baseline" | "same-language" | "different-language";
 
-interface EvalOutput extends SummaryAndTagsResult {
+interface EvalOutput extends ChaptersResult {
   provider: SupportedProvider;
   model: ModelIdByProvider[SupportedProvider];
   variant: LanguageVariant;
@@ -66,9 +67,10 @@ const allResults: { provider: string; model: string; variant: LanguageVariant; t
 const data = EVAL_MODEL_CONFIGS.flatMap(({ provider, modelId }) =>
   variants.map(variant => ({
     input: {
-      assetId: muxTestAssets.assetId,
+      assetId: muxTestAssets.chaptersAssetId,
       provider,
       model: modelId,
+      languageCode: "en",
       variant: variant.label,
       outputLanguageCode: variant.outputLanguageCode,
     },
@@ -77,7 +79,7 @@ const data = EVAL_MODEL_CONFIGS.flatMap(({ provider, modelId }) =>
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Evaluation
+// Summary
 // ─────────────────────────────────────────────────────────────────────────────
 
 function printSummary() {
@@ -99,31 +101,33 @@ function printSummary() {
 
   const avg = (arr: number[]) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
 
-  console.warn("\n── Summarization Language Cost Summary ──");
+  console.warn("\n── Chapters Translation Summary ──");
   console.warn(`  Same language (en) avg token overhead: ${avg(overheads["same-language"]).toFixed(1)}%`);
   console.warn(`  Different language (es) avg token overhead: ${avg(overheads["different-language"]).toFixed(1)}%`);
   console.warn("");
 }
 
-evalite("Summarization Language Cost", {
+// ─────────────────────────────────────────────────────────────────────────────
+// Evaluation
+// ─────────────────────────────────────────────────────────────────────────────
+
+evalite("Chapters Translation", {
   data,
-  task: async ({ assetId, provider, model, variant, outputLanguageCode }): Promise<EvalOutput> => {
+  task: async ({ assetId, provider, model, languageCode, variant, outputLanguageCode }): Promise<EvalOutput> => {
     const startTime = performance.now();
-    const result = await getSummaryAndTags(assetId, {
+    const result = await generateChapters(assetId, languageCode, {
       provider,
       model,
-      includeTranscript: true,
       outputLanguageCode,
     });
     const latencyMs = performance.now() - startTime;
 
     console.warn(
-      `[summarization-language][${provider}/${model}][${variant}] ${assetId}`,
-      {
-        title: result.title,
-        description: result.description,
-        tags: result.tags,
-      },
+      `[chapters-language][${provider}/${model}][${variant}] ${assetId}`,
+      result.chapters.map(chapter => ({
+        startTime: chapter.startTime,
+        title: chapter.title,
+      })),
     );
 
     const usage = result.usage ?? {};
@@ -135,7 +139,7 @@ evalite("Summarization Language Cost", {
     );
 
     reportTrace({
-      input: { assetId, provider, model, variant, outputLanguageCode },
+      input: { assetId, provider, model, languageCode, variant, outputLanguageCode },
       output: result,
       usage: {
         inputTokens: usage.inputTokens ?? 0,
@@ -155,7 +159,6 @@ evalite("Summarization Language Cost", {
 
     allResults.push({ provider, model, variant, totalTokens, estimatedCostUsd });
 
-    // Print summary once all tasks have reported in
     if (allResults.length === data.length) {
       printSummary();
     }
@@ -180,45 +183,59 @@ evalite("Summarization Language Cost", {
 
     {
       name: "response-integrity",
-      description: "Validates all required fields are present and properly typed.",
-      scorer: ({ output, input }: { output: EvalOutput; input: { assetId: string } }) => {
+      description: "Validates asset/language integrity and chapter shape.",
+      scorer: ({ output, input }: { output: EvalOutput; input: { assetId: string; languageCode: string } }) => {
         const assetIdValid = output.assetId === input.assetId;
-        const titleValid = typeof output.title === "string" && output.title.length > 0;
-        const descriptionValid = typeof output.description === "string" && output.description.length > 0;
-        const tagsValid = Array.isArray(output.tags) && output.tags.length > 0;
-        const storyboardValid = typeof output.storyboardUrl === "string" && output.storyboardUrl.startsWith("https://");
+        const languageValid = output.languageCode === input.languageCode;
+        const chaptersValid = Array.isArray(output.chapters) && output.chapters.length > 0;
+        const chapterShapeValid = output.chapters.every(chapter =>
+          typeof chapter.startTime === "number" &&
+          Number.isFinite(chapter.startTime) &&
+          chapter.startTime >= 0 &&
+          typeof chapter.title === "string" &&
+          chapter.title.trim().length > 0,
+        );
 
-        return assetIdValid && titleValid && descriptionValid && tagsValid && storyboardValid ? 1 : 0;
+        return assetIdValid && languageValid && chaptersValid && chapterShapeValid ? 1 : 0;
       },
     },
 
     {
       name: "title-quality",
-      description: "Validates title is non-empty, under 100 chars, and doesn't start with filler phrases.",
+      description: "Scores chapter titles for length and descriptive content.",
       scorer: ({ output }: { output: EvalOutput }) => {
-        const { title } = output;
-
-        if (!title || title.trim().length === 0) {
+        const { chapters } = output;
+        if (chapters.length === 0) {
           return 0;
         }
 
-        if (title.length > TITLE_MAX_LENGTH) {
-          return 0.5;
+        const seenTitles = new Set<string>();
+        const genericTitlePattern = /^(?:chapter|segment|part)\s*\d+/i;
+        let validCount = 0;
+
+        for (const chapter of chapters) {
+          const title = chapter.title.trim();
+          const hasLetters = /[a-z]/i.test(title);
+          const lowerTitle = title.toLowerCase();
+          const isDuplicate = seenTitles.has(lowerTitle);
+          const isGeneric = genericTitlePattern.test(title);
+
+          if (
+            title.length >= TITLE_MIN_LENGTH &&
+            title.length <= TITLE_MAX_LENGTH &&
+            hasLetters &&
+            !isDuplicate &&
+            !isGeneric
+          ) {
+            validCount += 1;
+          }
+
+          if (!isDuplicate) {
+            seenTitles.add(lowerTitle);
+          }
         }
 
-        const fillerPhrases = [
-          "a video of",
-          "this video shows",
-          "the video shows",
-          "video of",
-          "this is a video",
-        ];
-        const lowerTitle = title.toLowerCase().trim();
-        if (fillerPhrases.some(phrase => lowerTitle.startsWith(phrase))) {
-          return 0.5;
-        }
-
-        return 1;
+        return validCount / chapters.length;
       },
     },
 
@@ -255,7 +272,7 @@ evalite("Summarization Language Cost", {
 
     {
       name: "usage-data-present",
-      description: "Ensures token usage data is returned for cost analysis (inputTokens and outputTokens must be > 0).",
+      description: "Ensures token usage data is returned for cost analysis.",
       scorer: ({ output }: { output: EvalOutput }) => {
         const { usage } = output;
 
@@ -303,7 +320,7 @@ evalite("Summarization Language Cost", {
       { label: "Provider", value: output.provider },
       { label: "Model", value: output.model },
       { label: "Variant", value: output.variant },
-      { label: "Title", value: output.title },
+      { label: "Chapters", value: output.chapters.length },
       { label: "Latency", value: `${Math.round(output.latencyMs)}ms` },
       { label: "Tokens", value: output.usage?.totalTokens ?? 0 },
       { label: "Token Delta", value: (() => {
