@@ -26,7 +26,7 @@ import {
   resolveMuxSigningContext,
 } from "@mux/ai/lib/workflow-credentials";
 import { getStoryboardUrl } from "@mux/ai/primitives/storyboards";
-import { fetchTranscriptForAsset } from "@mux/ai/primitives/transcripts";
+import { fetchTranscriptForAsset, getReadyTextTracks } from "@mux/ai/primitives/transcripts";
 import type {
   ImageSubmissionMode,
   MuxAIOptions,
@@ -622,10 +622,14 @@ export async function getSummaryAndTags(
   // Resolve output language: "auto" detects from transcript track, explicit code is converted to a display name
   let languageName: string | undefined;
   if (outputLanguageCode === "auto") {
-    const trackLanguage = transcriptResult?.track?.language_code;
-    if (trackLanguage) {
-      languageName = resolveLanguageName(trackLanguage);
+    const trackLanguage =
+      transcriptResult?.track?.language_code ?? getReadyTextTracks(assetData)[0]?.language_code;
+    if (!trackLanguage) {
+      throw new Error(
+        "outputLanguageCode: \"auto\" requires a ready transcript track with a language code; provide outputLanguageCode explicitly if no track is available.",
+      );
     }
+    languageName = resolveLanguageName(trackLanguage);
   } else if (outputLanguageCode) {
     languageName = resolveLanguageName(outputLanguageCode);
   }

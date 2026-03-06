@@ -1,3 +1,5 @@
+import { getLanguageName } from "@mux/ai/lib/language-codes";
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -225,15 +227,10 @@ export function createToneSection(instruction: string): PromptSection {
 
 /**
  * Converts a BCP 47 language code to a human-readable display name.
- * Falls back to the raw code if Intl.DisplayNames can't resolve it.
+ * Delegates to getLanguageName for ISO-639 normalization and fallback handling.
  */
 export function resolveLanguageName(code: string): string {
-  try {
-    const displayNames = new Intl.DisplayNames(["en"], { type: "language" });
-    return displayNames.of(code) ?? code;
-  } catch {
-    return code;
-  }
+  return getLanguageName(code);
 }
 
 /**
