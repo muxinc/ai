@@ -1,7 +1,7 @@
 {
   "name": "@mux/ai",
   "type": "module",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "description": "AI library for Mux",
   "author": "Mux",
   "license": "Apache-2.0",
@@ -101,7 +101,7 @@
     "prepare": "husky"
   },
   "peerDependencies": {
-    "workflow": ">=4.1.0-beta.55"
+    "workflow": ">=4.2.0-beta.64"
   },
   "peerDependenciesMeta": {
     "workflow": {
@@ -137,6 +137,6 @@
     "tsup": "^8.5.0",
     "typescript": "^5.0.0",
     "vitest": "^4.0.13",
-    "workflow": "^4.1.0-beta.55"
+    "workflow": "^4.2.0-beta.64"
   }
 }

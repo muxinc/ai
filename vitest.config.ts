@@ -16,6 +16,6 @@ export default defineConfig({
     globals: true,
     environment: "node",
     testTimeout: 600000, // 600 seconds for integration tests
-    maxConcurrency: 3, // Run up to 3 tests in parallel
+    maxConcurrency: 2, // Run up to 2 tests in parallel
   },
 });
