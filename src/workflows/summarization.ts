@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
+import { getLanguageName } from "@mux/ai/lib/language-codes";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -17,7 +18,6 @@ import {
   createPromptBuilder,
   createToneSection,
   createTranscriptSection,
-  resolveLanguageName,
 } from "@mux/ai/lib/prompt-builder";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
@@ -624,10 +624,12 @@ export async function getSummaryAndTags(
   if (outputLanguageCode === "auto") {
     const trackLanguage = transcriptResult?.track?.language_code;
     if (trackLanguage) {
-      languageName = resolveLanguageName(trackLanguage);
+      languageName = getLanguageName(trackLanguage);
+    } else {
+      console.warn(`[summarization] outputLanguageCode "auto" could not resolve: no transcript track language available. Falling back to default behaviour.`);
     }
   } else if (outputLanguageCode) {
-    languageName = resolveLanguageName(outputLanguageCode);
+    languageName = getLanguageName(outputLanguageCode);
   }
 
   // Build the user prompt with all context and any overrides

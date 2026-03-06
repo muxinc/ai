@@ -2,13 +2,14 @@ import { generateText, Output } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
+import { getLanguageName } from "@mux/ai/lib/language-codes";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
   isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
 import type { PromptOverrides, PromptSection } from "@mux/ai/lib/prompt-builder";
-import { createLanguageSection, createPromptBuilder, resolveLanguageName } from "@mux/ai/lib/prompt-builder";
+import { createLanguageSection, createPromptBuilder } from "@mux/ai/lib/prompt-builder";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
 import { withRetry } from "@mux/ai/lib/retry";
@@ -357,9 +358,9 @@ export async function generateChapters(
   let languageName: string | undefined;
   if (outputLanguageCode === "auto") {
     const trackLanguage = transcriptResult.track?.language_code ?? languageCode;
-    languageName = resolveLanguageName(trackLanguage);
+    languageName = getLanguageName(trackLanguage);
   } else if (outputLanguageCode) {
-    languageName = resolveLanguageName(outputLanguageCode);
+    languageName = getLanguageName(outputLanguageCode);
   }
 
   const userPrompt = buildUserPrompt({
