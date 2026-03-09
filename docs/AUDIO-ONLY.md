@@ -66,6 +66,19 @@ const result = await translateCaptions("your-audio-only-asset-id", "en", "es", {
 });
 ```
 
+### Caption Censorship (`censorCaptions`)
+
+Detects and censors profanity in captions. Works with audio-only assets that have a ready text track.
+
+```typescript
+import { censorCaptions } from "@mux/ai/workflows";
+
+const result = await censorCaptions("your-audio-only-asset-id", "track-id", {
+  provider: "anthropic",
+  mode: "blank",
+});
+```
+
 ### Audio Dubbing (`translateAudio`)
 
 Creates a new audio track using ElevenLabs voice cloning. Works for audio-only assets and uploads the result to Mux.

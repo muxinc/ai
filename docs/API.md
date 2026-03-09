@@ -284,12 +284,58 @@ interface TranslateCaptionsResult {
 **Supported Languages:**
 All ISO 639-1 language codes are automatically supported using `Intl.DisplayNames`. Examples: Spanish (es), French (fr), German (de), Italian (it), Portuguese (pt), Polish (pl), Japanese (ja), Korean (ko), Chinese (zh), Russian (ru), Arabic (ar), Hindi (hi), Thai (th), Swahili (sw), and many more.
 
+<<<<<<< HEAD
 **Chunking Behavior:**
 
 - Chunking is enabled by default for `translateCaptions`
 - Shorter assets are translated in a single request until `minimumAssetDurationSeconds` is reached
 - When chunking is active, requests stay aligned to VTT cues and the final VTT is rebuilt locally
 - Chunk size is bounded by both cue count and approximate cue text token budget
+=======
+## `censorCaptions(assetId, trackId, options)`
+
+Detects profanity in a caption track using an LLM, censors it using the chosen replacement mode, and optionally uploads the censored track to Mux.
+
+**Parameters:**
+
+- `assetId` (string) - Mux asset ID (video or audio-only)
+- `trackId` (string) - ID of the caption track to censor
+- `options` - Configuration options
+
+**Options:**
+
+- `provider: 'openai' | 'anthropic' | 'google'` - AI provider (required)
+- `model?: string` - Model to use (defaults to the provider's chat model if omitted)
+- `mode?: 'blank' | 'remove' | 'mask'` - Replacement strategy (default: 'blank')
+  - `'blank'`: `fuck` → `[____]` (bracketed underscores matching word length)
+  - `'remove'`: word removed entirely
+  - `'mask'`: `fuck` → `????` (question marks matching word length)
+- `alwaysCensor?: string[]` - Words to always censor regardless of LLM output
+- `neverCensor?: string[]` - Words to never censor even if the LLM flags them (takes precedence over `alwaysCensor`)
+- `uploadToMux?: boolean` - Whether to upload censored track to Mux (default: true)
+- `deleteOriginalTrack?: boolean` - Whether to delete the original track after uploading the censored one (default: true)
+- `s3Endpoint?: string` - S3-compatible storage endpoint
+- `s3Region?: string` - S3 region (default: 'auto')
+- `s3Bucket?: string` - S3 bucket name
+- `storageAdapter?: StorageAdapter` - Optional adapter with `putObject` and `createPresignedGetUrl` methods
+
+**Returns:**
+
+```typescript
+interface CensorCaptionsResult {
+  assetId: string;
+  trackId: string;
+  mode: 'blank' | 'remove' | 'mask';
+  censoredWords: string[]; // Deduplicated list of words that were censored
+  replacementCount: number; // Total individual replacements made
+  originalVtt: string; // Original VTT content
+  censoredVtt: string; // Censored VTT content
+  uploadedTrackId?: string; // Mux track ID (if uploaded)
+  presignedUrl?: string; // S3 presigned URL (expires in 1 hour)
+  usage?: TokenUsage; // Token usage from the AI provider
+}
+```
+>>>>>>> 1247776 (One-ish-shot of detecting and censoring captions)
 
 ## `generateChapters(assetId, languageCode, options?)`
 

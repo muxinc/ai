@@ -1,0 +1,533 @@
+import { generateText, Output } from "ai";
+import { z } from "zod";
+
+import env from "@mux/ai/env";
+import {
+  getAssetDurationSecondsFromAsset,
+  getPlaybackIdForAsset,
+} from "@mux/ai/lib/mux-assets";
+import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
+import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
+import {
+  createPresignedGetUrlWithStorageAdapter,
+  putObjectWithStorageAdapter,
+} from "@mux/ai/lib/storage-adapter";
+import {
+  resolveMuxClient,
+  resolveMuxSigningContext,
+} from "@mux/ai/lib/workflow-credentials";
+import { buildTranscriptUrl, extractTextFromVTT, getReadyTextTracks } from "@mux/ai/primitives/transcripts";
+import type {
+  MuxAIOptions,
+  StorageAdapter,
+  TokenUsage,
+  WorkflowCredentialsInput,
+} from "@mux/ai/types";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Replacement strategy for censored words. */
+export type CensorMode = "blank" | "remove" | "mask";
+
+/** Configuration accepted by `detectAndCensorCaptionsProfanity`. */
+export interface CensorCaptionsOptions<P extends SupportedProvider = SupportedProvider> extends MuxAIOptions {
+  /** Provider responsible for profanity detection. */
+  provider: P;
+  /** Provider-specific chat model identifier. */
+  model?: ModelIdByProvider[P];
+  /** Replacement strategy. Defaults to "blank". */
+  mode?: CensorMode;
+  /** Delete the original track after creating the censored one. Defaults to true. */
+  deleteOriginalTrack?: boolean;
+  /**
+   * When true (default) the censored VTT is uploaded to the configured
+   * bucket and attached to the Mux asset.
+   */
+  uploadToMux?: boolean;
+  /** Words to always censor regardless of LLM output. */
+  alwaysCensor?: string[];
+  /** Words to never censor even if the LLM flags them. */
+  neverCensor?: string[];
+  /** Optional override for the S3-compatible endpoint used for uploads. */
+  s3Endpoint?: string;
+  /** S3 region (defaults to env.S3_REGION or 'auto'). */
+  s3Region?: string;
+  /** Bucket that will store censored VTT files. */
+  s3Bucket?: string;
+}
+
+/** Output returned from `detectAndCensorCaptionsProfanity`. */
+export interface CensorCaptionsResult {
+  assetId: string;
+  trackId: string;
+  mode: CensorMode;
+  /** Deduplicated list of words that were censored. */
+  censoredWords: string[];
+  /** Number of individual replacements made across the VTT. */
+  replacementCount: number;
+  originalVtt: string;
+  censoredVtt: string;
+  uploadedTrackId?: string;
+  presignedUrl?: string;
+  /** Token usage from the AI provider (for efficiency/cost analysis). */
+  usage?: TokenUsage;
+}
+
+/** Schema used when requesting profanity detection from a language model. */
+export const profanityDetectionSchema = z.object({
+  profanity: z.array(z.string()).describe(
+    "Unique profane words or short phrases exactly as they appear in the transcript text. " +
+    "Include each distinct form only once (e.g., if 'fuck' and 'fucking' both appear, list both).",
+  ),
+});
+
+/** Inferred shape returned by `profanityDetectionSchema`. */
+export type ProfanityDetectionPayload = z.infer<typeof profanityDetectionSchema>;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Prompts
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SYSTEM_PROMPT =
+  "You are a content moderation assistant. Your task is to identify profane, vulgar, or obscene " +
+  "words and phrases in subtitle text. Return ONLY the exact profane words or phrases as they appear " +
+  "in the text. Do not modify, censor, or paraphrase them. Do not include words that are merely " +
+  "informal or slang but not profane. Focus on words that would be bleeped on broadcast television.";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pure functions (exported for testing)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Builds a case-insensitive word-boundary regex from an array of profane words.
+ * Words are sorted longest-first so multi-word phrases match before individual words.
+ */
+export function buildReplacementRegex(words: string[]): RegExp | null {
+  if (words.length === 0)
+    return null;
+
+  // Sort by length descending so longer phrases match first
+  const sorted = [...words].sort((a, b) => b.length - a.length);
+
+  // Escape regex special characters in each word
+  const escaped = sorted.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+
+  const pattern = escaped.join("|");
+  return new RegExp(`\\b(?:${pattern})\\b`, "gi");
+}
+
+/**
+ * Returns a replacer function for the given censor mode.
+ */
+export function createReplacer(mode: CensorMode): (match: string) => string {
+  switch (mode) {
+    case "blank":
+      return match => `[${"_".repeat(match.length)}]`;
+    case "remove":
+      return () => "";
+    case "mask":
+      return match => "?".repeat(match.length);
+  }
+}
+
+/**
+ * Applies profanity censorship to raw VTT content via regex replacement.
+ * Operates directly on the raw string to preserve all original formatting.
+ */
+export function censorVttContent(
+  rawVtt: string,
+  profanity: string[],
+  mode: CensorMode,
+): { censoredVtt: string; replacementCount: number } {
+  if (profanity.length === 0) {
+    return { censoredVtt: rawVtt, replacementCount: 0 };
+  }
+
+  const regex = buildReplacementRegex(profanity);
+  if (!regex) {
+    return { censoredVtt: rawVtt, replacementCount: 0 };
+  }
+
+  const replacer = createReplacer(mode);
+  let replacementCount = 0;
+
+  const censoredVtt = rawVtt.replace(regex, (match) => {
+    replacementCount++;
+    return replacer(match);
+  });
+
+  return { censoredVtt, replacementCount };
+}
+
+/**
+ * Merges `alwaysCensor` into and filters `neverCensor` from an LLM-detected
+ * profanity list. Comparison is case-insensitive. `neverCensor` takes
+ * precedence over `alwaysCensor` when the same word appears in both.
+ */
+export function applyOverrideLists(
+  detected: string[],
+  alwaysCensor: string[],
+  neverCensor: string[],
+): string[] {
+  // Build a set of existing words (lowercased) for deduplication
+  const seen = new Set(detected.map(w => w.toLowerCase()));
+  const merged = [...detected];
+
+  for (const word of alwaysCensor) {
+    const lower = word.toLowerCase();
+    if (!seen.has(lower)) {
+      seen.add(lower);
+      merged.push(word);
+    }
+  }
+
+  // Filter out neverCensor words (case-insensitive)
+  const neverSet = new Set(neverCensor.map(w => w.toLowerCase()));
+  return merged.filter(w => !neverSet.has(w.toLowerCase()));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Step functions
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function fetchVttFromMux(vttUrl: string): Promise<string> {
+  "use step";
+
+  const vttResponse = await fetch(vttUrl);
+  if (!vttResponse.ok) {
+    throw new Error(`Failed to fetch VTT file: ${vttResponse.statusText}`);
+  }
+
+  return vttResponse.text();
+}
+
+async function identifyProfanityWithAI({
+  plainText,
+  provider,
+  modelId,
+  credentials,
+}: {
+  plainText: string;
+  provider: SupportedProvider;
+  modelId: string;
+  credentials?: WorkflowCredentialsInput;
+}): Promise<{ profanity: string[]; usage: TokenUsage }> {
+  "use step";
+
+  const model = await createLanguageModelFromConfig(provider, modelId, credentials);
+
+  const response = await generateText({
+    model,
+    output: Output.object({ schema: profanityDetectionSchema }),
+    messages: [
+      {
+        role: "system",
+        content: SYSTEM_PROMPT,
+      },
+      {
+        role: "user",
+        content:
+          "Identify all profane words and phrases in the following subtitle transcript. " +
+          "Return each unique profane word or phrase exactly as it appears in the text.\n\n" +
+          `<transcript>\n${plainText}\n</transcript>`,
+      },
+    ],
+  });
+
+  return {
+    profanity: response.output.profanity,
+    usage: {
+      inputTokens: response.usage.inputTokens,
+      outputTokens: response.usage.outputTokens,
+      totalTokens: response.usage.totalTokens,
+      reasoningTokens: response.usage.reasoningTokens,
+      cachedInputTokens: response.usage.cachedInputTokens,
+    },
+  };
+}
+
+async function uploadCensoredVttToS3({
+  censoredVtt,
+  assetId,
+  trackId,
+  s3Endpoint,
+  s3Region,
+  s3Bucket,
+  storageAdapter,
+}: {
+  censoredVtt: string;
+  assetId: string;
+  trackId: string;
+  s3Endpoint: string;
+  s3Region: string;
+  s3Bucket: string;
+  storageAdapter?: StorageAdapter;
+}): Promise<string> {
+  "use step";
+
+  const s3AccessKeyId = env.S3_ACCESS_KEY_ID;
+  const s3SecretAccessKey = env.S3_SECRET_ACCESS_KEY;
+
+  const vttKey = `censored/${assetId}/${trackId}-censored-${Date.now()}.vtt`;
+
+  await putObjectWithStorageAdapter({
+    accessKeyId: s3AccessKeyId,
+    secretAccessKey: s3SecretAccessKey,
+    endpoint: s3Endpoint,
+    region: s3Region,
+    bucket: s3Bucket,
+    key: vttKey,
+    body: censoredVtt,
+    contentType: "text/vtt",
+  }, storageAdapter);
+
+  return createPresignedGetUrlWithStorageAdapter({
+    accessKeyId: s3AccessKeyId,
+    secretAccessKey: s3SecretAccessKey,
+    endpoint: s3Endpoint,
+    region: s3Region,
+    bucket: s3Bucket,
+    key: vttKey,
+    expiresInSeconds: 3600,
+  }, storageAdapter);
+}
+
+async function createTextTrackOnMux(
+  assetId: string,
+  languageCode: string,
+  trackName: string,
+  presignedUrl: string,
+  credentials?: WorkflowCredentialsInput,
+): Promise<string> {
+  "use step";
+  const muxClient = await resolveMuxClient(credentials);
+  const mux = await muxClient.createClient();
+  const trackResponse = await mux.video.assets.createTrack(assetId, {
+    type: "text",
+    text_type: "subtitles",
+    language_code: languageCode,
+    name: trackName,
+    url: presignedUrl,
+  });
+
+  if (!trackResponse.id) {
+    throw new Error("Failed to create text track: no track ID returned from Mux");
+  }
+
+  return trackResponse.id;
+}
+
+async function deleteTrackOnMux(
+  assetId: string,
+  trackId: string,
+  credentials?: WorkflowCredentialsInput,
+): Promise<void> {
+  "use step";
+  const muxClient = await resolveMuxClient(credentials);
+  const mux = await muxClient.createClient();
+  await mux.video.assets.deleteTrack(assetId, trackId);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main workflow
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function censorCaptions<P extends SupportedProvider = SupportedProvider>(
+  assetId: string,
+  trackId: string,
+  options: CensorCaptionsOptions<P>,
+): Promise<CensorCaptionsResult> {
+  "use workflow";
+
+  const {
+    provider = "openai",
+    model,
+    mode: modeOption,
+    deleteOriginalTrack: deleteOriginalOption,
+    uploadToMux: uploadToMuxOption,
+    alwaysCensor: alwaysCensorOption,
+    neverCensor: neverCensorOption,
+    s3Endpoint: providedS3Endpoint,
+    s3Region: providedS3Region,
+    s3Bucket: providedS3Bucket,
+    storageAdapter,
+    credentials: providedCredentials,
+  } = options;
+
+  const mode = modeOption ?? "blank";
+  const deleteOriginal = deleteOriginalOption !== false;
+  const uploadToMux = uploadToMuxOption !== false;
+  const alwaysCensor = alwaysCensorOption ?? [];
+  const neverCensor = neverCensorOption ?? [];
+  const credentials = providedCredentials;
+  const effectiveStorageAdapter = storageAdapter;
+
+  // S3 configuration
+  const s3Endpoint = providedS3Endpoint ?? env.S3_ENDPOINT;
+  const s3Region = providedS3Region ?? env.S3_REGION ?? "auto";
+  const s3Bucket = providedS3Bucket ?? env.S3_BUCKET;
+  const s3AccessKeyId = env.S3_ACCESS_KEY_ID;
+  const s3SecretAccessKey = env.S3_SECRET_ACCESS_KEY;
+
+  const modelConfig = resolveLanguageModelConfig({
+    ...options,
+    model,
+    provider: provider as SupportedProvider,
+  });
+
+  if (uploadToMux && (!s3Endpoint || !s3Bucket || (!effectiveStorageAdapter && (!s3AccessKeyId || !s3SecretAccessKey)))) {
+    throw new Error(
+      "Storage configuration is required for uploading to Mux. Provide s3Endpoint and s3Bucket. " +
+      "If no storageAdapter is supplied, also provide s3AccessKeyId and s3SecretAccessKey in options " +
+      "or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.",
+    );
+  }
+
+  // Fetch asset data and playback ID from Mux
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
+  const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
+
+  // Resolve signing context for signed playback IDs
+  const signingContext = await resolveMuxSigningContext(credentials);
+  if (policy === "signed" && !signingContext) {
+    throw new Error(
+      "Signed playback ID requires signing credentials. " +
+      "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
+    );
+  }
+
+  // Validate track exists
+  const readyTextTracks = getReadyTextTracks(assetData);
+  const sourceTrack = readyTextTracks.find(t => t.id === trackId);
+  if (!sourceTrack) {
+    const availableTrackIds = readyTextTracks
+      .map(t => t.id)
+      .filter(Boolean)
+      .join(", ");
+    throw new Error(
+      `Track '${trackId}' not found or not ready on asset '${assetId}'. ` +
+      `Available track IDs: ${availableTrackIds || "none"}`,
+    );
+  }
+
+  // Fetch the VTT file content
+  const vttUrl = await buildTranscriptUrl(playbackId, trackId, policy === "signed", credentials);
+
+  let vttContent: string;
+  try {
+    vttContent = await fetchVttFromMux(vttUrl);
+  } catch (error) {
+    throw new Error(`Failed to fetch VTT content: ${error instanceof Error ? error.message : "Unknown error"}`);
+  }
+
+  // Extract plain text for LLM input
+  const plainText = extractTextFromVTT(vttContent);
+  if (!plainText.trim()) {
+    throw new Error("Track transcript is empty; nothing to censor.");
+  }
+
+  // Identify profanity via LLM
+  let detectedProfanity: string[];
+  let usage: TokenUsage | undefined;
+
+  try {
+    const result = await identifyProfanityWithAI({
+      plainText,
+      provider: modelConfig.provider,
+      modelId: modelConfig.modelId,
+      credentials,
+    });
+    detectedProfanity = result.profanity;
+    usage = result.usage;
+  } catch (error) {
+    throw new Error(`Failed to detect profanity with ${modelConfig.provider}: ${error instanceof Error ? error.message : "Unknown error"}`);
+  }
+
+  // Apply override lists
+  const finalProfanity = applyOverrideLists(detectedProfanity, alwaysCensor, neverCensor);
+
+  // Apply censorship
+  const { censoredVtt, replacementCount } = censorVttContent(vttContent, finalProfanity, mode);
+
+  const usageWithMetadata = usage ?
+      {
+        ...usage,
+        metadata: {
+          assetDurationSeconds,
+        },
+      } :
+    undefined;
+
+  // If not uploading, return early with the censored VTT
+  if (!uploadToMux) {
+    return {
+      assetId,
+      trackId,
+      mode,
+      censoredWords: finalProfanity,
+      replacementCount,
+      originalVtt: vttContent,
+      censoredVtt,
+      usage: usageWithMetadata,
+    };
+  }
+
+  // Upload censored VTT to S3-compatible storage
+  let presignedUrl: string;
+
+  try {
+    presignedUrl = await uploadCensoredVttToS3({
+      censoredVtt,
+      assetId,
+      trackId,
+      s3Endpoint: s3Endpoint!,
+      s3Region,
+      s3Bucket: s3Bucket!,
+      storageAdapter: effectiveStorageAdapter,
+    });
+  } catch (error) {
+    throw new Error(`Failed to upload VTT to S3: ${error instanceof Error ? error.message : "Unknown error"}`);
+  }
+
+  // Add censored track to Mux asset
+  let uploadedTrackId: string | undefined;
+
+  try {
+    const languageCode = sourceTrack.language_code || "en";
+    const trackName = `${sourceTrack.name || "Subtitles"} (censored)`;
+
+    uploadedTrackId = await createTextTrackOnMux(
+      assetId,
+      languageCode,
+      trackName,
+      presignedUrl,
+      credentials,
+    );
+  } catch (error) {
+    console.warn(`Failed to add track to Mux asset: ${error instanceof Error ? error.message : "Unknown error"}`);
+  }
+
+  // Delete original track if configured
+  if (deleteOriginal) {
+    try {
+      await deleteTrackOnMux(assetId, trackId, credentials);
+    } catch (error) {
+      console.warn(`Failed to delete original track: ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
+  }
+
+  return {
+    assetId,
+    trackId,
+    mode,
+    censoredWords: finalProfanity,
+    replacementCount,
+    originalVtt: vttContent,
+    censoredVtt,
+    uploadedTrackId,
+    presignedUrl,
+    usage: usageWithMetadata,
+  };
+}

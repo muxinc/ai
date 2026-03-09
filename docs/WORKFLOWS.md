@@ -399,6 +399,77 @@ Mux requires a publicly accessible URL to ingest subtitle tracks. The translatio
 
 All ISO 639-1 language codes are automatically supported using `Intl.DisplayNames`. Examples: Spanish (es), French (fr), German (de), Italian (it), Portuguese (pt), Polish (pl), Japanese (ja), Korean (ko), Chinese (zh), Russian (ru), Arabic (ar), Hindi (hi), Thai (th), Swahili (sw), and many more.
 
+## Caption Censorship
+
+Detect and censor profanity in existing captions, replacing offensive words and optionally uploading the cleaned track to Mux.
+
+```typescript
+import { censorCaptions } from "@mux/ai/workflows";
+
+const result = await censorCaptions("your-mux-asset-id", "track-id", {
+  provider: "anthropic",
+  mode: "blank",
+});
+
+console.log(result.censoredWords); // Words the LLM identified as profane
+console.log(result.replacementCount); // Total replacements made
+console.log(result.censoredVtt); // Censored VTT content
+console.log(result.uploadedTrackId); // New Mux track ID
+```
+
+### Censor Modes
+
+Choose how profanity is replaced:
+
+| Mode | Example | Description |
+| --- | --- | --- |
+| `"blank"` (default) | `fuck` → `[____]` | Bracketed underscores matching word length |
+| `"remove"` | `fuck` → *(removed)* | Word removed entirely |
+| `"mask"` | `fuck` → `????` | Question marks matching word length |
+
+### Override Lists
+
+Fine-tune what gets censored with `alwaysCensor` and `neverCensor`:
+
+```typescript
+const result = await censorCaptions(assetId, trackId, {
+  provider: "openai",
+  mode: "mask",
+  alwaysCensor: ["brandname", "competitor"], // Always censor these, even if LLM doesn't flag them
+  neverCensor: ["damn", "hell"], // Never censor these, even if LLM flags them
+});
+```
+
+`neverCensor` takes precedence when a word appears in both lists.
+
+### How It Works
+
+1. Downloads the VTT caption track from Mux
+2. Extracts plain text and sends it to the LLM for profanity detection
+3. The LLM returns a list of profane words (not a rewritten VTT) — this guarantees format preservation
+4. Merges `alwaysCensor` and filters `neverCensor` from the detected list
+5. Applies word-boundary regex replacement on the raw VTT string
+6. Uploads the censored VTT to S3 and creates a new track on Mux
+7. Deletes the original track (configurable)
+
+### S3-Compatible Storage Requirements
+
+Caption censorship requires the same S3-compatible storage as [caption translation](#caption-translation) when uploading to Mux. See that section for supported providers and configuration.
+
+### Configuration
+
+```typescript
+const result = await censorCaptions(assetId, trackId, {
+  provider: "anthropic", // "openai", "anthropic", or "google"
+  model: "claude-sonnet-4-5", // Override default model
+  mode: "blank", // "blank", "remove", or "mask" (default: "blank")
+  uploadToMux: true, // Upload censored track to Mux (default: true)
+  deleteOriginalTrack: true, // Delete original after upload (default: true)
+  alwaysCensor: [], // Words to always censor
+  neverCensor: [], // Words to never censor
+});
+```
+
 ## Audio Dubbing
 
 Create AI-dubbed audio tracks using ElevenLabs voice cloning (video or audio-only assets).

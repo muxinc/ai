@@ -46,6 +46,9 @@ npm run example:moderation:compare <asset-id>
 # Caption Translation
 npm run example:translate-captions <asset-id> [from-lang] [to-lang] [provider]
 
+# Caption Censorship
+npm run example:censor-captions <asset-id> <track-id> [--provider provider] [--mode mode]
+
 # Audio Translation (Dubbing)
 npm run example:translate-audio <asset-id> -- --to <to-lang> [--from <from-lang>]
 
@@ -77,6 +80,9 @@ npm run example:moderation abc123 hive
 
 # Translate captions from English to Spanish with Anthropic (default)
 npm run example:translate-captions abc123 en es anthropic
+
+# Censor profanity in captions
+npm run example:censor-captions abc123 trackid123 -- --provider anthropic --mode blank
 
 # Summarize a video with Claude Sonnet 4.5 (default)
 npm run example:summarization abc123 anthropic
@@ -208,6 +214,40 @@ npm run aws-sdk-adapter <your-asset-id> -- --s3-bucket <bucket-name>
 7. Track name: "{Language} (auto-translated)"
 
 > **💡 Tip:** After translation completes, verify your new subtitle tracks at `https://player.mux.com/{PLAYBACK_ID}`
+
+## Caption Censorship Examples
+
+- **Basic Usage**: Detect and censor profanity in captions with configurable replacement modes
+
+```bash
+cd examples/censor-captions
+npm install
+
+# Censor with blank mode (default) - "fuck" => "[____]"
+npm run basic <your-asset-id> <track-id>
+
+# Use mask mode - "fuck" => "????"
+npm run basic <your-asset-id> <track-id> -- --mode mask
+
+# Use a specific provider
+npm run basic <your-asset-id> <track-id> -- --provider openai
+
+# Always censor specific words, never censor others
+npm run basic <your-asset-id> <track-id> -- --always-censor "brandname,competitor" --never-censor "damn,hell"
+
+# Skip uploading to Mux (just get the censored VTT)
+npm run basic <your-asset-id> <track-id> -- --no-upload
+```
+
+**Censorship Workflow:**
+
+1. Fetches existing caption track from Mux asset
+2. Sends plain text to AI provider for profanity detection
+3. Applies `alwaysCensor`/`neverCensor` overrides
+4. Replaces profanity using the selected mode
+5. Uploads censored VTT to S3-compatible storage
+6. Adds new subtitle track to Mux asset (name: "{Original} (censored)")
+7. Deletes the original track (unless `--no-delete` is passed)
 
 ## Audio Dubbing Examples
 
