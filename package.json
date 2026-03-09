@@ -93,6 +93,7 @@
     "example:moderation": "npx tsx examples/moderation/basic-example.ts",
     "example:moderation:compare": "npx tsx examples/moderation/provider-comparison.ts",
     "example:embeddings": "npx tsx examples/embeddings/basic-example.ts",
+    "example:highlight-clips": "npx tsx examples/highlight-clips/basic-example.ts",
     "example:translate-captions": "npx tsx examples/translate-captions/basic-example.ts",
     "example:translate-captions:aws-sdk": "npx tsx examples/translate-captions/aws-sdk-storage-adapter-example.ts",
     "example:translate-audio": "npx tsx examples/translate-audio/basic-example.ts",
