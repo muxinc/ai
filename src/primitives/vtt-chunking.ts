@@ -1,3 +1,4 @@
+import { estimateTokenCount } from "@mux/ai/primitives/text-chunking";
 import type { VTTCue } from "@mux/ai/primitives/transcripts";
 
 /**
@@ -6,6 +7,10 @@ import type { VTTCue } from "@mux/ai/primitives/transcripts";
  * Reach for this module when you need to split subtitle files while preserving
  * valid VTT structure, cue ordering, and the ability to stitch translated or
  * transformed segments back into one seamless output document.
+ *
+ * It supports both deterministic cue-budget chunking for model-safe request
+ * sizing and duration-aware chunking when you want boundaries to roughly track
+ * playback time.
  *
  * This is the right choice for workflows like caption translation, where each
  * chunk still needs to be a real VTT payload and the final consumer should
@@ -21,6 +26,11 @@ export interface VTTDurationChunkingOptions {
   minChunkDurationSeconds?: number;
   boundaryLookaheadCues?: number;
   boundaryPauseSeconds?: number;
+}
+
+export interface VTTCueBudgetChunkingOptions {
+  maxCuesPerChunk: number;
+  maxTextTokensPerChunk?: number;
 }
 
 export interface VTTDurationChunk {
@@ -113,12 +123,104 @@ export function buildVttFromCueBlocks(cueBlocks: string[], preamble: string = "W
   return `${preamble.trim()}\n\n${cueBlocks.map(block => block.trim()).join("\n\n")}\n`;
 }
 
+export function replaceCueText(cueBlock: string, translatedText: string): string {
+  const lines = normalizeLineEndings(cueBlock)
+    .split("\n")
+    .map(line => line.trim())
+    .filter(Boolean);
+  const timingLineIndex = lines.findIndex(line => line.includes("-->"));
+
+  if (timingLineIndex === -1) {
+    throw new Error("Cue block is missing a timestamp line");
+  }
+
+  const headerLines = lines.slice(0, timingLineIndex + 1);
+  const translatedLines = normalizeLineEndings(translatedText)
+    .split("\n")
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  return [...headerLines, ...translatedLines].join("\n");
+}
+
+export function buildVttFromTranslatedCueBlocks(
+  cueBlocks: string[],
+  translatedTexts: string[],
+  preamble: string = "WEBVTT",
+): string {
+  if (cueBlocks.length !== translatedTexts.length) {
+    throw new Error(`Expected ${cueBlocks.length} translated cues, received ${translatedTexts.length}`);
+  }
+
+  return buildVttFromCueBlocks(
+    cueBlocks.map((cueBlock, index) => replaceCueText(cueBlock, translatedTexts[index])),
+    preamble,
+  );
+}
+
 export function concatenateVttSegments(
   segments: string[],
   preamble: string = "WEBVTT",
 ): string {
   const cueBlocks = segments.flatMap(segment => splitVttPreambleAndCueBlocks(segment).cueBlocks);
   return buildVttFromCueBlocks(cueBlocks, preamble);
+}
+
+export function chunkVTTCuesByBudget(
+  cues: VTTCue[],
+  options: VTTCueBudgetChunkingOptions,
+): VTTDurationChunk[] {
+  if (cues.length === 0) {
+    return [];
+  }
+
+  const maxCuesPerChunk = Math.max(1, options.maxCuesPerChunk);
+  let maxTextTokensPerChunk = Number.POSITIVE_INFINITY;
+  if (options.maxTextTokensPerChunk) {
+    maxTextTokensPerChunk = Math.max(1, options.maxTextTokensPerChunk);
+  }
+
+  const chunks: VTTDurationChunk[] = [];
+  let chunkIndex = 0;
+  let cueStartIndex = 0;
+  let currentTokenCount = 0;
+
+  for (let cueIndex = 0; cueIndex < cues.length; cueIndex++) {
+    const cue = cues[cueIndex];
+    const cueTokenCount = estimateTokenCount(cue.text);
+    const currentCueCount = cueIndex - cueStartIndex;
+    const wouldExceedCueCount = currentCueCount >= maxCuesPerChunk;
+    const wouldExceedTokenCount =
+      currentCueCount > 0 &&
+      (currentTokenCount + cueTokenCount) > maxTextTokensPerChunk;
+
+    if (wouldExceedCueCount || wouldExceedTokenCount) {
+      chunks.push({
+        id: `chunk-${chunkIndex}`,
+        cueStartIndex,
+        cueEndIndex: cueIndex - 1,
+        cueCount: cueIndex - cueStartIndex,
+        startTime: cues[cueStartIndex].startTime,
+        endTime: cues[cueIndex - 1].endTime,
+      });
+      cueStartIndex = cueIndex;
+      currentTokenCount = 0;
+      chunkIndex++;
+    }
+
+    currentTokenCount += cueTokenCount;
+  }
+
+  chunks.push({
+    id: `chunk-${chunkIndex}`,
+    cueStartIndex,
+    cueEndIndex: cues.length - 1,
+    cueCount: cues.length - cueStartIndex,
+    startTime: cues[cueStartIndex].startTime,
+    endTime: cues[cues.length - 1].endTime,
+  });
+
+  return chunks;
 }
 
 export function chunkVTTCuesByDuration(

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   extractTextFromVTT,
+  parseVTTCues,
   secondsToTimestamp,
   vttTimestampToSeconds,
 } from "../../src/primitives/transcripts";
@@ -210,5 +211,29 @@ describe("extractTextFromVTT", () => {
     expect(result).toContain("[0s] Hey, what's up everybody, I'm Victor Boutté, a software engineer over at Mux.");
     expect(result).toContain("[504s] and it gives me a great excuse to show off some of the fun stuff that I'm working on.");
     expect(result.includes("\n")).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// parseVTTCues
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("parseVTTCues", () => {
+  it("parses cues even when a blank line between cues is missing", () => {
+    const vttContent = `WEBVTT
+
+1
+00:00:00.000 --> 00:00:02.000
+Hello there.
+2
+00:00:02.000 --> 00:00:04.000
+General Kenobi.
+`;
+
+    const cues = parseVTTCues(vttContent);
+
+    expect(cues).toHaveLength(2);
+    expect(cues[0].text).toBe("Hello there.");
+    expect(cues[1].text).toBe("General Kenobi.");
   });
 });

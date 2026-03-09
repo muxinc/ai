@@ -22,7 +22,8 @@ import {
 } from "@mux/ai/lib/workflow-credentials";
 import { buildTranscriptUrl, getReadyTextTracks, parseVTTCues } from "@mux/ai/primitives/transcripts";
 import {
-  buildVttFromCueBlocks,
+  buildVttFromTranslatedCueBlocks,
+  chunkVTTCuesByBudget,
   chunkVTTCuesByDuration,
   concatenateVttSegments,
   splitVttPreambleAndCueBlocks,
@@ -83,29 +84,42 @@ export interface TranslationOptions<P extends SupportedProvider = SupportedProvi
   /** Optional storage adapter override for upload + presign operations. */
   storageAdapter?: StorageAdapter;
   /**
-   * Optional VTT-aware chunking for long caption tracks.
-   * Defaults to splitting assets longer than 30 minutes into ~30 minute chunks.
+   * Optional VTT-aware chunking for caption translation.
+   * Defaults to deterministic cue-budget chunking once a transcript exceeds
+   * the configured cue or token limits.
    */
   chunking?: TranslationChunkingOptions;
 }
 
+export type TranslationChunkingStrategy = "cue-budget" | "duration";
+
 export interface TranslationChunkingOptions {
   /** Set to false to force a single translation request. Defaults to true. */
   enabled?: boolean;
-  /** Start chunking only when the asset duration meets or exceeds this threshold. Defaults to 30 minutes. */
+  /**
+   * Chunking strategy to use.
+   * `cue-budget` is deterministic and recommended for reliability.
+   * `duration` keeps the older time-window-based planning and then enforces the same cue budgets.
+   */
+  strategy?: TranslationChunkingStrategy;
+  /** Start chunking only when the asset duration meets or exceeds this threshold. Used only for `duration`. Defaults to 30 minutes. */
   minimumAssetDurationSeconds?: number;
-  /** Preferred duration for each chunk. Defaults to 30 minutes. */
+  /** Preferred duration for each chunk. Used only for `duration`. Defaults to 30 minutes. */
   targetChunkDurationSeconds?: number;
-  /** Hard cap for a single chunk before forcing a split. Defaults to 35 minutes. */
+  /** Hard cap for a single chunk before forcing a split. Used only for `duration`. Defaults to 35 minutes. */
   maxChunkDurationSeconds?: number;
-  /** Soft lower bound used while searching for a natural boundary. Defaults to 20 minutes. */
+  /** Soft lower bound used while searching for a natural boundary. Used only for `duration`. Defaults to 20 minutes. */
   minChunkDurationSeconds?: number;
-  /** How many cues beyond the target duration to inspect before splitting. Defaults to 12. */
+  /** How many cues beyond the target duration to inspect before splitting. Used only for `duration`. Defaults to 12. */
   boundaryLookaheadCues?: number;
-  /** Prefer chunk boundaries that have at least this much silence between cues. Defaults to 1.25 seconds. */
+  /** Prefer chunk boundaries that have at least this much silence between cues. Used only for `duration`. Defaults to 1.25 seconds. */
   boundaryPauseSeconds?: number;
   /** Max number of concurrent translation requests when chunking. Defaults to 4. */
   maxConcurrentTranslations?: number;
+  /** Hard cap for cues included in a single AI translation chunk. Defaults to 80. */
+  maxCuesPerChunk?: number;
+  /** Approximate cap for cue text tokens included in a single AI translation chunk. Defaults to 2000. */
+  maxCueTextTokensPerChunk?: number;
 }
 
 /** Schema used when requesting caption translation from a language model. */
@@ -127,8 +141,18 @@ const SYSTEM_PROMPT = dedent`
   Return JSON with a single key "translation" containing the translated VTT content.
 `;
 
+const CUE_TRANSLATION_SYSTEM_PROMPT = dedent`
+  You are a subtitle translation expert.
+  You will receive a sequence of subtitle cues extracted from a VTT file.
+  Translate the cues to the requested target language while preserving their original order.
+  Treat the cue list as continuous context so the translation reads naturally across adjacent lines.
+  Return JSON with a single key "translations" containing exactly one translated string for each input cue.
+  Do not merge, split, omit, reorder, or add cues.
+`;
+
 const DEFAULT_TRANSLATION_CHUNKING: Required<TranslationChunkingOptions> = {
   enabled: true,
+  strategy: "cue-budget",
   minimumAssetDurationSeconds: 30 * 60,
   targetChunkDurationSeconds: 30 * 60,
   maxChunkDurationSeconds: 35 * 60,
@@ -136,6 +160,8 @@ const DEFAULT_TRANSLATION_CHUNKING: Required<TranslationChunkingOptions> = {
   boundaryLookaheadCues: 12,
   boundaryPauseSeconds: 1.25,
   maxConcurrentTranslations: 4,
+  maxCuesPerChunk: 80,
+  maxCueTextTokensPerChunk: 2000,
 };
 
 interface TranslationChunkRequest {
@@ -143,7 +169,8 @@ interface TranslationChunkRequest {
   cueCount: number;
   startTime: number;
   endTime: number;
-  vttContent: string;
+  cues: Array<{ startTime: number; endTime: number; text: string }>;
+  cueBlocks: string[];
 }
 
 function resolveTranslationChunkingOptions(
@@ -167,6 +194,7 @@ function resolveTranslationChunkingOptions(
 
   return {
     enabled: options?.enabled ?? DEFAULT_TRANSLATION_CHUNKING.enabled,
+    strategy: options?.strategy ?? DEFAULT_TRANSLATION_CHUNKING.strategy,
     minimumAssetDurationSeconds: Math.max(
       1,
       options?.minimumAssetDurationSeconds ?? DEFAULT_TRANSLATION_CHUNKING.minimumAssetDurationSeconds,
@@ -183,6 +211,14 @@ function resolveTranslationChunkingOptions(
       1,
       options?.maxConcurrentTranslations ?? DEFAULT_TRANSLATION_CHUNKING.maxConcurrentTranslations,
     ),
+    maxCuesPerChunk: Math.max(
+      1,
+      options?.maxCuesPerChunk ?? DEFAULT_TRANSLATION_CHUNKING.maxCuesPerChunk,
+    ),
+    maxCueTextTokensPerChunk: Math.max(
+      1,
+      options?.maxCueTextTokensPerChunk ?? DEFAULT_TRANSLATION_CHUNKING.maxCueTextTokensPerChunk,
+    ),
   };
 }
 
@@ -197,6 +233,21 @@ function aggregateTokenUsage(usages: TokenUsage[]): TokenUsage {
     }),
     {},
   );
+}
+
+function createTranslationChunkRequest(
+  id: string,
+  cues: Array<{ startTime: number; endTime: number; text: string }>,
+  cueBlocks: string[],
+): TranslationChunkRequest {
+  return {
+    id,
+    cueCount: cues.length,
+    startTime: cues[0].startTime,
+    endTime: cues[cues.length - 1].endTime,
+    cues,
+    cueBlocks,
+  };
 }
 
 function buildTranslationChunkRequests(
@@ -223,29 +274,63 @@ function buildTranslationChunkRequests(
     return null;
   }
 
-  const durationChunks = chunkVTTCuesByDuration(cues, {
-    targetChunkDurationSeconds: resolvedChunking.targetChunkDurationSeconds,
-    maxChunkDurationSeconds: resolvedChunking.maxChunkDurationSeconds,
-    minChunkDurationSeconds: resolvedChunking.minChunkDurationSeconds,
-    boundaryLookaheadCues: resolvedChunking.boundaryLookaheadCues,
-    boundaryPauseSeconds: resolvedChunking.boundaryPauseSeconds,
-  });
+  const budgetOptions = {
+    maxCuesPerChunk: resolvedChunking.maxCuesPerChunk,
+    maxTextTokensPerChunk: resolvedChunking.maxCueTextTokensPerChunk,
+  };
 
-  if (durationChunks.length <= 1) {
+  const translationChunks = (() => {
+    switch (resolvedChunking.strategy) {
+      case "cue-budget": {
+        return chunkVTTCuesByBudget(cues, budgetOptions).map(chunk =>
+          createTranslationChunkRequest(
+            chunk.id,
+            cues.slice(chunk.cueStartIndex, chunk.cueEndIndex + 1),
+            cueBlocks.slice(chunk.cueStartIndex, chunk.cueEndIndex + 1),
+          ),
+        );
+      }
+      case "duration": {
+        if (
+          typeof assetDurationSeconds !== "number" ||
+          assetDurationSeconds < resolvedChunking.minimumAssetDurationSeconds
+        ) {
+          return [];
+        }
+
+        return chunkVTTCuesByDuration(cues, {
+          targetChunkDurationSeconds: resolvedChunking.targetChunkDurationSeconds,
+          maxChunkDurationSeconds: resolvedChunking.maxChunkDurationSeconds,
+          minChunkDurationSeconds: resolvedChunking.minChunkDurationSeconds,
+          boundaryLookaheadCues: resolvedChunking.boundaryLookaheadCues,
+          boundaryPauseSeconds: resolvedChunking.boundaryPauseSeconds,
+        }).flatMap((chunk) => {
+          const chunkCues = cues.slice(chunk.cueStartIndex, chunk.cueEndIndex + 1);
+          const chunkCueBlocks = cueBlocks.slice(chunk.cueStartIndex, chunk.cueEndIndex + 1);
+
+          return chunkVTTCuesByBudget(chunkCues, budgetOptions).map((budgetChunk, budgetIndex) =>
+            createTranslationChunkRequest(
+              `${chunk.id}-part-${budgetIndex}`,
+              chunkCues.slice(budgetChunk.cueStartIndex, budgetChunk.cueEndIndex + 1),
+              chunkCueBlocks.slice(budgetChunk.cueStartIndex, budgetChunk.cueEndIndex + 1),
+            ),
+          );
+        });
+      }
+      default: {
+        const exhaustiveCheck: never = resolvedChunking.strategy;
+        throw new Error(`Unsupported translation chunking strategy: ${exhaustiveCheck}`);
+      }
+    }
+  })();
+
+  if (translationChunks.length <= 1) {
     return null;
   }
 
   return {
     preamble,
-    chunks: durationChunks.map(chunk => ({
-      id: chunk.id,
-      cueCount: chunk.cueCount,
-      startTime: chunk.startTime,
-      endTime: chunk.endTime,
-      vttContent: buildVttFromCueBlocks(
-        cueBlocks.slice(chunk.cueStartIndex, chunk.cueEndIndex + 1),
-      ),
-    })),
+    chunks: translationChunks,
   };
 }
 
@@ -317,6 +402,169 @@ async function translateVttWithAI({
   };
 }
 
+async function translateCueChunkWithAI({
+  cues,
+  fromLanguageCode,
+  toLanguageCode,
+  provider,
+  modelId,
+  credentials,
+  chunkIndex,
+  totalChunks,
+}: {
+  cues: Array<{ startTime: number; endTime: number; text: string }>;
+  fromLanguageCode: string;
+  toLanguageCode: string;
+  provider: SupportedProvider;
+  modelId: string;
+  credentials?: WorkflowCredentialsInput;
+  chunkIndex?: number;
+  totalChunks?: number;
+}): Promise<{ translations: string[]; usage: TokenUsage }> {
+  "use step";
+
+  const model = await createLanguageModelFromConfig(provider, modelId, credentials);
+  const schema = z.object({
+    translations: z.array(z.string().min(1)).length(cues.length),
+  });
+  const segmentContext = typeof chunkIndex === "number" && typeof totalChunks === "number" ?
+    `This cue list is segment ${chunkIndex + 1} of ${totalChunks} from a longer subtitle track.\n\n` :
+    "";
+  const cuePayload = cues.map((cue, index) => ({
+    index,
+    startTime: cue.startTime,
+    endTime: cue.endTime,
+    text: cue.text,
+  }));
+
+  const response = await generateText({
+    model,
+    output: Output.object({ schema }),
+    messages: [
+      {
+        role: "system",
+        content: CUE_TRANSLATION_SYSTEM_PROMPT,
+      },
+      {
+        role: "user",
+        content: `${segmentContext}Translate from ${fromLanguageCode} to ${toLanguageCode}.\nReturn exactly ${cues.length} translated cues in the same order as the input.\n\n${JSON.stringify(cuePayload, null, 2)}`,
+      },
+    ],
+  });
+
+  return {
+    translations: response.output.translations,
+    usage: {
+      inputTokens: response.usage.inputTokens,
+      outputTokens: response.usage.outputTokens,
+      totalTokens: response.usage.totalTokens,
+      reasoningTokens: response.usage.reasoningTokens,
+      cachedInputTokens: response.usage.cachedInputTokens,
+    },
+  };
+}
+
+function splitTranslationChunkAtMidpoint(chunk: TranslationChunkRequest): [TranslationChunkRequest, TranslationChunkRequest] {
+  const midpoint = Math.floor(chunk.cueCount / 2);
+  if (midpoint <= 0 || midpoint >= chunk.cueCount) {
+    throw new Error(`Cannot split chunk ${chunk.id} with cueCount=${chunk.cueCount}`);
+  }
+
+  return [
+    createTranslationChunkRequest(
+      `${chunk.id}-a`,
+      chunk.cues.slice(0, midpoint),
+      chunk.cueBlocks.slice(0, midpoint),
+    ),
+    createTranslationChunkRequest(
+      `${chunk.id}-b`,
+      chunk.cues.slice(midpoint),
+      chunk.cueBlocks.slice(midpoint),
+    ),
+  ];
+}
+
+async function translateChunkWithFallback({
+  chunk,
+  fromLanguageCode,
+  toLanguageCode,
+  provider,
+  modelId,
+  credentials,
+  chunkIndex,
+  totalChunks,
+}: {
+  chunk: TranslationChunkRequest;
+  fromLanguageCode: string;
+  toLanguageCode: string;
+  provider: SupportedProvider;
+  modelId: string;
+  credentials?: WorkflowCredentialsInput;
+  chunkIndex: number;
+  totalChunks: number;
+}): Promise<{ translatedVtt: string; usage: TokenUsage }> {
+  "use step";
+
+  try {
+    const result = await translateCueChunkWithAI({
+      cues: chunk.cues,
+      fromLanguageCode,
+      toLanguageCode,
+      provider,
+      modelId,
+      credentials,
+      chunkIndex,
+      totalChunks,
+    });
+
+    if (result.translations.length !== chunk.cueCount) {
+      throw new Error(
+        `Chunk ${chunk.id} returned ${result.translations.length} cues, expected ${chunk.cueCount} for ${Math.round(chunk.startTime)}s-${Math.round(chunk.endTime)}s`,
+      );
+    }
+
+    return {
+      translatedVtt: buildVttFromTranslatedCueBlocks(chunk.cueBlocks, result.translations),
+      usage: result.usage,
+    };
+  } catch (error) {
+    if (chunk.cueCount <= 1) {
+      throw new Error(
+        `Chunk ${chunk.id} failed for ${Math.round(chunk.startTime)}s-${Math.round(chunk.endTime)}s: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
+    }
+
+    const [leftChunk, rightChunk] = splitTranslationChunkAtMidpoint(chunk);
+    const [leftResult, rightResult] = await Promise.all([
+      translateChunkWithFallback({
+        chunk: leftChunk,
+        fromLanguageCode,
+        toLanguageCode,
+        provider,
+        modelId,
+        credentials,
+        chunkIndex,
+        totalChunks,
+      }),
+      translateChunkWithFallback({
+        chunk: rightChunk,
+        fromLanguageCode,
+        toLanguageCode,
+        provider,
+        modelId,
+        credentials,
+        chunkIndex,
+        totalChunks,
+      }),
+    ]);
+
+    return {
+      translatedVtt: concatenateVttSegments([leftResult.translatedVtt, rightResult.translatedVtt]),
+      usage: aggregateTokenUsage([leftResult.usage, rightResult.usage]),
+    };
+  }
+}
+
 async function translateCaptionTrack({
   vttContent,
   assetDurationSeconds,
@@ -358,8 +606,8 @@ async function translateCaptionTrack({
     const batch = chunkPlan.chunks.slice(index, index + resolvedChunking.maxConcurrentTranslations);
     const batchResults = await Promise.all(
       batch.map((chunk, batchIndex) =>
-        translateVttWithAI({
-          vttContent: chunk.vttContent,
+        translateChunkWithFallback({
+          chunk,
           fromLanguageCode,
           toLanguageCode,
           provider,
@@ -367,15 +615,6 @@ async function translateCaptionTrack({
           credentials,
           chunkIndex: index + batchIndex,
           totalChunks: chunkPlan.chunks.length,
-        }).then((result) => {
-          const translatedCueCount = splitVttPreambleAndCueBlocks(result.translatedVtt).cueBlocks.length;
-          if (translatedCueCount !== chunk.cueCount) {
-            throw new Error(
-              `Chunk ${chunk.id} returned ${translatedCueCount} cues, expected ${chunk.cueCount} for ${Math.round(chunk.startTime)}s-${Math.round(chunk.endTime)}s`,
-            );
-          }
-
-          return result;
         }),
       ),
     );

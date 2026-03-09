@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import type { VTTCue } from "../../src/primitives/transcripts";
 import {
   buildVttFromCueBlocks,
+  buildVttFromTranslatedCueBlocks,
+  chunkVTTCuesByBudget,
   chunkVTTCuesByDuration,
   concatenateVttSegments,
   splitVttPreambleAndCueBlocks,
@@ -74,6 +76,21 @@ describe("buildVttFromCueBlocks", () => {
   });
 });
 
+describe("buildVttFromTranslatedCueBlocks", () => {
+  it("reuses original cue headers while replacing cue text", () => {
+    const { preamble, cueBlocks } = splitVttPreambleAndCueBlocks(SAMPLE_VTT);
+    const translatedVtt = buildVttFromTranslatedCueBlocks(
+      cueBlocks.slice(0, 2),
+      ["Bonjour a tous.", "Voici la deuxieme phrase."],
+      preamble,
+    );
+
+    expect(translatedVtt).toContain("00:00:00.000 --> 00:05:00.000");
+    expect(translatedVtt).toContain("Bonjour a tous.");
+    expect(translatedVtt).not.toContain("Hello there.");
+  });
+});
+
 describe("concatenateVttSegments", () => {
   it("stitches translated segments into a single VTT while keeping the original preamble", () => {
     const { preamble, cueBlocks } = splitVttPreambleAndCueBlocks(SAMPLE_VTT);
@@ -85,6 +102,39 @@ describe("concatenateVttSegments", () => {
     expect(stitched.startsWith("WEBVTT")).toBe(true);
     expect(stitched).toContain("This note should be preserved");
     expect(splitVttPreambleAndCueBlocks(stitched).cueBlocks).toHaveLength(7);
+  });
+});
+
+describe("chunkVTTCuesByBudget", () => {
+  it("splits deterministically by cue count", () => {
+    const chunks = chunkVTTCuesByBudget(SAMPLE_CUES, {
+      maxCuesPerChunk: 3,
+    });
+
+    expect(chunks).toHaveLength(3);
+    expect(chunks[0].cueStartIndex).toBe(0);
+    expect(chunks[0].cueEndIndex).toBe(2);
+    expect(chunks[1].cueStartIndex).toBe(3);
+    expect(chunks[1].cueEndIndex).toBe(5);
+    expect(chunks[2].cueStartIndex).toBe(6);
+    expect(chunks[2].cueEndIndex).toBe(6);
+  });
+
+  it("splits by text token budget even when cue count stays low", () => {
+    const cues: VTTCue[] = [
+      { startTime: 0, endTime: 1, text: "one two three four five six seven eight nine ten" },
+      { startTime: 1, endTime: 2, text: "eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty" },
+      { startTime: 2, endTime: 3, text: "short ending cue" },
+    ];
+
+    const chunks = chunkVTTCuesByBudget(cues, {
+      maxCuesPerChunk: 10,
+      maxTextTokensPerChunk: 20,
+    });
+
+    expect(chunks).toHaveLength(2);
+    expect(chunks[0].cueCount).toBe(1);
+    expect(chunks[1].cueCount).toBe(2);
   });
 });
 
