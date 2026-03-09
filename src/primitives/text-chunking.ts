@@ -2,6 +2,20 @@ import type { VTTCue } from "@mux/ai/primitives/transcripts";
 import type { ChunkingStrategy, TextChunk } from "@mux/ai/types";
 
 /**
+ * Generic text-first chunking utilities.
+ *
+ * Reach for this module when the downstream consumer only needs chunk text plus
+ * lightweight metadata such as token count or approximate start/end times.
+ * These helpers are ideal for embeddings, retrieval, summarization inputs, or
+ * other workflows where preserving the original document format is not required.
+ *
+ * If you need to split and later reconstruct a valid VTT file, use
+ * `@mux/ai/primitives/vtt-chunking` instead. That module preserves cue block
+ * boundaries and VTT document structure; this one intentionally flattens cues
+ * into plain text chunks.
+ */
+
+/**
  * Simple token counter that approximates tokens by word count.
  * For production use with OpenAI, consider using a proper tokenizer like tiktoken.
  * This approximation is generally close enough for chunking purposes (1 token ≈ 0.75 words).

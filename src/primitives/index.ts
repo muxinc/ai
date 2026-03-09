@@ -5,3 +5,4 @@ export * from "./storyboards";
 export * from "./text-chunking";
 export * from "./thumbnails";
 export * from "./transcripts";
+export * from "./vtt-chunking";
