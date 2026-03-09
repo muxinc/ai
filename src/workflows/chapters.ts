@@ -94,8 +94,9 @@ export interface ChaptersOptions extends MuxAIOptions {
    */
   maxChaptersPerHour?: number;
   /**
-   * BCP 47 language code for chapter titles (e.g. "en", "fr", "ja"), or "auto"
-   * to detect from the transcript track. When omitted, the LLM decides.
+   * BCP 47 language code for chapter titles (e.g. "en", "fr", "ja").
+   * When omitted, auto-detects from the transcript track's language.
+   * Falls back to unconstrained (LLM decides) if no language metadata is available.
    */
   outputLanguageCode?: string;
 }
