@@ -26,7 +26,7 @@ import {
   resolveMuxSigningContext,
 } from "@mux/ai/lib/workflow-credentials";
 import { getStoryboardUrl } from "@mux/ai/primitives/storyboards";
-import { fetchTranscriptForAsset } from "@mux/ai/primitives/transcripts";
+import { fetchTranscriptForAsset, getReadyTextTracks } from "@mux/ai/primitives/transcripts";
 import type {
   ImageSubmissionMode,
   MuxAIOptions,
@@ -619,18 +619,11 @@ export async function getSummaryAndTags(
       undefined;
   const transcriptText = transcriptResult?.transcriptText ?? "";
 
-  // Resolve output language: "auto" detects from transcript track, explicit code is converted to a display name
-  let languageName: string | undefined;
-  if (outputLanguageCode === "auto") {
-    const trackLanguage = transcriptResult?.track?.language_code;
-    if (trackLanguage) {
-      languageName = getLanguageName(trackLanguage);
-    } else {
-      console.warn(`[summarization] outputLanguageCode "auto" could not resolve: no transcript track language available. Falling back to default behaviour.`);
-    }
-  } else if (outputLanguageCode) {
-    languageName = getLanguageName(outputLanguageCode);
-  }
+  // Resolve output language: explicit code takes priority, otherwise auto-detect from transcript track
+  const resolvedLanguageCode = outputLanguageCode && outputLanguageCode !== "auto" ?
+    outputLanguageCode :
+      (transcriptResult?.track?.language_code ?? getReadyTextTracks(assetData)[0]?.language_code);
+  const languageName = resolvedLanguageCode ? getLanguageName(resolvedLanguageCode) : undefined;
 
   // Build the user prompt with all context and any overrides
   const userPrompt = buildUserPrompt({

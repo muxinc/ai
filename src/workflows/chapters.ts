@@ -354,14 +354,11 @@ export async function generateChapters(
     throw new Error(`No usable content found in ${contentLabel}`);
   }
 
-  // Resolve output language: "auto" detects from transcript track, explicit code is converted to a display name
-  let languageName: string | undefined;
-  if (outputLanguageCode === "auto") {
-    const trackLanguage = transcriptResult.track?.language_code ?? languageCode;
-    languageName = getLanguageName(trackLanguage);
-  } else if (outputLanguageCode) {
-    languageName = getLanguageName(outputLanguageCode);
-  }
+  // Resolve output language: explicit code takes priority, otherwise auto-detect from transcript track
+  const resolvedLanguageCode = outputLanguageCode && outputLanguageCode !== "auto" ?
+    outputLanguageCode :
+      (transcriptResult.track?.language_code ?? languageCode);
+  const languageName = resolvedLanguageCode ? getLanguageName(resolvedLanguageCode) : undefined;
 
   const userPrompt = buildUserPrompt({
     timestampedTranscript,
