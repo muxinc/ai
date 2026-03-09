@@ -240,7 +240,7 @@ const chaptersPromptBuilder = createPromptBuilder<ChaptersPromptSections>({
       content: dedent`
         - Keep titles concise and descriptive
         - Avoid filler or generic labels like "Chapter 1"
-        - Use the transcript's language and terminology`,
+        - Use the transcript's terminology`,
     },
   },
   sectionOrder: ["task", "outputFormat", "chapterGuidelines", "titleGuidelines"],
