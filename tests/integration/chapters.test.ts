@@ -18,4 +18,27 @@ describe("chapters Integration Tests", () => {
     expect(result).toHaveProperty("chapters");
     expect(Array.isArray(result.chapters)).toBe(true);
   });
+
+  describe("language parameter", () => {
+    it("should accept an explicit language code for chapter titles", async () => {
+      const result = await generateChapters(assetId, languageCode, {
+        provider: "openai",
+        outputLanguageCode: "es",
+      });
+
+      expect(result).toBeDefined();
+      expect(result.chapters.length).toBeGreaterThan(0);
+      expect(result.chapters[0].title).toBeDefined();
+    });
+
+    it("should accept outputLanguageCode: 'auto' without error", async () => {
+      const result = await generateChapters(assetId, languageCode, {
+        provider: "openai",
+        outputLanguageCode: "auto",
+      });
+
+      expect(result).toBeDefined();
+      expect(result.chapters.length).toBeGreaterThan(0);
+    });
+  });
 });

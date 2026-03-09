@@ -24,6 +24,7 @@ program
   .option("--title-length <chars>", "Desired title length in characters", parseInt)
   .option("--description-length <chars>", "Desired description length in characters", parseInt)
   .option("--tag-count <count>", "Desired number of tags", parseInt)
+  .option("--output-language <code>", "Output language as BCP 47 code (e.g. 'fr', 'ja') or 'auto'")
   .action(async (assetId: string, options: {
     provider: Provider;
     model?: string;
@@ -32,6 +33,7 @@ program
     titleLength?: number;
     descriptionLength?: number;
     tagCount?: number;
+    outputLanguage?: string;
   }) => {
     // Validate provider
     if (!["openai", "anthropic", "google"].includes(options.provider)) {
@@ -55,6 +57,7 @@ program
     if (options.titleLength) console.log(`Title Length: ~${options.titleLength} chars`);
     if (options.descriptionLength) console.log(`Description Length: ~${options.descriptionLength} chars`);
     if (options.tagCount) console.log(`Tag Count: ${options.tagCount}`);
+    if (options.outputLanguage) console.log(`Output Language: ${options.outputLanguage}`);
     console.log();
 
     try {
@@ -68,6 +71,7 @@ program
         titleLength: options.titleLength,
         descriptionLength: options.descriptionLength,
         tagCount: options.tagCount,
+        outputLanguageCode: options.outputLanguage,
       });
 
       console.log("📝 Title:");

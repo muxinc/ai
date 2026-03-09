@@ -155,6 +155,7 @@ const SYSTEM_PROMPT = dedent`
     - Only describe observable evidence from frames or transcript
     - Do not fabricate details or make unsupported assumptions
     - Return structured data matching the requested schema exactly
+    - Provide reasoning in the same language as the question
   </constraints>
 
   <language_guidelines>
