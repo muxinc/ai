@@ -63,6 +63,29 @@ Because:
 - You could die.
 `;
 
+const STYLED_VTT = `WEBVTT
+
+STYLE
+::cue([lang="en-US"]) {
+color: yellow;
+}
+::cue(lang[lang="en-GB"]) {
+color: cyan;
+}
+::cue(v[voice="Salame"]) {
+color: lime;
+}
+
+00:00:00.000 --> 00:00:08.000
+Yellow!
+
+00:00:08.000 --> 00:00:16.000
+<lang en-GB>Cyan!</lang>
+
+00:00:16.000 --> 00:00:24.000
+I like <v Salame>lime.</v>
+`;
+
 describe("splitVttPreambleAndCueBlocks", () => {
   it("separates preamble metadata from cue blocks", () => {
     const result = splitVttPreambleAndCueBlocks(SAMPLE_VTT);
@@ -71,6 +94,15 @@ describe("splitVttPreambleAndCueBlocks", () => {
     expect(result.preamble).toContain("NOTE");
     expect(result.cueBlocks).toHaveLength(7);
     expect(result.cueBlocks[0]).toContain("00:00:00.000 --> 00:05:00.000");
+  });
+
+  it("keeps STYLE blocks in the preamble and still extracts cue blocks", () => {
+    const result = splitVttPreambleAndCueBlocks(STYLED_VTT);
+
+    expect(result.preamble).toContain("STYLE");
+    expect(result.preamble).toContain("::cue([lang=\"en-US\"])");
+    expect(result.cueBlocks).toHaveLength(3);
+    expect(result.cueBlocks[1]).toContain("<lang en-GB>Cyan!</lang>");
   });
 });
 
@@ -112,6 +144,20 @@ describe("buildVttFromTranslatedCueBlocks", () => {
     expect(translatedVtt).toContain("00:05.000 --> 00:09.000 line:0 position:20% size:60% align:start");
     expect(translatedVtt).toContain("- It will perforate your stomach.");
     expect(translatedVtt).toContain("- You could die.");
+  });
+
+  it("preserves STYLE metadata while rebuilding styled VTT cue blocks", () => {
+    const { preamble, cueBlocks } = splitVttPreambleAndCueBlocks(STYLED_VTT);
+    const translatedVtt = buildVttFromTranslatedCueBlocks(
+      cueBlocks,
+      ["Yellow!", "Cyan!", "I like lime."],
+      preamble,
+    );
+
+    expect(translatedVtt).toContain("STYLE");
+    expect(translatedVtt).toContain("::cue(v[voice=\"Salame\"])");
+    expect(translatedVtt).toContain("00:00:16.000 --> 00:00:24.000");
+    expect(translatedVtt).toContain("I like lime.");
   });
 });
 

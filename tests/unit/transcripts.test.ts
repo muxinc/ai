@@ -259,4 +259,36 @@ Done.
     expect(cues[2].text).toBe("Line one Stop");
     expect(cues[3].text).toBe("Done.");
   });
+
+  it("ignores STYLE blocks and strips inline language and voice tags", () => {
+    const vttContent = `WEBVTT
+
+STYLE
+::cue([lang="en-US"]) {
+color: yellow;
+}
+::cue(lang[lang="en-GB"]) {
+color: cyan;
+}
+::cue(v[voice="Salame"]) {
+color: lime;
+}
+
+00:00:00.000 --> 00:00:08.000
+Yellow!
+
+00:00:08.000 --> 00:00:16.000
+<lang en-GB>Cyan!</lang>
+
+00:00:16.000 --> 00:00:24.000
+I like <v Salame>lime.</v>
+`;
+
+    const cues = parseVTTCues(vttContent);
+
+    expect(cues).toHaveLength(3);
+    expect(cues[0].text).toBe("Yellow!");
+    expect(cues[1].text).toBe("Cyan!");
+    expect(cues[2].text).toBe("I like lime.");
+  });
 });
