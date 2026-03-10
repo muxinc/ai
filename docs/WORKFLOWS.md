@@ -399,25 +399,32 @@ Mux requires a publicly accessible URL to ingest subtitle tracks. The translatio
 
 All ISO 639-1 language codes are automatically supported using `Intl.DisplayNames`. Examples: Spanish (es), French (fr), German (de), Italian (it), Portuguese (pt), Polish (pl), Japanese (ja), Korean (ko), Chinese (zh), Russian (ru), Arabic (ar), Hindi (hi), Thai (th), Swahili (sw), and many more.
 
-## Caption Censorship
+## Caption Editing
 
-Detect and censor profanity in existing captions, replacing offensive words and optionally uploading the cleaned track to Mux.
+Edit existing captions with LLM-powered profanity censorship, static find/replace, or both. Optionally upload the edited track to Mux.
 
 ```typescript
-import { censorCaptions } from "@mux/ai/workflows";
+import { editCaptions } from "@mux/ai/workflows";
 
-const result = await censorCaptions("your-mux-asset-id", "track-id", {
+const result = await editCaptions("your-mux-asset-id", "track-id", {
   provider: "anthropic",
-  mode: "blank",
+  autoCensorProfanity: { mode: "blank" },
+  replacements: [
+    { find: "Mucks", replace: "Mux" },
+  ],
 });
 
-console.log(result.censoredWords); // Words the LLM identified as profane
-console.log(result.replacementCount); // Total replacements made
-console.log(result.censoredVtt); // Censored VTT content
+console.log(result.totalReplacementCount); // Total replacements across all operations
+console.log(result.autoCensorProfanity?.censoredWords); // Words the LLM identified as profane
+console.log(result.editedVtt); // Edited VTT content
 console.log(result.uploadedTrackId); // New Mux track ID
 ```
 
-### Censor Modes
+### Auto-Censor Profanity
+
+LLM-powered profanity detection and censorship. Requires a `provider`.
+
+#### Censor Modes
 
 Choose how profanity is replaced:
 
@@ -427,46 +434,74 @@ Choose how profanity is replaced:
 | `"remove"` | `fuck` → *(removed)* | Word removed entirely |
 | `"mask"` | `fuck` → `????` | Question marks matching word length |
 
-### Override Lists
+#### Override Lists
 
 Fine-tune what gets censored with `alwaysCensor` and `neverCensor`:
 
 ```typescript
-const result = await censorCaptions(assetId, trackId, {
+const result = await editCaptions(assetId, trackId, {
   provider: "openai",
-  mode: "mask",
-  alwaysCensor: ["brandname", "competitor"], // Always censor these, even if LLM doesn't flag them
-  neverCensor: ["damn", "hell"], // Never censor these, even if LLM flags them
+  autoCensorProfanity: {
+    mode: "mask",
+    alwaysCensor: ["brandname", "competitor"], // Always censor these, even if LLM doesn't flag them
+    neverCensor: ["damn", "hell"], // Never censor these, even if LLM flags them
+  },
 });
 ```
 
 `neverCensor` takes precedence when a word appears in both lists.
 
+### Static Replacements
+
+Apply deterministic find/replace pairs without an LLM. No `provider` needed when used alone:
+
+```typescript
+const result = await editCaptions(assetId, trackId, {
+  replacements: [
+    { find: "Mucks", replace: "Mux" },
+    { find: "gonna", replace: "going to" },
+  ],
+});
+```
+
+Replacements use word-boundary matching and are case-sensitive.
+
+### Application Order
+
+1. Static `replacements` applied first (deterministic, no LLM)
+2. `autoCensorProfanity` applied second (LLM analyses the *original* text, censorship applied to post-replacement VTT)
+
 ### How It Works
 
 1. Downloads the VTT caption track from Mux
-2. Extracts plain text and sends it to the LLM for profanity detection
-3. The LLM returns a list of profane words (not a rewritten VTT) — this guarantees format preservation
-4. Merges `alwaysCensor` and filters `neverCensor` from the detected list
-5. Applies word-boundary regex replacement on the raw VTT string
-6. Uploads the censored VTT to S3 and creates a new track on Mux
-7. Deletes the original track (configurable)
+2. Applies static replacements (if provided) using word-boundary regex
+3. Extracts plain text from the *original* VTT and sends it to the LLM for profanity detection (if `autoCensorProfanity` is set)
+4. The LLM returns a list of profane words (not a rewritten VTT) — this guarantees format preservation
+5. Merges `alwaysCensor` and filters `neverCensor` from the detected list
+6. Applies profanity censorship on the (possibly already replaced) VTT
+7. Uploads the edited VTT to S3 and creates a new track on Mux
+8. Deletes the original track (configurable)
 
 ### S3-Compatible Storage Requirements
 
-Caption censorship requires the same S3-compatible storage as [caption translation](#caption-translation) when uploading to Mux. See that section for supported providers and configuration.
+Caption editing requires the same S3-compatible storage as [caption translation](#caption-translation) when uploading to Mux. See that section for supported providers and configuration.
 
 ### Configuration
 
 ```typescript
-const result = await censorCaptions(assetId, trackId, {
-  provider: "anthropic", // "openai", "anthropic", or "google"
+const result = await editCaptions(assetId, trackId, {
+  provider: "anthropic", // Required when using autoCensorProfanity
   model: "claude-sonnet-4-5", // Override default model
-  mode: "blank", // "blank", "remove", or "mask" (default: "blank")
-  uploadToMux: true, // Upload censored track to Mux (default: true)
+  autoCensorProfanity: {
+    mode: "blank", // "blank", "remove", or "mask" (default: "blank")
+    alwaysCensor: [], // Words to always censor
+    neverCensor: [], // Words to never censor
+  },
+  replacements: [ // Static find/replace pairs
+    { find: "Mucks", replace: "Mux" },
+  ],
+  uploadToMux: true, // Upload edited track to Mux (default: true)
   deleteOriginalTrack: true, // Delete original after upload (default: true)
-  alwaysCensor: [], // Words to always censor
-  neverCensor: [], // Words to never censor
 });
 ```
 

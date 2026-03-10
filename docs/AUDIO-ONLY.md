@@ -66,16 +66,16 @@ const result = await translateCaptions("your-audio-only-asset-id", "en", "es", {
 });
 ```
 
-### Caption Censorship (`censorCaptions`)
+### Caption Editing (`editCaptions`)
 
-Detects and censors profanity in captions. Works with audio-only assets that have a ready text track.
+Edits captions with profanity censorship and/or static replacements. Works with audio-only assets that have a ready text track.
 
 ```typescript
-import { censorCaptions } from "@mux/ai/workflows";
+import { editCaptions } from "@mux/ai/workflows";
 
-const result = await censorCaptions("your-audio-only-asset-id", "track-id", {
+const result = await editCaptions("your-audio-only-asset-id", "track-id", {
   provider: "anthropic",
-  mode: "blank",
+  autoCensorProfanity: { mode: "blank" },
 });
 ```
 

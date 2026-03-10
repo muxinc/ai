@@ -1,8 +1,8 @@
 {
-  "name": "@mux/ai-examples-censor-captions",
+  "name": "@mux/ai-examples-edit-captions",
   "version": "0.1.0",
   "private": true,
-  "description": "Examples for @mux/ai caption censorship functionality",
+  "description": "Examples for @mux/ai caption editing functionality",
   "scripts": {
     "basic": "ts-node basic-example.ts"
   },

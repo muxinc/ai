@@ -2,10 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyOverrideLists,
+  applyReplacements,
   buildReplacementRegex,
   censorVttContent,
   createReplacer,
-} from "../../src/workflows/censor-captions";
+} from "../../src/workflows/edit-captions";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // buildReplacementRegex
@@ -235,5 +236,124 @@ describe("applyOverrideLists", () => {
     expect(result).toContain("crap");
     expect(result).toContain("bollocks");
     expect(result).not.toContain("damn");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// applyReplacements
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("applyReplacements", () => {
+  const sampleVtt = [
+    "WEBVTT",
+    "",
+    "00:00:01.000 --> 00:00:04.000",
+    "Welcome to Mucks streaming platform.",
+    "",
+    "00:00:05.000 --> 00:00:08.000",
+    "We're gonna show you how it works.",
+    "",
+  ].join("\n");
+
+  it("applies a basic find/replace", () => {
+    const { editedVtt, replacementCount } = applyReplacements(sampleVtt, [
+      { find: "Mucks", replace: "Mux" },
+    ]);
+    expect(editedVtt).toContain("Welcome to Mux streaming platform.");
+    expect(editedVtt).not.toContain("Mucks");
+    expect(replacementCount).toBe(1);
+  });
+
+  it("applies multiple replacements", () => {
+    const { editedVtt, replacementCount } = applyReplacements(sampleVtt, [
+      { find: "Mucks", replace: "Mux" },
+      { find: "gonna", replace: "going to" },
+    ]);
+    expect(editedVtt).toContain("Mux");
+    expect(editedVtt).toContain("going to");
+    expect(replacementCount).toBe(2);
+  });
+
+  it("is case-sensitive", () => {
+    const { editedVtt, replacementCount } = applyReplacements(sampleVtt, [
+      { find: "mucks", replace: "Mux" },
+    ]);
+    expect(editedVtt).toContain("Mucks");
+    expect(replacementCount).toBe(0);
+  });
+
+  it("respects word boundaries", () => {
+    const vtt = [
+      "WEBVTT",
+      "",
+      "00:00:01.000 --> 00:00:04.000",
+      "The cat is categorical about categories.",
+    ].join("\n");
+    const { editedVtt, replacementCount } = applyReplacements(vtt, [
+      { find: "cat", replace: "dog" },
+    ]);
+    expect(editedVtt).toContain("The dog is categorical about categories.");
+    expect(replacementCount).toBe(1);
+  });
+
+  it("returns original when no replacements match", () => {
+    const { editedVtt, replacementCount } = applyReplacements(sampleVtt, [
+      { find: "nonexistent", replace: "something" },
+    ]);
+    expect(editedVtt).toBe(sampleVtt);
+    expect(replacementCount).toBe(0);
+  });
+
+  it("returns original when replacements array is empty", () => {
+    const { editedVtt, replacementCount } = applyReplacements(sampleVtt, []);
+    expect(editedVtt).toBe(sampleVtt);
+    expect(replacementCount).toBe(0);
+  });
+
+  it("handles multiple occurrences of the same word", () => {
+    const vtt = [
+      "WEBVTT",
+      "",
+      "00:00:01.000 --> 00:00:04.000",
+      "Mucks and Mucks and Mucks again.",
+    ].join("\n");
+    const { editedVtt, replacementCount } = applyReplacements(vtt, [
+      { find: "Mucks", replace: "Mux" },
+    ]);
+    expect(editedVtt).toContain("Mux and Mux and Mux again.");
+    expect(replacementCount).toBe(3);
+  });
+
+  it("preserves VTT timestamps and structure", () => {
+    const { editedVtt } = applyReplacements(sampleVtt, [
+      { find: "Mucks", replace: "Mux" },
+    ]);
+    expect(editedVtt).toContain("WEBVTT");
+    expect(editedVtt).toContain("00:00:01.000 --> 00:00:04.000");
+    expect(editedVtt).toContain("00:00:05.000 --> 00:00:08.000");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// editCaptions validation
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("editCaptions validation", () => {
+  it("requires at least one operation", async () => {
+    // We import the function dynamically to test validation without needing
+    // Mux credentials or network access
+    const { editCaptions } = await import("../../src/workflows/edit-captions");
+    await expect(
+      editCaptions("asset-id", "track-id", {} as any),
+    ).rejects.toThrow("At least one of autoCensorProfanity or replacements must be provided.");
+  });
+
+  it("requires provider when autoCensorProfanity is set", async () => {
+    const { editCaptions } = await import("../../src/workflows/edit-captions");
+    await expect(
+      editCaptions("asset-id", "track-id", {
+        autoCensorProfanity: { mode: "blank" },
+      } as any),
+    ).rejects.toThrow("provider is required when using autoCensorProfanity.");
   });
 });

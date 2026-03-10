@@ -46,8 +46,8 @@ npm run example:moderation:compare <asset-id>
 # Caption Translation
 npm run example:translate-captions <asset-id> [from-lang] [to-lang] [provider]
 
-# Caption Censorship
-npm run example:censor-captions <asset-id> <track-id> [--provider provider] [--mode mode]
+# Caption Editing
+npm run example:edit-captions <asset-id> <track-id> [--provider provider] [--mode mode]
 
 # Audio Translation (Dubbing)
 npm run example:translate-audio <asset-id> -- --to <to-lang> [--from <from-lang>]
@@ -81,8 +81,8 @@ npm run example:moderation abc123 hive
 # Translate captions from English to Spanish with Anthropic (default)
 npm run example:translate-captions abc123 en es anthropic
 
-# Censor profanity in captions
-npm run example:censor-captions abc123 trackid123 -- --provider anthropic --mode blank
+# Edit captions (censor profanity)
+npm run example:edit-captions abc123 trackid123 -- --provider anthropic --mode blank
 
 # Summarize a video with Claude Sonnet 4.5 (default)
 npm run example:summarization abc123 anthropic
@@ -215,15 +215,15 @@ npm run aws-sdk-adapter <your-asset-id> -- --s3-bucket <bucket-name>
 
 > **💡 Tip:** After translation completes, verify your new subtitle tracks at `https://player.mux.com/{PLAYBACK_ID}`
 
-## Caption Censorship Examples
+## Caption Editing Examples
 
-- **Basic Usage**: Detect and censor profanity in captions with configurable replacement modes
+- **Basic Usage**: Edit captions with profanity censorship, static replacements, or both
 
 ```bash
-cd examples/censor-captions
+cd examples/edit-captions
 npm install
 
-# Censor with blank mode (default) - "fuck" => "[____]"
+# Censor profanity with blank mode (default) - "fuck" => "[____]"
 npm run basic <your-asset-id> <track-id>
 
 # Use mask mode - "fuck" => "????"
@@ -232,22 +232,26 @@ npm run basic <your-asset-id> <track-id> -- --mode mask
 # Use a specific provider
 npm run basic <your-asset-id> <track-id> -- --provider openai
 
-# Always censor specific words, never censor others
-npm run basic <your-asset-id> <track-id> -- --always-censor "brandname,competitor" --never-censor "damn,hell"
+# Apply static replacements only (no LLM)
+npm run basic <your-asset-id> <track-id> -- --no-profanity --replacements "Mucks:Mux,gonna:going to"
 
-# Skip uploading to Mux (just get the censored VTT)
+# Combine profanity censorship with static replacements
+npm run basic <your-asset-id> <track-id> -- --replacements "Mucks:Mux" --always-censor "brandname"
+
+# Skip uploading to Mux (just get the edited VTT)
 npm run basic <your-asset-id> <track-id> -- --no-upload
 ```
 
-**Censorship Workflow:**
+**Editing Workflow:**
 
 1. Fetches existing caption track from Mux asset
-2. Sends plain text to AI provider for profanity detection
-3. Applies `alwaysCensor`/`neverCensor` overrides
-4. Replaces profanity using the selected mode
-5. Uploads censored VTT to S3-compatible storage
-6. Adds new subtitle track to Mux asset (name: "{Original} (censored)")
-7. Deletes the original track (unless `--no-delete` is passed)
+2. Applies static replacements (if provided)
+3. Sends plain text to AI provider for profanity detection (if `autoCensorProfanity` is enabled)
+4. Applies `alwaysCensor`/`neverCensor` overrides
+5. Replaces profanity using the selected mode
+6. Uploads edited VTT to S3-compatible storage
+7. Adds new subtitle track to Mux asset (name: "{Original} (edited)")
+8. Deletes the original track (unless `--no-delete` is passed)
 
 ## Audio Dubbing Examples
 
