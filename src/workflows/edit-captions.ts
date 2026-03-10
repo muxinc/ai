@@ -42,6 +42,12 @@ export interface CaptionReplacement {
   replace: string;
 }
 
+export interface ReplacementRecord {
+  cueStartTime: number;
+  before: string;
+  after: string;
+}
+
 /** Configuration accepted by `editCaptions`. */
 export interface EditCaptionsOptions<P extends SupportedProvider = SupportedProvider> extends MuxAIOptions {
   /** Provider responsible for profanity detection. Required when autoCensorProfanity is set. */
@@ -77,11 +83,10 @@ export interface EditCaptionsResult {
   editedVtt: string;
   totalReplacementCount: number;
   autoCensorProfanity?: {
-    censoredWords: string[];
-    replacementCount: number;
+    replacements: ReplacementRecord[];
   };
   replacements?: {
-    replacementCount: number;
+    replacements: ReplacementRecord[];
   };
   uploadedTrackId?: string;
   presignedUrl?: string;
@@ -114,19 +119,39 @@ const SYSTEM_PROMPT =
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
+ * Parses a VTT timestamp like "00:01:23.456" into seconds.
+ */
+export function parseVttTimestamp(timestamp: string): number {
+  const parts = timestamp.trim().split(":");
+  if (parts.length === 3) {
+    const [h, m, s] = parts;
+    return Number.parseFloat(h) * 3600 + Number.parseFloat(m) * 60 + Number.parseFloat(s);
+  }
+  if (parts.length === 2) {
+    const [m, s] = parts;
+    return Number.parseFloat(m) * 60 + Number.parseFloat(s);
+  }
+  return 0;
+}
+
+/**
  * Applies a transform function only to VTT cue text lines, leaving headers,
  * timestamps, and cue identifiers untouched. A cue text line is any line that
  * follows a timestamp line (contains "-->") up until the next blank line.
+ * The transform receives the line text and the cue's start time in seconds.
  */
 export function transformCueText(
   rawVtt: string,
-  transform: (line: string) => string,
+  transform: (line: string, cueStartTime: number) => string,
 ): string {
   const lines = rawVtt.split("\n");
   let inCueText = false;
+  let currentCueStartTime = 0;
 
   const transformed = lines.map((line) => {
     if (line.includes("-->")) {
+      const startTimestamp = line.split("-->")[0];
+      currentCueStartTime = parseVttTimestamp(startTimestamp);
       inCueText = true;
       return line;
     }
@@ -135,7 +160,7 @@ export function transformCueText(
       return line;
     }
     if (inCueText) {
-      return transform(line);
+      return transform(line, currentCueStartTime);
     }
     return line;
   });
@@ -184,27 +209,28 @@ export function censorVttContent(
   rawVtt: string,
   profanity: string[],
   mode: CensorMode,
-): { censoredVtt: string; replacementCount: number } {
+): { censoredVtt: string; replacements: ReplacementRecord[] } {
   if (profanity.length === 0) {
-    return { censoredVtt: rawVtt, replacementCount: 0 };
+    return { censoredVtt: rawVtt, replacements: [] };
   }
 
   const regex = buildReplacementRegex(profanity);
   if (!regex) {
-    return { censoredVtt: rawVtt, replacementCount: 0 };
+    return { censoredVtt: rawVtt, replacements: [] };
   }
 
   const replacer = createReplacer(mode);
-  let replacementCount = 0;
+  const replacements: ReplacementRecord[] = [];
 
-  const censoredVtt = transformCueText(rawVtt, (line) => {
+  const censoredVtt = transformCueText(rawVtt, (line, cueStartTime) => {
     return line.replace(regex, (match) => {
-      replacementCount++;
-      return replacer(match);
+      const after = replacer(match);
+      replacements.push({ cueStartTime, before: match, after });
+      return after;
     });
   });
 
-  return { censoredVtt, replacementCount };
+  return { censoredVtt, replacements };
 }
 
 /**
@@ -243,28 +269,28 @@ export function applyOverrideLists(
 export function applyReplacements(
   rawVtt: string,
   replacements: CaptionReplacement[],
-): { editedVtt: string; replacementCount: number } {
+): { editedVtt: string; replacements: ReplacementRecord[] } {
   const filtered = replacements.filter(r => r.find.length > 0);
   if (filtered.length === 0) {
-    return { editedVtt: rawVtt, replacementCount: 0 };
+    return { editedVtt: rawVtt, replacements: [] };
   }
 
-  let totalCount = 0;
+  const records: ReplacementRecord[] = [];
 
-  const editedVtt = transformCueText(rawVtt, (line) => {
+  const editedVtt = transformCueText(rawVtt, (line, cueStartTime) => {
     let result = line;
     for (const { find, replace } of filtered) {
       const escaped = find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const regex = new RegExp(`\\b${escaped}\\b`, "g");
-      result = result.replace(regex, () => {
-        totalCount++;
+      result = result.replace(regex, (match) => {
+        records.push({ cueStartTime, before: match, after: replace });
         return replace;
       });
     }
     return result;
   });
 
-  return { editedVtt, replacementCount: totalCount };
+  return { editedVtt, replacements: records };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -507,7 +533,7 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
   let totalReplacementCount = 0;
 
   // 1. LLM-powered profanity censorship first (analyses original text)
-  let autoCensorResult: { censoredWords: string[]; replacementCount: number } | undefined;
+  let autoCensorResult: { replacements: ReplacementRecord[] } | undefined;
   let usage: TokenUsage | undefined;
   if (autoCensorOption) {
     const mode = autoCensorOption.mode ?? "blank";
@@ -541,19 +567,19 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
 
     const finalProfanity = applyOverrideLists(detectedProfanity, alwaysCensor, neverCensor);
 
-    const { censoredVtt, replacementCount } = censorVttContent(editedVtt, finalProfanity, mode);
+    const { censoredVtt, replacements: censorReplacements } = censorVttContent(editedVtt, finalProfanity, mode);
     editedVtt = censoredVtt;
-    totalReplacementCount += replacementCount;
-    autoCensorResult = { censoredWords: finalProfanity, replacementCount };
+    totalReplacementCount += censorReplacements.length;
+    autoCensorResult = { replacements: censorReplacements };
   }
 
   // 2. Static replacements applied after censorship
-  let replacementsResult: { replacementCount: number } | undefined;
+  let replacementsResult: { replacements: ReplacementRecord[] } | undefined;
   if (replacementsOption && replacementsOption.length > 0) {
-    const { editedVtt: afterReplacements, replacementCount } = applyReplacements(editedVtt, replacementsOption);
+    const { editedVtt: afterReplacements, replacements: staticReplacements } = applyReplacements(editedVtt, replacementsOption);
     editedVtt = afterReplacements;
-    totalReplacementCount += replacementCount;
-    replacementsResult = { replacementCount };
+    totalReplacementCount += staticReplacements.length;
+    replacementsResult = { replacements: staticReplacements };
   }
 
   const usageWithMetadata = usage ?

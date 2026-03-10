@@ -326,6 +326,12 @@ At least one of `autoCensorProfanity` or `replacements` must be provided.
 **Returns:**
 
 ```typescript
+interface ReplacementRecord {
+  cueStartTime: number; // Start time of the cue where the replacement occurred (seconds)
+  before: string; // Original word/phrase
+  after: string; // Replacement text
+}
+
 interface EditCaptionsResult {
   assetId: string;
   trackId: string;
@@ -333,11 +339,10 @@ interface EditCaptionsResult {
   editedVtt: string; // Edited VTT content
   totalReplacementCount: number; // Total replacements across all operations
   autoCensorProfanity?: { // Present when autoCensorProfanity was used
-    censoredWords: string[]; // Deduplicated list of words that were censored
-    replacementCount: number; // Profanity replacements made
+    replacements: ReplacementRecord[]; // Each censored word with cue timing
   };
   replacements?: { // Present when replacements were used
-    replacementCount: number; // Static replacements made
+    replacements: ReplacementRecord[]; // Each static replacement with cue timing
   };
   uploadedTrackId?: string; // Mux track ID (if uploaded)
   presignedUrl?: string; // S3 presigned URL (expires in 1 hour)

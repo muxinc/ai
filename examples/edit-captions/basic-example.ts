@@ -108,12 +108,13 @@ program
       console.log(`  Total replacements: ${result.totalReplacementCount}`);
 
       if (result.autoCensorProfanity) {
-        console.log(`  Profanity censored: ${result.autoCensorProfanity.censoredWords.length > 0 ? result.autoCensorProfanity.censoredWords.join(", ") : "(none)"}`);
-        console.log(`  Profanity replacements: ${result.autoCensorProfanity.replacementCount}`);
+        const uniqueWords = [...new Set(result.autoCensorProfanity.replacements.map(r => r.before.toLowerCase()))];
+        console.log(`  Profanity censored: ${uniqueWords.length > 0 ? uniqueWords.join(", ") : "(none)"}`);
+        console.log(`  Profanity replacements: ${result.autoCensorProfanity.replacements.length}`);
       }
 
       if (result.replacements) {
-        console.log(`  Static replacements: ${result.replacements.replacementCount}`);
+        console.log(`  Static replacements: ${result.replacements.replacements.length}`);
       }
 
       if (result.uploadedTrackId) {

@@ -6,8 +6,35 @@ import {
   buildReplacementRegex,
   censorVttContent,
   createReplacer,
+  parseVttTimestamp,
   transformCueText,
 } from "../../src/workflows/edit-captions";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// parseVttTimestamp
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("parseVttTimestamp", () => {
+  it("parses HH:MM:SS.mmm format", () => {
+    expect(parseVttTimestamp("00:01:23.456")).toBeCloseTo(83.456);
+  });
+
+  it("parses MM:SS.mmm format", () => {
+    expect(parseVttTimestamp("01:23.456")).toBeCloseTo(83.456);
+  });
+
+  it("parses zero timestamp", () => {
+    expect(parseVttTimestamp("00:00:00.000")).toBe(0);
+  });
+
+  it("handles hours correctly", () => {
+    expect(parseVttTimestamp("01:00:00.000")).toBe(3600);
+  });
+
+  it("returns 0 for unparseable input", () => {
+    expect(parseVttTimestamp("invalid")).toBe(0);
+  });
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // transformCueText
@@ -81,6 +108,25 @@ describe("transformCueText", () => {
     const result = transformCueText(vtt, line => line.toUpperCase());
     expect(result).toContain("LINE ONE");
     expect(result).toContain("LINE TWO");
+  });
+
+  it("passes cue start time to the transform callback", () => {
+    const vtt = [
+      "WEBVTT",
+      "",
+      "00:01:30.000 --> 00:01:35.000",
+      "First cue",
+      "",
+      "00:02:00.500 --> 00:02:05.000",
+      "Second cue",
+      "",
+    ].join("\n");
+    const times: number[] = [];
+    transformCueText(vtt, (line, cueStartTime) => {
+      times.push(cueStartTime);
+      return line;
+    });
+    expect(times).toEqual([90, 120.5]);
   });
 });
 
@@ -188,7 +234,7 @@ describe("censorVttContent", () => {
   ].join("\n");
 
   it("censors profanity with blank mode", () => {
-    const { censoredVtt, replacementCount } = censorVttContent(
+    const { censoredVtt, replacements } = censorVttContent(
       sampleVtt,
       ["fuck", "shit", "damn"],
       "blank",
@@ -197,27 +243,27 @@ describe("censorVttContent", () => {
     expect(censoredVtt).not.toContain("fuck");
     expect(censoredVtt).not.toContain("shit");
     expect(censoredVtt).not.toContain("Damn");
-    expect(replacementCount).toBe(3);
+    expect(replacements).toHaveLength(3);
   });
 
   it("censors profanity with mask mode", () => {
-    const { censoredVtt, replacementCount } = censorVttContent(
+    const { censoredVtt, replacements } = censorVttContent(
       sampleVtt,
       ["fuck"],
       "mask",
     );
     expect(censoredVtt).toContain("What the ???? is going on?");
-    expect(replacementCount).toBe(1);
+    expect(replacements).toHaveLength(1);
   });
 
   it("censors profanity with remove mode", () => {
-    const { censoredVtt, replacementCount } = censorVttContent(
+    const { censoredVtt, replacements } = censorVttContent(
       sampleVtt,
       ["fuck"],
       "remove",
     );
     expect(censoredVtt).toContain("What the  is going on?");
-    expect(replacementCount).toBe(1);
+    expect(replacements).toHaveLength(1);
   });
 
   it("preserves VTT timestamps and structure", () => {
@@ -236,16 +282,16 @@ describe("censorVttContent", () => {
       "00:00:01.000 --> 00:00:04.000",
       "What the fuck is this?",
     ].join("\n");
-    const { censoredVtt, replacementCount } = censorVttContent(vtt, ["fuck"], "blank");
+    const { censoredVtt, replacements } = censorVttContent(vtt, ["fuck"], "blank");
     expect(censoredVtt).toContain("fuck-cue-id");
     expect(censoredVtt).toContain("[____]");
-    expect(replacementCount).toBe(1);
+    expect(replacements).toHaveLength(1);
   });
 
   it("returns original VTT unchanged when no profanity provided", () => {
-    const { censoredVtt, replacementCount } = censorVttContent(sampleVtt, [], "blank");
+    const { censoredVtt, replacements } = censorVttContent(sampleVtt, [], "blank");
     expect(censoredVtt).toBe(sampleVtt);
-    expect(replacementCount).toBe(0);
+    expect(replacements).toHaveLength(0);
   });
 
   it("returns original VTT unchanged when profanity not found in text", () => {
@@ -255,9 +301,9 @@ describe("censorVttContent", () => {
       "00:00:01.000 --> 00:00:04.000",
       "This is a clean sentence.",
     ].join("\n");
-    const { censoredVtt, replacementCount } = censorVttContent(cleanVtt, ["fuck"], "blank");
+    const { censoredVtt, replacements } = censorVttContent(cleanVtt, ["fuck"], "blank");
     expect(censoredVtt).toBe(cleanVtt);
-    expect(replacementCount).toBe(0);
+    expect(replacements).toHaveLength(0);
   });
 
   it("handles the same word appearing multiple times", () => {
@@ -267,8 +313,8 @@ describe("censorVttContent", () => {
       "00:00:01.000 --> 00:00:04.000",
       "Shit shit shit!",
     ].join("\n");
-    const { replacementCount } = censorVttContent(vtt, ["shit"], "blank");
-    expect(replacementCount).toBe(3);
+    const { replacements } = censorVttContent(vtt, ["shit"], "blank");
+    expect(replacements).toHaveLength(3);
   });
 
   it("handles case-insensitive matching", () => {
@@ -278,9 +324,26 @@ describe("censorVttContent", () => {
       "00:00:01.000 --> 00:00:04.000",
       "FUCK Fuck fuck",
     ].join("\n");
-    const { censoredVtt, replacementCount } = censorVttContent(vtt, ["fuck"], "blank");
+    const { censoredVtt, replacements } = censorVttContent(vtt, ["fuck"], "blank");
     expect(censoredVtt).not.toMatch(/fuck/i);
-    expect(replacementCount).toBe(3);
+    expect(replacements).toHaveLength(3);
+  });
+
+  it("returns replacement records with cue start time, before, and after", () => {
+    const vtt = [
+      "WEBVTT",
+      "",
+      "00:01:30.000 --> 00:01:35.000",
+      "What the shit is this?",
+      "",
+      "00:02:00.000 --> 00:02:05.000",
+      "Oh shit not again.",
+      "",
+    ].join("\n");
+    const { replacements } = censorVttContent(vtt, ["shit"], "blank");
+    expect(replacements).toHaveLength(2);
+    expect(replacements[0]).toEqual({ cueStartTime: 90, before: "shit", after: "[____]" });
+    expect(replacements[1]).toEqual({ cueStartTime: 120, before: "shit", after: "[____]" });
   });
 });
 
@@ -356,30 +419,30 @@ describe("applyReplacements", () => {
   ].join("\n");
 
   it("applies a basic find/replace", () => {
-    const { editedVtt, replacementCount } = applyReplacements(sampleVtt, [
+    const { editedVtt, replacements } = applyReplacements(sampleVtt, [
       { find: "Mucks", replace: "Mux" },
     ]);
     expect(editedVtt).toContain("Welcome to Mux streaming platform.");
     expect(editedVtt).not.toContain("Mucks");
-    expect(replacementCount).toBe(1);
+    expect(replacements).toHaveLength(1);
   });
 
   it("applies multiple replacements", () => {
-    const { editedVtt, replacementCount } = applyReplacements(sampleVtt, [
+    const { editedVtt, replacements } = applyReplacements(sampleVtt, [
       { find: "Mucks", replace: "Mux" },
       { find: "gonna", replace: "going to" },
     ]);
     expect(editedVtt).toContain("Mux");
     expect(editedVtt).toContain("going to");
-    expect(replacementCount).toBe(2);
+    expect(replacements).toHaveLength(2);
   });
 
   it("is case-sensitive", () => {
-    const { editedVtt, replacementCount } = applyReplacements(sampleVtt, [
+    const { editedVtt, replacements } = applyReplacements(sampleVtt, [
       { find: "mucks", replace: "Mux" },
     ]);
     expect(editedVtt).toContain("Mucks");
-    expect(replacementCount).toBe(0);
+    expect(replacements).toHaveLength(0);
   });
 
   it("respects word boundaries", () => {
@@ -389,35 +452,35 @@ describe("applyReplacements", () => {
       "00:00:01.000 --> 00:00:04.000",
       "The cat is categorical about categories.",
     ].join("\n");
-    const { editedVtt, replacementCount } = applyReplacements(vtt, [
+    const { editedVtt, replacements } = applyReplacements(vtt, [
       { find: "cat", replace: "dog" },
     ]);
     expect(editedVtt).toContain("The dog is categorical about categories.");
-    expect(replacementCount).toBe(1);
+    expect(replacements).toHaveLength(1);
   });
 
   it("returns original when no replacements match", () => {
-    const { editedVtt, replacementCount } = applyReplacements(sampleVtt, [
+    const { editedVtt, replacements } = applyReplacements(sampleVtt, [
       { find: "nonexistent", replace: "something" },
     ]);
     expect(editedVtt).toBe(sampleVtt);
-    expect(replacementCount).toBe(0);
+    expect(replacements).toHaveLength(0);
   });
 
   it("returns original when replacements array is empty", () => {
-    const { editedVtt, replacementCount } = applyReplacements(sampleVtt, []);
+    const { editedVtt, replacements } = applyReplacements(sampleVtt, []);
     expect(editedVtt).toBe(sampleVtt);
-    expect(replacementCount).toBe(0);
+    expect(replacements).toHaveLength(0);
   });
 
   it("ignores replacements with empty find strings", () => {
-    const { editedVtt, replacementCount } = applyReplacements(sampleVtt, [
+    const { editedVtt, replacements } = applyReplacements(sampleVtt, [
       { find: "", replace: "BROKEN" },
       { find: "Mucks", replace: "Mux" },
     ]);
     expect(editedVtt).toContain("Mux");
     expect(editedVtt).not.toContain("BROKEN");
-    expect(replacementCount).toBe(1);
+    expect(replacements).toHaveLength(1);
   });
 
   it("handles multiple occurrences of the same word", () => {
@@ -427,11 +490,11 @@ describe("applyReplacements", () => {
       "00:00:01.000 --> 00:00:04.000",
       "Mucks and Mucks and Mucks again.",
     ].join("\n");
-    const { editedVtt, replacementCount } = applyReplacements(vtt, [
+    const { editedVtt, replacements } = applyReplacements(vtt, [
       { find: "Mucks", replace: "Mux" },
     ]);
     expect(editedVtt).toContain("Mux and Mux and Mux again.");
-    expect(replacementCount).toBe(3);
+    expect(replacements).toHaveLength(3);
   });
 
   it("preserves VTT timestamps and structure", () => {
@@ -451,12 +514,32 @@ describe("applyReplacements", () => {
       "00:00:01.000 --> 00:00:04.000",
       "Welcome to Mucks streaming.",
     ].join("\n");
-    const { editedVtt, replacementCount } = applyReplacements(vtt, [
+    const { editedVtt, replacements } = applyReplacements(vtt, [
       { find: "Mucks", replace: "Mux" },
     ]);
     expect(editedVtt).toContain("Mucks-cue-id");
     expect(editedVtt).toContain("Welcome to Mux streaming.");
-    expect(replacementCount).toBe(1);
+    expect(replacements).toHaveLength(1);
+  });
+
+  it("returns replacement records with cue start time, before, and after", () => {
+    const vtt = [
+      "WEBVTT",
+      "",
+      "00:00:30.000 --> 00:00:35.000",
+      "Welcome to Mucks platform.",
+      "",
+      "00:01:00.000 --> 00:01:05.000",
+      "Mucks is great and Mucks is fast.",
+      "",
+    ].join("\n");
+    const { replacements } = applyReplacements(vtt, [
+      { find: "Mucks", replace: "Mux" },
+    ]);
+    expect(replacements).toHaveLength(3);
+    expect(replacements[0]).toEqual({ cueStartTime: 30, before: "Mucks", after: "Mux" });
+    expect(replacements[1]).toEqual({ cueStartTime: 60, before: "Mucks", after: "Mux" });
+    expect(replacements[2]).toEqual({ cueStartTime: 60, before: "Mucks", after: "Mux" });
   });
 });
 

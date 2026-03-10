@@ -415,7 +415,7 @@ const result = await editCaptions("your-mux-asset-id", "track-id", {
 });
 
 console.log(result.totalReplacementCount); // Total replacements across all operations
-console.log(result.autoCensorProfanity?.censoredWords); // Words the LLM identified as profane
+console.log(result.autoCensorProfanity?.replacements); // Each censored word with cue timing
 console.log(result.editedVtt); // Edited VTT content
 console.log(result.uploadedTrackId); // New Mux track ID
 ```
