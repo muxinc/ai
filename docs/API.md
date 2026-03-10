@@ -87,6 +87,7 @@ Analyzes a Mux asset for inappropriate content using OpenAI's Moderation API or 
   isAudioOnly: boolean;
   thumbnailScores: Array<{ // Individual thumbnail results
     url: string;
+    time?: number; // Time in seconds of the thumbnail within the video
     sexual: number; // 0-1 score
     violence: number; // 0-1 score
     error: boolean;

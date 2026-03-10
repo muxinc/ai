@@ -141,8 +141,8 @@ const thumbnails = await getThumbnailUrls("playback-id", 120, {
 });
 
 // [
-//   "https://image.mux.com/playback-id/thumbnail.png?time=0&width=640",
-//   "https://image.mux.com/playback-id/thumbnail.png?time=10&width=640",
+//   { url: "https://image.mux.com/playback-id/thumbnail.png?time=0&width=640", time: 0 },
+//   { url: "https://image.mux.com/playback-id/thumbnail.png?time=10&width=640", time: 10 },
 //   ...
 // ]
 ```

@@ -28,6 +28,8 @@ import type {
 /** Per-thumbnail moderation result returned from `getModerationScores`. */
 export interface ThumbnailModerationScore {
   url: string;
+  /** Time in seconds of the thumbnail within the video. Absent for transcript moderation entries. */
+  time?: number;
   sexual: number;
   violence: number;
   error: boolean;
@@ -153,6 +155,7 @@ async function processConcurrently<T>(
 
 async function moderateImageWithOpenAI(entry: {
   url: string;
+  time?: number;
   image: string;
   model: string;
   credentials?: WorkflowCredentialsInput;
@@ -190,6 +193,7 @@ async function moderateImageWithOpenAI(entry: {
 
     return {
       url: entry.url,
+      time: entry.time,
       sexual: categoryScores.sexual || 0,
       violence: categoryScores.violence || 0,
       error: false,
@@ -198,6 +202,7 @@ async function moderateImageWithOpenAI(entry: {
     console.error("OpenAI moderation failed:", error);
     return {
       url: entry.url,
+      time: entry.time,
       sexual: 0,
       violence: 0,
       error: true,
@@ -207,7 +212,7 @@ async function moderateImageWithOpenAI(entry: {
 }
 
 async function requestOpenAIModeration(
-  imageUrls: string[],
+  images: Array<{ url: string; time: number }>,
   model: string,
   maxConcurrent: number = 5,
   submissionMode: "url" | "base64" = "url",
@@ -215,12 +220,15 @@ async function requestOpenAIModeration(
   credentials?: WorkflowCredentialsInput,
 ): Promise<ThumbnailModerationScore[]> {
   "use step";
+  const imageUrls = images.map(img => img.url);
+  const timeByUrl = new Map(images.map(img => [img.url, img.time]));
+
   const targetUrls =
     submissionMode === "base64" ?
         (await downloadImagesAsBase64(imageUrls, downloadOptions, maxConcurrent)).map(
-          img => ({ url: img.url, image: img.base64Data, model, credentials }),
+          img => ({ url: img.url, time: timeByUrl.get(img.url), image: img.base64Data, model, credentials }),
         ) :
-        imageUrls.map(url => ({ url, image: url, model, credentials }));
+        images.map(img => ({ url: img.url, time: img.time, image: img.url, model, credentials }));
 
   return processConcurrently(targetUrls, moderateImageWithOpenAI, maxConcurrent);
 }
@@ -335,6 +343,7 @@ function getHiveCategoryScores(
 
 async function moderateImageWithHive(entry: {
   url: string;
+  time?: number;
   source: HiveModerationSource;
   credentials?: WorkflowCredentialsInput;
 }): Promise<ThumbnailModerationScore> {
@@ -403,6 +412,7 @@ async function moderateImageWithHive(entry: {
 
     return {
       url: entry.url,
+      time: entry.time,
       sexual,
       violence,
       error: false,
@@ -410,6 +420,7 @@ async function moderateImageWithHive(entry: {
   } catch (error) {
     return {
       url: entry.url,
+      time: entry.time,
       sexual: 0,
       violence: 0,
       error: true,
@@ -419,7 +430,7 @@ async function moderateImageWithHive(entry: {
 }
 
 async function requestHiveModeration(
-  imageUrls: string[],
+  images: Array<{ url: string; time: number }>,
   maxConcurrent: number = 5,
   submissionMode: "url" | "base64" = "url",
   downloadOptions?: ImageDownloadOptions,
@@ -427,10 +438,14 @@ async function requestHiveModeration(
 ): Promise<ThumbnailModerationScore[]> {
   "use step";
 
-  const targets: Array<{ url: string; source: HiveModerationSource; credentials?: WorkflowCredentialsInput }> =
+  const imageUrls = images.map(img => img.url);
+  const timeByUrl = new Map(images.map(img => [img.url, img.time]));
+
+  const targets: Array<{ url: string; time?: number; source: HiveModerationSource; credentials?: WorkflowCredentialsInput }> =
     submissionMode === "base64" ?
         (await downloadImagesAsBase64(imageUrls, downloadOptions, maxConcurrent)).map(img => ({
           url: img.url,
+          time: timeByUrl.get(img.url),
           source: {
             kind: "file",
             buffer: img.buffer,
@@ -438,9 +453,10 @@ async function requestHiveModeration(
           },
           credentials,
         })) :
-        imageUrls.map(url => ({
-          url,
-          source: { kind: "url", value: url },
+        images.map(img => ({
+          url: img.url,
+          time: img.time,
+          source: { kind: "url", value: img.url },
           credentials,
         }));
 
@@ -455,18 +471,18 @@ async function getThumbnailUrlsFromTimestamps(
     shouldSign: boolean;
     credentials?: WorkflowCredentialsInput;
   },
-): Promise<string[]> {
+): Promise<Array<{ url: string; time: number }>> {
   "use step";
   const { width, shouldSign, credentials } = options;
   const baseUrl = getMuxThumbnailBaseUrl(playbackId);
 
   const urlPromises = timestampsMs.map(async (tsMs) => {
     const time = Number((tsMs / 1000).toFixed(2));
-    if (shouldSign) {
-      return signUrl(baseUrl, playbackId, "thumbnail", { time, width }, credentials);
-    }
+    const url = shouldSign ?
+        await signUrl(baseUrl, playbackId, "thumbnail", { time, width }, credentials) :
+      `${baseUrl}?time=${time}&width=${width}`;
 
-    return `${baseUrl}?time=${time}&width=${width}`;
+    return { url, time };
   });
 
   return Promise.all(urlPromises);

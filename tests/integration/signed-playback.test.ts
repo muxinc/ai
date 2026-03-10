@@ -152,13 +152,13 @@ describe("signed Playback Integration Tests", () => {
         });
 
         expect(urls.length).toBeGreaterThan(0);
-        urls.forEach((url) => {
-          expect(url).toContain(`${getMuxImageOrigin()}/${playbackId}/thumbnail.png`);
-          expect(url).toContain("token=");
+        urls.forEach((entry) => {
+          expect(entry.url).toContain(`${getMuxImageOrigin()}/${playbackId}/thumbnail.png`);
+          expect(entry.url).toContain("token=");
         });
 
         // Verify the first URL is accessible
-        const response = await fetch(urls[0], { method: "HEAD" });
+        const response = await fetch(urls[0].url, { method: "HEAD" });
         expect(response.ok).toBe(true);
       });
 
@@ -171,9 +171,9 @@ describe("signed Playback Integration Tests", () => {
         });
 
         expect(urls.length).toBeGreaterThan(0);
-        urls.forEach((url) => {
-          expect(url).toContain(`${getMuxImageOrigin()}/${testPlaybackId}/thumbnail.png`);
-          expect(url).not.toContain("token=");
+        urls.forEach((entry) => {
+          expect(entry.url).toContain(`${getMuxImageOrigin()}/${testPlaybackId}/thumbnail.png`);
+          expect(entry.url).not.toContain("token=");
         });
       });
 
@@ -189,13 +189,13 @@ describe("signed Playback Integration Tests", () => {
         expect(urls.length).toBe(5);
 
         // All URLs should be signed
-        urls.forEach((url) => {
-          expect(url).toContain(`${getMuxImageOrigin()}/${playbackId}/thumbnail.png`);
-          expect(url).toContain("token=");
+        urls.forEach((entry) => {
+          expect(entry.url).toContain(`${getMuxImageOrigin()}/${playbackId}/thumbnail.png`);
+          expect(entry.url).toContain("token=");
         });
 
         // Verify the first URL is accessible
-        const response = await fetch(urls[0], { method: "HEAD" });
+        const response = await fetch(urls[0].url, { method: "HEAD" });
         expect(response.ok).toBe(true);
       });
     });
