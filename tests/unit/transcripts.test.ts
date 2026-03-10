@@ -1,3 +1,4 @@
+import dedent from "dedent";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -218,16 +219,17 @@ describe("extractTextFromVTT", () => {
   });
 
   it("skips cue identifiers without dropping single-word cue text", () => {
-    const vttContent = `WEBVTT
+    const vttContent = dedent`
+      WEBVTT
 
-1
-00:00:00.000 --> 00:00:02.000
-Hello
+      1
+      00:00:00.000 --> 00:00:02.000
+      Hello
 
-2
-00:00:02.000 --> 00:00:04.000
-World
-`;
+      2
+      00:00:02.000 --> 00:00:04.000
+      World
+    `;
 
     const result = extractTextFromVTT(vttContent);
 
@@ -235,19 +237,40 @@ World
   });
 
   it("preserves numeric cue text when malformed VTT omits blank lines", () => {
-    const vttContent = `WEBVTT
+    const vttContent = dedent`
+      WEBVTT
 
-00:00:00.000 --> 00:00:02.000
-3
-00:00:02.000 --> 00:00:04.000
-2
-00:00:04.000 --> 00:00:06.000
-1
-`;
+      00:00:00.000 --> 00:00:02.000
+      3
+      00:00:02.000 --> 00:00:04.000
+      2
+      00:00:04.000 --> 00:00:06.000
+      1
+    `;
 
     const result = extractTextFromVTT(vttContent);
 
     expect(result).toBe("3 2 1");
+  });
+
+  it("skips standalone NOTE blocks", () => {
+    const vttContent = dedent`
+      WEBVTT
+
+      NOTE
+      This is a note about the file.
+      Another note line.
+
+      00:00:00.000 --> 00:00:02.000
+      Hello
+
+      00:00:02.000 --> 00:00:04.000
+      World
+    `;
+
+    const result = extractTextFromVTT(vttContent);
+
+    expect(result).toBe("Hello World");
   });
 });
 
@@ -257,15 +280,16 @@ World
 
 describe("parseVTTCues", () => {
   it("parses cues even when a blank line between cues is missing", () => {
-    const vttContent = `WEBVTT
+    const vttContent = dedent`
+      WEBVTT
 
-1
-00:00:00.000 --> 00:00:02.000
-Hello there.
-2
-00:00:02.000 --> 00:00:04.000
-General Kenobi.
-`;
+      1
+      00:00:00.000 --> 00:00:02.000
+      Hello there.
+      2
+      00:00:02.000 --> 00:00:04.000
+      General Kenobi.
+    `;
 
     const cues = parseVTTCues(vttContent);
 
@@ -275,18 +299,19 @@ General Kenobi.
   });
 
   it("does not drop single-word cue text when malformed VTT omits blank lines and cue identifiers", () => {
-    const vttContent = `WEBVTT
+    const vttContent = dedent`
+      WEBVTT
 
-00:00:00.000 --> 00:00:02.000
-Hello
-00:00:02.000 --> 00:00:04.000
-Yes
-00:00:04.000 --> 00:00:06.000
-Line one
-Stop
-00:00:06.000 --> 00:00:08.000
-Done.
-`;
+      00:00:00.000 --> 00:00:02.000
+      Hello
+      00:00:02.000 --> 00:00:04.000
+      Yes
+      00:00:04.000 --> 00:00:06.000
+      Line one
+      Stop
+      00:00:06.000 --> 00:00:08.000
+      Done.
+    `;
 
     const cues = parseVTTCues(vttContent);
 
@@ -298,15 +323,16 @@ Done.
   });
 
   it("preserves numeric cue text when malformed VTT omits blank lines", () => {
-    const vttContent = `WEBVTT
+    const vttContent = dedent`
+      WEBVTT
 
-00:00:00.000 --> 00:00:02.000
-3
-00:00:02.000 --> 00:00:04.000
-2
-00:00:04.000 --> 00:00:06.000
-1
-`;
+      00:00:00.000 --> 00:00:02.000
+      3
+      00:00:02.000 --> 00:00:04.000
+      2
+      00:00:04.000 --> 00:00:06.000
+      1
+    `;
 
     const cues = parseVTTCues(vttContent);
 
@@ -317,28 +343,29 @@ Done.
   });
 
   it("ignores STYLE blocks and strips inline language and voice tags", () => {
-    const vttContent = `WEBVTT
+    const vttContent = dedent`
+      WEBVTT
 
-STYLE
-::cue([lang="en-US"]) {
-color: yellow;
-}
-::cue(lang[lang="en-GB"]) {
-color: cyan;
-}
-::cue(v[voice="Salame"]) {
-color: lime;
-}
+      STYLE
+      ::cue([lang="en-US"]) {
+      color: yellow;
+      }
+      ::cue(lang[lang="en-GB"]) {
+      color: cyan;
+      }
+      ::cue(v[voice="Salame"]) {
+      color: lime;
+      }
 
-00:00:00.000 --> 00:00:08.000
-Yellow!
+      00:00:00.000 --> 00:00:08.000
+      Yellow!
 
-00:00:08.000 --> 00:00:16.000
-<lang en-GB>Cyan!</lang>
+      00:00:08.000 --> 00:00:16.000
+      <lang en-GB>Cyan!</lang>
 
-00:00:16.000 --> 00:00:24.000
-I like <v Salame>lime.</v>
-`;
+      00:00:16.000 --> 00:00:24.000
+      I like <v Salame>lime.</v>
+    `;
 
     const cues = parseVTTCues(vttContent);
 
@@ -349,80 +376,84 @@ I like <v Salame>lime.</v>
   });
 });
 
-const SAMPLE_VTT = `WEBVTT
+const SAMPLE_VTT = dedent`
+  WEBVTT
 
-NOTE
-This note should be preserved in the final stitched transcript.
+  NOTE
+  This note should be preserved in the final stitched transcript.
 
-1
-00:00:00.000 --> 00:05:00.000
-Hello there.
+  1
+  00:00:00.000 --> 00:05:00.000
+  Hello there.
 
-2
-00:05:00.000 --> 00:10:00.000
-This is the second sentence.
+  2
+  00:05:00.000 --> 00:10:00.000
+  This is the second sentence.
 
-3
-00:10:00.000 --> 00:15:00.000
-This clause continues,
+  3
+  00:10:00.000 --> 00:15:00.000
+  This clause continues,
 
-4
-00:15:00.000 --> 00:20:00.000
-but now it finishes.
+  4
+  00:15:00.000 --> 00:20:00.000
+  but now it finishes.
 
-5
-00:20:02.000 --> 00:25:00.000
-New paragraph starts here.
+  5
+  00:20:02.000 --> 00:25:00.000
+  New paragraph starts here.
 
-6
-00:25:00.000 --> 00:30:00.000
-And it ends cleanly.
+  6
+  00:25:00.000 --> 00:30:00.000
+  And it ends cleanly.
 
-7
-00:30:00.000 --> 00:35:00.000
-Final wrap-up sentence.
+  7
+  00:30:00.000 --> 00:35:00.000
+  Final wrap-up sentence.
 `;
 
-const TITLE_CRAWL_VTT = `WEBVTT
+const TITLE_CRAWL_VTT = dedent`
+  WEBVTT
 
-1 - Title Crawl
-00:05.000 --> 00:09.000 line:0 position:20% size:60% align:start
-Because:
-- It will perforate your stomach.
-- You could die.
+  1 - Title Crawl
+  00:05.000 --> 00:09.000 line:0 position:20% size:60% align:start
+  Because:
+  - It will perforate your stomach.
+  - You could die.
 `;
 
-const STYLED_VTT = `WEBVTT
+const STYLED_VTT = dedent`
+  WEBVTT
 
-STYLE
-::cue([lang="en-US"]) {
-color: yellow;
-}
-::cue(lang[lang="en-GB"]) {
-color: cyan;
-}
-::cue(v[voice="Salame"]) {
-color: lime;
-}
+  STYLE
+  ::cue([lang="en-US"]) {
+  color: yellow;
+  }
+  ::cue(lang[lang="en-GB"]) {
+  color: cyan;
+  }
+  ::cue(v[voice="Salame"]) {
+  color: lime;
+  }
 
-00:00:00.000 --> 00:00:08.000
-Yellow!
+  00:00:00.000 --> 00:00:08.000
+  Yellow!
 
-00:00:08.000 --> 00:00:16.000
-<lang en-GB>Cyan!</lang>
+  00:00:08.000 --> 00:00:16.000
+  <lang en-GB>Cyan!</lang>
 
-00:00:16.000 --> 00:00:24.000
-I like <v Salame>lime.</v>
+  00:00:16.000 --> 00:00:24.000
+  I like <v Salame>lime.</v>
 `;
 
-const MALFORMED_COUNTDOWN_VTT = `WEBVTT
+const MALFORMED_COUNTDOWN_VTT = dedent`
+  WEBVTT
 
-00:00:00.000 --> 00:00:02.000
-3
-00:00:02.000 --> 00:00:04.000
-2
-00:00:04.000 --> 00:00:06.000
-1
+  00:00:00.000 --> 00:00:02.000
+  3
+  00:00:02.000 --> 00:00:04.000
+  2
+  00:00:04.000 --> 00:00:06.000
+  1
 `;
 
 describe("splitVttPreambleAndCueBlocks", () => {

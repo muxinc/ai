@@ -128,17 +128,24 @@ export function extractTextFromVTT(vttContent: string): string {
   const lines = vttContent.split("\n");
   const textLines: string[] = [];
   let previousCueIdentifier: number | null = null;
+  let isInsideNoteBlock = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
     const nextLine = lines[i + 1]?.trim();
 
-    if (!line)
+    if (!line) {
+      isInsideNoteBlock = false;
+      continue;
+    }
+    if (isInsideNoteBlock)
       continue;
     if (line === "WEBVTT")
       continue;
-    if (line.startsWith("NOTE "))
+    if (line === "NOTE" || line.startsWith("NOTE ")) {
+      isInsideNoteBlock = true;
       continue;
+    }
     if (isTimingLine(line))
       continue;
     if (isLikelyCueIdentifier({ line, nextLine, previousCueIdentifier })) {
