@@ -246,6 +246,56 @@ player.addChapters(result.chapters);
 - Asset must have a ready caption/transcript track in the specified language
 - Uses existing auto-generated or uploaded captions/transcripts
 
+## Scene Generation
+
+Generate AI-powered scene boundaries by combining shot detection with timestamped transcript cues.
+
+Unlike chaptering, scene generation is grounded in visual structure first. The workflow waits for Mux shot detection, aligns each shot span to overlapping WebVTT cues, and asks the model to group those windows into coherent scenes. This helps avoid treating every camera cut as a new scene while still using visual anchors to detect meaningful transitions.
+
+```typescript
+import { generateScenes } from "@mux/ai/workflows";
+
+const result = await generateScenes("your-mux-asset-id", "en", {
+  provider: "openai",
+  promptOverrides: {
+    boundaryGuidelines: "Prefer broader scenes unless the narrative clearly shifts.",
+    titleGuidelines: "Use short, cinematic titles under 5 words."
+  }
+});
+
+console.log(result.scenes);
+// Array of {startTime: number, endTime: number, title: string}
+```
+
+### Requirements
+
+- Asset must be a video asset
+- Asset must have a ready caption/transcript track in the specified language
+- Asset must have available shots, or allow the workflow to create them
+
+### Prompt Customization
+
+`generateScenes` supports `promptOverrides` so consumers can steer segmentation behavior without replacing the whole workflow prompt.
+
+Available sections:
+
+- `task`
+- `outputFormat`
+- `sceneGuidelines`
+- `boundaryGuidelines`
+- `titleGuidelines`
+
+Example:
+
+```typescript
+const result = await generateScenes(assetId, "en", {
+  promptOverrides: {
+    sceneGuidelines: "Favor fewer, broader scenes for continuous talking-head content.",
+    titleGuidelines: "Use concise editorial titles with no more than 4 words."
+  }
+});
+```
+
 ## Embeddings
 
 Generate vector embeddings for semantic search over video or audio transcripts.

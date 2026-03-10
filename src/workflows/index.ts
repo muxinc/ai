@@ -3,6 +3,7 @@ export * from "./burned-in-captions";
 export * from "./chapters";
 export * from "./embeddings";
 export * from "./moderation";
+export * from "./scenes";
 export * from "./summarization";
 export * from "./translate-audio";
 export * from "./translate-captions";

@@ -27,6 +27,10 @@ You can run examples directly from the project root without installing dependenc
 npm run example:chapters <asset-id> [language-code] [provider]
 npm run example:chapters:compare <asset-id> [language-code]
 
+# Scenes
+npm run example:scenes <asset-id> -- --language en --provider openai
+npm run example:scenes:compare <asset-id> -- --language en
+
 # Burned-in Caption Detection
 npm run example:burned-in <asset-id> [provider]
 npm run example:burned-in:compare <asset-id>
@@ -71,6 +75,12 @@ npm run example:ask-questions:multiple abc123 "Does this video contain people?" 
 
 # Compare OpenAI vs Anthropic chapter generation
 npm run example:chapters:compare abc123 en
+
+# Generate scenes with broader segmentation
+npm run example:scenes abc123 -- --language en --provider openai --broad
+
+# Compare scene generation across providers
+npm run example:scenes:compare abc123 -- --language en
 
 # Run moderation analysis with Hive
 npm run example:moderation abc123 hive
@@ -181,6 +191,28 @@ cd examples/chapters
 npm install
 npm run chapters:basic <your-asset-id> [language-code] [provider]
 npm run compare <your-asset-id> [language-code]
+```
+
+## Scene Generation Examples
+
+- **Basic Scenes**: Generate shot-guided scene boundaries with titles
+- **Provider Comparison**: Compare OpenAI vs Anthropic vs Google scene generation
+
+```bash
+cd examples/scenes
+npm install
+npm run basic <your-asset-id> -- --language en --provider openai
+npm run compare <your-asset-id> -- --language en
+```
+
+The basic example also supports:
+
+```bash
+# Generate titles in another language
+npm run example:scenes abc123 -- --language en --output-language es
+
+# Ask for broader, less granular sceneing
+npm run example:scenes abc123 -- --language en --broad
 ```
 
 ## Caption Translation Examples
