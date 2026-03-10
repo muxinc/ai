@@ -223,6 +223,119 @@ const withAudio = await askQuestions(assetId, [
 
 The AI will prioritize visual evidence when transcript and visuals conflict.
 
+## Engagement Insights
+
+Generate AI-powered explanations of viewer engagement patterns by analyzing hotspot data, heatmap statistics, visual frames, and transcripts.
+
+```typescript
+import { generateEngagementInsights } from "@mux/ai/workflows";
+
+const result = await generateEngagementInsights("your-mux-asset-id", {
+  provider: "openai",
+  insightType: "both",
+  hotspotLimit: 5
+});
+
+// Per-moment insights
+result.momentInsights.forEach(insight => {
+  console.log(`${insight.timestamp}: ${insight.insight}`);
+  if (insight.recommendation) {
+    console.log(`  → ${insight.recommendation}`);
+  }
+});
+
+// Overall analysis
+console.log(result.overallInsight.summary);
+console.log("Trends:", result.overallInsight.trends);
+```
+
+### Requirements
+
+- Asset must have engagement data (views with re-watch activity)
+- Engagement data is pulled from the specified timeframe (default: 7 days)
+- For audio-only assets, visual analysis is skipped
+
+### Configuration Options
+
+```typescript
+const result = await generateEngagementInsights(assetId, {
+  provider: "openai", // "openai", "anthropic", or "google"
+  hotspotLimit: 5, // Number of moments to analyze (1-10, default: 5)
+  insightType: "informational", // "informational" | "actionable" | "both"
+  timeframe: "[7:days]" // "[1:hour]", "[24:hours]", "[7:days]", "[30:days]"
+});
+```
+
+**Insight Types:**
+
+- **`informational`** (default): Explains *why* moments are engaging
+  - Example: *"The cooking demonstration at 2:15 has 3x average engagement because it shows the key technique viewers are searching for."*
+
+- **`actionable`**: Provides recommendations for content optimization
+  - Example: *"Engagement drops 40% after the intro, suggesting the pacing could be improved by moving the demonstration earlier."*
+
+- **`both`**: Combines explanation and recommendations
+  - Includes both insight and recommendation fields in moment insights
+  - Overall insight includes both trends and recommendations
+
+### How It Works
+
+The workflow combines multiple data sources for comprehensive analysis:
+
+1. **Fetches engagement data** - Both peaks (high engagement) and valleys (low engagement) from Mux Data API
+2. **Computes heatmap statistics** - Average engagement, peaks, drops >25%, and trends
+3. **Extracts visual context** - Generates thumbnails at hotspot timestamps
+4. **Analyzes transcript** - Matches transcript segments to engagement moments
+5. **Generates AI insights** - Explains patterns based on observable evidence
+
+### Output Structure
+
+```typescript
+{
+  assetId: "abc123",
+  momentInsights: [
+    {
+      startMs: 86922,
+      endMs: 90331,
+      timestamp: "1:26",
+      engagementScore: 0.875, // 0-1 normalized score
+      type: "high", // "high" or "low"
+      insight: "The cooking demonstration shows...",
+      recommendation: "Consider expanding technique demonstrations...", // Optional
+      confidence: 0.92 // 0-1 confidence score
+    }
+  ],
+  overallInsight: {
+    summary: "This video has strong engagement during...",
+    trends: [
+      "Engagement peaks during visual demonstrations",
+      "Significant 40% drop after intro"
+    ],
+    recommendations: [ // Optional (if insightType is "actionable" or "both")
+      "Front-load demonstrations earlier in the video",
+      "Shorten intro segments"
+    ]
+  },
+  usage: {...} // Token usage stats
+}
+```
+
+### Use Cases
+
+- **Content Optimization**: Identify what works and what doesn't in your videos
+- **Audience Analysis**: Understand which content types drive re-watching
+- **Pacing Improvements**: Find moments where viewers drop off
+- **A/B Testing**: Compare engagement patterns across video variations
+- **Creator Insights**: Provide actionable feedback to content creators
+
+### Best Practices
+
+- Use a **7-day timeframe** (default) for stable engagement data
+- Increase **timeframe** for newer videos that haven't accumulated views
+- Set **`insightType: "both"`** for comprehensive analysis
+- Videos need sufficient view data - new or low-view videos may not have engagement data
+- Audio-only assets work but lack visual analysis
+
 ## Chapter Generation
 
 Generate AI-powered chapter markers from video or audio transcripts.
