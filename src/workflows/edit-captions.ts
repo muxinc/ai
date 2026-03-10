@@ -65,6 +65,8 @@ export interface EditCaptionsOptions<P extends SupportedProvider = SupportedProv
   s3Region?: string;
   /** Bucket that will store edited VTT files. */
   s3Bucket?: string;
+  /** Suffix appended to the original track name, e.g. "edited" produces "Subtitles (edited)". Defaults to "edited". */
+  trackNameSuffix?: string;
 }
 
 /** Output returned from `editCaptions`. */
@@ -392,6 +394,7 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
     s3Endpoint: providedS3Endpoint,
     s3Region: providedS3Region,
     s3Bucket: providedS3Bucket,
+    trackNameSuffix: providedTrackNameSuffix,
     storageAdapter,
     credentials: providedCredentials,
   } = options;
@@ -560,7 +563,8 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
 
   try {
     const languageCode = sourceTrack.language_code || "en";
-    const trackName = `${sourceTrack.name || "Subtitles"} (edited)`;
+    const suffix = providedTrackNameSuffix ?? "edited";
+    const trackName = `${sourceTrack.name || "Subtitles"} (${suffix})`;
 
     uploadedTrackId = await createTextTrackOnMux(
       assetId,

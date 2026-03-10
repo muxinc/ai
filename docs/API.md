@@ -318,6 +318,7 @@ Edits a caption track using LLM-powered profanity censorship, static find/replac
 - `s3Endpoint?: string` - S3-compatible storage endpoint
 - `s3Region?: string` - S3 region (default: 'auto')
 - `s3Bucket?: string` - S3 bucket name
+- `trackNameSuffix?: string` - Suffix appended to the original track name in parentheses (default: 'edited', e.g. "Subtitles (edited)")
 - `storageAdapter?: StorageAdapter` - Optional adapter with `putObject` and `createPresignedGetUrl` methods
 
 At least one of `autoCensorProfanity` or `replacements` must be provided.
