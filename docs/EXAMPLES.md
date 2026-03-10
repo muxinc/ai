@@ -201,10 +201,11 @@ npm run aws-sdk-adapter <your-asset-id> -- --s3-bucket <bucket-name>
 
 1. Fetches existing captions from Mux asset
 2. Translates VTT content using your selected provider (default: Claude Sonnet 4.5)
-3. Uploads translated VTT to S3-compatible storage
-4. Generates presigned URL (1-hour expiry)
-5. Adds new subtitle track to Mux asset
-6. Track name: "{Language} (auto-translated)"
+3. Uses built-in VTT-aware chunking for longer assets by default, while keeping shorter assets in a single request
+4. Uploads translated VTT to S3-compatible storage
+5. Generates presigned URL (1-hour expiry)
+6. Adds new subtitle track to Mux asset
+7. Track name: "{Language} (auto-translated)"
 
 > **💡 Tip:** After translation completes, verify your new subtitle tracks at `https://player.mux.com/{PLAYBACK_ID}`
 

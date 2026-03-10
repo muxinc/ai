@@ -326,6 +326,25 @@ console.log(result.presignedUrl); // S3 file URL
 console.log(result.translatedVtt); // Translated VTT content
 ```
 
+By default, `translateCaptions` uses VTT-aware chunking for longer assets. It prefers a single request for shorter media, then splits larger translations by cue-aligned chunks and rebuilds the final VTT locally.
+
+```typescript
+// Override chunking behavior for large assets
+const result = await translateCaptions("your-mux-asset-id", "en", "es", {
+  provider: "anthropic",
+  chunking: {
+    enabled: true,
+    minimumAssetDurationSeconds: 20 * 60,
+    targetChunkDurationSeconds: 15 * 60,
+    maxConcurrentTranslations: 3,
+    maxCuesPerChunk: 60,
+    maxCueTextTokensPerChunk: 1500,
+  },
+});
+```
+
+Set `chunking.enabled` to `false` if you want to force a single structured translation request for the full caption file.
+
 ### S3-Compatible Storage Requirements
 
 Caption translation requires S3-compatible storage to host VTT files for Mux ingestion.
