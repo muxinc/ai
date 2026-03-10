@@ -468,17 +468,17 @@ Replacements use word-boundary matching and are case-sensitive.
 
 ### Application Order
 
-1. Static `replacements` applied first (deterministic, no LLM)
-2. `autoCensorProfanity` applied second (LLM analyses the *original* text, censorship applied to post-replacement VTT)
+1. `autoCensorProfanity` applied first (LLM analyses original text, censorship applied to VTT)
+2. Static `replacements` applied second (deterministic, operates on the post-censorship VTT)
 
 ### How It Works
 
 1. Downloads the VTT caption track from Mux
-2. Applies static replacements (if provided) using word-boundary regex
-3. Extracts plain text from the *original* VTT and sends it to the LLM for profanity detection (if `autoCensorProfanity` is set)
-4. The LLM returns a list of profane words (not a rewritten VTT) — this guarantees format preservation
-5. Merges `alwaysCensor` and filters `neverCensor` from the detected list
-6. Applies profanity censorship on the (possibly already replaced) VTT
+2. Extracts plain text from the original VTT and sends it to the LLM for profanity detection (if `autoCensorProfanity` is set)
+3. The LLM returns a list of profane words (not a rewritten VTT) — this guarantees format preservation
+4. Merges `alwaysCensor` and filters `neverCensor` from the detected list
+5. Applies profanity censorship to the VTT
+6. Applies static replacements (if provided) using word-boundary regex
 7. Uploads the edited VTT to S3 and creates a new track on Mux
 8. Deletes the original track (configurable)
 

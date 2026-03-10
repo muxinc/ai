@@ -465,16 +465,7 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
   let editedVtt = vttContent;
   let totalReplacementCount = 0;
 
-  // 1. Apply static replacements first (deterministic, no LLM)
-  let replacementsResult: { replacementCount: number } | undefined;
-  if (replacementsOption && replacementsOption.length > 0) {
-    const { editedVtt: afterReplacements, replacementCount } = applyReplacements(editedVtt, replacementsOption);
-    editedVtt = afterReplacements;
-    totalReplacementCount += replacementCount;
-    replacementsResult = { replacementCount };
-  }
-
-  // 2. Apply autoCensorProfanity second (LLM-powered)
+  // 1. LLM-powered profanity censorship first (analyses original text)
   let autoCensorResult: { censoredWords: string[]; replacementCount: number } | undefined;
   let usage: TokenUsage | undefined;
   if (autoCensorOption) {
@@ -482,7 +473,6 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
     const alwaysCensor = autoCensorOption.alwaysCensor ?? [];
     const neverCensor = autoCensorOption.neverCensor ?? [];
 
-    // Extract plain text from original VTT for LLM analysis
     const plainText = extractTextFromVTT(vttContent);
     if (!plainText.trim()) {
       throw new Error("Track transcript is empty; nothing to censor.");
@@ -494,7 +484,6 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
       model,
     });
 
-    // Identify profanity via LLM
     let detectedProfanity: string[];
     try {
       const result = await identifyProfanityWithAI({
@@ -509,14 +498,21 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
       throw new Error(`Failed to detect profanity with ${modelConfig.provider}: ${error instanceof Error ? error.message : "Unknown error"}`);
     }
 
-    // Apply override lists
     const finalProfanity = applyOverrideLists(detectedProfanity, alwaysCensor, neverCensor);
 
-    // Apply censorship to the (possibly already replaced) VTT
     const { censoredVtt, replacementCount } = censorVttContent(editedVtt, finalProfanity, mode);
     editedVtt = censoredVtt;
     totalReplacementCount += replacementCount;
     autoCensorResult = { censoredWords: finalProfanity, replacementCount };
+  }
+
+  // 2. Static replacements applied after censorship
+  let replacementsResult: { replacementCount: number } | undefined;
+  if (replacementsOption && replacementsOption.length > 0) {
+    const { editedVtt: afterReplacements, replacementCount } = applyReplacements(editedVtt, replacementsOption);
+    editedVtt = afterReplacements;
+    totalReplacementCount += replacementCount;
+    replacementsResult = { replacementCount };
   }
 
   const usageWithMetadata = usage ?
