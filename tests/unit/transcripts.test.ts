@@ -1,8 +1,14 @@
+import dedent from "dedent";
 import { describe, expect, it } from "vitest";
 
 import {
+  buildVttFromCueBlocks,
+  buildVttFromTranslatedCueBlocks,
+  concatenateVttSegments,
   extractTextFromVTT,
+  parseVTTCues,
   secondsToTimestamp,
+  splitVttPreambleAndCueBlocks,
   vttTimestampToSeconds,
 } from "../../src/primitives/transcripts";
 
@@ -210,5 +216,340 @@ describe("extractTextFromVTT", () => {
     expect(result).toContain("[0s] Hey, what's up everybody, I'm Victor Boutté, a software engineer over at Mux.");
     expect(result).toContain("[504s] and it gives me a great excuse to show off some of the fun stuff that I'm working on.");
     expect(result.includes("\n")).toBe(false);
+  });
+
+  it("skips cue identifiers without dropping single-word cue text", () => {
+    const vttContent = dedent`
+      WEBVTT
+
+      1
+      00:00:00.000 --> 00:00:02.000
+      Hello
+
+      2
+      00:00:02.000 --> 00:00:04.000
+      World
+    `;
+
+    const result = extractTextFromVTT(vttContent);
+
+    expect(result).toBe("Hello World");
+  });
+
+  it("preserves numeric cue text when malformed VTT omits blank lines", () => {
+    const vttContent = dedent`
+      WEBVTT
+
+      00:00:00.000 --> 00:00:02.000
+      3
+      00:00:02.000 --> 00:00:04.000
+      2
+      00:00:04.000 --> 00:00:06.000
+      1
+    `;
+
+    const result = extractTextFromVTT(vttContent);
+
+    expect(result).toBe("3 2 1");
+  });
+
+  it("skips standalone NOTE blocks", () => {
+    const vttContent = dedent`
+      WEBVTT
+
+      NOTE
+      This is a note about the file.
+      Another note line.
+
+      00:00:00.000 --> 00:00:02.000
+      Hello
+
+      00:00:02.000 --> 00:00:04.000
+      World
+    `;
+
+    const result = extractTextFromVTT(vttContent);
+
+    expect(result).toBe("Hello World");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// parseVTTCues
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("parseVTTCues", () => {
+  it("parses cues even when a blank line between cues is missing", () => {
+    const vttContent = dedent`
+      WEBVTT
+
+      1
+      00:00:00.000 --> 00:00:02.000
+      Hello there.
+      2
+      00:00:02.000 --> 00:00:04.000
+      General Kenobi.
+    `;
+
+    const cues = parseVTTCues(vttContent);
+
+    expect(cues).toHaveLength(2);
+    expect(cues[0].text).toBe("Hello there.");
+    expect(cues[1].text).toBe("General Kenobi.");
+  });
+
+  it("does not drop single-word cue text when malformed VTT omits blank lines and cue identifiers", () => {
+    const vttContent = dedent`
+      WEBVTT
+
+      00:00:00.000 --> 00:00:02.000
+      Hello
+      00:00:02.000 --> 00:00:04.000
+      Yes
+      00:00:04.000 --> 00:00:06.000
+      Line one
+      Stop
+      00:00:06.000 --> 00:00:08.000
+      Done.
+    `;
+
+    const cues = parseVTTCues(vttContent);
+
+    expect(cues).toHaveLength(4);
+    expect(cues[0].text).toBe("Hello");
+    expect(cues[1].text).toBe("Yes");
+    expect(cues[2].text).toBe("Line one Stop");
+    expect(cues[3].text).toBe("Done.");
+  });
+
+  it("preserves numeric cue text when malformed VTT omits blank lines", () => {
+    const vttContent = dedent`
+      WEBVTT
+
+      00:00:00.000 --> 00:00:02.000
+      3
+      00:00:02.000 --> 00:00:04.000
+      2
+      00:00:04.000 --> 00:00:06.000
+      1
+    `;
+
+    const cues = parseVTTCues(vttContent);
+
+    expect(cues).toHaveLength(3);
+    expect(cues[0].text).toBe("3");
+    expect(cues[1].text).toBe("2");
+    expect(cues[2].text).toBe("1");
+  });
+
+  it("ignores STYLE blocks and strips inline language and voice tags", () => {
+    const vttContent = dedent`
+      WEBVTT
+
+      STYLE
+      ::cue([lang="en-US"]) {
+      color: yellow;
+      }
+      ::cue(lang[lang="en-GB"]) {
+      color: cyan;
+      }
+      ::cue(v[voice="Salame"]) {
+      color: lime;
+      }
+
+      00:00:00.000 --> 00:00:08.000
+      Yellow!
+
+      00:00:08.000 --> 00:00:16.000
+      <lang en-GB>Cyan!</lang>
+
+      00:00:16.000 --> 00:00:24.000
+      I like <v Salame>lime.</v>
+    `;
+
+    const cues = parseVTTCues(vttContent);
+
+    expect(cues).toHaveLength(3);
+    expect(cues[0].text).toBe("Yellow!");
+    expect(cues[1].text).toBe("Cyan!");
+    expect(cues[2].text).toBe("I like lime.");
+  });
+});
+
+const SAMPLE_VTT = dedent`
+  WEBVTT
+
+  NOTE
+  This note should be preserved in the final stitched transcript.
+
+  1
+  00:00:00.000 --> 00:05:00.000
+  Hello there.
+
+  2
+  00:05:00.000 --> 00:10:00.000
+  This is the second sentence.
+
+  3
+  00:10:00.000 --> 00:15:00.000
+  This clause continues,
+
+  4
+  00:15:00.000 --> 00:20:00.000
+  but now it finishes.
+
+  5
+  00:20:02.000 --> 00:25:00.000
+  New paragraph starts here.
+
+  6
+  00:25:00.000 --> 00:30:00.000
+  And it ends cleanly.
+
+  7
+  00:30:00.000 --> 00:35:00.000
+  Final wrap-up sentence.
+`;
+
+const TITLE_CRAWL_VTT = dedent`
+  WEBVTT
+
+  1 - Title Crawl
+  00:05.000 --> 00:09.000 line:0 position:20% size:60% align:start
+  Because:
+  - It will perforate your stomach.
+  - You could die.
+`;
+
+const STYLED_VTT = dedent`
+  WEBVTT
+
+  STYLE
+  ::cue([lang="en-US"]) {
+  color: yellow;
+  }
+  ::cue(lang[lang="en-GB"]) {
+  color: cyan;
+  }
+  ::cue(v[voice="Salame"]) {
+  color: lime;
+  }
+
+  00:00:00.000 --> 00:00:08.000
+  Yellow!
+
+  00:00:08.000 --> 00:00:16.000
+  <lang en-GB>Cyan!</lang>
+
+  00:00:16.000 --> 00:00:24.000
+  I like <v Salame>lime.</v>
+`;
+
+const MALFORMED_COUNTDOWN_VTT = dedent`
+  WEBVTT
+
+  00:00:00.000 --> 00:00:02.000
+  3
+  00:00:02.000 --> 00:00:04.000
+  2
+  00:00:04.000 --> 00:00:06.000
+  1
+`;
+
+describe("splitVttPreambleAndCueBlocks", () => {
+  it("separates preamble metadata from cue blocks", () => {
+    const result = splitVttPreambleAndCueBlocks(SAMPLE_VTT);
+
+    expect(result.preamble).toContain("WEBVTT");
+    expect(result.preamble).toContain("NOTE");
+    expect(result.cueBlocks).toHaveLength(7);
+    expect(result.cueBlocks[0]).toContain("00:00:00.000 --> 00:05:00.000");
+  });
+
+  it("keeps STYLE blocks in the preamble and still extracts cue blocks", () => {
+    const result = splitVttPreambleAndCueBlocks(STYLED_VTT);
+
+    expect(result.preamble).toContain("STYLE");
+    expect(result.preamble).toContain("::cue([lang=\"en-US\"])");
+    expect(result.cueBlocks).toHaveLength(3);
+    expect(result.cueBlocks[1]).toContain("<lang en-GB>Cyan!</lang>");
+  });
+
+  it("separates cue blocks when malformed VTT omits blank lines and cue text is numeric", () => {
+    const result = splitVttPreambleAndCueBlocks(MALFORMED_COUNTDOWN_VTT);
+
+    expect(result.cueBlocks).toHaveLength(3);
+    expect(result.cueBlocks[0]).toContain("3");
+    expect(result.cueBlocks[1]).toContain("2");
+    expect(result.cueBlocks[2]).toContain("1");
+  });
+});
+
+describe("buildVttFromCueBlocks", () => {
+  it("builds a valid VTT document from cue blocks", () => {
+    const { preamble, cueBlocks } = splitVttPreambleAndCueBlocks(SAMPLE_VTT);
+    const rebuiltVtt = buildVttFromCueBlocks(cueBlocks.slice(0, 2), preamble);
+
+    expect(rebuiltVtt.startsWith("WEBVTT")).toBe(true);
+    expect(rebuiltVtt).toContain("00:00:00.000 --> 00:05:00.000");
+    expect(rebuiltVtt).not.toContain("00:10:00.000 --> 00:15:00.000");
+  });
+});
+
+describe("buildVttFromTranslatedCueBlocks", () => {
+  it("reuses original cue headers while replacing cue text", () => {
+    const { preamble, cueBlocks } = splitVttPreambleAndCueBlocks(SAMPLE_VTT);
+    const translatedVtt = buildVttFromTranslatedCueBlocks(
+      cueBlocks.slice(0, 2),
+      ["Bonjour a tous.", "Voici la deuxieme phrase."],
+      preamble,
+    );
+
+    expect(translatedVtt).toContain("00:00:00.000 --> 00:05:00.000");
+    expect(translatedVtt).toContain("Bonjour a tous.");
+    expect(translatedVtt).not.toContain("Hello there.");
+  });
+
+  it("preserves titled cue headers and timestamp settings for multiline cues", () => {
+    const { preamble, cueBlocks } = splitVttPreambleAndCueBlocks(TITLE_CRAWL_VTT);
+    const translatedVtt = buildVttFromTranslatedCueBlocks(
+      cueBlocks,
+      ["Because:\n- It will perforate your stomach.\n- You could die."],
+      preamble,
+    );
+
+    expect(cueBlocks).toHaveLength(1);
+    expect(translatedVtt).toContain("1 - Title Crawl");
+    expect(translatedVtt).toContain("00:05.000 --> 00:09.000 line:0 position:20% size:60% align:start");
+    expect(translatedVtt).toContain("- It will perforate your stomach.");
+    expect(translatedVtt).toContain("- You could die.");
+  });
+
+  it("preserves STYLE metadata while rebuilding styled VTT cue blocks", () => {
+    const { preamble, cueBlocks } = splitVttPreambleAndCueBlocks(STYLED_VTT);
+    const translatedVtt = buildVttFromTranslatedCueBlocks(
+      cueBlocks,
+      ["Yellow!", "Cyan!", "I like lime."],
+      preamble,
+    );
+
+    expect(translatedVtt).toContain("STYLE");
+    expect(translatedVtt).toContain("::cue(v[voice=\"Salame\"])");
+    expect(translatedVtt).toContain("00:00:16.000 --> 00:00:24.000");
+    expect(translatedVtt).toContain("I like lime.");
+  });
+});
+
+describe("concatenateVttSegments", () => {
+  it("stitches translated segments into a single VTT while keeping the original preamble", () => {
+    const { preamble, cueBlocks } = splitVttPreambleAndCueBlocks(SAMPLE_VTT);
+    const segmentOne = buildVttFromCueBlocks(cueBlocks.slice(0, 3), "WEBVTT");
+    const segmentTwo = buildVttFromCueBlocks(cueBlocks.slice(3), "WEBVTT");
+
+    const stitched = concatenateVttSegments([segmentOne, segmentTwo], preamble);
+
+    expect(stitched.startsWith("WEBVTT")).toBe(true);
+    expect(stitched).toContain("This note should be preserved");
+    expect(splitVttPreambleAndCueBlocks(stitched).cueBlocks).toHaveLength(7);
   });
 });

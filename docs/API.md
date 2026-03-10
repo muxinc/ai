@@ -256,6 +256,13 @@ Translates existing captions from one language to another and optionally adds th
 - `s3Region?: string` - S3 region (default: 'auto')
 - `s3Bucket?: string` - S3 bucket name
 - `storageAdapter?: StorageAdapter` - Optional adapter with `putObject` and `createPresignedGetUrl` methods
+- `chunking?: object` - Optional VTT-aware chunking controls for large caption translations
+  - `enabled?: boolean` - Set to `false` to translate all cues in a single structured request (default: `true`)
+  - `minimumAssetDurationSeconds?: number` - Prefer a single request until the asset is at least this long (default: `1800`)
+  - `targetChunkDurationSeconds?: number` - Soft target for chunk duration once chunking starts (default: `1800`)
+  - `maxConcurrentTranslations?: number` - Max number of concurrent translation requests when chunking (default: `4`)
+  - `maxCuesPerChunk?: number` - Hard cap for cues included in a single AI translation chunk (default: `80`)
+  - `maxCueTextTokensPerChunk?: number` - Approximate cap for cue text tokens included in a single AI translation chunk (default: `2000`)
 
 **Returns:**
 
@@ -276,6 +283,13 @@ interface TranslateCaptionsResult {
 
 **Supported Languages:**
 All ISO 639-1 language codes are automatically supported using `Intl.DisplayNames`. Examples: Spanish (es), French (fr), German (de), Italian (it), Portuguese (pt), Polish (pl), Japanese (ja), Korean (ko), Chinese (zh), Russian (ru), Arabic (ar), Hindi (hi), Thai (th), Swahili (sw), and many more.
+
+**Chunking Behavior:**
+
+- Chunking is enabled by default for `translateCaptions`
+- Shorter assets are translated in a single request until `minimumAssetDurationSeconds` is reached
+- When chunking is active, requests stay aligned to VTT cues and the final VTT is rebuilt locally
+- Chunk size is bounded by both cue count and approximate cue text token budget
 
 ## `generateChapters(assetId, languageCode, options?)`
 
