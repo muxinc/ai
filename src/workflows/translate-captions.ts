@@ -152,6 +152,20 @@ interface TranslationChunkRequest {
   cueBlocks: string[];
 }
 
+const TOKEN_USAGE_FIELDS = [
+  "inputTokens",
+  "outputTokens",
+  "totalTokens",
+  "reasoningTokens",
+  "cachedInputTokens",
+] as const;
+
+type AggregatedTokenUsageField = (typeof TOKEN_USAGE_FIELDS)[number];
+
+function isDefinedTokenUsageValue(value: number | undefined): value is number {
+  return typeof value === "number";
+}
+
 function resolveTranslationChunkingOptions(
   options?: TranslationChunkingOptions,
 ): Required<TranslationChunkingOptions> {
@@ -182,17 +196,22 @@ function resolveTranslationChunkingOptions(
   };
 }
 
-function aggregateTokenUsage(usages: TokenUsage[]): TokenUsage {
-  return usages.reduce<TokenUsage>(
-    (aggregate, usage) => ({
-      inputTokens: (aggregate.inputTokens ?? 0) + (usage.inputTokens ?? 0),
-      outputTokens: (aggregate.outputTokens ?? 0) + (usage.outputTokens ?? 0),
-      totalTokens: (aggregate.totalTokens ?? 0) + (usage.totalTokens ?? 0),
-      reasoningTokens: (aggregate.reasoningTokens ?? 0) + (usage.reasoningTokens ?? 0),
-      cachedInputTokens: (aggregate.cachedInputTokens ?? 0) + (usage.cachedInputTokens ?? 0),
-    }),
-    {},
-  );
+export function aggregateTokenUsage(usages: TokenUsage[]): TokenUsage {
+  return TOKEN_USAGE_FIELDS.reduce<TokenUsage>((aggregate, field) => {
+    // Only aggregate values that were explicitly reported by the provider so
+    // omitted fields stay undefined instead of being coerced to 0.
+    const values = usages
+      .map(usage => usage[field as AggregatedTokenUsageField])
+      .filter(isDefinedTokenUsageValue);
+
+    if (values.length > 0) {
+      // Sum this field independently and write it back only when at least one
+      // chunk included real data for it.
+      aggregate[field] = values.reduce((total, value) => total + value, 0);
+    }
+
+    return aggregate;
+  }, {});
 }
 
 function createTranslationChunkRequest(
@@ -313,7 +332,6 @@ async function translateVttWithAI({
   credentials,
 }: {
   vttContent: string;
-  assetDurationSeconds?: number;
   fromLanguageCode: string;
   toLanguageCode: string;
   provider: SupportedProvider;
