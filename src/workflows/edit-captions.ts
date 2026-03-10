@@ -436,7 +436,9 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
   } = options;
 
   // Validation
-  if (!autoCensorOption && !replacementsOption) {
+  const hasAutoCensor = !!autoCensorOption;
+  const hasReplacements = !!replacementsOption && replacementsOption.length > 0;
+  if (!hasAutoCensor && !hasReplacements) {
     throw new Error("At least one of autoCensorProfanity or replacements must be provided.");
   }
 
