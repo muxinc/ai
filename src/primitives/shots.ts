@@ -13,13 +13,18 @@ export interface PendingShotsResult {
   createdAt: string;
 }
 
+export interface ErroredShotsResult {
+  status: "errored";
+  createdAt: string;
+}
+
 export interface CompletedShotsResult {
   status: "completed";
   createdAt: string;
   shots: Shot[];
 }
 
-export type ShotsResult = PendingShotsResult | CompletedShotsResult;
+export type ShotsResult = PendingShotsResult | ErroredShotsResult | CompletedShotsResult;
 
 export interface ShotRequestOptions {
   /** Optional workflow credentials */
@@ -35,12 +40,17 @@ export interface WaitForShotsOptions extends ShotRequestOptions {
   createIfMissing?: boolean;
 }
 
-interface PendingShotLocationsApiData {
+interface PendingShotsApiData {
   status: "pending";
   created_at: string;
 }
 
-interface CompletedShotLocationsApiData {
+interface ErroredShotsApiData {
+  status: "errored";
+  created_at: string;
+}
+
+interface CompletedShotsApiData {
   status: "completed";
   created_at: string;
   shot_locations: Array<{
@@ -49,25 +59,32 @@ interface CompletedShotLocationsApiData {
   }>;
 }
 
-interface ShotLocationsApiResponse {
-  data: PendingShotLocationsApiData | CompletedShotLocationsApiData;
+interface ShotsApiResponse {
+  data: PendingShotsApiData | ErroredShotsApiData | CompletedShotsApiData;
 }
+
+type RequestShotsApiRequestBody = Record<string, never>;
 
 const DEFAULT_POLL_INTERVAL_MS = 2000;
 const DEFAULT_MAX_ATTEMPTS = 60;
 const SHOTS_ALREADY_REQUESTED_MESSAGE = "shots generation has already been requested";
 
-function getShotLocationsPath(assetId: string): string {
+function getShotsPath(assetId: string): string {
   return `/video/v1/assets/${assetId}/shot-locations`;
 }
 
 function transformShotsResponse(
-  response: ShotLocationsApiResponse,
+  response: ShotsApiResponse,
 ): ShotsResult {
   switch (response.data.status) {
     case "pending":
       return {
         status: "pending",
+        createdAt: response.data.created_at,
+      };
+    case "errored":
+      return {
+        status: "errored",
         createdAt: response.data.created_at,
       };
     case "completed":
@@ -102,7 +119,7 @@ function isShotsAlreadyRequestedError(error: unknown): boolean {
 }
 
 /**
- * Starts generating shot locations for an asset.
+ * Starts generating shots for an asset.
  *
  * @param assetId - The Mux asset ID
  * @param options - Request options
@@ -116,8 +133,8 @@ export async function requestShotsForAsset(
   const { credentials } = options;
   const muxClient = await getMuxClientFromEnv(credentials);
   const mux = await muxClient.createClient();
-  const response = await mux.post<Record<string, never>, ShotLocationsApiResponse>(
-    getShotLocationsPath(assetId),
+  const response = await mux.post<RequestShotsApiRequestBody, ShotsApiResponse>(
+    getShotsPath(assetId),
     { body: {} },
   );
   const result = transformShotsResponse(response);
@@ -136,7 +153,7 @@ export async function requestShotsForAsset(
  *
  * @param assetId - The Mux asset ID
  * @param options - Request options
- * @returns Pending or completed shot result
+ * @returns Pending, errored, or completed shot result
  */
 export async function getShotsForAsset(
   assetId: string,
@@ -146,8 +163,8 @@ export async function getShotsForAsset(
   const { credentials } = options;
   const muxClient = await getMuxClientFromEnv(credentials);
   const mux = await muxClient.createClient();
-  const response = await mux.get<unknown, ShotLocationsApiResponse>(
-    getShotLocationsPath(assetId),
+  const response = await mux.get<unknown, ShotsApiResponse>(
+    getShotsPath(assetId),
   );
 
   return transformShotsResponse(response);
@@ -192,6 +209,10 @@ export async function waitForShotsForAsset(
 
     if (result.status === "completed") {
       return result;
+    }
+
+    if (result.status === "errored") {
+      throw new Error(`Shots generation errored for asset '${assetId}'`);
     }
 
     if (attempt < normalizedMaxAttempts - 1) {

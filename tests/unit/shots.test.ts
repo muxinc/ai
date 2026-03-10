@@ -13,6 +13,13 @@ const MOCK_PENDING_RESPONSE = {
   },
 };
 
+const MOCK_ERRORED_RESPONSE = {
+  data: {
+    status: "errored" as const,
+    created_at: "1773108428",
+  },
+};
+
 const MOCK_COMPLETED_RESPONSE = {
   data: {
     status: "completed" as const,
@@ -123,6 +130,17 @@ describe("getShotsForAsset", () => {
     });
   });
 
+  it("returns transformed errored result", async () => {
+    mockMuxGet.mockResolvedValue(MOCK_ERRORED_RESPONSE);
+
+    const result = await getShotsForAsset("test-asset-123");
+
+    expect(result).toEqual({
+      status: "errored",
+      createdAt: "1773108428",
+    });
+  });
+
   it("constructs the correct GET path", async () => {
     mockMuxGet.mockResolvedValue(MOCK_PENDING_RESPONSE);
 
@@ -229,5 +247,23 @@ describe("waitForShotsForAsset", () => {
     await vi.runAllTimersAsync();
     await expectation;
     expect(mockMuxGet).toHaveBeenCalledTimes(3);
+  });
+
+  it("throws immediately when shots enter an errored terminal state", async () => {
+    vi.useFakeTimers();
+    mockMuxPost.mockResolvedValue(MOCK_PENDING_RESPONSE);
+    mockMuxGet.mockResolvedValue(MOCK_ERRORED_RESPONSE);
+
+    const promise = waitForShotsForAsset("test-asset-123", {
+      pollIntervalMs: 100,
+      maxAttempts: 3,
+    });
+    const expectation = expect(promise).rejects.toThrow(
+      "Shots generation errored for asset 'test-asset-123'",
+    );
+
+    await vi.runAllTimersAsync();
+    await expectation;
+    expect(mockMuxGet).toHaveBeenCalledTimes(1);
   });
 });
