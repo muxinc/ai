@@ -22,7 +22,7 @@ export interface ThumbnailOptions {
  * @param playbackId - The Mux playback ID
  * @param duration - Video duration in seconds
  * @param options - Thumbnail generation options
- * @returns Array of thumbnail URLs (signed if shouldSign is true)
+ * @returns Array of objects containing the thumbnail URL and its time in seconds
  */
 export async function getThumbnailUrls(
   playbackId: string,
