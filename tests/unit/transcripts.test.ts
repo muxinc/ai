@@ -236,4 +236,27 @@ General Kenobi.
     expect(cues[0].text).toBe("Hello there.");
     expect(cues[1].text).toBe("General Kenobi.");
   });
+
+  it("does not drop single-word cue text when malformed VTT omits blank lines and cue identifiers", () => {
+    const vttContent = `WEBVTT
+
+00:00:00.000 --> 00:00:02.000
+Hello
+00:00:02.000 --> 00:00:04.000
+Yes
+00:00:04.000 --> 00:00:06.000
+Line one
+Stop
+00:00:06.000 --> 00:00:08.000
+Done.
+`;
+
+    const cues = parseVTTCues(vttContent);
+
+    expect(cues).toHaveLength(4);
+    expect(cues[0].text).toBe("Hello");
+    expect(cues[1].text).toBe("Yes");
+    expect(cues[2].text).toBe("Line one Stop");
+    expect(cues[3].text).toBe("Done.");
+  });
 });

@@ -163,7 +163,7 @@ export function parseVTTCues(vttContent: string): VTTCue[] {
   const lines = vttContent.split("\n");
   const cues: VTTCue[] = [];
 
-  const isLikelyCueIdentifier = (line: string): boolean => /^[\w-]+$/.test(line) && !line.includes(" ");
+  const isLikelyCueIdentifier = (line: string): boolean => /^\d+$/.test(line);
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
@@ -181,7 +181,7 @@ export function parseVTTCues(vttContent: string): VTTCue[] {
         const nextLine = lines[j + 1]?.trim();
 
         // Some model-generated VTT output omits the blank line between cues.
-        // In that case, stop before consuming the next cue identifier as text.
+        // In that case, stop before consuming the next numeric cue identifier as text.
         if (isLikelyCueIdentifier(currentLine) && nextLine?.includes("-->")) {
           break;
         }
