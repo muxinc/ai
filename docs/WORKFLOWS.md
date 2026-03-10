@@ -430,9 +430,9 @@ Choose how profanity is replaced:
 
 | Mode | Example | Description |
 | --- | --- | --- |
-| `"blank"` (default) | `fuck` → `[____]` | Bracketed underscores matching word length |
-| `"remove"` | `fuck` → *(removed)* | Word removed entirely |
-| `"mask"` | `fuck` → `????` | Question marks matching word length |
+| `"blank"` (default) | `shit` → `[____]` | Bracketed underscores matching word length |
+| `"remove"` | `shit` → *(removed)* | Word removed entirely |
+| `"mask"` | `shit` → `????` | Question marks matching word length |
 
 #### Override Lists
 

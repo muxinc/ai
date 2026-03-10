@@ -223,10 +223,10 @@ npm run aws-sdk-adapter <your-asset-id> -- --s3-bucket <bucket-name>
 cd examples/edit-captions
 npm install
 
-# Censor profanity with blank mode (default) - "fuck" => "[____]"
+# Censor profanity with blank mode (default) - "shit" => "[____]"
 npm run basic <your-asset-id> <track-id>
 
-# Use mask mode - "fuck" => "????"
+# Use mask mode - "shit" => "????"
 npm run basic <your-asset-id> <track-id> -- --mode mask
 
 # Use a specific provider

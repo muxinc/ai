@@ -127,7 +127,7 @@ const result = await editCaptions("your-asset-id", "track-id", {
 });
 
 console.log(result.totalReplacementCount); // 8
-console.log(result.autoCensorProfanity?.censoredWords); // ["fuck", "shit", "brandname"]
+console.log(result.autoCensorProfanity?.censoredWords); // ["shit", "brandname"]
 ```
 
 **Semantic search embeddings:**

@@ -307,9 +307,9 @@ Edits a caption track using LLM-powered profanity censorship, static find/replac
 - `model?: string` - Model to use (defaults to the provider's chat model if omitted)
 - `autoCensorProfanity?: object` - LLM-powered profanity censorship (optional)
   - `mode?: 'blank' | 'remove' | 'mask'` - Replacement strategy (default: 'blank')
-    - `'blank'`: `fuck` → `[____]` (bracketed underscores matching word length)
+    - `'blank'`: `shit` → `[____]` (bracketed underscores matching word length)
     - `'remove'`: word removed entirely
-    - `'mask'`: `fuck` → `????` (question marks matching word length)
+    - `'mask'`: `shit` → `????` (question marks matching word length)
   - `alwaysCensor?: string[]` - Words to always censor regardless of LLM output
   - `neverCensor?: string[]` - Words to never censor even if the LLM flags them (takes precedence over `alwaysCensor`)
 - `replacements?: Array<{ find: string; replace: string }>` - Static find/replace pairs (optional, no LLM needed)
