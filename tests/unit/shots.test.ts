@@ -266,4 +266,26 @@ describe("waitForShotsForAsset", () => {
     await expectation;
     expect(mockMuxGet).toHaveBeenCalledTimes(1);
   });
+
+  it("enforces a minimum poll interval when zero is provided", async () => {
+    vi.useFakeTimers();
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+    mockMuxPost.mockResolvedValue(MOCK_PENDING_RESPONSE);
+    mockMuxGet
+      .mockResolvedValueOnce(MOCK_PENDING_RESPONSE)
+      .mockResolvedValueOnce(MOCK_COMPLETED_RESPONSE);
+
+    const promise = waitForShotsForAsset("test-asset-123", {
+      pollIntervalMs: 0,
+      maxAttempts: 2,
+    });
+    const expectation = expect(promise).resolves.toMatchObject({
+      status: "completed",
+    });
+
+    await vi.runAllTimersAsync();
+    await expectation;
+
+    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 1000);
+  });
 });

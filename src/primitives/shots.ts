@@ -32,7 +32,7 @@ export interface ShotRequestOptions {
 }
 
 export interface WaitForShotsOptions extends ShotRequestOptions {
-  /** Polling interval in milliseconds (default: 2000) */
+  /** Polling interval in milliseconds (default: 2000, minimum enforced: 1000) */
   pollIntervalMs?: number;
   /** Maximum number of polling attempts (default: 60) */
   maxAttempts?: number;
@@ -66,6 +66,7 @@ interface ShotsApiResponse {
 type RequestShotsApiRequestBody = Record<string, never>;
 
 const DEFAULT_POLL_INTERVAL_MS = 2000;
+const MIN_POLL_INTERVAL_MS = 1000;
 const DEFAULT_MAX_ATTEMPTS = 60;
 const SHOTS_ALREADY_REQUESTED_MESSAGE = "shots generation has already been requested";
 
@@ -200,7 +201,7 @@ export async function waitForShotsForAsset(
   }
 
   const normalizedMaxAttempts = Math.max(1, maxAttempts);
-  const normalizedPollIntervalMs = Math.max(0, pollIntervalMs);
+  const normalizedPollIntervalMs = Math.max(MIN_POLL_INTERVAL_MS, pollIntervalMs);
   let lastStatus: ShotsResult["status"] | undefined;
 
   for (let attempt = 0; attempt < normalizedMaxAttempts; attempt++) {
