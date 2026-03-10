@@ -148,11 +148,12 @@ export function transformCueText(
  * Words are sorted longest-first so multi-word phrases match before individual words.
  */
 export function buildReplacementRegex(words: string[]): RegExp | null {
-  if (words.length === 0)
+  const filtered = words.filter(w => w.length > 0);
+  if (filtered.length === 0)
     return null;
 
   // Sort by length descending so longer phrases match first
-  const sorted = [...words].sort((a, b) => b.length - a.length);
+  const sorted = [...filtered].sort((a, b) => b.length - a.length);
 
   // Escape regex special characters in each word
   const escaped = sorted.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
@@ -243,7 +244,8 @@ export function applyReplacements(
   rawVtt: string,
   replacements: CaptionReplacement[],
 ): { editedVtt: string; replacementCount: number } {
-  if (replacements.length === 0) {
+  const filtered = replacements.filter(r => r.find.length > 0);
+  if (filtered.length === 0) {
     return { editedVtt: rawVtt, replacementCount: 0 };
   }
 
@@ -251,7 +253,7 @@ export function applyReplacements(
 
   const editedVtt = transformCueText(rawVtt, (line) => {
     let result = line;
-    for (const { find, replace } of replacements) {
+    for (const { find, replace } of filtered) {
       const escaped = find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const regex = new RegExp(`\\b${escaped}\\b`, "g");
       result = result.replace(regex, () => {
@@ -611,8 +613,8 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
     console.warn(`Failed to add track to Mux asset: ${error instanceof Error ? error.message : "Unknown error"}`);
   }
 
-  // Delete original track if configured
-  if (deleteOriginal) {
+  // Delete original track only if the replacement track was created
+  if (deleteOriginal && uploadedTrackId) {
     try {
       await deleteTrackOnMux(assetId, trackId, credentials);
     } catch (error) {

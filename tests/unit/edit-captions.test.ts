@@ -93,6 +93,16 @@ describe("buildReplacementRegex", () => {
     expect(buildReplacementRegex([])).toBeNull();
   });
 
+  it("returns null when all words are empty strings", () => {
+    expect(buildReplacementRegex(["", ""])).toBeNull();
+  });
+
+  it("filters out empty strings", () => {
+    const regex = buildReplacementRegex(["", "damn", ""])!;
+    expect(regex).not.toBeNull();
+    expect("damn".match(regex)).toBeTruthy();
+  });
+
   it("matches exact words with word boundaries", () => {
     const regex = buildReplacementRegex(["damn"])!;
     expect("damn".match(regex)).toBeTruthy();
@@ -398,6 +408,16 @@ describe("applyReplacements", () => {
     const { editedVtt, replacementCount } = applyReplacements(sampleVtt, []);
     expect(editedVtt).toBe(sampleVtt);
     expect(replacementCount).toBe(0);
+  });
+
+  it("ignores replacements with empty find strings", () => {
+    const { editedVtt, replacementCount } = applyReplacements(sampleVtt, [
+      { find: "", replace: "BROKEN" },
+      { find: "Mucks", replace: "Mux" },
+    ]);
+    expect(editedVtt).toContain("Mux");
+    expect(editedVtt).not.toContain("BROKEN");
+    expect(replacementCount).toBe(1);
   });
 
   it("handles multiple occurrences of the same word", () => {
