@@ -28,7 +28,7 @@ export async function getThumbnailUrls(
   playbackId: string,
   duration: number,
   options: ThumbnailOptions = {},
-): Promise<string[]> {
+): Promise<Array<{ url: string; time: number }>> {
   "use step";
   const { interval = 10, width = 640, shouldSign = false, maxSamples, credentials } = options;
   let timestamps: number[] = [];
@@ -67,11 +67,11 @@ export async function getThumbnailUrls(
   const baseUrl = getMuxThumbnailBaseUrl(playbackId);
 
   const urlPromises = timestamps.map(async (time) => {
-    if (shouldSign) {
-      return signUrl(baseUrl, playbackId, "thumbnail", { time, width }, credentials);
-    }
+    const url = shouldSign ?
+        await signUrl(baseUrl, playbackId, "thumbnail", { time, width }, credentials) :
+      `${baseUrl}?time=${time}&width=${width}`;
 
-    return `${baseUrl}?time=${time}&width=${width}`;
+    return { url, time };
   });
 
   return Promise.all(urlPromises);

@@ -122,10 +122,10 @@ Notes:
       console.log(`Generated ${thumbnailUrls.length} thumbnail URLs`);
       if (thumbnailUrls.length > 0) {
         console.log("First URL:");
-        console.log(`  ${thumbnailUrls[0].substring(0, 80)}...`);
+        console.log(`  ${thumbnailUrls[0].url.substring(0, 80)}...`);
 
         // Verify the first URL works
-        const response = await fetch(thumbnailUrls[0], { method: "HEAD" });
+        const response = await fetch(thumbnailUrls[0].url, { method: "HEAD" });
         if (response.ok) {
           console.log(`✅ URL is accessible (HTTP ${response.status})`);
         } else {
