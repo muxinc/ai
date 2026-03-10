@@ -6,35 +6,8 @@ import {
   buildReplacementRegex,
   censorVttContent,
   createReplacer,
-  parseVttTimestamp,
   transformCueText,
 } from "../../src/workflows/edit-captions";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// parseVttTimestamp
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe("parseVttTimestamp", () => {
-  it("parses HH:MM:SS.mmm format", () => {
-    expect(parseVttTimestamp("00:01:23.456")).toBeCloseTo(83.456);
-  });
-
-  it("parses MM:SS.mmm format", () => {
-    expect(parseVttTimestamp("01:23.456")).toBeCloseTo(83.456);
-  });
-
-  it("parses zero timestamp", () => {
-    expect(parseVttTimestamp("00:00:00.000")).toBe(0);
-  });
-
-  it("handles hours correctly", () => {
-    expect(parseVttTimestamp("01:00:00.000")).toBe(3600);
-  });
-
-  it("returns 0 for unparseable input", () => {
-    expect(parseVttTimestamp("invalid")).toBe(0);
-  });
-});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // transformCueText

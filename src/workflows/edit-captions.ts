@@ -16,7 +16,7 @@ import {
   resolveMuxClient,
   resolveMuxSigningContext,
 } from "@mux/ai/lib/workflow-credentials";
-import { buildTranscriptUrl, extractTextFromVTT, getReadyTextTracks } from "@mux/ai/primitives/transcripts";
+import { buildTranscriptUrl, extractTextFromVTT, getReadyTextTracks, vttTimestampToSeconds } from "@mux/ai/primitives/transcripts";
 import type {
   MuxAIOptions,
   StorageAdapter,
@@ -119,22 +119,6 @@ const SYSTEM_PROMPT =
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Parses a VTT timestamp like "00:01:23.456" into seconds.
- */
-export function parseVttTimestamp(timestamp: string): number {
-  const parts = timestamp.trim().split(":");
-  if (parts.length === 3) {
-    const [h, m, s] = parts;
-    return Number.parseFloat(h) * 3600 + Number.parseFloat(m) * 60 + Number.parseFloat(s);
-  }
-  if (parts.length === 2) {
-    const [m, s] = parts;
-    return Number.parseFloat(m) * 60 + Number.parseFloat(s);
-  }
-  return 0;
-}
-
-/**
  * Applies a transform function only to VTT cue text lines, leaving headers,
  * timestamps, and cue identifiers untouched. A cue text line is any line that
  * follows a timestamp line (contains "-->") up until the next blank line.
@@ -150,8 +134,8 @@ export function transformCueText(
 
   const transformed = lines.map((line) => {
     if (line.includes("-->")) {
-      const startTimestamp = line.split("-->")[0];
-      currentCueStartTime = parseVttTimestamp(startTimestamp);
+      const startTimestamp = line.split("-->")[0].trim();
+      currentCueStartTime = vttTimestampToSeconds(startTimestamp);
       inCueText = true;
       return line;
     }
