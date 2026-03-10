@@ -6,7 +6,83 @@ import {
   buildReplacementRegex,
   censorVttContent,
   createReplacer,
+  transformCueText,
 } from "../../src/workflows/edit-captions";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// transformCueText
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("transformCueText", () => {
+  it("transforms cue text lines only", () => {
+    const vtt = [
+      "WEBVTT",
+      "",
+      "00:00:01.000 --> 00:00:04.000",
+      "Hello world",
+      "",
+      "00:00:05.000 --> 00:00:08.000",
+      "Goodbye world",
+      "",
+    ].join("\n");
+    const result = transformCueText(vtt, line => line.toUpperCase());
+    expect(result).toContain("HELLO WORLD");
+    expect(result).toContain("GOODBYE WORLD");
+    expect(result).toContain("WEBVTT");
+    expect(result).toContain("00:00:01.000 --> 00:00:04.000");
+  });
+
+  it("does not transform the WEBVTT header", () => {
+    const vtt = [
+      "WEBVTT",
+      "",
+      "00:00:01.000 --> 00:00:04.000",
+      "Some text",
+    ].join("\n");
+    const result = transformCueText(vtt, () => "REPLACED");
+    const lines = result.split("\n");
+    expect(lines[0]).toBe("WEBVTT");
+    expect(lines[3]).toBe("REPLACED");
+  });
+
+  it("does not transform timestamp lines", () => {
+    const vtt = [
+      "WEBVTT",
+      "",
+      "00:00:01.000 --> 00:00:04.000",
+      "Text here",
+    ].join("\n");
+    const result = transformCueText(vtt, () => "REPLACED");
+    expect(result).toContain("00:00:01.000 --> 00:00:04.000");
+  });
+
+  it("does not transform cue identifiers", () => {
+    const vtt = [
+      "WEBVTT",
+      "",
+      "cue-1",
+      "00:00:01.000 --> 00:00:04.000",
+      "Text here",
+    ].join("\n");
+    const result = transformCueText(vtt, () => "REPLACED");
+    expect(result).toContain("cue-1");
+    expect(result).toContain("REPLACED");
+  });
+
+  it("handles multi-line cue text", () => {
+    const vtt = [
+      "WEBVTT",
+      "",
+      "00:00:01.000 --> 00:00:04.000",
+      "Line one",
+      "Line two",
+      "",
+    ].join("\n");
+    const result = transformCueText(vtt, line => line.toUpperCase());
+    expect(result).toContain("LINE ONE");
+    expect(result).toContain("LINE TWO");
+  });
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // buildReplacementRegex
@@ -140,6 +216,20 @@ describe("censorVttContent", () => {
     expect(censoredVtt).toContain("00:00:01.000 --> 00:00:04.000");
     expect(censoredVtt).toContain("00:00:05.000 --> 00:00:08.000");
     expect(censoredVtt).toContain("00:00:09.000 --> 00:00:12.000");
+  });
+
+  it("does not censor words in cue identifiers or headers", () => {
+    const vtt = [
+      "WEBVTT",
+      "",
+      "fuck-cue-id",
+      "00:00:01.000 --> 00:00:04.000",
+      "What the fuck is this?",
+    ].join("\n");
+    const { censoredVtt, replacementCount } = censorVttContent(vtt, ["fuck"], "blank");
+    expect(censoredVtt).toContain("fuck-cue-id");
+    expect(censoredVtt).toContain("[____]");
+    expect(replacementCount).toBe(1);
   });
 
   it("returns original VTT unchanged when no profanity provided", () => {
@@ -331,6 +421,22 @@ describe("applyReplacements", () => {
     expect(editedVtt).toContain("WEBVTT");
     expect(editedVtt).toContain("00:00:01.000 --> 00:00:04.000");
     expect(editedVtt).toContain("00:00:05.000 --> 00:00:08.000");
+  });
+
+  it("does not replace words in cue identifiers or headers", () => {
+    const vtt = [
+      "WEBVTT",
+      "",
+      "Mucks-cue-id",
+      "00:00:01.000 --> 00:00:04.000",
+      "Welcome to Mucks streaming.",
+    ].join("\n");
+    const { editedVtt, replacementCount } = applyReplacements(vtt, [
+      { find: "Mucks", replace: "Mux" },
+    ]);
+    expect(editedVtt).toContain("Mucks-cue-id");
+    expect(editedVtt).toContain("Welcome to Mux streaming.");
+    expect(replacementCount).toBe(1);
   });
 });
 

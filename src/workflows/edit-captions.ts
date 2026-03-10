@@ -114,6 +114,36 @@ const SYSTEM_PROMPT =
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
+ * Applies a transform function only to VTT cue text lines, leaving headers,
+ * timestamps, and cue identifiers untouched. A cue text line is any line that
+ * follows a timestamp line (contains "-->") up until the next blank line.
+ */
+export function transformCueText(
+  rawVtt: string,
+  transform: (line: string) => string,
+): string {
+  const lines = rawVtt.split("\n");
+  let inCueText = false;
+
+  const transformed = lines.map((line) => {
+    if (line.includes("-->")) {
+      inCueText = true;
+      return line;
+    }
+    if (line.trim() === "") {
+      inCueText = false;
+      return line;
+    }
+    if (inCueText) {
+      return transform(line);
+    }
+    return line;
+  });
+
+  return transformed.join("\n");
+}
+
+/**
  * Builds a case-insensitive word-boundary regex from an array of profane words.
  * Words are sorted longest-first so multi-word phrases match before individual words.
  */
@@ -146,8 +176,8 @@ export function createReplacer(mode: CensorMode): (match: string) => string {
 }
 
 /**
- * Applies profanity censorship to raw VTT content via regex replacement.
- * Operates directly on the raw string to preserve all original formatting.
+ * Applies profanity censorship to cue text lines in raw VTT content via
+ * regex replacement. Headers, timestamps, and cue identifiers are untouched.
  */
 export function censorVttContent(
   rawVtt: string,
@@ -166,9 +196,11 @@ export function censorVttContent(
   const replacer = createReplacer(mode);
   let replacementCount = 0;
 
-  const censoredVtt = rawVtt.replace(regex, (match) => {
-    replacementCount++;
-    return replacer(match);
+  const censoredVtt = transformCueText(rawVtt, (line) => {
+    return line.replace(regex, (match) => {
+      replacementCount++;
+      return replacer(match);
+    });
   });
 
   return { censoredVtt, replacementCount };
@@ -202,9 +234,10 @@ export function applyOverrideLists(
 }
 
 /**
- * Applies static find/replace pairs to raw VTT content using word-boundary
- * regex. Case-sensitive matching since static replacements target specific
- * known strings. Returns the edited VTT and the total number of replacements.
+ * Applies static find/replace pairs to cue text lines in raw VTT content
+ * using word-boundary regex. Case-sensitive matching since static replacements
+ * target specific known strings. Headers, timestamps, and cue identifiers are
+ * untouched. Returns the edited VTT and the total number of replacements.
  */
 export function applyReplacements(
   rawVtt: string,
@@ -214,21 +247,22 @@ export function applyReplacements(
     return { editedVtt: rawVtt, replacementCount: 0 };
   }
 
-  let result = rawVtt;
   let totalCount = 0;
 
-  for (const { find, replace } of replacements) {
-    const escaped = find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const regex = new RegExp(`\\b${escaped}\\b`, "g");
-    let count = 0;
-    result = result.replace(regex, () => {
-      count++;
-      return replace;
-    });
-    totalCount += count;
-  }
+  const editedVtt = transformCueText(rawVtt, (line) => {
+    let result = line;
+    for (const { find, replace } of replacements) {
+      const escaped = find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const regex = new RegExp(`\\b${escaped}\\b`, "g");
+      result = result.replace(regex, () => {
+        totalCount++;
+        return replace;
+      });
+    }
+    return result;
+  });
 
-  return { editedVtt: result, replacementCount: totalCount };
+  return { editedVtt, replacementCount: totalCount };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

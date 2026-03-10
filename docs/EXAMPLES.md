@@ -245,10 +245,10 @@ npm run basic <your-asset-id> <track-id> -- --no-upload
 **Editing Workflow:**
 
 1. Fetches existing caption track from Mux asset
-2. Applies static replacements (if provided)
-3. Sends plain text to AI provider for profanity detection (if `autoCensorProfanity` is enabled)
-4. Applies `alwaysCensor`/`neverCensor` overrides
-5. Replaces profanity using the selected mode
+2. Sends plain text to AI provider for profanity detection (if `autoCensorProfanity` is enabled)
+3. Applies `alwaysCensor`/`neverCensor` overrides
+4. Replaces profanity using the selected mode
+5. Applies static replacements (if provided)
 6. Uploads edited VTT to S3-compatible storage
 7. Adds new subtitle track to Mux asset (name: "{Original} (edited)")
 8. Deletes the original track (unless `--no-delete` is passed)
