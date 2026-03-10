@@ -1,4 +1,11 @@
-import { generateText, Output } from "ai";
+import {
+  APICallError,
+  generateText,
+  NoObjectGeneratedError,
+  Output,
+  RetryError,
+  TypeValidationError,
+} from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
@@ -165,6 +172,49 @@ const TOKEN_USAGE_FIELDS = [
 ] as const;
 
 type AggregatedTokenUsageField = (typeof TOKEN_USAGE_FIELDS)[number];
+
+class TranslationChunkValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TranslationChunkValidationError";
+  }
+}
+
+function isTranslationChunkValidationError(error: unknown): error is TranslationChunkValidationError {
+  return error instanceof TranslationChunkValidationError;
+}
+
+function isProviderServiceError(error: unknown): boolean {
+  if (!error) {
+    return false;
+  }
+
+  if (RetryError.isInstance(error)) {
+    return isProviderServiceError(error.lastError);
+  }
+
+  if (APICallError.isInstance(error)) {
+    return true;
+  }
+
+  if (error instanceof Error && "cause" in error) {
+    return isProviderServiceError(error.cause);
+  }
+
+  return false;
+}
+
+export function shouldSplitChunkTranslationError(error: unknown): boolean {
+  if (isProviderServiceError(error)) {
+    return false;
+  }
+
+  return (
+    NoObjectGeneratedError.isInstance(error) ||
+    TypeValidationError.isInstance(error) ||
+    isTranslationChunkValidationError(error)
+  );
+}
 
 function isDefinedTokenUsageValue(value: number | undefined): value is number {
   return typeof value === "number";
@@ -479,7 +529,7 @@ async function translateChunkWithFallback({
     });
 
     if (result.translations.length !== chunk.cueCount) {
-      throw new Error(
+      throw new TranslationChunkValidationError(
         `Chunk ${chunk.id} returned ${result.translations.length} cues, expected ${chunk.cueCount} for ${Math.round(chunk.startTime)}s-${Math.round(chunk.endTime)}s`,
       );
     }
@@ -489,7 +539,7 @@ async function translateChunkWithFallback({
       usage: result.usage,
     };
   } catch (error) {
-    if (chunk.cueCount <= 1) {
+    if (!shouldSplitChunkTranslationError(error) || chunk.cueCount <= 1) {
       throw new Error(
         `Chunk ${chunk.id} failed for ${Math.round(chunk.startTime)}s-${Math.round(chunk.endTime)}s: ${error instanceof Error ? error.message : "Unknown error"}`,
       );
