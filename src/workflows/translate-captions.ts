@@ -20,14 +20,18 @@ import {
   resolveMuxClient,
   resolveMuxSigningContext,
 } from "@mux/ai/lib/workflow-credentials";
-import { buildTranscriptUrl, getReadyTextTracks, parseVTTCues } from "@mux/ai/primitives/transcripts";
 import {
-  buildVttFromTranslatedCueBlocks,
   chunkVTTCuesByBudget,
   chunkVTTCuesByDuration,
+} from "@mux/ai/primitives/text-chunking";
+import {
+  buildTranscriptUrl,
+  buildVttFromTranslatedCueBlocks,
   concatenateVttSegments,
+  getReadyTextTracks,
+  parseVTTCues,
   splitVttPreambleAndCueBlocks,
-} from "@mux/ai/primitives/vtt-chunking";
+} from "@mux/ai/primitives/transcripts";
 import type {
   MuxAIOptions,
   StorageAdapter,
