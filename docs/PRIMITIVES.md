@@ -17,6 +17,7 @@ import {
   chunkByTokens,
   chunkVTTCues,
   fetchTranscriptForAsset,
+  getShotsForAsset,
   getStoryboardUrl,
   getThumbnailUrls,
   parseVTTCues
@@ -162,6 +163,78 @@ interface ThumbnailOptions {
 - Videos ≤50 seconds: Generates 5 evenly-spaced thumbnails
 - Videos >50 seconds: Uses specified interval
 
+### `requestShotsForAsset(assetId, options?)`
+
+Starts asynchronous shot detection for a Mux asset.
+
+```typescript
+import { requestShotsForAsset } from "@mux/ai/primitives";
+
+const result = await requestShotsForAsset("asset-id");
+// { status: "pending", createdAt: "1773108428" }
+```
+
+**Parameters:**
+
+- `assetId: string` - Mux asset ID
+- `options?.credentials` - Optional workflow credentials
+
+### `getShotsForAsset(assetId, options?)`
+
+Gets the current shot detection status for a Mux asset.
+
+```typescript
+import { getShotsForAsset } from "@mux/ai/primitives";
+
+const result = await getShotsForAsset("asset-id");
+
+if (result.status === "completed") {
+  console.log(result.shots);
+}
+```
+
+**Returns:** `ShotsResult`
+
+```typescript
+interface Shot {
+  startTime: number; // Seconds from start of asset
+  imageUrl: string; // Signed representative frame URL
+}
+
+type ShotsResult =
+  | {
+      status: "pending";
+      createdAt: string;
+    }
+  | {
+      status: "completed";
+      createdAt: string;
+      shots: Shot[];
+    };
+```
+
+### `waitForShotsForAsset(assetId, options?)`
+
+Convenience helper that optionally starts shot detection and polls until results are ready.
+
+```typescript
+import { waitForShotsForAsset } from "@mux/ai/primitives";
+
+const result = await waitForShotsForAsset("asset-id", {
+  pollIntervalMs: 2000,
+  maxAttempts: 60
+});
+
+console.log(result.shots);
+```
+
+**Options:**
+
+- `pollIntervalMs?: number` - Milliseconds between polls (default: 2000)
+- `maxAttempts?: number` - Maximum polling attempts (default: 60)
+- `createIfMissing?: boolean` - Call `requestShotsForAsset()` before polling (default: true)
+- `credentials?: WorkflowCredentialsInput` - Optional workflow credentials
+
 ## Text Chunking Primitives
 
 Utilities for splitting transcripts into manageable chunks for embedding generation or long-form analysis.
@@ -287,6 +360,7 @@ import { generateText } from "ai";
 import {
   chunkVTTCues,
   fetchTranscriptForAsset,
+  getShotsForAsset,
   getStoryboardUrl,
   parseVTTCues
 } from "@mux/ai/primitives";
@@ -303,6 +377,9 @@ async function customVideoAnalysis(assetId: string) {
     { languageCode: "en" }
   );
 
+  // Fetch visual structure
+  const shots = await getShotsForAsset(assetId);
+
   // Get storyboard
   const storyboardUrl = await getStoryboardUrl(playbackId);
 
@@ -315,7 +392,8 @@ async function customVideoAnalysis(assetId: string) {
         content: [
           { type: "text", text: "Analyze this video and extract key insights." },
           { type: "image", image: storyboardUrl },
-          { type: "text", text: `Transcript: ${transcriptText}` }
+          { type: "text", text: `Transcript: ${transcriptText}` },
+          { type: "text", text: `Shot count: ${shots.status === "completed" ? shots.shots.length : "pending"}` }
         ]
       }
     ]
