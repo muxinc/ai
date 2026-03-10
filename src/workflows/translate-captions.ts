@@ -267,6 +267,9 @@ function buildTranslationChunkRequests(
 
   const { preamble, cueBlocks } = splitVttPreambleAndCueBlocks(vttContent);
   if (cueBlocks.length !== cues.length) {
+    console.warn(
+      `Falling back to full-VTT caption translation because cue block count (${cueBlocks.length}) does not match parsed cue count (${cues.length}).`,
+    );
     return null;
   }
 
