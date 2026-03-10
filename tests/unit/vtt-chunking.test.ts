@@ -54,6 +54,15 @@ const SAMPLE_CUES: VTTCue[] = [
   { startTime: 1800, endTime: 2100, text: "Final wrap-up sentence." },
 ];
 
+const TITLE_CRAWL_VTT = `WEBVTT
+
+1 - Title Crawl
+00:05.000 --> 00:09.000 line:0 position:20% size:60% align:start
+Because:
+- It will perforate your stomach.
+- You could die.
+`;
+
 describe("splitVttPreambleAndCueBlocks", () => {
   it("separates preamble metadata from cue blocks", () => {
     const result = splitVttPreambleAndCueBlocks(SAMPLE_VTT);
@@ -88,6 +97,21 @@ describe("buildVttFromTranslatedCueBlocks", () => {
     expect(translatedVtt).toContain("00:00:00.000 --> 00:05:00.000");
     expect(translatedVtt).toContain("Bonjour a tous.");
     expect(translatedVtt).not.toContain("Hello there.");
+  });
+
+  it("preserves titled cue headers and timestamp settings for multiline cues", () => {
+    const { preamble, cueBlocks } = splitVttPreambleAndCueBlocks(TITLE_CRAWL_VTT);
+    const translatedVtt = buildVttFromTranslatedCueBlocks(
+      cueBlocks,
+      ["Because:\n- It will perforate your stomach.\n- You could die."],
+      preamble,
+    );
+
+    expect(cueBlocks).toHaveLength(1);
+    expect(translatedVtt).toContain("1 - Title Crawl");
+    expect(translatedVtt).toContain("00:05.000 --> 00:09.000 line:0 position:20% size:60% align:start");
+    expect(translatedVtt).toContain("- It will perforate your stomach.");
+    expect(translatedVtt).toContain("- You could die.");
   });
 });
 
