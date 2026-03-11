@@ -1,4 +1,5 @@
 import { generateText, Output } from "ai";
+import dedent from "dedent";
 import { z } from "zod";
 
 import env from "@mux/ai/env";
@@ -108,11 +109,11 @@ export type ProfanityDetectionPayload = z.infer<typeof profanityDetectionSchema>
 // Prompts
 // ─────────────────────────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT =
-  "You are a content moderation assistant. Your task is to identify profane, vulgar, or obscene " +
-  "words and phrases in subtitle text. Return ONLY the exact profane words or phrases as they appear " +
-  "in the text. Do not modify, censor, or paraphrase them. Do not include words that are merely " +
-  "informal or slang but not profane. Focus on words that would be bleeped on broadcast television.";
+const SYSTEM_PROMPT = dedent`
+  You are a content moderation assistant. Your task is to identify profane, vulgar, or obscene
+  words and phrases in subtitle text. Return ONLY the exact profane words or phrases as they appear
+  in the text. Do not modify, censor, or paraphrase them. Do not include words that are merely
+  informal or slang but not profane. Focus on words that would be bleeped on broadcast television.`;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pure functions (exported for testing)
@@ -162,10 +163,10 @@ export function buildReplacementRegex(words: string[]): RegExp | null {
     return null;
 
   // Sort by length descending so longer phrases match first
-  const sorted = [...filtered].sort((a, b) => b.length - a.length);
+  filtered.sort((a, b) => b.length - a.length);
 
   // Escape regex special characters in each word
-  const escaped = sorted.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const escaped = filtered.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
 
   const pattern = escaped.join("|");
   return new RegExp(`\\b(?:${pattern})\\b`, "gi");
@@ -435,14 +436,14 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
     model,
     autoCensorProfanity: autoCensorOption,
     replacements: replacementsOption,
-    deleteOriginalTrack: deleteOriginalOption,
+    deleteOriginalTrack,
     uploadToMux: uploadToMuxOption,
     s3Endpoint: providedS3Endpoint,
     s3Region: providedS3Region,
     s3Bucket: providedS3Bucket,
-    trackNameSuffix: providedTrackNameSuffix,
+    trackNameSuffix,
     storageAdapter,
-    credentials: providedCredentials,
+    credentials,
   } = options;
 
   // Validation
@@ -456,10 +457,8 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
     throw new Error("provider is required when using autoCensorProfanity.");
   }
 
-  const deleteOriginal = deleteOriginalOption !== false;
+  const deleteOriginal = deleteOriginalTrack !== false;
   const uploadToMux = uploadToMuxOption !== false;
-  const credentials = providedCredentials;
-  const effectiveStorageAdapter = storageAdapter;
 
   // S3 configuration
   const s3Endpoint = providedS3Endpoint ?? env.S3_ENDPOINT;
@@ -468,7 +467,7 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
   const s3AccessKeyId = env.S3_ACCESS_KEY_ID;
   const s3SecretAccessKey = env.S3_SECRET_ACCESS_KEY;
 
-  if (uploadToMux && (!s3Endpoint || !s3Bucket || (!effectiveStorageAdapter && (!s3AccessKeyId || !s3SecretAccessKey)))) {
+  if (uploadToMux && (!s3Endpoint || !s3Bucket || (!storageAdapter && (!s3AccessKeyId || !s3SecretAccessKey)))) {
     throw new Error(
       "Storage configuration is required for uploading to Mux. Provide s3Endpoint and s3Bucket. " +
       "If no storageAdapter is supplied, also provide s3AccessKeyId and s3SecretAccessKey in options " +
@@ -520,9 +519,7 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
   let autoCensorResult: { replacements: ReplacementRecord[] } | undefined;
   let usage: TokenUsage | undefined;
   if (autoCensorOption) {
-    const mode = autoCensorOption.mode ?? "blank";
-    const alwaysCensor = autoCensorOption.alwaysCensor ?? [];
-    const neverCensor = autoCensorOption.neverCensor ?? [];
+    const { mode = "blank", alwaysCensor = [], neverCensor = [] } = autoCensorOption;
 
     const plainText = extractTextFromVTT(vttContent);
     if (!plainText.trim()) {
@@ -600,7 +597,7 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
       s3Endpoint: s3Endpoint!,
       s3Region,
       s3Bucket: s3Bucket!,
-      storageAdapter: effectiveStorageAdapter,
+      storageAdapter,
     });
   } catch (error) {
     throw new Error(`Failed to upload VTT to S3: ${error instanceof Error ? error.message : "Unknown error"}`);
@@ -611,7 +608,7 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
 
   try {
     const languageCode = sourceTrack.language_code || "en";
-    const suffix = providedTrackNameSuffix ?? "edited";
+    const suffix = trackNameSuffix ?? "edited";
     const trackName = `${sourceTrack.name || "Subtitles"} (${suffix})`;
 
     uploadedTrackId = await createTextTrackOnMux(
