@@ -17,16 +17,14 @@ import {
   getPlaybackIdForAsset,
   isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
+import { createTextTrackOnMux, fetchVttFromMux } from "@mux/ai/lib/mux-tracks";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
 import {
   createPresignedGetUrlWithStorageAdapter,
   putObjectWithStorageAdapter,
 } from "@mux/ai/lib/storage-adapter";
-import {
-  resolveMuxClient,
-  resolveMuxSigningContext,
-} from "@mux/ai/lib/workflow-credentials";
+import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
 import {
   chunkVTTCuesByBudget,
   chunkVTTCuesByDuration,
@@ -369,17 +367,6 @@ function buildTranslationChunkRequests(
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function fetchVttFromMux(vttUrl: string): Promise<string> {
-  "use step";
-
-  const vttResponse = await fetch(vttUrl);
-  if (!vttResponse.ok) {
-    throw new Error(`Failed to fetch VTT file: ${vttResponse.statusText}`);
-  }
-
-  return vttResponse.text();
-}
-
 async function translateVttWithAI({
   vttContent,
   fromLanguageCode,
@@ -681,31 +668,6 @@ async function uploadVttToS3({
     key: vttKey,
     expiresInSeconds: 3600,
   }, storageAdapter);
-}
-
-async function createTextTrackOnMux(
-  assetId: string,
-  languageCode: string,
-  trackName: string,
-  presignedUrl: string,
-  credentials?: WorkflowCredentialsInput,
-): Promise<string> {
-  "use step";
-  const muxClient = await resolveMuxClient(credentials);
-  const mux = await muxClient.createClient();
-  const trackResponse = await mux.video.assets.createTrack(assetId, {
-    type: "text",
-    text_type: "subtitles",
-    language_code: languageCode,
-    name: trackName,
-    url: presignedUrl,
-  });
-
-  if (!trackResponse.id) {
-    throw new Error("Failed to create text track: no track ID returned from Mux");
-  }
-
-  return trackResponse.id;
 }
 
 export async function translateCaptions<P extends SupportedProvider = SupportedProvider>(
