@@ -399,6 +399,112 @@ Mux requires a publicly accessible URL to ingest subtitle tracks. The translatio
 
 All ISO 639-1 language codes are automatically supported using `Intl.DisplayNames`. Examples: Spanish (es), French (fr), German (de), Italian (it), Portuguese (pt), Polish (pl), Japanese (ja), Korean (ko), Chinese (zh), Russian (ru), Arabic (ar), Hindi (hi), Thai (th), Swahili (sw), and many more.
 
+## Caption Editing
+
+Edit existing captions with LLM-powered profanity censorship, static find/replace, or both. Optionally upload the edited track to Mux.
+
+```typescript
+import { editCaptions } from "@mux/ai/workflows";
+
+const result = await editCaptions("your-mux-asset-id", "track-id", {
+  provider: "anthropic",
+  autoCensorProfanity: { mode: "blank" },
+  replacements: [
+    { find: "Mucks", replace: "Mux" },
+  ],
+});
+
+console.log(result.totalReplacementCount); // Total replacements across all operations
+console.log(result.autoCensorProfanity?.replacements); // Each censored word with cue timing
+console.log(result.editedVtt); // Edited VTT content
+console.log(result.uploadedTrackId); // New Mux track ID
+```
+
+### Auto-Censor Profanity
+
+LLM-powered profanity detection and censorship. Requires a `provider`.
+
+#### Censor Modes
+
+Choose how profanity is replaced:
+
+| Mode | Example | Description |
+| --- | --- | --- |
+| `"blank"` (default) | `shit` → `[____]` | Bracketed underscores matching word length |
+| `"remove"` | `shit` → *(removed)* | Word removed entirely |
+| `"mask"` | `shit` → `????` | Question marks matching word length |
+
+#### Override Lists
+
+Fine-tune what gets censored with `alwaysCensor` and `neverCensor`:
+
+```typescript
+const result = await editCaptions(assetId, trackId, {
+  provider: "openai",
+  autoCensorProfanity: {
+    mode: "mask",
+    alwaysCensor: ["brandname", "competitor"], // Always censor these, even if LLM doesn't flag them
+    neverCensor: ["damn", "hell"], // Never censor these, even if LLM flags them
+  },
+});
+```
+
+`neverCensor` takes precedence when a word appears in both lists.
+
+### Static Replacements
+
+Apply deterministic find/replace pairs without an LLM. No `provider` needed when used alone:
+
+```typescript
+const result = await editCaptions(assetId, trackId, {
+  replacements: [
+    { find: "Mucks", replace: "Mux" },
+    { find: "gonna", replace: "going to" },
+  ],
+});
+```
+
+Replacements use word-boundary matching and are case-sensitive.
+
+### Application Order
+
+1. `autoCensorProfanity` applied first (LLM analyses original text, censorship applied to VTT)
+2. Static `replacements` applied second (deterministic, operates on the post-censorship VTT)
+
+### How It Works
+
+1. Downloads the VTT caption track from Mux
+2. Extracts plain text from the original VTT and sends it to the LLM for profanity detection (if `autoCensorProfanity` is set)
+3. The LLM returns a list of profane words (not a rewritten VTT) — this guarantees format preservation
+4. Merges `alwaysCensor` and filters `neverCensor` from the detected list
+5. Applies profanity censorship to the VTT
+6. Applies static replacements (if provided) using word-boundary regex
+7. Uploads the edited VTT to S3 and creates a new track on Mux
+8. Deletes the original track (configurable)
+
+### S3-Compatible Storage Requirements
+
+Caption editing requires the same S3-compatible storage as [caption translation](#caption-translation) when uploading to Mux. See that section for supported providers and configuration.
+
+### Configuration
+
+```typescript
+const result = await editCaptions(assetId, trackId, {
+  provider: "anthropic", // Required when using autoCensorProfanity
+  model: "claude-sonnet-4-5", // Override default model
+  autoCensorProfanity: {
+    mode: "blank", // "blank", "remove", or "mask" (default: "blank")
+    alwaysCensor: [], // Words to always censor
+    neverCensor: [], // Words to never censor
+  },
+  replacements: [ // Static find/replace pairs
+    { find: "Mucks", replace: "Mux" },
+  ],
+  uploadToMux: true, // Upload edited track to Mux (default: true)
+  deleteOriginalTrack: true, // Delete original after upload (default: true)
+});
+```
+
 ## Audio Dubbing
 
 Create AI-dubbed audio tracks using ElevenLabs voice cloning (video or audio-only assets).

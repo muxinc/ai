@@ -1,6 +1,7 @@
 export * from "./ask-questions";
 export * from "./burned-in-captions";
 export * from "./chapters";
+export * from "./edit-captions";
 export * from "./embeddings";
 export * from "./moderation";
 export * from "./summarization";
