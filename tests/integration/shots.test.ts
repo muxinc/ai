@@ -43,7 +43,9 @@ describe("shots Integration Tests", () => {
 
     if (result.status === "completed") {
       expect(result.shots.length).toBeGreaterThan(0);
+      expect(typeof result.shots[0].startTime).toBe("number");
       expect(result.shots[0].imageUrl).toMatch(/^https?:\/\//);
+      expect(result.shots).toEqual(completedShots.shots);
     }
   });
 });
