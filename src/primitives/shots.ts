@@ -16,6 +16,10 @@ export interface PendingShotsResult {
 export interface ErroredShotsResult {
   status: "errored";
   createdAt: string;
+  error: {
+    type: string;
+    messages: string[];
+  };
 }
 
 export interface CompletedShotsResult {
@@ -48,19 +52,27 @@ interface PendingShotsApiData {
 interface ErroredShotsApiData {
   status: "errored";
   created_at: string;
+  error: {
+    type: string;
+    messages: string[];
+  };
 }
 
 interface CompletedShotsApiData {
   status: "completed";
   created_at: string;
-  shot_locations: Array<{
-    start_time: number;
-    image_url: string;
-  }>;
+  shots_manifest_url: string;
 }
 
 interface ShotsApiResponse {
   data: PendingShotsApiData | ErroredShotsApiData | CompletedShotsApiData;
+}
+
+interface ShotsManifestResponse {
+  shots: Array<{
+    startTime: number;
+    imageUrl: string;
+  }>;
 }
 
 type RequestShotsApiRequestBody = Record<string, never>;
@@ -71,12 +83,53 @@ const DEFAULT_MAX_ATTEMPTS = 60;
 const SHOTS_ALREADY_REQUESTED_MESSAGE = "shots generation has already been requested";
 
 function getShotsPath(assetId: string): string {
-  return `/video/v1/assets/${assetId}/shot-locations`;
+  return `/video/v1/assets/${assetId}/shots`;
 }
 
-function transformShotsResponse(
+function mapManifestShots(
+  shots: ShotsManifestResponse["shots"],
+): Shot[] {
+  return shots.map((shot, index) => {
+    const { startTime, imageUrl } = shot;
+
+    if (typeof startTime !== "number" || !Number.isFinite(startTime)) {
+      throw new TypeError(`Invalid shot startTime in shots manifest at index ${index}`);
+    }
+
+    if (typeof imageUrl !== "string" || imageUrl.length === 0) {
+      throw new TypeError(`Invalid shot imageUrl in shots manifest at index ${index}`);
+    }
+
+    return {
+      startTime,
+      imageUrl,
+    };
+  });
+}
+
+async function fetchShotsFromManifest(
+  shotsManifestUrl: string,
+): Promise<Shot[]> {
+  const response = await fetch(shotsManifestUrl);
+
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch shots manifest: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  const manifest = await response.json() as ShotsManifestResponse;
+
+  if (!Array.isArray(manifest.shots)) {
+    throw new TypeError("Invalid shots manifest response: missing shots array");
+  }
+
+  return mapManifestShots(manifest.shots);
+}
+
+async function transformShotsResponse(
   response: ShotsApiResponse,
-): ShotsResult {
+): Promise<ShotsResult> {
   switch (response.data.status) {
     case "pending":
       return {
@@ -87,15 +140,13 @@ function transformShotsResponse(
       return {
         status: "errored",
         createdAt: response.data.created_at,
+        error: response.data.error,
       };
     case "completed":
       return {
         status: "completed",
         createdAt: response.data.created_at,
-        shots: response.data.shot_locations.map(shot => ({
-          startTime: shot.start_time,
-          imageUrl: shot.image_url,
-        })),
+        shots: await fetchShotsFromManifest(response.data.shots_manifest_url),
       };
     default: {
       const exhaustiveCheck: never = response.data;
@@ -138,7 +189,7 @@ export async function requestShotsForAsset(
     getShotsPath(assetId),
     { body: {} },
   );
-  const result = transformShotsResponse(response);
+  const result = await transformShotsResponse(response);
 
   if (result.status !== "pending") {
     throw new Error(
@@ -168,7 +219,7 @@ export async function getShotsForAsset(
     getShotsPath(assetId),
   );
 
-  return transformShotsResponse(response);
+  return await transformShotsResponse(response);
 }
 
 /**

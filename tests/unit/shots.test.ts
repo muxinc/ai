@@ -17,6 +17,10 @@ const MOCK_ERRORED_RESPONSE = {
   data: {
     status: "errored" as const,
     created_at: "1773108428",
+    error: {
+      type: "arbitrary string",
+      messages: ["string", "array"],
+    },
   },
 };
 
@@ -24,17 +28,21 @@ const MOCK_COMPLETED_RESPONSE = {
   data: {
     status: "completed" as const,
     created_at: "1773108428",
-    shot_locations: [
-      {
-        start_time: 0.0416667,
-        image_url: "https://stream.mux.com/aicontext/test-asset/shot_0.webp?signature=first",
-      },
-      {
-        start_time: 2.75,
-        image_url: "https://stream.mux.com/aicontext/test-asset/shot_1.webp?signature=second",
-      },
-    ],
+    shots_manifest_url: "https://stream.mux.com/aicontext/test-asset/shots.json?signature=test",
   },
+};
+
+const MOCK_SHOTS_MANIFEST = {
+  shots: [
+    {
+      startTime: 0.0416667,
+      imageUrl: "https://stream.mux.com/aicontext/test-asset/shot_0.webp?signature=first",
+    },
+    {
+      startTime: 2.75,
+      imageUrl: "https://stream.mux.com/aicontext/test-asset/shot_1.webp?signature=second",
+    },
+  ],
 };
 
 vi.mock("../../src/lib/client-factory", () => ({
@@ -43,6 +51,7 @@ vi.mock("../../src/lib/client-factory", () => ({
 
 const mockMuxGet = vi.fn();
 const mockMuxPost = vi.fn();
+const mockFetch = vi.fn();
 const mockCreateClient = vi.fn(() => ({
   get: mockMuxGet,
   post: mockMuxPost,
@@ -51,7 +60,12 @@ const mockCreateClient = vi.fn(() => ({
 const { getMuxClientFromEnv } = await import("../../src/lib/client-factory");
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.resetAllMocks();
+  mockCreateClient.mockImplementation(() => ({
+    get: mockMuxGet,
+    post: mockMuxPost,
+  }));
+  vi.stubGlobal("fetch", mockFetch);
   vi.mocked(getMuxClientFromEnv).mockResolvedValue({
     createClient: mockCreateClient,
   } as any);
@@ -59,6 +73,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 describe("requestShotsForAsset", () => {
@@ -79,7 +94,7 @@ describe("requestShotsForAsset", () => {
     await requestShotsForAsset("test-asset-123");
 
     expect(mockMuxPost).toHaveBeenCalledWith(
-      "/video/v1/assets/test-asset-123/shot-locations",
+      "/video/v1/assets/test-asset-123/shots",
       { body: {} },
     );
   });
@@ -107,13 +122,21 @@ describe("getShotsForAsset", () => {
       status: "pending",
       createdAt: "1773108428",
     });
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it("returns transformed completed result", async () => {
+  it("fetches and transforms completed shots from a manifest URL", async () => {
     mockMuxGet.mockResolvedValue(MOCK_COMPLETED_RESPONSE);
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue(MOCK_SHOTS_MANIFEST),
+    });
 
     const result = await getShotsForAsset("test-asset-123");
 
+    expect(mockFetch).toHaveBeenCalledWith(
+      "https://stream.mux.com/aicontext/test-asset/shots.json?signature=test",
+    );
     expect(result).toEqual({
       status: "completed",
       createdAt: "1773108428",
@@ -138,7 +161,12 @@ describe("getShotsForAsset", () => {
     expect(result).toEqual({
       status: "errored",
       createdAt: "1773108428",
+      error: {
+        type: "arbitrary string",
+        messages: ["string", "array"],
+      },
     });
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it("constructs the correct GET path", async () => {
@@ -147,7 +175,7 @@ describe("getShotsForAsset", () => {
     await getShotsForAsset("test-asset-123");
 
     expect(mockMuxGet).toHaveBeenCalledWith(
-      "/video/v1/assets/test-asset-123/shot-locations",
+      "/video/v1/assets/test-asset-123/shots",
     );
   });
 });
@@ -159,6 +187,10 @@ describe("waitForShotsForAsset", () => {
     mockMuxGet
       .mockResolvedValueOnce(MOCK_PENDING_RESPONSE)
       .mockResolvedValueOnce(MOCK_COMPLETED_RESPONSE);
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue(MOCK_SHOTS_MANIFEST),
+    });
 
     const promise = waitForShotsForAsset("test-asset-123", {
       pollIntervalMs: 100,
@@ -184,6 +216,7 @@ describe("waitForShotsForAsset", () => {
 
     expect(mockMuxPost).toHaveBeenCalledTimes(1);
     expect(mockMuxGet).toHaveBeenCalledTimes(2);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   it("continues polling when shots were already requested previously", async () => {
@@ -196,6 +229,10 @@ describe("waitForShotsForAsset", () => {
       message: "400 invalid_parameters",
     });
     mockMuxGet.mockResolvedValue(MOCK_COMPLETED_RESPONSE);
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue(MOCK_SHOTS_MANIFEST),
+    });
 
     const promise = waitForShotsForAsset("test-asset-123", {
       pollIntervalMs: 100,
@@ -210,11 +247,16 @@ describe("waitForShotsForAsset", () => {
 
     expect(mockMuxPost).toHaveBeenCalledTimes(1);
     expect(mockMuxGet).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   it("can poll without creating a request first", async () => {
     vi.useFakeTimers();
     mockMuxGet.mockResolvedValue(MOCK_COMPLETED_RESPONSE);
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue(MOCK_SHOTS_MANIFEST),
+    });
 
     const promise = waitForShotsForAsset("test-asset-123", {
       createIfMissing: false,
@@ -229,6 +271,7 @@ describe("waitForShotsForAsset", () => {
     await expectation;
     expect(mockMuxPost).not.toHaveBeenCalled();
     expect(mockMuxGet).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   it("throws a timeout error when shots never complete", async () => {
@@ -274,6 +317,10 @@ describe("waitForShotsForAsset", () => {
     mockMuxGet
       .mockResolvedValueOnce(MOCK_PENDING_RESPONSE)
       .mockResolvedValueOnce(MOCK_COMPLETED_RESPONSE);
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue(MOCK_SHOTS_MANIFEST),
+    });
 
     const promise = waitForShotsForAsset("test-asset-123", {
       pollIntervalMs: 0,
@@ -287,5 +334,6 @@ describe("waitForShotsForAsset", () => {
     await expectation;
 
     expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 1000);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 });
