@@ -71,7 +71,7 @@ const DEFAULT_MAX_ATTEMPTS = 60;
 const SHOTS_ALREADY_REQUESTED_MESSAGE = "shots generation has already been requested";
 
 function getShotsPath(assetId: string): string {
-  return `/video/v1/assets/${assetId}/shot-locations`;
+  return `/video/v1/assets/${assetId}/shots`;
 }
 
 function transformShotsResponse(

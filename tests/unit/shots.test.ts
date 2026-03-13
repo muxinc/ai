@@ -79,7 +79,7 @@ describe("requestShotsForAsset", () => {
     await requestShotsForAsset("test-asset-123");
 
     expect(mockMuxPost).toHaveBeenCalledWith(
-      "/video/v1/assets/test-asset-123/shot-locations",
+      "/video/v1/assets/test-asset-123/shots",
       { body: {} },
     );
   });
@@ -147,7 +147,7 @@ describe("getShotsForAsset", () => {
     await getShotsForAsset("test-asset-123");
 
     expect(mockMuxGet).toHaveBeenCalledWith(
-      "/video/v1/assets/test-asset-123/shot-locations",
+      "/video/v1/assets/test-asset-123/shots",
     );
   });
 });
