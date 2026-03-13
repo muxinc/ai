@@ -61,6 +61,10 @@ const { getMuxClientFromEnv } = await import("../../src/lib/client-factory");
 
 beforeEach(() => {
   vi.resetAllMocks();
+  mockCreateClient.mockImplementation(() => ({
+    get: mockMuxGet,
+    post: mockMuxPost,
+  }));
   vi.stubGlobal("fetch", mockFetch);
   vi.mocked(getMuxClientFromEnv).mockResolvedValue({
     createClient: mockCreateClient,
