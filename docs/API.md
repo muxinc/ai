@@ -402,6 +402,65 @@ player.addChapters([
 ]);
 ```
 
+## `generateScenes(assetId, languageCode, options?)`
+
+Generates AI-powered scene boundaries by combining shot detection with timestamped transcript cues. Uses shot boundaries as candidate visual anchors, then groups adjacent shot windows into higher-level scenes with titles.
+
+**Parameters:**
+
+- `assetId` (string) - Mux video asset ID
+- `languageCode` (string) - Language code for captions (e.g., 'en', 'es', 'fr')
+- `options` (optional) - Configuration options
+
+**Options:**
+
+- `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
+- `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
+- `promptOverrides?: object` - Override specific sections of the scenes prompt
+  - `task?: string` - Override the main scene segmentation task
+  - `outputFormat?: string` - Override the expected output format description
+  - `sceneGuidelines?: string` - Override scene count and formatting guidance
+  - `boundaryGuidelines?: string` - Override how shot anchors and transcript continuity should influence boundaries
+  - `titleGuidelines?: string` - Override scene title style guidance
+- `minScenesPerHour?: number` - Minimum scenes to generate per hour of content (default: 6)
+- `maxScenesPerHour?: number` - Maximum scenes to generate per hour of content (default: 20)
+- `outputLanguageCode?: string | 'auto'` - Language for generated scene titles (default: transcript language)
+- `pollIntervalMs?: number` - Poll interval passed to `waitForShotsForAsset()`
+- `maxAttempts?: number` - Max poll attempts passed to `waitForShotsForAsset()`
+- `createShotsIfMissing?: boolean` - Whether to request shots before polling (default: `true`)
+- `minShotWindowDurationSeconds?: number` - Minimum duration before short low-signal shot windows are merged (default: `2`)
+
+**Returns:**
+
+```typescript
+{
+  assetId: string;
+  languageCode: string;
+  scenes: Array<{
+    startTime: number; // Scene start time in seconds
+    endTime: number; // Scene end time in seconds
+    title: string; // Descriptive scene title
+  }>;
+  usage?: TokenUsage; // Token usage from the AI provider
+}
+```
+
+**Requirements:**
+
+- Asset must be a video asset
+- Asset must have a ready caption/transcript track in the specified language
+- Workflow requires completed shots and will request/poll for them by default
+
+**Example Output:**
+
+```typescript
+[
+  { startTime: 0, endTime: 18.4, title: "Opening Introduction" },
+  { startTime: 18.4, endTime: 47.2, title: "Product Overview" },
+  { startTime: 47.2, endTime: 91, title: "Hands-On Demonstration" }
+]
+```
+
 ## `translateAudio(assetId, toLanguageCode, options?)`
 
 Creates AI-dubbed audio tracks from existing media content using ElevenLabs voice cloning and translation. Uses the default audio track on your asset. Source language is auto-detected unless `fromLanguageCode` is provided.
