@@ -256,6 +256,7 @@ Translates existing captions from one language to another and optionally adds th
 - `s3Region?: string` - S3 region (default: 'auto')
 - `s3Bucket?: string` - S3 bucket name
 - `storageAdapter?: StorageAdapter` - Optional adapter with `putObject` and `createPresignedGetUrl` methods
+- `s3SignedUrlExpirySeconds?: number` - Expiry duration in seconds for S3 presigned GET URLs (default: 86400 / 24 hours)
 - `chunking?: object` - Optional VTT-aware chunking controls for large caption translations
   - `enabled?: boolean` - Set to `false` to translate all cues in a single structured request (default: `true`)
   - `minimumAssetDurationSeconds?: number` - Prefer a single request until the asset is at least this long (default: `1800`)
@@ -276,7 +277,7 @@ interface TranslateCaptionsResult {
   originalVtt: string; // Original VTT content
   translatedVtt: string; // Translated VTT content
   uploadedTrackId?: string; // Mux track ID (if uploaded)
-  presignedUrl?: string; // S3 presigned URL (expires in 1 hour)
+  presignedUrl?: string; // S3 presigned URL (default expiry: 24 hours)
   usage?: TokenUsage; // Token usage from the AI provider
 }
 ```
@@ -320,6 +321,7 @@ Edits a caption track using LLM-powered profanity censorship, static find/replac
 - `s3Bucket?: string` - S3 bucket name
 - `trackNameSuffix?: string` - Suffix appended to the original track name in parentheses (default: 'edited', e.g. "Subtitles (edited)")
 - `storageAdapter?: StorageAdapter` - Optional adapter with `putObject` and `createPresignedGetUrl` methods
+- `s3SignedUrlExpirySeconds?: number` - Expiry duration in seconds for S3 presigned GET URLs (default: 86400 / 24 hours)
 
 At least one of `autoCensorProfanity` or `replacements` must be provided.
 
@@ -345,7 +347,7 @@ interface EditCaptionsResult {
     replacements: ReplacementRecord[]; // Each static replacement with cue timing
   };
   uploadedTrackId?: string; // Mux track ID (if uploaded)
-  presignedUrl?: string; // S3 presigned URL (expires in 1 hour)
+  presignedUrl?: string; // S3 presigned URL (default expiry: 24 hours)
   usage?: TokenUsage; // Token usage (only present if LLM was used)
 }
 ```
@@ -422,6 +424,7 @@ Creates AI-dubbed audio tracks from existing media content using ElevenLabs voic
 - `s3Region?: string` - S3 region (default: 'auto')
 - `s3Bucket?: string` - S3 bucket name
 - `storageAdapter?: StorageAdapter` - Optional adapter with `putObject` and `createPresignedGetUrl` methods
+- `s3SignedUrlExpirySeconds?: number` - Expiry duration in seconds for S3 presigned GET URLs (default: 86400 / 24 hours)
 
 **Returns:**
 
@@ -432,7 +435,7 @@ interface TranslateAudioResult {
   targetLanguage: LanguageCodePair; // { iso639_1: string; iso639_3: string }
   dubbingId: string; // ElevenLabs dubbing job ID
   uploadedTrackId?: string; // Mux audio track ID (if uploaded)
-  presignedUrl?: string; // S3 presigned URL (expires in 1 hour)
+  presignedUrl?: string; // S3 presigned URL (default expiry: 24 hours)
   usage?: TokenUsage; // Workflow usage metadata
 }
 ```

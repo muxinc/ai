@@ -547,7 +547,7 @@ ElevenLabs supports 32+ languages with automatic language name detection via `In
 4. Polls for completion (up to 30 minutes)
 5. Downloads dubbed audio file
 6. Uploads to S3-compatible storage
-7. Generates presigned URL (1-hour expiry)
+7. Generates presigned URL (default 24-hour expiry, configurable via `s3SignedUrlExpirySeconds`)
 8. Adds new audio track to Mux asset
 9. Track name: "{Language} (auto-dubbed)"
 
