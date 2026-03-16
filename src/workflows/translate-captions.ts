@@ -92,6 +92,8 @@ export interface TranslationOptions<P extends SupportedProvider = SupportedProvi
   uploadToMux?: boolean;
   /** Optional storage adapter override for upload + presign operations. */
   storageAdapter?: StorageAdapter;
+  /** Expiry duration in seconds for S3 presigned GET URLs. Defaults to 86400 (24 hours). */
+  s3SignedUrlExpirySeconds?: number;
   /**
    * Optional VTT-aware chunking for caption translation.
    * When enabled, the workflow splits cue-aligned translation requests by
@@ -630,6 +632,7 @@ async function uploadVttToS3({
   s3Region,
   s3Bucket,
   storageAdapter,
+  s3SignedUrlExpirySeconds,
 }: {
   translatedVtt: string;
   assetId: string;
@@ -639,6 +642,7 @@ async function uploadVttToS3({
   s3Region: string;
   s3Bucket: string;
   storageAdapter?: StorageAdapter;
+  s3SignedUrlExpirySeconds?: number;
 }): Promise<string> {
   "use step";
 
@@ -666,7 +670,7 @@ async function uploadVttToS3({
     region: s3Region,
     bucket: s3Bucket,
     key: vttKey,
-    expiresInSeconds: 3600,
+    expiresInSeconds: s3SignedUrlExpirySeconds ?? 86400,
   }, storageAdapter);
 }
 
@@ -830,6 +834,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
       s3Region,
       s3Bucket: s3Bucket!,
       storageAdapter: effectiveStorageAdapter,
+      s3SignedUrlExpirySeconds: options.s3SignedUrlExpirySeconds,
     });
   } catch (error) {
     throw new Error(`Failed to upload VTT to S3: ${error instanceof Error ? error.message : "Unknown error"}`);

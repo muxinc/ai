@@ -75,6 +75,8 @@ export interface EditCaptionsOptions<P extends SupportedProvider = SupportedProv
   s3Bucket?: string;
   /** Suffix appended to the original track name, e.g. "edited" produces "Subtitles (edited)". Defaults to "edited". */
   trackNameSuffix?: string;
+  /** Expiry duration in seconds for S3 presigned GET URLs. Defaults to 86400 (24 hours). */
+  s3SignedUrlExpirySeconds?: number;
 }
 
 /** Output returned from `editCaptions`. */
@@ -336,6 +338,7 @@ async function uploadEditedVttToS3({
   s3Region,
   s3Bucket,
   storageAdapter,
+  s3SignedUrlExpirySeconds,
 }: {
   editedVtt: string;
   assetId: string;
@@ -344,6 +347,7 @@ async function uploadEditedVttToS3({
   s3Region: string;
   s3Bucket: string;
   storageAdapter?: StorageAdapter;
+  s3SignedUrlExpirySeconds?: number;
 }): Promise<string> {
   "use step";
 
@@ -370,7 +374,7 @@ async function uploadEditedVttToS3({
     region: s3Region,
     bucket: s3Bucket,
     key: vttKey,
-    expiresInSeconds: 3600,
+    expiresInSeconds: s3SignedUrlExpirySeconds ?? 86400,
   }, storageAdapter);
 }
 
@@ -563,6 +567,7 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
       s3Region,
       s3Bucket: s3Bucket!,
       storageAdapter,
+      s3SignedUrlExpirySeconds: options.s3SignedUrlExpirySeconds,
     });
   } catch (error) {
     throw new Error(`Failed to upload VTT to S3: ${error instanceof Error ? error.message : "Unknown error"}`);
