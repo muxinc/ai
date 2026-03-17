@@ -40,6 +40,8 @@ import type {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const SUMMARY_KEYWORD_LIMIT = 10;
+export const DEFAULT_TITLE_LENGTH = 10;
+export const DEFAULT_DESCRIPTION_LENGTH = 50;
 
 export const summarySchema = z.object({
   keywords: z.array(z.string()),
@@ -121,9 +123,9 @@ export interface SummarizationOptions extends MuxAIOptions {
    * Useful for customizing the AI's output for specific use cases (SEO, social media, etc.)
    */
   promptOverrides?: SummarizationPromptOverrides;
-  /** Desired title length in characters. */
+  /** Desired title length in words. */
   titleLength?: number;
-  /** Desired description length in characters. */
+  /** Desired description length in words. */
   descriptionLength?: number;
   /** Desired number of tags. */
   tagCount?: number;
@@ -154,12 +156,8 @@ interface PromptConstraints {
 }
 
 function createSummarizationBuilder({ titleLength, descriptionLength, tagCount }: PromptConstraints = {}) {
-  const titleBrevity = titleLength != null ?
-    `Aim for approximately ${titleLength} characters.` :
-    "Aim for brevity - typically under 10 words.";
-  const descConstraint = descriptionLength != null ?
-    `approximately ${descriptionLength} characters` :
-    "2-4 sentences";
+  const titleBrevity = `Aim for approximately ${titleLength ?? DEFAULT_TITLE_LENGTH} words.`;
+  const descConstraint = `approximately ${descriptionLength ?? DEFAULT_DESCRIPTION_LENGTH} words, and you may use multiple sentences`;
   const keywordLimit = tagCount ?? SUMMARY_KEYWORD_LIMIT;
 
   return createPromptBuilder<SummarizationPromptSections>({
@@ -179,7 +177,8 @@ function createSummarizationBuilder({ titleLength, descriptionLength, tagCount }
       description: {
         tag: "description_requirements",
         content: dedent`
-          A concise summary (${descConstraint}) that describes what happens across the video.
+          A summary that describes what happens across the video.
+          Aim for ${descConstraint}.
           Cover the main subjects, actions, setting, and any notable progression visible across frames.
           Write in present tense. Be specific about observable details rather than making assumptions.
           If the transcript provides dialogue or narration, incorporate key points but prioritize visual content.`,
@@ -210,12 +209,8 @@ function createSummarizationBuilder({ titleLength, descriptionLength, tagCount }
 }
 
 function createAudioOnlyBuilder({ titleLength, descriptionLength, tagCount }: PromptConstraints = {}) {
-  const titleBrevity = titleLength != null ?
-    `Aim for approximately ${titleLength} characters.` :
-    "Aim for brevity - typically under 10 words.";
-  const descConstraint = descriptionLength != null ?
-    `approximately ${descriptionLength} characters` :
-    "2-4 sentences";
+  const titleBrevity = `Aim for approximately ${titleLength ?? DEFAULT_TITLE_LENGTH} words.`;
+  const descConstraint = `approximately ${descriptionLength ?? DEFAULT_DESCRIPTION_LENGTH} words, and you may use multiple sentences`;
   const keywordLimit = tagCount ?? SUMMARY_KEYWORD_LIMIT;
 
   return createPromptBuilder<SummarizationPromptSections>({
@@ -235,7 +230,8 @@ function createAudioOnlyBuilder({ titleLength, descriptionLength, tagCount }: Pr
       description: {
         tag: "description_requirements",
         content: dedent`
-          A concise summary (${descConstraint}) that describes the audio content.
+          A summary that describes the audio content.
+          Aim for ${descConstraint}.
           Cover the main topics, speakers, themes, and any notable progression in the discussion or narration.
           Write in present tense. Be specific about what is discussed or presented rather than making assumptions.
           Focus on the spoken content and any key insights, dialogue, or narrative elements.`,
@@ -409,7 +405,7 @@ function buildUserPrompt({
   } else {
     contextSections.push({
       tag: "language",
-      content: "Respond in the same language as the input content. Never switch languages to satisfy length constraints.",
+      content: "Respond in English. Never switch languages to satisfy length constraints.",
     });
   }
 
