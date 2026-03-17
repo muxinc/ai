@@ -406,6 +406,11 @@ function buildUserPrompt({
 
   if (languageName) {
     contextSections.push(createLanguageSection(languageName));
+  } else {
+    contextSections.push({
+      tag: "language",
+      content: "Respond in the same language as the input content. Never switch languages to satisfy length constraints.",
+    });
   }
 
   if (transcriptText) {
