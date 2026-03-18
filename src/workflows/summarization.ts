@@ -155,9 +155,52 @@ interface PromptConstraints {
   tagCount?: number;
 }
 
+const DESCRIPTION_LENGTH_THRESHOLD_SMALL = 25;
+const DESCRIPTION_LENGTH_THRESHOLD_LARGE = 100;
+
+function buildDescriptionGuidance(wordCount: number, contentType: "video" | "audio"): string {
+  if (wordCount < DESCRIPTION_LENGTH_THRESHOLD_SMALL) {
+    if (contentType === "video") {
+      return dedent`A brief summary of the video in approximately ${wordCount} words.
+        Focus on the single most important subject or action.
+        Write in present tense.`;
+    }
+    return dedent`A brief summary of the audio content in approximately ${wordCount} words.
+      Focus on the single most important topic or theme.
+      Write in present tense.`;
+  }
+
+  if (wordCount > DESCRIPTION_LENGTH_THRESHOLD_LARGE) {
+    if (contentType === "video") {
+      return dedent`A detailed summary that describes what happens across the video.
+        Aim for approximately ${wordCount} words, and you may use multiple sentences.
+        Be thorough: cover subjects, actions, setting, progression, and any notable details visible across frames.
+        Write in present tense. Be specific about observable details rather than making assumptions.
+        If the transcript provides dialogue or narration, incorporate key points but prioritize visual content.`;
+    }
+    return dedent`A detailed summary that describes the audio content.
+      Aim for approximately ${wordCount} words, and you may use multiple sentences.
+      Be thorough: cover topics, speakers, themes, progression, and any notable insights.
+      Write in present tense. Be specific about what is discussed or presented rather than making assumptions.
+      Focus on the spoken content and any key insights, dialogue, or narrative elements.`;
+  }
+
+  if (contentType === "video") {
+    return dedent`A summary that describes what happens across the video.
+      Aim for approximately ${wordCount} words, and you may use multiple sentences.
+      Cover the main subjects, actions, setting, and any notable progression visible across frames.
+      Write in present tense. Be specific about observable details rather than making assumptions.
+      If the transcript provides dialogue or narration, incorporate key points but prioritize visual content.`;
+  }
+  return dedent`A summary that describes the audio content.
+    Aim for approximately ${wordCount} words, and you may use multiple sentences.
+    Cover the main topics, speakers, themes, and any notable progression in the discussion or narration.
+    Write in present tense. Be specific about what is discussed or presented rather than making assumptions.
+    Focus on the spoken content and any key insights, dialogue, or narrative elements.`;
+}
+
 function createSummarizationBuilder({ titleLength, descriptionLength, tagCount }: PromptConstraints = {}) {
   const titleBrevity = `Aim for approximately ${titleLength ?? DEFAULT_TITLE_LENGTH} words.`;
-  const descConstraint = `approximately ${descriptionLength ?? DEFAULT_DESCRIPTION_LENGTH} words, and you may use multiple sentences`;
   const keywordLimit = tagCount ?? SUMMARY_KEYWORD_LIMIT;
 
   return createPromptBuilder<SummarizationPromptSections>({
@@ -176,12 +219,7 @@ function createSummarizationBuilder({ titleLength, descriptionLength, tagCount }
       },
       description: {
         tag: "description_requirements",
-        content: dedent`
-          A summary that describes what happens across the video.
-          Aim for ${descConstraint}.
-          Cover the main subjects, actions, setting, and any notable progression visible across frames.
-          Write in present tense. Be specific about observable details rather than making assumptions.
-          If the transcript provides dialogue or narration, incorporate key points but prioritize visual content.`,
+        content: buildDescriptionGuidance(descriptionLength ?? DEFAULT_DESCRIPTION_LENGTH, "video"),
       },
       keywords: {
         tag: "keywords_requirements",
@@ -210,7 +248,6 @@ function createSummarizationBuilder({ titleLength, descriptionLength, tagCount }
 
 function createAudioOnlyBuilder({ titleLength, descriptionLength, tagCount }: PromptConstraints = {}) {
   const titleBrevity = `Aim for approximately ${titleLength ?? DEFAULT_TITLE_LENGTH} words.`;
-  const descConstraint = `approximately ${descriptionLength ?? DEFAULT_DESCRIPTION_LENGTH} words, and you may use multiple sentences`;
   const keywordLimit = tagCount ?? SUMMARY_KEYWORD_LIMIT;
 
   return createPromptBuilder<SummarizationPromptSections>({
@@ -229,12 +266,7 @@ function createAudioOnlyBuilder({ titleLength, descriptionLength, tagCount }: Pr
       },
       description: {
         tag: "description_requirements",
-        content: dedent`
-          A summary that describes the audio content.
-          Aim for ${descConstraint}.
-          Cover the main topics, speakers, themes, and any notable progression in the discussion or narration.
-          Write in present tense. Be specific about what is discussed or presented rather than making assumptions.
-          Focus on the spoken content and any key insights, dialogue, or narrative elements.`,
+        content: buildDescriptionGuidance(descriptionLength ?? DEFAULT_DESCRIPTION_LENGTH, "audio"),
       },
       keywords: {
         tag: "keywords_requirements",
