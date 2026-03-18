@@ -39,7 +39,7 @@ import type {
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const SUMMARY_KEYWORD_LIMIT = 10;
+export const DEFAULT_SUMMARY_KEYWORD_LIMIT = 10;
 export const DEFAULT_TITLE_LENGTH = 10;
 export const DEFAULT_DESCRIPTION_LENGTH = 50;
 
@@ -201,7 +201,7 @@ function buildDescriptionGuidance(wordCount: number, contentType: "video" | "aud
 
 function createSummarizationBuilder({ titleLength, descriptionLength, tagCount }: PromptConstraints = {}) {
   const titleBrevity = `Aim for approximately ${titleLength ?? DEFAULT_TITLE_LENGTH} words.`;
-  const keywordLimit = tagCount ?? SUMMARY_KEYWORD_LIMIT;
+  const keywordLimit = tagCount ?? DEFAULT_SUMMARY_KEYWORD_LIMIT;
 
   return createPromptBuilder<SummarizationPromptSections>({
     template: {
@@ -248,7 +248,7 @@ function createSummarizationBuilder({ titleLength, descriptionLength, tagCount }
 
 function createAudioOnlyBuilder({ titleLength, descriptionLength, tagCount }: PromptConstraints = {}) {
   const titleBrevity = `Aim for approximately ${titleLength ?? DEFAULT_TITLE_LENGTH} words.`;
-  const keywordLimit = tagCount ?? SUMMARY_KEYWORD_LIMIT;
+  const keywordLimit = tagCount ?? DEFAULT_SUMMARY_KEYWORD_LIMIT;
 
   return createPromptBuilder<SummarizationPromptSections>({
     template: {
@@ -553,7 +553,7 @@ async function analyzeAudioOnly(
   };
 }
 
-function normalizeKeywords(keywords?: string[], limit: number = SUMMARY_KEYWORD_LIMIT): string[] {
+function normalizeKeywords(keywords?: string[], limit: number = DEFAULT_SUMMARY_KEYWORD_LIMIT): string[] {
   if (!Array.isArray(keywords) || keywords.length === 0) {
     return [];
   }
@@ -741,7 +741,7 @@ export async function getSummaryAndTags(
     assetId,
     title: analysisResponse.result.title,
     description: analysisResponse.result.description,
-    tags: normalizeKeywords(analysisResponse.result.keywords, tagCount ?? SUMMARY_KEYWORD_LIMIT),
+    tags: normalizeKeywords(analysisResponse.result.keywords, tagCount ?? DEFAULT_SUMMARY_KEYWORD_LIMIT),
     storyboardUrl: imageUrl, // undefined for audio-only assets
     usage: {
       ...analysisResponse.usage,
