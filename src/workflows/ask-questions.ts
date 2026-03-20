@@ -28,16 +28,14 @@ export interface Question {
 export interface QuestionAnswer {
   /** The original question */
   question: string;
-  /** Answer selected from the allowed options. Empty string when skipped. */
-  answer: string;
+  /** Answer selected from the allowed options. Undefined when skipped. */
+  answer?: string;
   /** Confidence score between 0 and 1. Always 0 when skipped. */
   confidence: number;
-  /** Reasoning explaining the answer based on observable evidence */
+  /** Reasoning explaining the answer, or why the question was skipped */
   reasoning: string;
   /** Whether the question was skipped due to irrelevance to the video content */
   skipped: boolean;
-  /** Explanation of why the question was skipped (only present when skipped is true) */
-  skipReason?: string;
 }
 
 /** Configuration options for askQuestions workflow. */
@@ -85,13 +83,15 @@ export const questionAnswerSchema = z.object({
   confidence: z.number(),
   reasoning: z.string(),
   skipped: z.boolean(),
-  skipReason: z.string().optional(),
 });
 
 export type QuestionAnswerType = z.infer<typeof questionAnswerSchema>;
 
 function createAskQuestionsSchema(allowedAnswers: [string, ...string[]]) {
-  const answerSchema = z.enum([...allowedAnswers, ""]);
+  // Include a sentinel value for skipped questions — OpenAI structured outputs
+  // require all properties, and Google rejects empty-string enum values.
+  // This sentinel is stripped to undefined in post-processing.
+  const answerSchema = z.enum([...allowedAnswers, "SKIPPED"]);
 
   return z.object({
     answers: z.array(
@@ -170,11 +170,10 @@ const SYSTEM_PROMPT = dedent`
 
     For skipped questions:
     - Set skipped to true
-    - Set answer to an empty string
+    - Set answer to "SKIPPED"
     - Set confidence to 0
-    - Provide a clear skipReason explaining why the question is not answerable
+    - Use the reasoning field to explain why the question is not answerable
       from the video content
-    - Set reasoning to an empty string
 
     For borderline questions that are loosely related to the video content,
     still answer them but use a lower confidence score to reflect uncertainty.
@@ -247,7 +246,7 @@ function buildUserPrompt(
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface AnalysisResponse {
-  result: AskQuestionsType;
+  result: { answers: QuestionAnswer[] };
   usage: TokenUsage;
 }
 
@@ -295,13 +294,13 @@ async function analyzeQuestionsWithStoryboard(
 
   return {
     result: {
-      answers: response.output.answers.map(answer => ({
-        ...answer,
-        // Strip numbering prefix (e.g., "1. " or "2. ") from questions
+      answers: response.output.answers.map((answer): QuestionAnswer => ({
         question: answer.question.replace(/^\d+\.\s*/, ""),
         confidence: answer.skipped ? 0 : Math.min(1, Math.max(0, answer.confidence)),
-        answer: answer.skipped ? "" : answer.answer,
-        skipReason: answer.skipped ? answer.skipReason : undefined,
+        reasoning: answer.reasoning,
+        skipped: answer.skipped,
+        // Strip the "SKIPPED" sentinel used for schema compatibility
+        ...(answer.skipped ? {} : { answer: answer.answer }),
       })),
     },
     usage: {

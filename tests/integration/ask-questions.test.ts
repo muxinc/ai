@@ -151,7 +151,7 @@ describe("ask Questions Integration Tests", () => {
     ).rejects.toThrow("Question at index 0 is invalid");
   });
 
-  it("should skip irrelevant questions with skipped flag and skipReason", async () => {
+  it("should skip irrelevant questions with reasoning explaining why", async () => {
     const result = await askQuestions(testAssetId, [
       { question: "What is the square root of 144?" },
     ]);
@@ -160,11 +160,10 @@ describe("ask Questions Integration Tests", () => {
 
     const answer = result.answers[0];
     expect(answer.skipped).toBe(true);
-    expect(answer.answer).toBe("");
+    expect(answer.answer).toBeUndefined();
     expect(answer.confidence).toBe(0);
-    expect(answer.skipReason).toBeDefined();
-    expect(typeof answer.skipReason).toBe("string");
-    expect(answer.skipReason!.length).toBeGreaterThan(0);
+    expect(typeof answer.reasoning).toBe("string");
+    expect(answer.reasoning.length).toBeGreaterThan(0);
   });
 
   it("should handle a mix of relevant and irrelevant questions", async () => {
@@ -185,9 +184,9 @@ describe("ask Questions Integration Tests", () => {
 
     // Irrelevant question should be skipped
     expect(result.answers[1].skipped).toBe(true);
-    expect(result.answers[1].answer).toBe("");
+    expect(result.answers[1].answer).toBeUndefined();
     expect(result.answers[1].confidence).toBe(0);
-    expect(result.answers[1].skipReason).toBeDefined();
+    expect(result.answers[1].reasoning.length).toBeGreaterThan(0);
 
     // Relevant question should not be skipped
     expect(result.answers[2].skipped).toBe(false);
@@ -201,7 +200,6 @@ describe("ask Questions Integration Tests", () => {
 
     const answer = result.answers[0];
     expect(answer.skipped).toBe(false);
-    expect(answer.skipReason).toBeUndefined();
     expect(answer.answer).toBe("yes");
   });
 
