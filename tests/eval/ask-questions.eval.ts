@@ -178,9 +178,11 @@ evalite("Ask Questions", {
           output.answers.length === input.questions.length;
         const answerFieldsValid = output.answers.every((answer, idx) =>
           answer.question === input.questions[idx].question &&
-          expected.allowedAnswers.includes(answer.answer) &&
-          typeof answer.confidence === "number" &&
-          typeof answer.reasoning === "string");
+          (answer.skipped ?
+            answer.answer === undefined && answer.confidence === 0 :
+              expected.allowedAnswers.includes(answer.answer!)) &&
+              typeof answer.confidence === "number" &&
+              typeof answer.reasoning === "string");
 
         const checks = [assetIdValid, storyboardValid, answersValid, answerFieldsValid];
         return checks.filter(Boolean).length / checks.length;
