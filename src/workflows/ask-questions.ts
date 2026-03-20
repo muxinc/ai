@@ -76,10 +76,10 @@ export interface AskQuestionsResult {
 // Zod Schemas
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Zod schema for a single answer. */
+/** Zod schema for a single answer (matches the public QuestionAnswer interface). */
 export const questionAnswerSchema = z.object({
   question: z.string(),
-  answer: z.string(),
+  answer: z.string().optional(),
   confidence: z.number(),
   reasoning: z.string(),
   skipped: z.boolean(),
@@ -87,11 +87,16 @@ export const questionAnswerSchema = z.object({
 
 export type QuestionAnswerType = z.infer<typeof questionAnswerSchema>;
 
+/**
+ * Sentinel value used as the answer for skipped questions in the LLM schema.
+ * OpenAI structured outputs require all properties to be required, and Google
+ * rejects empty-string enum values, so we need a concrete string in the enum
+ * for the "no answer" case. Stripped to `undefined` in post-processing.
+ */
+const SKIP_SENTINEL = "__SKIPPED__";
+
 function createAskQuestionsSchema(allowedAnswers: [string, ...string[]]) {
-  // Include a sentinel value for skipped questions — OpenAI structured outputs
-  // require all properties, and Google rejects empty-string enum values.
-  // This sentinel is stripped to undefined in post-processing.
-  const answerSchema = z.enum([...allowedAnswers, "SKIPPED"]);
+  const answerSchema = z.enum([...allowedAnswers, SKIP_SENTINEL]);
 
   return z.object({
     answers: z.array(
@@ -170,7 +175,7 @@ const SYSTEM_PROMPT = dedent`
 
     For skipped questions:
     - Set skipped to true
-    - Set answer to "SKIPPED"
+    - Set answer to "__SKIPPED__"
     - Set confidence to 0
     - Use the reasoning field to explain why the question is not answerable
       from the video content
@@ -246,7 +251,7 @@ function buildUserPrompt(
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface AnalysisResponse {
-  result: { answers: QuestionAnswer[] };
+  result: AskQuestionsType;
   usage: TokenUsage;
 }
 
@@ -293,16 +298,7 @@ async function analyzeQuestionsWithStoryboard(
   });
 
   return {
-    result: {
-      answers: response.output.answers.map((answer): QuestionAnswer => ({
-        question: answer.question.replace(/^\d+\.\s*/, ""),
-        confidence: answer.skipped ? 0 : Math.min(1, Math.max(0, answer.confidence)),
-        reasoning: answer.reasoning,
-        skipped: answer.skipped,
-        // Strip the "SKIPPED" sentinel used for schema compatibility
-        ...(answer.skipped ? {} : { answer: answer.answer }),
-      })),
-    },
+    result: response.output,
     usage: {
       inputTokens: response.usage.inputTokens,
       outputTokens: response.usage.outputTokens,
@@ -475,9 +471,23 @@ export async function askQuestions(
     );
   }
 
+  // Post-process raw LLM output into the public QuestionAnswer shape.
+  // Treat as skipped if the model flagged it OR if the answer is the sentinel.
+  const answers: QuestionAnswer[] = analysisResponse.result.answers.map((raw) => {
+    const isSkipped = raw.skipped || raw.answer === SKIP_SENTINEL;
+    return {
+      // Strip numbering prefix (e.g., "1. " or "2. ") from questions
+      question: raw.question.replace(/^\d+\.\s*/, ""),
+      confidence: isSkipped ? 0 : Math.min(1, Math.max(0, raw.confidence)),
+      reasoning: raw.reasoning,
+      skipped: isSkipped,
+      ...(isSkipped ? {} : { answer: raw.answer }),
+    };
+  });
+
   return {
     assetId,
-    answers: analysisResponse.result.answers,
+    answers,
     storyboardUrl: imageUrl,
     usage: {
       ...analysisResponse.usage,
