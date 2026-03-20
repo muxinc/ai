@@ -175,7 +175,7 @@ const SYSTEM_PROMPT = dedent`
 
     For skipped questions:
     - Set skipped to true
-    - Set answer to "__SKIPPED__"
+    - Set answer to "${SKIP_SENTINEL}"
     - Set confidence to 0
     - Use the reasoning field to explain why the question is not answerable
       from the video content
