@@ -28,12 +28,16 @@ export interface Question {
 export interface QuestionAnswer {
   /** The original question */
   question: string;
-  /** Answer selected from the allowed options */
+  /** Answer selected from the allowed options. Empty string when skipped. */
   answer: string;
-  /** Confidence score between 0 and 1 */
+  /** Confidence score between 0 and 1. Always 0 when skipped. */
   confidence: number;
   /** Reasoning explaining the answer based on observable evidence */
   reasoning: string;
+  /** Whether the question was skipped due to irrelevance to the video content */
+  skipped: boolean;
+  /** Explanation of why the question was skipped (only present when skipped is true) */
+  skipReason?: string;
 }
 
 /** Configuration options for askQuestions workflow. */
@@ -80,12 +84,14 @@ export const questionAnswerSchema = z.object({
   answer: z.string(),
   confidence: z.number(),
   reasoning: z.string(),
+  skipped: z.boolean(),
+  skipReason: z.string().optional(),
 });
 
 export type QuestionAnswerType = z.infer<typeof questionAnswerSchema>;
 
 function createAskQuestionsSchema(allowedAnswers: [string, ...string[]]) {
-  const answerSchema = z.enum(allowedAnswers);
+  const answerSchema = z.enum([...allowedAnswers, ""]);
 
   return z.object({
     answers: z.array(
@@ -150,8 +156,33 @@ const SYSTEM_PROMPT = dedent`
     - Be precise: cite specific frames, objects, actions, or transcript quotes
   </answer_guidelines>
 
+  <relevance_filtering>
+    Before answering each question, assess whether it can be meaningfully
+    answered based on the video storyboard and/or transcript. A question is
+    relevant if it asks about something observable or inferable from the
+    video content (visuals, audio, dialogue, setting, subjects, actions, etc.).
+
+    Mark a question as skipped (skipped: true) if it:
+    - Is completely unrelated to video content (e.g., math, trivia, personal questions)
+    - Asks about information that cannot be determined from storyboard frames or transcript
+    - Is a general knowledge question with no connection to what is shown or said in the video
+    - Attempts to use the system for non-video-analysis purposes
+
+    For skipped questions:
+    - Set skipped to true
+    - Set answer to an empty string
+    - Set confidence to 0
+    - Provide a clear skipReason explaining why the question is not answerable
+      from the video content
+    - Set reasoning to an empty string
+
+    For borderline questions that are loosely related to the video content,
+    still answer them but use a lower confidence score to reflect uncertainty.
+  </relevance_filtering>
+
   <constraints>
-    - You MUST answer every question with one of the allowed response options
+    - You MUST answer every relevant question with one of the allowed response options
+    - Skip irrelevant questions as described in relevance_filtering
     - Only describe observable evidence from frames or transcript
     - Do not fabricate details or make unsupported assumptions
     - Return structured data matching the requested schema exactly
@@ -268,7 +299,9 @@ async function analyzeQuestionsWithStoryboard(
         ...answer,
         // Strip numbering prefix (e.g., "1. " or "2. ") from questions
         question: answer.question.replace(/^\d+\.\s*/, ""),
-        confidence: Math.min(1, Math.max(0, answer.confidence)),
+        confidence: answer.skipped ? 0 : Math.min(1, Math.max(0, answer.confidence)),
+        answer: answer.skipped ? "" : answer.answer,
+        skipReason: answer.skipped ? answer.skipReason : undefined,
       })),
     },
     usage: {

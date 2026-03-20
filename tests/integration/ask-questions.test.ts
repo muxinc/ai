@@ -151,6 +151,60 @@ describe("ask Questions Integration Tests", () => {
     ).rejects.toThrow("Question at index 0 is invalid");
   });
 
+  it("should skip irrelevant questions with skipped flag and skipReason", async () => {
+    const result = await askQuestions(testAssetId, [
+      { question: "What is the square root of 144?" },
+    ]);
+
+    expect(result.answers).toHaveLength(1);
+
+    const answer = result.answers[0];
+    expect(answer.skipped).toBe(true);
+    expect(answer.answer).toBe("");
+    expect(answer.confidence).toBe(0);
+    expect(answer.skipReason).toBeDefined();
+    expect(typeof answer.skipReason).toBe("string");
+    expect(answer.skipReason!.length).toBeGreaterThan(0);
+  });
+
+  it("should handle a mix of relevant and irrelevant questions", async () => {
+    const questions = [
+      { question: "Is this video about glasses?" },
+      { question: "What is the capital of France?" },
+      { question: "Is this video in color?" },
+    ];
+
+    const result = await askQuestions(testAssetId, questions);
+
+    expect(result.answers).toHaveLength(3);
+
+    // Relevant questions should not be skipped
+    expect(result.answers[0].skipped).toBe(false);
+    expect(["yes", "no"]).toContain(result.answers[0].answer);
+    expect(result.answers[0].answer).toBe("yes");
+
+    // Irrelevant question should be skipped
+    expect(result.answers[1].skipped).toBe(true);
+    expect(result.answers[1].answer).toBe("");
+    expect(result.answers[1].confidence).toBe(0);
+    expect(result.answers[1].skipReason).toBeDefined();
+
+    // Relevant question should not be skipped
+    expect(result.answers[2].skipped).toBe(false);
+    expect(["yes", "no"]).toContain(result.answers[2].answer);
+  });
+
+  it("should mark relevant questions with skipped false", async () => {
+    const result = await askQuestions(testAssetId, [
+      { question: "Is this video about glasses?" },
+    ]);
+
+    const answer = result.answers[0];
+    expect(answer.skipped).toBe(false);
+    expect(answer.skipReason).toBeUndefined();
+    expect(answer.answer).toBe("yes");
+  });
+
   it("should throw error when answer count doesn't match question count", async () => {
     // This is a defensive test - it should only fail if the AI provider returns
     // an incorrect number of answers, which shouldn't happen in practice
