@@ -1,5 +1,6 @@
 import type { HeatmapResponse } from "../../src/primitives/heatmap";
 import type { Hotspot } from "../../src/primitives/hotspots";
+import type { CompletedShotsResult, Shot } from "../../src/primitives/shots";
 
 /**
  * Mock engagement data for testing the engagement insights workflow.
@@ -203,4 +204,30 @@ export function createMockHotspotsResponse(
 ): Hotspot[] {
   const hotspots = orderDirection === "desc" ? MOCK_HOTSPOTS_PEAKS : MOCK_HOTSPOTS_VALLEYS;
   return hotspots.slice(0, limit);
+}
+
+/**
+ * Mock shots data for a ~3 minute video.
+ * Shots represent scene boundaries with representative frame images.
+ */
+export const MOCK_SHOTS: Shot[] = [
+  { startTime: 0, imageUrl: "https://image.mux.com/test/shot-0.png" },
+  { startTime: 12, imageUrl: "https://image.mux.com/test/shot-12.png" },
+  { startTime: 28, imageUrl: "https://image.mux.com/test/shot-28.png" },
+  { startTime: 55, imageUrl: "https://image.mux.com/test/shot-55.png" },
+  { startTime: 85, imageUrl: "https://image.mux.com/test/shot-85.png" },
+  { startTime: 110, imageUrl: "https://image.mux.com/test/shot-110.png" },
+  { startTime: 130, imageUrl: "https://image.mux.com/test/shot-130.png" },
+  { startTime: 160, imageUrl: "https://image.mux.com/test/shot-160.png" },
+];
+
+/**
+ * Creates a mock completed shots result.
+ */
+export function createMockShotsResult(): CompletedShotsResult {
+  return {
+    status: "completed",
+    createdAt: new Date().toISOString(),
+    shots: MOCK_SHOTS,
+  };
 }

@@ -260,9 +260,10 @@ console.log("Trends:", result.overallInsight.trends);
 ```typescript
 const result = await generateEngagementInsights(assetId, {
   provider: "openai", // "openai", "anthropic", or "google"
-  hotspotLimit: 5, // Number of moments to analyze (1-10, default: 5)
+  hotspotLimit: 5, // Moments per direction (1-10, default: 5). Up to 2x total.
   insightType: "informational", // "informational" | "actionable" | "both"
-  timeframe: "[7:days]" // "[1:hour]", "[24:hours]", "[7:days]", "[30:days]"
+  timeframe: "7:days", // "1:hour", "24:hours", "7:days", "30:days"
+  skipShots: false, // Skip shots polling, use thumbnails (default: false)
 });
 ```
 
@@ -283,10 +284,10 @@ const result = await generateEngagementInsights(assetId, {
 The workflow combines multiple data sources for comprehensive analysis:
 
 1. **Fetches engagement data** - Both peaks (high engagement) and valleys (low engagement) from Mux Data API
-2. **Computes heatmap statistics** - Average engagement, peaks, drops >25%, and trends
-3. **Extracts visual context** - Generates thumbnails at hotspot timestamps
+2. **Fetches visual context** - Scene-representative frames via shots API (falls back to thumbnails if unavailable)
+3. **Computes heatmap statistics** - Average engagement, peaks, significant drops >25%, and percentile ranking
 4. **Analyzes transcript** - Matches transcript segments to engagement moments
-5. **Generates AI insights** - Explains patterns based on observable evidence
+5. **Generates AI insights** - Explains patterns based on observable evidence from visuals and transcript
 
 ### Output Structure
 
@@ -299,10 +300,10 @@ The workflow combines multiple data sources for comprehensive analysis:
       endMs: 90331,
       timestamp: "1:26",
       engagementScore: 0.875, // 0-1 normalized score
-      type: "high", // "high" or "low"
+      type: "high", // Computed from heatmap average
+      percentile: 92, // Percentile rank within video (0-100)
       insight: "The cooking demonstration shows...",
       recommendation: "Consider expanding technique demonstrations...", // Optional
-      confidence: 0.92 // 0-1 confidence score
     }
   ],
   overallInsight: {
@@ -333,8 +334,10 @@ The workflow combines multiple data sources for comprehensive analysis:
 - Use a **7-day timeframe** (default) for stable engagement data
 - Increase **timeframe** for newer videos that haven't accumulated views
 - Set **`insightType: "both"`** for comprehensive analysis
-- Videos need sufficient view data - new or low-view videos may not have engagement data
+- Use **`skipShots: true`** for latency-sensitive API endpoints (saves up to 30s)
+- Videos need sufficient view data — new or low-view videos may not have engagement data
 - Audio-only assets work but lack visual analysis
+- The heatmap is 100 data points regardless of video length — each point represents 1/100th of the video
 
 ## Chapter Generation
 

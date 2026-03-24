@@ -5,6 +5,7 @@ import { generateEngagementInsights } from "../../src/workflows";
 import {
   createMockHeatmapResponse,
   createMockHotspotsResponse,
+  createMockShotsResult,
 } from "../helpers/mock-engagement-data";
 import { muxTestAssets } from "../helpers/mux-test-assets";
 
@@ -12,7 +13,6 @@ import { muxTestAssets } from "../helpers/mux-test-assets";
 // Mock Setup
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Mock the primitives to return mock engagement data
 vi.mock("../../src/primitives/hotspots", async () => {
   const actual = await vi.importActual<typeof import("../../src/primitives/hotspots")>(
     "../../src/primitives/hotspots",
@@ -33,14 +33,34 @@ vi.mock("../../src/primitives/heatmap", async () => {
   };
 });
 
-// Import mocked functions
+vi.mock("../../src/primitives/shots", async () => {
+  const actual = await vi.importActual<typeof import("../../src/primitives/shots")>(
+    "../../src/primitives/shots",
+  );
+  return {
+    ...actual,
+    waitForShotsForAsset: vi.fn(),
+  };
+});
+
+vi.mock("../../src/primitives/storyboards", async () => {
+  const actual = await vi.importActual<typeof import("../../src/primitives/storyboards")>(
+    "../../src/primitives/storyboards",
+  );
+  return {
+    ...actual,
+    getStoryboardUrl: vi.fn(),
+  };
+});
+
 const { getHotspotsForAsset } = await import("../../src/primitives/hotspots");
 const { getHeatmapForAsset } = await import("../../src/primitives/heatmap");
+const { waitForShotsForAsset } = await import("../../src/primitives/shots");
+const { getStoryboardUrl } = await import("../../src/primitives/storyboards");
 
 beforeEach(() => {
   vi.clearAllMocks();
 
-  // Setup mock responses
   vi.mocked(getHotspotsForAsset).mockImplementation(async (_assetId, options) => {
     const orderDirection = options?.orderDirection ?? "desc";
     const limit = options?.limit ?? 5;
@@ -50,11 +70,17 @@ beforeEach(() => {
   vi.mocked(getHeatmapForAsset).mockImplementation(async (assetId) => {
     return createMockHeatmapResponse(assetId);
   });
+
+  vi.mocked(waitForShotsForAsset).mockImplementation(async () => {
+    return createMockShotsResult();
+  });
+
+  vi.mocked(getStoryboardUrl).mockImplementation(async () => {
+    return "https://image.mux.com/test/storyboard.png?width=640";
+  });
 });
 
 describe("engagement Insights Integration Tests", () => {
-  // Note: These tests use mocked engagement data to verify workflow functionality
-  // without requiring real viewer activity on test assets.
   const testAssetId = muxTestAssets.assetId;
   const providers: SupportedProvider[] = ["openai", "anthropic", "google"];
 
@@ -82,7 +108,6 @@ describe("engagement Insights Integration Tests", () => {
     expect(result).toHaveProperty("momentInsights");
     expect(result).toHaveProperty("overallInsight");
 
-    // Check moment insights structure
     expect(Array.isArray(result.momentInsights)).toBe(true);
     result.momentInsights.forEach((insight) => {
       expect(insight).toHaveProperty("startMs");
@@ -91,15 +116,15 @@ describe("engagement Insights Integration Tests", () => {
       expect(insight).toHaveProperty("engagementScore");
       expect(insight).toHaveProperty("type");
       expect(["high", "low"]).toContain(insight.type);
+      expect(insight).toHaveProperty("percentile");
+      expect(typeof insight.percentile).toBe("number");
+      expect(insight.percentile).toBeGreaterThanOrEqual(0);
+      expect(insight.percentile).toBeLessThanOrEqual(100);
       expect(insight).toHaveProperty("insight");
       expect(typeof insight.insight).toBe("string");
       expect(insight.insight.length).toBeGreaterThan(0);
-      expect(insight).toHaveProperty("confidence");
-      expect(insight.confidence).toBeGreaterThanOrEqual(0);
-      expect(insight.confidence).toBeLessThanOrEqual(1);
     });
 
-    // Check overall insight structure
     expect(result.overallInsight).toBeDefined();
     expect(result.overallInsight).toHaveProperty("summary");
     expect(typeof result.overallInsight.summary).toBe("string");
@@ -116,7 +141,6 @@ describe("engagement Insights Integration Tests", () => {
 
     expect(result).toBeDefined();
 
-    // Check that moment insights have recommendations
     result.momentInsights.forEach((insight) => {
       expect(insight).toHaveProperty("recommendation");
       if (insight.recommendation) {
@@ -125,7 +149,6 @@ describe("engagement Insights Integration Tests", () => {
       }
     });
 
-    // Check that overall insight has recommendations
     expect(result.overallInsight).toHaveProperty("recommendations");
     expect(Array.isArray(result.overallInsight.recommendations)).toBe(true);
   });
@@ -138,7 +161,6 @@ describe("engagement Insights Integration Tests", () => {
 
     expect(result).toBeDefined();
 
-    // Check that moment insights have both insight and recommendation
     result.momentInsights.forEach((insight) => {
       expect(insight).toHaveProperty("insight");
       expect(insight).toHaveProperty("recommendation");
@@ -146,7 +168,6 @@ describe("engagement Insights Integration Tests", () => {
       expect(insight.insight.length).toBeGreaterThan(0);
     });
 
-    // Check that overall insight has both
     expect(result.overallInsight).toHaveProperty("summary");
     expect(result.overallInsight).toHaveProperty("trends");
     expect(result.overallInsight).toHaveProperty("recommendations");
@@ -158,8 +179,8 @@ describe("engagement Insights Integration Tests", () => {
       hotspotLimit: limit,
     });
 
+    // Max is limit * 2 (peaks + valleys), minus any deduplication
     expect(result.momentInsights.length).toBeLessThanOrEqual(limit * 2);
-    // Note: We fetch limit peaks + limit valleys, so max is limit * 2
   });
 
   it("should include complete result structure with usage stats", async () => {
@@ -167,13 +188,11 @@ describe("engagement Insights Integration Tests", () => {
       hotspotLimit: 3,
     });
 
-    // Check result structure
     expect(result).toHaveProperty("assetId");
     expect(result).toHaveProperty("momentInsights");
     expect(result).toHaveProperty("overallInsight");
     expect(result).toHaveProperty("usage");
 
-    // Check token usage statistics
     expect(result.usage).toBeDefined();
     expect(result.usage).toHaveProperty("inputTokens");
     expect(result.usage).toHaveProperty("outputTokens");
@@ -184,19 +203,11 @@ describe("engagement Insights Integration Tests", () => {
   });
 
   it("should throw error when no engagement data is available", async () => {
-    // Mock empty hotspots response for this test
     vi.mocked(getHotspotsForAsset).mockResolvedValue([]);
 
     await expect(
-      generateEngagementInsights(testAssetId, { timeframe: "[1:hour]" }),
+      generateEngagementInsights(testAssetId, { timeframe: "1:hour" }),
     ).rejects.toThrow("No engagement data available");
-
-    // Reset mocks for subsequent tests
-    vi.mocked(getHotspotsForAsset).mockImplementation(async (_assetId, options) => {
-      const orderDirection = options?.orderDirection ?? "desc";
-      const limit = options?.limit ?? 5;
-      return createMockHotspotsResponse(orderDirection, limit);
-    });
   });
 
   it("should handle audio-only assets gracefully", async () => {
@@ -208,6 +219,58 @@ describe("engagement Insights Integration Tests", () => {
     expect(result).toBeDefined();
     expect(result).toHaveProperty("momentInsights");
     expect(result).toHaveProperty("overallInsight");
-    // Audio-only should still work, just without visual analysis
+
+    // Shots and storyboard should not be called for audio-only
+    expect(waitForShotsForAsset).not.toHaveBeenCalled();
+  });
+
+  it("should skip shots when skipShots is true", async () => {
+    const result = await generateEngagementInsights(testAssetId, {
+      hotspotLimit: 3,
+      skipShots: true,
+    });
+
+    expect(result).toBeDefined();
+    expect(result).toHaveProperty("momentInsights");
+    expect(waitForShotsForAsset).not.toHaveBeenCalled();
+  });
+
+  it("should fall back to thumbnails when shots timeout", async () => {
+    vi.mocked(waitForShotsForAsset).mockRejectedValue(
+      new Error("Timed out waiting for shots"),
+    );
+
+    const result = await generateEngagementInsights(testAssetId, {
+      hotspotLimit: 3,
+    });
+
+    // Should still succeed with thumbnail fallback
+    expect(result).toBeDefined();
+    expect(result).toHaveProperty("momentInsights");
+  });
+
+  it("should fall back to thumbnails when shots errored", async () => {
+    vi.mocked(waitForShotsForAsset).mockResolvedValue({
+      status: "errored",
+      createdAt: new Date().toISOString(),
+      error: { type: "processing_error", messages: ["Shot generation failed"] },
+    } as any);
+
+    const result = await generateEngagementInsights(testAssetId, {
+      hotspotLimit: 3,
+    });
+
+    expect(result).toBeDefined();
+    expect(result).toHaveProperty("momentInsights");
+  });
+
+  it("should re-throw upstream errors from Promise.allSettled", async () => {
+    vi.mocked(getHeatmapForAsset).mockRejectedValue(
+      new Error("500 Internal Server Error"),
+    );
+
+    await expect(
+      generateEngagementInsights(testAssetId),
+    ).rejects.toThrow("Failed to fetch engagement data");
   });
 });

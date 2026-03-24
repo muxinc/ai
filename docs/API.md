@@ -249,10 +249,12 @@ Generate AI-powered insights explaining viewer engagement patterns by analyzing 
 
 - `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
 - `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
-- `hotspotLimit?: number` - Number of engagement moments to analyze (default: 5, range: 1-10)
+- `hotspotLimit?: number` - Number of engagement moments to analyze per direction (default: 5, range: 1-10). Note: actual moment count may be up to 2x this value since both peaks and valleys are fetched.
 - `insightType?: 'informational' | 'actionable' | 'both'` - Type of insights to generate (default: 'informational')
-- `timeframe?: string` - Engagement data timeframe (default: '[7:days]')
-  - Examples: `'[60:minutes]'`, `'[24:hours]'`, `'[7:days]'`, `'[30:days]'`
+- `timeframe?: string` - Engagement data timeframe (default: '7:days')
+  - Examples: `'60:minutes'`, `'24:hours'`, `'7:days'`, `'30:days'`
+- `promptOverrides?: EngagementInsightsPromptOverrides` - Override specific prompt sections
+- `skipShots?: boolean` - Skip shots integration, use thumbnails instead (default: false). Recommended for latency-sensitive use cases.
 
 **Returns:**
 
@@ -264,10 +266,10 @@ interface EngagementInsightsResult {
     endMs: number; // End time in milliseconds
     timestamp: string; // Human-readable timestamp (e.g., "2:15")
     engagementScore: number; // Normalized score (0.0-1.0)
-    type: 'high' | 'low'; // Engagement type
+    type: 'high' | 'low'; // Computed from heatmap average
+    percentile: number; // Percentile rank within video (0-100)
     insight: string; // Explanation of engagement pattern
     recommendation?: string; // Optional optimization recommendation
-    confidence: number; // Confidence score (0.0-1.0)
   }>;
   overallInsight: {
     summary: string; // Overall engagement summary
@@ -288,13 +290,14 @@ interface EngagementInsightsResult {
 // Basic usage - informational insights
 const result = await generateEngagementInsights("asset-id");
 
-console.log(result.momentInsights[0].insight);
-// "The cooking demonstration at 2:15 has 3x average engagement..."
+result.momentInsights.forEach(m => {
+  console.log(`${m.timestamp} (${m.type}, p${m.percentile}): ${m.insight}`);
+});
 
 // Actionable recommendations for content creators
 const result = await generateEngagementInsights("asset-id", {
   insightType: "actionable",
-  hotspotLimit: 5
+  hotspotLimit: 5,
 });
 
 result.momentInsights.forEach(insight => {
@@ -304,12 +307,17 @@ result.momentInsights.forEach(insight => {
 // Comprehensive analysis with both insights and recommendations
 const result = await generateEngagementInsights("asset-id", {
   insightType: "both",
-  timeframe: "[30:days]"
+  timeframe: "30:days",
 });
 
 console.log(result.overallInsight.summary);
 console.log("Trends:", result.overallInsight.trends);
 console.log("Recommendations:", result.overallInsight.recommendations);
+
+// Low-latency mode (skip shots polling)
+const result = await generateEngagementInsights("asset-id", {
+  skipShots: true,
+});
 ```
 
 **Requirements:**

@@ -6,6 +6,7 @@ import { generateEngagementInsights } from "../../src/workflows";
 import {
   createMockHeatmapResponse,
   createMockHotspotsResponse,
+  createMockShotsResult,
 } from "../helpers/mock-engagement-data";
 import { muxTestAssets } from "../helpers/mux-test-assets";
 
@@ -13,7 +14,6 @@ import { muxTestAssets } from "../helpers/mux-test-assets";
 // Mock Setup
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Mock the primitives to return mock engagement data
 vi.mock("../../src/primitives/hotspots", async () => {
   const actual = await vi.importActual<typeof import("../../src/primitives/hotspots")>(
     "../../src/primitives/hotspots",
@@ -34,14 +34,34 @@ vi.mock("../../src/primitives/heatmap", async () => {
   };
 });
 
-// Import mocked functions
+vi.mock("../../src/primitives/shots", async () => {
+  const actual = await vi.importActual<typeof import("../../src/primitives/shots")>(
+    "../../src/primitives/shots",
+  );
+  return {
+    ...actual,
+    waitForShotsForAsset: vi.fn(),
+  };
+});
+
+vi.mock("../../src/primitives/storyboards", async () => {
+  const actual = await vi.importActual<typeof import("../../src/primitives/storyboards")>(
+    "../../src/primitives/storyboards",
+  );
+  return {
+    ...actual,
+    getStoryboardUrl: vi.fn(),
+  };
+});
+
 const { getHotspotsForAsset } = await import("../../src/primitives/hotspots");
 const { getHeatmapForAsset } = await import("../../src/primitives/heatmap");
+const { waitForShotsForAsset } = await import("../../src/primitives/shots");
+const { getStoryboardUrl } = await import("../../src/primitives/storyboards");
 
 beforeEach(() => {
   vi.clearAllMocks();
 
-  // Setup mock responses
   vi.mocked(getHotspotsForAsset).mockImplementation(async (_assetId, options) => {
     const orderDirection = options?.orderDirection ?? "desc";
     const limit = options?.limit ?? 5;
@@ -50,6 +70,14 @@ beforeEach(() => {
 
   vi.mocked(getHeatmapForAsset).mockImplementation(async (assetId) => {
     return createMockHeatmapResponse(assetId);
+  });
+
+  vi.mocked(waitForShotsForAsset).mockImplementation(async () => {
+    return createMockShotsResult();
+  });
+
+  vi.mocked(getStoryboardUrl).mockImplementation(async () => {
+    return "https://image.mux.com/test/storyboard.png?width=640";
   });
 });
 

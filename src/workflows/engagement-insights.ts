@@ -2,15 +2,24 @@ import { generateText, Output } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
-import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
+import {
+  getAssetDurationSecondsFromAsset,
+  getPlaybackIdForAsset,
+  isAudioOnlyAsset,
+} from "@mux/ai/lib/mux-assets";
+import type { PromptOverrides } from "@mux/ai/lib/prompt-builder";
 import { createPromptBuilder } from "@mux/ai/lib/prompt-builder";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
+import { withRetry } from "@mux/ai/lib/retry";
 import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
-import type { HeatmapResponse } from "@mux/ai/primitives/heatmap";
-import { getHeatmapForAsset } from "@mux/ai/primitives/heatmap";
+import type { HeatmapResponse, HeatmapStatistics } from "@mux/ai/primitives/heatmap";
+import { computeHeatmapPercentile, computeHeatmapStatistics, getHeatmapForAsset } from "@mux/ai/primitives/heatmap";
 import type { Hotspot } from "@mux/ai/primitives/hotspots";
 import { getHotspotsForAsset } from "@mux/ai/primitives/hotspots";
+import type { Shot } from "@mux/ai/primitives/shots";
+import { waitForShotsForAsset } from "@mux/ai/primitives/shots";
+import { getStoryboardUrl } from "@mux/ai/primitives/storyboards";
 import { fetchTranscriptForAsset, parseVTTCues, secondsToTimestamp } from "@mux/ai/primitives/transcripts";
 import type { MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "@mux/ai/types";
 
@@ -18,18 +27,42 @@ import type { MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "@mux/ai
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Sections of the engagement insights user prompt that can be overridden.
+ */
+export type EngagementInsightsPromptSections =
+  "task" |
+  "insightGuidelines" |
+  "outputFormat" |
+  "visualContext";
+
+export type EngagementInsightsPromptOverrides = PromptOverrides<EngagementInsightsPromptSections>;
+
 /** Configuration options for engagement insights workflow. */
 export interface EngagementInsightsOptions extends MuxAIOptions {
   /** AI provider to run (defaults to 'openai'). */
   provider?: SupportedProvider;
   /** Provider-specific chat model identifier. */
   model?: ModelIdByProvider[SupportedProvider];
-  /** Number of engagement moments to analyze (default: 5, max: 10) */
+  /**
+   * Number of engagement moments to analyze per direction (default: 5, max: 10).
+   * Note: actual moment count may be up to 2x this value since both peaks and valleys are fetched.
+   */
   hotspotLimit?: number;
   /** Type of insights to generate (default: 'informational') */
   insightType?: "informational" | "actionable" | "both";
   /** Timeframe for engagement data (default: '7:days') */
   timeframe?: string;
+  /**
+   * Override specific sections of the prompt.
+   * Note: overriding `insightGuidelines` will take precedence over the `insightType` option.
+   */
+  promptOverrides?: EngagementInsightsPromptOverrides;
+  /**
+   * Skip shots integration and use basic thumbnails instead (default: false).
+   * Recommended for latency-sensitive use cases.
+   */
+  skipShots?: boolean;
 }
 
 /** A single moment insight for a specific engagement hotspot */
@@ -44,12 +77,12 @@ export interface MomentInsight {
   engagementScore: number;
   /** Type of engagement moment: 'high' (above average) or 'low' (below average) */
   type: "high" | "low";
+  /** Percentile rank of this moment's engagement within the video (0-100) */
+  percentile: number;
   /** Primary insight explaining the engagement pattern */
   insight: string;
   /** Optional actionable recommendation (present if insightType is 'actionable' or 'both') */
   recommendation?: string;
-  /** Confidence score for this insight (0-1) based on clarity of evidence */
-  confidence: number;
 }
 
 /** Overall engagement analysis across the entire video */
@@ -60,20 +93,6 @@ export interface OverallInsight {
   trends: string[];
   /** Recommended optimizations (if insightType is 'actionable' or 'both') */
   recommendations?: string[];
-}
-
-/** Statistics computed from heatmap data */
-export interface HeatmapStatistics {
-  average: number;
-  peak: { index: number; value: number; timestamp: string };
-  lowest: { index: number; value: number; timestamp: string };
-  /** Segments where engagement drops >25% from local average */
-  significantDrops: Array<{
-    startIndex: number;
-    endIndex: number;
-    dropPercentage: number;
-    timestamp: string;
-  }>;
 }
 
 /** Transcript segment aligned with a hotspot */
@@ -97,39 +116,34 @@ export interface EngagementInsightsResult {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Zod Schemas
+// Zod Schemas (given to AI — type and percentile are injected post-generation)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Zod schema for a single moment insight. */
-export const momentInsightSchema = z.object({
+/** Zod schema for a single moment insight returned by the AI. */
+const aiMomentInsightSchema = z.object({
+  hotspotIndex: z.number(),
   startMs: z.number(),
   endMs: z.number(),
   timestamp: z.string(),
   engagementScore: z.number(),
-  type: z.enum(["high", "low"]),
   insight: z.string(),
-  recommendation: z.string(),
-  confidence: z.number(),
+  recommendation: z.string().optional(),
 });
 
-export type MomentInsightType = z.infer<typeof momentInsightSchema>;
-
-/** Zod schema for overall insight. */
-export const overallInsightSchema = z.object({
+/** Zod schema for overall insight returned by the AI. */
+const aiOverallInsightSchema = z.object({
   summary: z.string(),
   trends: z.array(z.string()),
-  recommendations: z.array(z.string()),
+  recommendations: z.array(z.string()).optional(),
 });
-
-export type OverallInsightType = z.infer<typeof overallInsightSchema>;
 
 /** Combined schema for AI response */
 const engagementInsightsSchema = z.object({
-  momentInsights: z.array(momentInsightSchema),
-  overallInsight: overallInsightSchema,
+  momentInsights: z.array(aiMomentInsightSchema),
+  overallInsight: aiOverallInsightSchema,
 });
 
-export type EngagementInsightsType = z.infer<typeof engagementInsightsSchema>;
+type AIEngagementInsightsResult = z.infer<typeof engagementInsightsSchema>;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Prompts
@@ -145,7 +159,7 @@ const SYSTEM_PROMPT = dedent`
   <context>
     You will receive:
     - Engagement data showing which segments are most/least re-watched (hotspots)
-    - Thumbnail images at key timestamps
+    - Images at key timestamps (shot frames or thumbnails)
     - Transcript with timestamps (if available)
     - Overall engagement curve statistics
 
@@ -162,10 +176,11 @@ const SYSTEM_PROMPT = dedent`
   </task>
 
   <constraints>
-    - Only describe what you can see in thumbnails or read in transcripts
+    - Only describe what you can see in images or read in transcripts
     - Do not fabricate details or make unsupported assumptions
     - Correlate engagement scores with observable content
     - Return structured data matching the requested schema exactly
+    - Each momentInsight MUST include the hotspotIndex from the input data
   </constraints>
 
   <quality_guidelines>
@@ -206,6 +221,7 @@ const AUDIO_ONLY_SYSTEM_PROMPT = dedent`
     - Do not fabricate details or make unsupported assumptions
     - Correlate engagement scores with observable content
     - Return structured data matching the requested schema exactly
+    - Each momentInsight MUST include the hotspotIndex from the input data
   </constraints>
 
   <quality_guidelines>
@@ -226,8 +242,8 @@ function buildInsightTypeGuidelines(insightType: "informational" | "actionable" 
           Example: "The cooking demonstration at 2:15 has 3x average engagement
           because it shows the key technique viewers are searching for."
 
-          For the 'recommendation' field, provide an empty string ("") since we only want explanations.
-          For the 'recommendations' array in overallInsight, provide an empty array ([]).
+          The 'recommendation' field is optional — omit it for informational insights.
+          The 'recommendations' array in overallInsight is optional — omit it.
         </insight_style>
       `;
 
@@ -239,8 +255,8 @@ function buildInsightTypeGuidelines(insightType: "informational" | "actionable" 
           Example: "Engagement drops 40% after the intro, suggesting the pacing
           could be improved by moving the demonstration earlier."
 
-          For the 'insight' field, provide a brief context, then focus on the 'recommendation' field.
-          Both fields are required - use 'insight' for context and 'recommendation' for the actionable advice.
+          Use 'insight' for brief context, and 'recommendation' for actionable advice.
+          Both fields should have meaningful content.
         </insight_style>
       `;
 
@@ -259,8 +275,6 @@ function buildInsightTypeGuidelines(insightType: "informational" | "actionable" 
   }
 }
 
-type EngagementInsightsPromptSections = "task" | "insightGuidelines" | "outputFormat";
-
 const engagementInsightsPromptBuilder = createPromptBuilder<EngagementInsightsPromptSections>({
   template: {
     task: {
@@ -276,10 +290,19 @@ const engagementInsightsPromptBuilder = createPromptBuilder<EngagementInsightsPr
       content: dedent`
         Return valid JSON matching the provided schema.
         Include insights for each hotspot and overall engagement trends.
+        Each momentInsight must include the hotspotIndex matching the input.
+      `,
+    },
+    visualContext: {
+      tag: "visual_context",
+      content: dedent`
+        Images are provided for each hotspot timestamp.
+        A storyboard overview image may also be included showing the full video timeline.
+        Use visual evidence from these images to support your engagement analysis.
       `,
     },
   },
-  sectionOrder: ["task", "insightGuidelines", "outputFormat"],
+  sectionOrder: ["task", "insightGuidelines", "visualContext", "outputFormat"],
 });
 
 function buildUserPrompt(
@@ -287,8 +310,8 @@ function buildUserPrompt(
   transcriptSegments: TranscriptSegment[],
   heatmapStats: HeatmapStatistics,
   insightType: "informational" | "actionable" | "both",
+  overrides?: EngagementInsightsPromptOverrides,
 ): string {
-  // Build hotspot data
   const hotspotData = hotspots
     .map((h, idx) => {
       const transcript = transcriptSegments[idx]?.text || "(no transcript)";
@@ -296,7 +319,7 @@ function buildUserPrompt(
       const endTimestamp = secondsToTimestamp(h.endMs / 1000);
 
       return dedent`
-        Hotspot ${idx + 1}:
+        Hotspot ${idx} (hotspotIndex: ${idx}):
         - Time Range: ${startTimestamp} - ${endTimestamp}
         - Engagement Score: ${h.score.toFixed(2)} (0=low, 1=high)
         - Transcript: "${transcript}"
@@ -304,7 +327,6 @@ function buildUserPrompt(
     })
     .join("\n\n");
 
-  // Build heatmap statistics
   const heatmapData = dedent`
     Overall Engagement Statistics:
     - Average engagement level: ${heatmapStats.average.toFixed(2)}
@@ -327,7 +349,10 @@ function buildUserPrompt(
     },
   ];
 
-  return engagementInsightsPromptBuilder.buildWithContext({ insightGuidelines }, contextSections);
+  return engagementInsightsPromptBuilder.buildWithContext(
+    { insightGuidelines, ...overrides },
+    contextSections,
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -335,92 +360,15 @@ function buildUserPrompt(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Computes statistics from heatmap data including average, peak, lowest,
- * and significant engagement drops.
- */
-function computeHeatmapStatistics(heatmap: number[], durationSeconds: number): HeatmapStatistics {
-  const average = heatmap.reduce((sum, val) => sum + val, 0) / heatmap.length;
-
-  const peakIndex = heatmap.indexOf(Math.max(...heatmap));
-  const lowestIndex = heatmap.indexOf(Math.min(...heatmap));
-
-  const indexToTimestamp = (index: number) => {
-    const seconds = (index / 100) * durationSeconds;
-    return secondsToTimestamp(seconds);
-  };
-
-  // Detect significant drops (>25% drop from rolling average)
-  const significantDrops: HeatmapStatistics["significantDrops"] = [];
-  const windowSize = 5; // 5% of video
-
-  for (let i = windowSize; i < heatmap.length - windowSize; i++) {
-    const before = heatmap.slice(i - windowSize, i);
-    const avgBefore = before.reduce((a, b) => a + b, 0) / before.length;
-    const current = heatmap[i];
-
-    if (avgBefore > 0 && current / avgBefore < 0.75) {
-      // 25% drop
-      significantDrops.push({
-        startIndex: i,
-        endIndex: i + 1,
-        dropPercentage: ((avgBefore - current) / avgBefore) * 100,
-        timestamp: indexToTimestamp(i),
-      });
-    }
-  }
-
-  return {
-    average,
-    peak: {
-      index: peakIndex,
-      value: heatmap[peakIndex],
-      timestamp: indexToTimestamp(peakIndex),
-    },
-    lowest: {
-      index: lowestIndex,
-      value: heatmap[lowestIndex],
-      timestamp: indexToTimestamp(lowestIndex),
-    },
-    significantDrops,
-  };
-}
-
-/**
- * Generates thumbnail URLs for specific timestamps.
- */
-async function getThumbnailsAtTimestamps(
-  playbackId: string,
-  timestamps: number[],
-  options: {
-    width?: number;
-    shouldSign?: boolean;
-    credentials?: WorkflowCredentialsInput;
-  },
-): Promise<string[]> {
-  "use step";
-
-  const { width = 640, shouldSign = false } = options;
-  const baseUrl = `https://image.mux.com/${playbackId}/thumbnail.png`;
-
-  // For simplicity, we're not implementing URL signing yet
-  // This can be added later following the pattern in storyboards.ts
-  if (shouldSign) {
-    // TODO: Implement URL signing if needed
-    throw new Error("Thumbnail URL signing not yet implemented");
-  }
-
-  return timestamps.map(time => `${baseUrl}?time=${time}&width=${width}`);
-}
-
-/**
  * Extracts transcript segments that align with hotspot time ranges.
  */
-function extractTranscriptSegmentsForHotspots(
+export function extractTranscriptSegmentsForHotspots(
   vttContent: string,
   hotspots: Hotspot[],
 ): TranscriptSegment[] {
-  if (!vttContent.trim())
+  if (!vttContent.trim()) {
     return [];
+  }
 
   const cues = parseVTTCues(vttContent);
 
@@ -428,7 +376,6 @@ function extractTranscriptSegmentsForHotspots(
     const startSec = hotspot.startMs / 1000;
     const endSec = hotspot.endMs / 1000;
 
-    // Find all cues that overlap with this hotspot
     const relevantCues = cues.filter(
       cue => cue.startTime < endSec && cue.endTime > startSec,
     );
@@ -442,6 +389,71 @@ function extractTranscriptSegmentsForHotspots(
       timestamp: secondsToTimestamp(startSec),
     };
   });
+}
+
+/**
+ * Deduplicates hotspots by startMs, keeping the first occurrence.
+ */
+export function deduplicateHotspots(hotspots: Hotspot[]): Hotspot[] {
+  const seen = new Set<number>();
+  return hotspots.filter((h) => {
+    if (seen.has(h.startMs)) {
+      return false;
+    }
+    seen.add(h.startMs);
+    return true;
+  });
+}
+
+/**
+ * Maps each hotspot to its nearest shot image.
+ *
+ * Algorithm: for each hotspot, find all shots whose startTime falls within
+ * [hotspot.startMs/1000, hotspot.endMs/1000]. If any exist, pick the one
+ * closest to the midpoint. Otherwise, pick the shot with the nearest
+ * startTime to hotspot.startMs/1000.
+ */
+export function mapShotsToHotspots(shots: Shot[], hotspots: Hotspot[]): string[] {
+  if (shots.length === 0) {
+    return [];
+  }
+
+  return hotspots.map((hotspot) => {
+    const startSec = hotspot.startMs / 1000;
+    const endSec = hotspot.endMs / 1000;
+    const midpoint = (startSec + endSec) / 2;
+
+    // Find shots within the hotspot's time range
+    const inRange = shots.filter(
+      s => s.startTime >= startSec && s.startTime <= endSec,
+    );
+
+    if (inRange.length > 0) {
+      // Pick closest to midpoint
+      const closest = inRange.reduce((best, s) =>
+        Math.abs(s.startTime - midpoint) < Math.abs(best.startTime - midpoint) ? s : best,
+      );
+      return closest.imageUrl;
+    }
+
+    // No shot in range — pick nearest to startMs
+    const nearest = shots.reduce((best, s) =>
+      Math.abs(s.startTime - startSec) < Math.abs(best.startTime - startSec) ? s : best,
+    );
+    return nearest.imageUrl;
+  });
+}
+
+/**
+ * Generates basic thumbnail URLs as a fallback when shots are unavailable.
+ */
+function getThumbnailUrlsForHotspots(
+  playbackId: string,
+  hotspots: Hotspot[],
+  width: number = 640,
+): string[] {
+  const baseUrl = `https://image.mux.com/${playbackId}/thumbnail.png`;
+  return hotspots.map(h => `${baseUrl}?time=${Math.floor(h.startMs / 1000)}&width=${width}`);
 }
 
 /**
@@ -462,7 +474,6 @@ async function fetchEngagementData(
 
   const { hotspotLimit, timeframe, credentials } = options;
 
-  // Fetch peaks (desc), valleys (asc), and heatmap in parallel
   const [peaks, valleys, heatmap] = await Promise.all([
     getHotspotsForAsset(assetId, {
       limit: hotspotLimit,
@@ -482,8 +493,9 @@ async function fetchEngagementData(
     }),
   ]);
 
-  // Combine peaks and valleys, sort by timestamp
-  const allHotspots = [...peaks, ...valleys].sort((a, b) => a.startMs - b.startMs);
+  // Merge, deduplicate by startMs, sort by timestamp
+  const merged = [...peaks, ...valleys].sort((a, b) => a.startMs - b.startMs);
+  const allHotspots = deduplicateHotspots(merged);
 
   return {
     hotspots: allHotspots,
@@ -491,44 +503,45 @@ async function fetchEngagementData(
   };
 }
 
-interface AnalysisResponse {
-  result: EngagementInsightsType;
-  usage: TokenUsage;
-}
-
 /**
- * Generates insights using AI with structured output.
+ * Generates insights using AI with structured output and retry logic.
  */
 async function generateInsightsWithAI(
   provider: SupportedProvider,
   modelId: string,
   systemPrompt: string,
   userPrompt: string,
-  thumbnailUrls: string[],
+  imageUrls: string[],
   credentials?: WorkflowCredentialsInput,
-): Promise<AnalysisResponse> {
+): Promise<{ result: AIEngagementInsightsResult; usage: TokenUsage }> {
   "use step";
 
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
 
-  const response = await generateText({
-    model,
-    output: Output.object({ schema: engagementInsightsSchema }),
-    experimental_telemetry: { isEnabled: true },
-    messages: [
-      {
-        role: "system",
-        content: systemPrompt,
-      },
-      {
-        role: "user",
-        content: [
-          { type: "text", text: userPrompt },
-          ...thumbnailUrls.map(url => ({ type: "image" as const, image: url })),
-        ],
-      },
-    ],
-  });
+  const response = await withRetry(() =>
+    generateText({
+      model,
+      output: Output.object({ schema: engagementInsightsSchema }),
+      experimental_telemetry: { isEnabled: true },
+      messages: [
+        {
+          role: "system",
+          content: systemPrompt,
+        },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: userPrompt },
+            ...imageUrls.map(url => ({ type: "image" as const, image: url })),
+          ],
+        },
+      ],
+    }),
+  );
+
+  if (!response.output) {
+    throw new Error("AI returned empty or unparseable response");
+  }
 
   return {
     result: response.output,
@@ -542,12 +555,16 @@ async function generateInsightsWithAI(
   };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Main Workflow
+// ─────────────────────────────────────────────────────────────────────────────
+
 /**
  * Generate engagement insights for a Mux video asset.
  *
  * This workflow analyzes viewer engagement patterns to explain why certain moments
  * are engaging or disengaging. It combines hotspot data, heatmap statistics, visual
- * frames, and transcript analysis to generate AI-powered insights.
+ * frames (from shots or thumbnails), and transcript analysis to generate AI-powered insights.
  *
  * @param assetId - The Mux asset ID to analyze
  * @param options - Configuration options for the workflow
@@ -560,15 +577,9 @@ async function generateInsightsWithAI(
  *   hotspotLimit: 5,
  * });
  *
- * console.log(result.momentInsights[0]);
- * // {
- * //   timestamp: "2:15",
- * //   engagementScore: 0.875,
- * //   type: "high",
- * //   insight: "The cooking demonstration shows the key technique...",
- * //   recommendation: "Consider expanding technique demonstrations...",
- * //   confidence: 0.92
- * // }
+ * result.momentInsights.forEach(m => {
+ *   console.log(`${m.timestamp} (${m.type}, p${m.percentile}): ${m.insight}`);
+ * });
  * ```
  */
 export async function generateEngagementInsights(
@@ -584,37 +595,30 @@ export async function generateEngagementInsights(
     insightType = "informational",
     timeframe = "7:days",
     credentials,
+    promptOverrides,
+    skipShots = false,
   } = options;
 
-  // Validate configuration
-  if (hotspotLimit < 1 || hotspotLimit > 10) {
-    throw new Error("hotspotLimit must be between 1 and 10");
+  if (!Number.isInteger(hotspotLimit) || hotspotLimit < 1 || hotspotLimit > 10) {
+    throw new Error("hotspotLimit must be an integer between 1 and 10");
   }
 
-  // Resolve configuration
   const modelConfig = resolveLanguageModelConfig({
     ...options,
     model,
     provider: provider as SupportedProvider,
   });
 
-  // Fetch asset metadata and playback ID
-  const { asset, playbackId, policy } = await getPlaybackIdForAsset(
-    assetId,
-    credentials,
-  );
+  // Step 1: Fetch asset metadata
+  const { asset, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(asset);
 
   if (!assetDurationSeconds) {
     throw new Error(`Asset ${assetId} has no valid duration`);
   }
 
-  // Check if audio-only
-  const isAudioOnly =
-    asset.aspect_ratio === null ||
-    !asset.tracks?.some((track: any) => track.type === "video");
+  const audioOnly = isAudioOnlyAsset(asset);
 
-  // Resolve signing context
   const signingContext = await resolveMuxSigningContext(credentials);
   if (policy === "signed" && !signingContext) {
     throw new Error(
@@ -625,14 +629,58 @@ export async function generateEngagementInsights(
 
   const shouldSign = policy === "signed";
 
-  // Step 1: Fetch engagement data (peaks, valleys, heatmap in parallel)
-  const { hotspots, heatmap } = await fetchEngagementData(assetId, {
-    hotspotLimit,
-    timeframe,
-    credentials,
-  });
+  // Step 2: Parallel data fetching
+  //
+  //   ┌── fetchEngagementData (peaks + valleys + heatmap)
+  //   ├── waitForShotsForAsset (poll, 30s timeout) OR skip
+  //   ├── fetchTranscriptForAsset
+  //   └── getStoryboardUrl
+  //
+  // All fired in parallel via Promise.allSettled. If engagement data
+  // returns empty or a fetch fails, we handle after all settle.
 
-  // Validate engagement data exists
+  const shouldFetchShots = !skipShots && !audioOnly;
+
+  let shotsPromise: Promise<Awaited<ReturnType<typeof waitForShotsForAsset>> | null>;
+  if (shouldFetchShots) {
+    shotsPromise = waitForShotsForAsset(assetId, {
+      credentials,
+      maxAttempts: 15,
+      pollIntervalMs: 2000,
+    });
+  } else {
+    shotsPromise = Promise.resolve(null);
+  }
+
+  let storyboardPromise: Promise<string | null>;
+  if (!audioOnly) {
+    storyboardPromise = getStoryboardUrl(playbackId, 640, shouldSign, credentials);
+  } else {
+    storyboardPromise = Promise.resolve(null);
+  }
+
+  const [engagementResult, shotsResult, transcriptResult, storyboardResult] =
+    await Promise.allSettled([
+      fetchEngagementData(assetId, { hotspotLimit, timeframe, credentials }),
+      shotsPromise,
+      fetchTranscriptForAsset(asset, playbackId, {
+        cleanTranscript: false,
+        shouldSign,
+        credentials,
+      }),
+      storyboardPromise,
+    ]);
+
+  // Validate engagement data — check for rejected promise first (upstream error),
+  // then check for empty data
+  if (engagementResult.status === "rejected") {
+    throw new Error(
+      `Failed to fetch engagement data for asset ${assetId}: ${engagementResult.reason}`,
+    );
+  }
+
+  const { hotspots, heatmap } = engagementResult.value;
+
   if (hotspots.length === 0) {
     throw new Error(
       `No engagement data available for asset ${assetId} in timeframe ${timeframe}. ` +
@@ -640,17 +688,24 @@ export async function generateEngagementInsights(
     );
   }
 
-  // Step 2: Compute heatmap statistics
+  // Step 3: Data correlation
   const heatmapStats = computeHeatmapStatistics(heatmap.heatmap, assetDurationSeconds);
 
-  // Step 3: Fetch transcript
-  const transcriptResult = await fetchTranscriptForAsset(asset, playbackId, {
-    cleanTranscript: false, // Keep timestamps
-    shouldSign,
-    credentials,
-  });
+  // Compute engagement type deterministically from heatmap average
+  const engagementTypes = hotspots.map(h =>
+    h.score > heatmapStats.average ? "high" as const : "low" as const,
+  );
 
-  const transcriptText = transcriptResult.transcriptText || "";
+  // Compute percentile for each hotspot
+  const percentiles = hotspots.map(h =>
+    computeHeatmapPercentile(h.score, heatmap.heatmap),
+  );
+
+  // Extract transcript segments
+  let transcriptText = "";
+  if (transcriptResult.status === "fulfilled") {
+    transcriptText = transcriptResult.value.transcriptText || "";
+  }
 
   if (!transcriptText.trim()) {
     console.warn(
@@ -659,71 +714,118 @@ export async function generateEngagementInsights(
     );
   }
 
-  // Step 4: Extract transcript segments for each hotspot
   const transcriptSegments = extractTranscriptSegmentsForHotspots(transcriptText, hotspots);
 
-  // Step 5: Fetch thumbnails for hotspot timestamps
-  let thumbnailUrls: string[] = [];
+  // Resolve images: prefer shots, fall back to thumbnails
+  let imageUrls: string[] = [];
 
-  if (isAudioOnly) {
+  if (audioOnly) {
     console.warn(
       `Asset ${assetId} is audio-only. Insights will be based solely on ` +
       `transcript and engagement data without visual analysis.`,
     );
   } else {
-    const timestamps = hotspots.map(h => Math.floor(h.startMs / 1000));
-    thumbnailUrls = await getThumbnailsAtTimestamps(playbackId, timestamps, {
-      width: 640,
-      shouldSign,
-      credentials,
-    });
+    // Try shots first
+    if (shotsResult.status === "fulfilled" && shotsResult.value?.status === "completed") {
+      const shotImageUrls = mapShotsToHotspots(shotsResult.value.shots, hotspots);
+      if (shotImageUrls.length > 0) {
+        imageUrls = shotImageUrls;
+      }
+    }
+
+    // Fall back to thumbnails if shots unavailable
+    if (imageUrls.length === 0) {
+      if (shouldFetchShots && shotsResult.status === "fulfilled" && shotsResult.value?.status !== "completed") {
+        console.warn(
+          `Shots not ready for asset ${assetId} (status: ${shotsResult.value?.status}). Falling back to thumbnails.`,
+        );
+      } else if (shouldFetchShots && shotsResult.status === "rejected") {
+        console.warn(
+          `Shots fetch failed for asset ${assetId}. Falling back to thumbnails.`,
+        );
+      }
+      imageUrls = getThumbnailUrlsForHotspots(playbackId, hotspots);
+    }
+
+    // Append storyboard as overview context
+    if (storyboardResult.status === "fulfilled" && storyboardResult.value) {
+      imageUrls.push(storyboardResult.value);
+    }
   }
 
-  // Step 6: Build prompts
-  const systemPrompt = isAudioOnly ? AUDIO_ONLY_SYSTEM_PROMPT : SYSTEM_PROMPT;
-  const userPrompt = buildUserPrompt(hotspots, transcriptSegments, heatmapStats, insightType);
+  // Step 4: Build prompts
+  const systemPrompt = audioOnly ? AUDIO_ONLY_SYSTEM_PROMPT : SYSTEM_PROMPT;
+  const userPrompt = buildUserPrompt(
+    hotspots,
+    transcriptSegments,
+    heatmapStats,
+    insightType,
+    promptOverrides,
+  );
 
-  // Step 7: Generate insights with AI
-  const { result: insights, usage } = await generateInsightsWithAI(
+  // Step 5: Generate insights with AI
+  const { result: aiInsights, usage } = await generateInsightsWithAI(
     modelConfig.provider,
     modelConfig.modelId,
     systemPrompt,
     userPrompt,
-    thumbnailUrls,
+    imageUrls,
     credentials,
   );
 
-  // Step 8: Validate and enrich results
-  if (!insights.momentInsights || insights.momentInsights.length === 0) {
+  if (!aiInsights.momentInsights || aiInsights.momentInsights.length === 0) {
     throw new Error("Failed to generate insights from AI response");
+  }
+
+  // Step 6: Transform — re-associate by hotspotIndex, inject type + percentile
+  const momentInsights: MomentInsight[] = [];
+
+  for (const aiMoment of aiInsights.momentInsights) {
+    const idx = aiMoment.hotspotIndex;
+    if (idx < 0 || idx >= hotspots.length) {
+      console.warn(
+        `AI returned hotspotIndex ${idx} which is out of range (0-${hotspots.length - 1}). Skipping.`,
+      );
+      continue;
+    }
+
+    // Use ground-truth data from hotspots array, not AI-generated values
+    const hotspot = hotspots[idx];
+    momentInsights.push({
+      startMs: hotspot.startMs,
+      endMs: hotspot.endMs,
+      timestamp: secondsToTimestamp(hotspot.startMs / 1000),
+      engagementScore: hotspot.score,
+      type: engagementTypes[idx],
+      percentile: percentiles[idx],
+      insight: aiMoment.insight,
+      recommendation: aiMoment.recommendation,
+    });
+  }
+
+  if (momentInsights.length === 0) {
+    throw new Error(
+      "AI returned insights but none matched valid hotspot indices. " +
+      "This may indicate a prompt or model issue.",
+    );
   }
 
   const usageWithMetadata: TokenUsage = {
     ...usage,
     metadata: {
       assetDurationSeconds,
-      thumbnailCount: thumbnailUrls.length,
+      thumbnailCount: imageUrls.length,
     },
-  };
-
-  // Transform results: convert empty strings/arrays to undefined for optional fields
-  const transformedMomentInsights = insights.momentInsights.map(insight => ({
-    ...insight,
-    recommendation: insight.recommendation === "" ? undefined : insight.recommendation,
-  }));
-
-  const transformedOverallInsight = {
-    ...insights.overallInsight,
-    recommendations:
-      insights.overallInsight.recommendations.length === 0 ?
-        undefined :
-        insights.overallInsight.recommendations,
   };
 
   return {
     assetId,
-    momentInsights: transformedMomentInsights,
-    overallInsight: transformedOverallInsight,
+    momentInsights,
+    overallInsight: {
+      summary: aiInsights.overallInsight.summary,
+      trends: aiInsights.overallInsight.trends,
+      recommendations: aiInsights.overallInsight.recommendations,
+    },
     usage: usageWithMetadata,
   };
 }
