@@ -5,12 +5,15 @@ import { generateEngagementInsights } from "../../src/workflows";
 import {
   createMockHeatmapResponse,
   createMockHotspotsResponse,
-  createMockShotsResult,
 } from "../helpers/mock-engagement-data";
 import { muxTestAssets } from "../helpers/mux-test-assets";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mock Setup
+// Only mock engagement primitives (hotspots + heatmap) because test assets
+// don't have real engagement data. Everything else (transcript, shots,
+// storyboard, thumbnails) uses real Mux APIs so the AI SDK can download
+// actual images.
 // ─────────────────────────────────────────────────────────────────────────────
 
 vi.mock("../../src/primitives/hotspots", async () => {
@@ -33,30 +36,8 @@ vi.mock("../../src/primitives/heatmap", async () => {
   };
 });
 
-vi.mock("../../src/primitives/shots", async () => {
-  const actual = await vi.importActual<typeof import("../../src/primitives/shots")>(
-    "../../src/primitives/shots",
-  );
-  return {
-    ...actual,
-    waitForShotsForAsset: vi.fn(),
-  };
-});
-
-vi.mock("../../src/primitives/storyboards", async () => {
-  const actual = await vi.importActual<typeof import("../../src/primitives/storyboards")>(
-    "../../src/primitives/storyboards",
-  );
-  return {
-    ...actual,
-    getStoryboardUrl: vi.fn(),
-  };
-});
-
 const { getHotspotsForAsset } = await import("../../src/primitives/hotspots");
 const { getHeatmapForAsset } = await import("../../src/primitives/heatmap");
-const { waitForShotsForAsset } = await import("../../src/primitives/shots");
-const { getStoryboardUrl } = await import("../../src/primitives/storyboards");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -69,14 +50,6 @@ beforeEach(() => {
 
   vi.mocked(getHeatmapForAsset).mockImplementation(async (assetId) => {
     return createMockHeatmapResponse(assetId);
-  });
-
-  vi.mocked(waitForShotsForAsset).mockImplementation(async () => {
-    return createMockShotsResult();
-  });
-
-  vi.mocked(getStoryboardUrl).mockImplementation(async () => {
-    return "https://image.mux.com/test/storyboard.png?width=640";
   });
 });
 
@@ -219,9 +192,6 @@ describe("engagement Insights Integration Tests", () => {
     expect(result).toBeDefined();
     expect(result).toHaveProperty("momentInsights");
     expect(result).toHaveProperty("overallInsight");
-
-    // Shots and storyboard should not be called for audio-only
-    expect(waitForShotsForAsset).not.toHaveBeenCalled();
   });
 
   it("should skip shots when skipShots is true", async () => {
@@ -232,45 +202,15 @@ describe("engagement Insights Integration Tests", () => {
 
     expect(result).toBeDefined();
     expect(result).toHaveProperty("momentInsights");
-    expect(waitForShotsForAsset).not.toHaveBeenCalled();
   });
 
-  it("should fall back to thumbnails when shots timeout", async () => {
-    vi.mocked(waitForShotsForAsset).mockRejectedValue(
-      new Error("Timed out waiting for shots"),
-    );
-
-    const result = await generateEngagementInsights(testAssetId, {
-      hotspotLimit: 3,
-    });
-
-    // Should still succeed with thumbnail fallback
-    expect(result).toBeDefined();
-    expect(result).toHaveProperty("momentInsights");
-  });
-
-  it("should fall back to thumbnails when shots errored", async () => {
-    vi.mocked(waitForShotsForAsset).mockResolvedValue({
-      status: "errored",
-      createdAt: new Date().toISOString(),
-      error: { type: "processing_error", messages: ["Shot generation failed"] },
-    } as any);
-
-    const result = await generateEngagementInsights(testAssetId, {
-      hotspotLimit: 3,
-    });
-
-    expect(result).toBeDefined();
-    expect(result).toHaveProperty("momentInsights");
-  });
-
-  it("should re-throw upstream errors from Promise.allSettled", async () => {
+  it("should re-throw upstream errors from engagement data fetch", async () => {
     vi.mocked(getHeatmapForAsset).mockRejectedValue(
       new Error("500 Internal Server Error"),
     );
 
     await expect(
-      generateEngagementInsights(testAssetId),
+      generateEngagementInsights(testAssetId, { skipShots: true }),
     ).rejects.toThrow("Failed to fetch engagement data");
   });
 });

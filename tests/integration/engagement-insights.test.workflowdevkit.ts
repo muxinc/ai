@@ -6,12 +6,11 @@ import { generateEngagementInsights } from "../../src/workflows";
 import {
   createMockHeatmapResponse,
   createMockHotspotsResponse,
-  createMockShotsResult,
 } from "../helpers/mock-engagement-data";
 import { muxTestAssets } from "../helpers/mux-test-assets";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Mock Setup
+// Mock Setup — only engagement primitives, everything else uses real Mux APIs
 // ─────────────────────────────────────────────────────────────────────────────
 
 vi.mock("../../src/primitives/hotspots", async () => {
@@ -34,30 +33,8 @@ vi.mock("../../src/primitives/heatmap", async () => {
   };
 });
 
-vi.mock("../../src/primitives/shots", async () => {
-  const actual = await vi.importActual<typeof import("../../src/primitives/shots")>(
-    "../../src/primitives/shots",
-  );
-  return {
-    ...actual,
-    waitForShotsForAsset: vi.fn(),
-  };
-});
-
-vi.mock("../../src/primitives/storyboards", async () => {
-  const actual = await vi.importActual<typeof import("../../src/primitives/storyboards")>(
-    "../../src/primitives/storyboards",
-  );
-  return {
-    ...actual,
-    getStoryboardUrl: vi.fn(),
-  };
-});
-
 const { getHotspotsForAsset } = await import("../../src/primitives/hotspots");
 const { getHeatmapForAsset } = await import("../../src/primitives/heatmap");
-const { waitForShotsForAsset } = await import("../../src/primitives/shots");
-const { getStoryboardUrl } = await import("../../src/primitives/storyboards");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -70,14 +47,6 @@ beforeEach(() => {
 
   vi.mocked(getHeatmapForAsset).mockImplementation(async (assetId) => {
     return createMockHeatmapResponse(assetId);
-  });
-
-  vi.mocked(waitForShotsForAsset).mockImplementation(async () => {
-    return createMockShotsResult();
-  });
-
-  vi.mocked(getStoryboardUrl).mockImplementation(async () => {
-    return "https://image.mux.com/test/storyboard.png?width=640";
   });
 });
 

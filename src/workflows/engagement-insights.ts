@@ -18,7 +18,7 @@ import { computeHeatmapPercentile, computeHeatmapStatistics, getHeatmapForAsset 
 import type { Hotspot } from "@mux/ai/primitives/hotspots";
 import { getHotspotsForAsset } from "@mux/ai/primitives/hotspots";
 import type { Shot } from "@mux/ai/primitives/shots";
-import { waitForShotsForAsset } from "@mux/ai/primitives/shots";
+import { getShotsForAsset } from "@mux/ai/primitives/shots";
 import { getStoryboardUrl } from "@mux/ai/primitives/storyboards";
 import { fetchTranscriptForAsset, parseVTTCues, secondsToTimestamp } from "@mux/ai/primitives/transcripts";
 import type { MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "@mux/ai/types";
@@ -632,7 +632,7 @@ export async function generateEngagementInsights(
   // Step 2: Parallel data fetching
   //
   //   ┌── fetchEngagementData (peaks + valleys + heatmap)
-  //   ├── waitForShotsForAsset (poll, 30s timeout) OR skip
+  //   ├── getShotsForAsset (single GET, no polling) OR skip
   //   ├── fetchTranscriptForAsset
   //   └── getStoryboardUrl
   //
@@ -641,13 +641,9 @@ export async function generateEngagementInsights(
 
   const shouldFetchShots = !skipShots && !audioOnly;
 
-  let shotsPromise: Promise<Awaited<ReturnType<typeof waitForShotsForAsset>> | null>;
+  let shotsPromise: Promise<Awaited<ReturnType<typeof getShotsForAsset>> | null>;
   if (shouldFetchShots) {
-    shotsPromise = waitForShotsForAsset(assetId, {
-      credentials,
-      maxAttempts: 15,
-      pollIntervalMs: 2000,
-    });
+    shotsPromise = getShotsForAsset(assetId, { credentials });
   } else {
     shotsPromise = Promise.resolve(null);
   }
