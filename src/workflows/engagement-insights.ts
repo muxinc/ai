@@ -119,7 +119,13 @@ export interface EngagementInsightsResult {
 // Zod Schemas (given to AI — type and percentile are injected post-generation)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Zod schema for a single moment insight returned by the AI. */
+/**
+ * Zod schema for a single moment insight returned by the AI.
+ * Note: recommendation and recommendations are required strings/arrays
+ * (not optional) because OpenAI structured output requires all properties
+ * in 'required'. The AI returns empty string / empty array when not
+ * applicable, and we convert to undefined in the transform step.
+ */
 const aiMomentInsightSchema = z.object({
   hotspotIndex: z.number(),
   startMs: z.number(),
@@ -127,14 +133,14 @@ const aiMomentInsightSchema = z.object({
   timestamp: z.string(),
   engagementScore: z.number(),
   insight: z.string(),
-  recommendation: z.string().optional(),
+  recommendation: z.string(),
 });
 
 /** Zod schema for overall insight returned by the AI. */
 const aiOverallInsightSchema = z.object({
   summary: z.string(),
   trends: z.array(z.string()),
-  recommendations: z.array(z.string()).optional(),
+  recommendations: z.array(z.string()),
 });
 
 /** Combined schema for AI response */
@@ -242,8 +248,8 @@ function buildInsightTypeGuidelines(insightType: "informational" | "actionable" 
           Example: "The cooking demonstration at 2:15 has 3x average engagement
           because it shows the key technique viewers are searching for."
 
-          The 'recommendation' field is optional — omit it for informational insights.
-          The 'recommendations' array in overallInsight is optional — omit it.
+          For the 'recommendation' field, return an empty string ("") since we only want explanations.
+          For the 'recommendations' array in overallInsight, return an empty array ([]).
         </insight_style>
       `;
 
@@ -795,7 +801,7 @@ export async function generateEngagementInsights(
       type: engagementTypes[idx],
       percentile: percentiles[idx],
       insight: aiMoment.insight,
-      recommendation: aiMoment.recommendation,
+      recommendation: aiMoment.recommendation || undefined,
     });
   }
 
@@ -820,7 +826,9 @@ export async function generateEngagementInsights(
     overallInsight: {
       summary: aiInsights.overallInsight.summary,
       trends: aiInsights.overallInsight.trends,
-      recommendations: aiInsights.overallInsight.recommendations,
+      recommendations: aiInsights.overallInsight.recommendations.length > 0 ?
+        aiInsights.overallInsight.recommendations :
+        undefined,
     },
     usage: usageWithMetadata,
   };
