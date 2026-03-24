@@ -143,8 +143,9 @@ export async function resolveWorkflowCredentials(
 }
 
 interface DirectMuxCredentials {
-  tokenId: string;
-  tokenSecret: string;
+  tokenId?: string;
+  tokenSecret?: string;
+  authorizationToken?: string;
   signingKey?: string;
   privateKey?: string;
 }
@@ -157,14 +158,15 @@ function readString(record: Record<string, unknown> | undefined, key: string): s
 function resolveDirectMuxCredentials(record: Record<string, unknown> | undefined): DirectMuxCredentials | undefined {
   const tokenId = readString(record, "muxTokenId");
   const tokenSecret = readString(record, "muxTokenSecret");
+  const authorizationToken = readString(record, "muxAuthorizationToken");
   const signingKey = readString(record, "muxSigningKey");
   const privateKey = readString(record, "muxPrivateKey");
 
-  if (!tokenId && !tokenSecret && !signingKey && !privateKey) {
+  if (!tokenId && !tokenSecret && !authorizationToken && !signingKey && !privateKey) {
     return undefined;
   }
 
-  if (!tokenId || !tokenSecret) {
+  if ((!tokenId || !tokenSecret) && !authorizationToken) {
     throw new Error(
       "Both muxTokenId and muxTokenSecret are required when passing direct Mux workflow credentials.",
     );
@@ -173,6 +175,7 @@ function resolveDirectMuxCredentials(record: Record<string, unknown> | undefined
   return {
     tokenId,
     tokenSecret,
+    authorizationToken,
     signingKey,
     privateKey,
   };
@@ -186,6 +189,7 @@ function createWorkflowMuxClient(options: DirectMuxCredentials): WorkflowMuxClie
       return new MuxClient({
         tokenId: options.tokenId,
         tokenSecret: options.tokenSecret,
+        authorizationToken: options.authorizationToken,
       });
     },
     getSigningKey() {

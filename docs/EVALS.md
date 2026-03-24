@@ -59,6 +59,29 @@ npx evalite serve tests/eval
 
 This runs all `*.eval.ts` files in one pass and opens the Evalite UI at `http://localhost:3006` for exploring results. There is no watch mode—you'll need to manually re-run when you're ready to test changes.
 
+By default, evals run against provider default models only:
+
+- `openai:gpt-5.1`
+- `anthropic:claude-sonnet-4-5`
+- `google:gemini-3-flash-preview`
+
+To run all configured models in `LANGUAGE_MODELS`:
+
+```bash
+npx tsx scripts/export-evalite-results.ts --model-set all
+```
+
+To run an explicit list:
+
+```bash
+npx tsx scripts/export-evalite-results.ts --models openai:gpt-5.1,openai:gpt-5-mini,google:gemini-2.5-flash
+```
+
+The same behavior is available via env vars:
+
+- `MUX_AI_EVAL_MODEL_SET=default|all`
+- `MUX_AI_EVAL_MODELS=provider:model,provider:model` (takes precedence over `MUX_AI_EVAL_MODEL_SET`)
+
 **Running a single eval file:**
 
 ```bash
@@ -191,16 +214,22 @@ const TOKEN_THRESHOLD_EFFICIENT = 4000;
 const COST_THRESHOLD_USD = 0.012;
 ```
 
-## Cross-Provider Testing
+## Cross-Provider and Cross-Model Testing
 
-All evals test across multiple providers to compare results:
+All evals iterate over `EVAL_MODEL_CONFIGS`, which is resolved at runtime and can represent:
+
+- provider defaults only (`MUX_AI_EVAL_MODEL_SET=default`, the default)
+- all configured models (`MUX_AI_EVAL_MODEL_SET=all`)
+- an explicit list (`MUX_AI_EVAL_MODELS=provider:model,...`)
+
+The `EVAL_MODEL_CONFIGS` constant provides the flattened `(provider, model)` pairs for each run:
 
 ```typescript
-const providers: SupportedProvider[] = ["openai", "anthropic", "google"];
+import { EVAL_MODEL_CONFIGS } from "../../src/lib/providers";
 
-const data = providers.flatMap(provider =>
+const data = EVAL_MODEL_CONFIGS.flatMap(({ provider, modelId }) =>
   testAssets.map(asset => ({
-    input: { assetId: asset.assetId, provider },
+    input: { assetId: asset.assetId, provider, model: modelId },
     expected: asset.expected,
   })),
 );
@@ -208,25 +237,27 @@ const data = providers.flatMap(provider =>
 
 This enables side-by-side comparison of:
 
-- Quality differences between providers
+- Quality differences between providers and models
 - Latency characteristics
 - Token consumption patterns
 - Cost per request
 
 ## Model Pricing
 
-Evals calculate estimated costs using provider pricing for the default models:
+Evals calculate estimated costs using per-model pricing for all supported models:
 
 | Provider | Model | Input (per 1M tokens) | Output (per 1M tokens) |
 |----------|-------|----------------------|------------------------|
-| OpenAI | gpt-5.1 | $1.25 | $10.00 |
-| Anthropic | claude-sonnet-4-5 | $3.00 | $15.00 |
-| Google | gemini-3-flash-preview | $0.50 | $3.00 |
+| OpenAI | gpt-5.1 (default) | $1.25 | $10.00 |
+| OpenAI | gpt-5-mini | $0.25 | $2.00 |
+| Anthropic | claude-sonnet-4-5 (default) | $3.00 | $15.00 |
+| Google | gemini-3-flash-preview (default) | $0.50 | $3.00 |
+| Google | gemini-2.5-flash | $0.30 | $2.50 |
 
 Pricing sources (verify periodically):
 - [OpenAI Pricing](https://openai.com/api/pricing)
 - [Anthropic Pricing](https://www.anthropic.com/pricing)
-- [Google AI Pricing](https://ai.google.dev/pricing)
+- [Google AI Pricing](https://ai.google.dev/gemini-api/docs/pricing)
 
 ## Resources
 

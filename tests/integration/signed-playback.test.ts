@@ -2,6 +2,7 @@ import Mux from "@mux/mux-node";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { env, reloadEnv } from "../../src/env";
+import { getMuxImageOrigin, getMuxStoryboardBaseUrl, getMuxThumbnailBaseUrl } from "../../src/lib/mux-image-url";
 import type { SigningContext } from "../../src/lib/url-signing";
 import { getMuxSigningContextFromEnv, signPlaybackId, signUrl } from "../../src/lib/url-signing";
 import { buildTranscriptUrl, getStoryboardUrl, getThumbnailUrls } from "../../src/primitives";
@@ -104,16 +105,16 @@ describe("signed Playback Integration Tests", () => {
 
   describe("signUrl", () => {
     it.skipIf(!hasSigningCredentials)("should append token to URL without query params", async () => {
-      const baseUrl = "https://image.mux.com/test-id/storyboard.png";
-      const signedUrl = await signUrl(baseUrl, "test-id", signingContext, "storyboard");
+      const baseUrl = getMuxStoryboardBaseUrl("test-id");
+      const signedUrl = await signUrl(baseUrl, "test-id", "storyboard");
 
       expect(signedUrl).toContain(baseUrl);
       expect(signedUrl).toContain("?token=");
     });
 
     it.skipIf(!hasSigningCredentials)("should append token to URL with existing query params", async () => {
-      const baseUrl = "https://image.mux.com/test-id/thumbnail.png?width=640";
-      const signedUrl = await signUrl(baseUrl, "test-id", signingContext, "thumbnail");
+      const baseUrl = `${getMuxThumbnailBaseUrl("test-id")}?width=640`;
+      const signedUrl = await signUrl(baseUrl, "test-id", "thumbnail");
 
       expect(signedUrl).toContain(baseUrl);
       expect(signedUrl).toContain("&token=");
@@ -125,7 +126,7 @@ describe("signed Playback Integration Tests", () => {
       it.skipIf(!canRunSignedTests)("should generate signed storyboard URL", async () => {
         const url = await getStoryboardUrl(playbackId, 640, true);
 
-        expect(url).toContain(`https://image.mux.com/${playbackId}/storyboard.png`);
+        expect(url).toContain(`${getMuxImageOrigin()}/${playbackId}/storyboard.png`);
         expect(url).toContain("token=");
 
         // Verify the URL is accessible
@@ -137,7 +138,7 @@ describe("signed Playback Integration Tests", () => {
         const testPlaybackId = "test-playback-id";
         const url = await getStoryboardUrl(testPlaybackId, 640, false);
 
-        expect(url).toBe(`https://image.mux.com/${testPlaybackId}/storyboard.png?width=640`);
+        expect(url).toBe(`${getMuxStoryboardBaseUrl(testPlaybackId)}?width=640`);
         expect(url).not.toContain("token=");
       });
     });
@@ -151,13 +152,13 @@ describe("signed Playback Integration Tests", () => {
         });
 
         expect(urls.length).toBeGreaterThan(0);
-        urls.forEach((url) => {
-          expect(url).toContain(`https://image.mux.com/${playbackId}/thumbnail.png`);
-          expect(url).toContain("token=");
+        urls.forEach((entry) => {
+          expect(entry.url).toContain(`${getMuxImageOrigin()}/${playbackId}/thumbnail.png`);
+          expect(entry.url).toContain("token=");
         });
 
         // Verify the first URL is accessible
-        const response = await fetch(urls[0], { method: "HEAD" });
+        const response = await fetch(urls[0].url, { method: "HEAD" });
         expect(response.ok).toBe(true);
       });
 
@@ -170,9 +171,9 @@ describe("signed Playback Integration Tests", () => {
         });
 
         expect(urls.length).toBeGreaterThan(0);
-        urls.forEach((url) => {
-          expect(url).toContain(`https://image.mux.com/${testPlaybackId}/thumbnail.png`);
-          expect(url).not.toContain("token=");
+        urls.forEach((entry) => {
+          expect(entry.url).toContain(`${getMuxImageOrigin()}/${testPlaybackId}/thumbnail.png`);
+          expect(entry.url).not.toContain("token=");
         });
       });
 
@@ -188,13 +189,13 @@ describe("signed Playback Integration Tests", () => {
         expect(urls.length).toBe(5);
 
         // All URLs should be signed
-        urls.forEach((url) => {
-          expect(url).toContain(`https://image.mux.com/${playbackId}/thumbnail.png`);
-          expect(url).toContain("token=");
+        urls.forEach((entry) => {
+          expect(entry.url).toContain(`${getMuxImageOrigin()}/${playbackId}/thumbnail.png`);
+          expect(entry.url).toContain("token=");
         });
 
         // Verify the first URL is accessible
-        const response = await fetch(urls[0], { method: "HEAD" });
+        const response = await fetch(urls[0].url, { method: "HEAD" });
         expect(response.ok).toBe(true);
       });
     });

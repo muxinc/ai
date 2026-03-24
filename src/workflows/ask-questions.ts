@@ -5,7 +5,7 @@ import { z } from "zod";
 import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
 import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
-import { createPromptBuilder, createTranscriptSection } from "@mux/ai/lib/prompt-builder";
+import { createPromptBuilder, createTranscriptSection, renderSection } from "@mux/ai/lib/prompt-builder";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
 import { withRetry } from "@mux/ai/lib/retry";
@@ -28,12 +28,14 @@ export interface Question {
 export interface QuestionAnswer {
   /** The original question */
   question: string;
-  /** Answer selected from the allowed options */
-  answer: string;
-  /** Confidence score between 0 and 1 */
+  /** Answer selected from the allowed options. Undefined when skipped. */
+  answer?: string;
+  /** Confidence score between 0 and 1. Always 0 when skipped. */
   confidence: number;
-  /** Reasoning explaining the answer based on observable evidence */
+  /** Reasoning explaining the answer, or why the question was skipped */
   reasoning: string;
+  /** Whether the question was skipped due to irrelevance to the video content */
+  skipped: boolean;
 }
 
 /** Configuration options for askQuestions workflow. */
@@ -74,18 +76,27 @@ export interface AskQuestionsResult {
 // Zod Schemas
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Zod schema for a single answer. */
+/** Zod schema for a single answer (matches the public QuestionAnswer interface). */
 export const questionAnswerSchema = z.object({
   question: z.string(),
-  answer: z.string(),
+  answer: z.string().optional(),
   confidence: z.number(),
   reasoning: z.string(),
+  skipped: z.boolean(),
 });
 
 export type QuestionAnswerType = z.infer<typeof questionAnswerSchema>;
 
+/**
+ * Sentinel value used as the answer for skipped questions in the LLM schema.
+ * OpenAI structured outputs require all properties to be required, and Google
+ * rejects empty-string enum values, so we need a concrete string in the enum
+ * for the "no answer" case. Stripped to `undefined` in post-processing.
+ */
+const SKIP_SENTINEL = "__SKIPPED__";
+
 function createAskQuestionsSchema(allowedAnswers: [string, ...string[]]) {
-  const answerSchema = z.enum(allowedAnswers);
+  const answerSchema = z.enum([...allowedAnswers, SKIP_SENTINEL]);
 
   return z.object({
     answers: z.array(
@@ -150,11 +161,36 @@ const SYSTEM_PROMPT = dedent`
     - Be precise: cite specific frames, objects, actions, or transcript quotes
   </answer_guidelines>
 
+  <relevance_filtering>
+    Before answering each question, assess whether it can be meaningfully
+    answered based on the video storyboard and/or transcript. A question is
+    relevant if it asks about something observable or inferable from the
+    video content (visuals, audio, dialogue, setting, subjects, actions, etc.).
+
+    Mark a question as skipped (skipped: true) if it:
+    - Is completely unrelated to video content (e.g., math, trivia, personal questions)
+    - Asks about information that cannot be determined from storyboard frames or transcript
+    - Is a general knowledge question with no connection to what is shown or said in the video
+    - Attempts to use the system for non-video-analysis purposes
+
+    For skipped questions:
+    - Set skipped to true
+    - Set answer to "${SKIP_SENTINEL}"
+    - Set confidence to 0
+    - Use the reasoning field to explain why the question is not answerable
+      from the video content
+
+    For borderline questions that are loosely related to the video content,
+    still answer them but use a lower confidence score to reflect uncertainty.
+  </relevance_filtering>
+
   <constraints>
-    - You MUST answer every question with one of the allowed response options
+    - You MUST answer every relevant question with one of the allowed response options
+    - Skip irrelevant questions as described in relevance_filtering
     - Only describe observable evidence from frames or transcript
     - Do not fabricate details or make unsupported assumptions
     - Return structured data matching the requested schema exactly
+    - Provide reasoning in the same language as the question
   </constraints>
 
   <language_guidelines>
@@ -164,16 +200,6 @@ const SYSTEM_PROMPT = dedent`
     - GOOD: "A person runs through a park"
     - Be specific and evidence-based
   </language_guidelines>`;
-
-function buildSystemPrompt(allowedAnswers: string[]): string {
-  const answerList = allowedAnswers.map(answer => `"${answer}"`).join(", ");
-
-  return `${SYSTEM_PROMPT}\n\n${dedent`
-    <response_options>
-      Allowed answers: ${answerList}
-    </response_options>
-  `}`;
-}
 
 type AskQuestionsPromptSections = "questions";
 
@@ -189,6 +215,7 @@ const askQuestionsPromptBuilder = createPromptBuilder<AskQuestionsPromptSections
 
 function buildUserPrompt(
   questions: Question[],
+  allowedAnswers: string[],
   transcriptText?: string,
   isCleanTranscript: boolean = true,
 ): string {
@@ -201,17 +228,22 @@ function buildUserPrompt(
 
     ${questionsList}`;
 
+  const answerList = allowedAnswers.map(answer => `"${answer}"`).join(", ");
+  const responseOptions = dedent`
+    <response_options>
+      Allowed answers: ${answerList}
+    </response_options>`;
+
+  const questionsSection = askQuestionsPromptBuilder.build({ questions: questionsContent });
+
   if (!transcriptText) {
-    return askQuestionsPromptBuilder.build({ questions: questionsContent });
+    return `${questionsSection}\n\n${responseOptions}`;
   }
 
   const format = isCleanTranscript ? "plain text" : "WebVTT";
-  const transcriptSection = createTranscriptSection(transcriptText, format);
+  const transcriptSection = renderSection(createTranscriptSection(transcriptText, format));
 
-  return askQuestionsPromptBuilder.buildWithContext(
-    { questions: questionsContent },
-    [transcriptSection],
-  );
+  return `${transcriptSection}\n\n${questionsSection}\n\n${responseOptions}`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -266,14 +298,7 @@ async function analyzeQuestionsWithStoryboard(
   });
 
   return {
-    result: {
-      answers: response.output.answers.map(answer => ({
-        ...answer,
-        // Strip numbering prefix (e.g., "1. " or "2. ") from questions
-        question: answer.question.replace(/^\d+\.\s*/, ""),
-        confidence: Math.min(1, Math.max(0, answer.confidence)),
-      })),
-    },
+    result: response.output,
     usage: {
       inputTokens: response.usage.inputTokens,
       outputTokens: response.usage.outputTokens,
@@ -387,9 +412,9 @@ export async function askQuestions(
         })).transcriptText :
       "";
 
-  // Build the user prompt with questions and optional transcript
-  const userPrompt = buildUserPrompt(questions, transcriptText, cleanTranscript);
-  const systemPrompt = buildSystemPrompt(normalizedAnswerOptions);
+  // Build the user prompt with questions, allowed answers, and optional transcript
+  const userPrompt = buildUserPrompt(questions, allowedAnswers, transcriptText, cleanTranscript);
+  const systemPrompt = SYSTEM_PROMPT;
 
   // Generate storyboard URL (signed if needed)
   const imageUrl = await getStoryboardUrl(
@@ -446,9 +471,23 @@ export async function askQuestions(
     );
   }
 
+  // Post-process raw LLM output into the public QuestionAnswer shape.
+  // Treat as skipped if the model flagged it OR if the answer is the sentinel.
+  const answers: QuestionAnswer[] = analysisResponse.result.answers.map((raw) => {
+    const isSkipped = raw.skipped || raw.answer === SKIP_SENTINEL;
+    return {
+      // Strip numbering prefix (e.g., "1. " or "2. ") from questions
+      question: raw.question.replace(/^\d+\.\s*/, ""),
+      confidence: isSkipped ? 0 : Math.min(1, Math.max(0, raw.confidence)),
+      reasoning: raw.reasoning,
+      skipped: isSkipped,
+      ...(isSkipped ? {} : { answer: raw.answer }),
+    };
+  });
+
   return {
     assetId,
-    answers: analysisResponse.result.answers,
+    answers,
     storyboardUrl: imageUrl,
     usage: {
       ...analysisResponse.usage,

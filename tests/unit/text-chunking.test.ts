@@ -4,6 +4,8 @@ import {
   chunkByTokens,
   chunkText,
   chunkVTTCues,
+  chunkVTTCuesByBudget,
+  chunkVTTCuesByDuration,
   estimateTokenCount,
 } from "../../src/primitives/text-chunking";
 import type { VTTCue } from "../../src/primitives/transcripts";
@@ -71,6 +73,16 @@ Because video is fun with Mux.
 00:00:32.744 --> 00:00:34.315
 Fun with Mux.
 `;
+
+const SAMPLE_CUES: VTTCue[] = [
+  { startTime: 0, endTime: 300, text: "Hello there." },
+  { startTime: 300, endTime: 600, text: "This is the second sentence." },
+  { startTime: 600, endTime: 900, text: "This clause continues," },
+  { startTime: 900, endTime: 1200, text: "but now it finishes." },
+  { startTime: 1202, endTime: 1500, text: "New paragraph starts here." },
+  { startTime: 1500, endTime: 1800, text: "And it ends cleanly." },
+  { startTime: 1800, endTime: 2100, text: "Final wrap-up sentence." },
+];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // estimateTokenCount
@@ -394,6 +406,86 @@ describe("chunkVTTCues", () => {
         expect(chunk.text).not.toMatch(/\s$/);
       });
     });
+  });
+});
+
+describe("chunkVTTCuesByBudget", () => {
+  it("splits deterministically by cue count", () => {
+    const chunks = chunkVTTCuesByBudget(SAMPLE_CUES, {
+      maxCuesPerChunk: 3,
+    });
+
+    expect(chunks).toHaveLength(3);
+    expect(chunks[0].cueStartIndex).toBe(0);
+    expect(chunks[0].cueEndIndex).toBe(2);
+    expect(chunks[1].cueStartIndex).toBe(3);
+    expect(chunks[1].cueEndIndex).toBe(5);
+    expect(chunks[2].cueStartIndex).toBe(6);
+    expect(chunks[2].cueEndIndex).toBe(6);
+  });
+
+  it("splits by text token budget even when cue count stays low", () => {
+    const cues: VTTCue[] = [
+      { startTime: 0, endTime: 1, text: "one two three four five six seven eight nine ten" },
+      { startTime: 1, endTime: 2, text: "eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty" },
+      { startTime: 2, endTime: 3, text: "short ending cue" },
+    ];
+
+    const chunks = chunkVTTCuesByBudget(cues, {
+      maxCuesPerChunk: 10,
+      maxTextTokensPerChunk: 20,
+    });
+
+    expect(chunks).toHaveLength(2);
+    expect(chunks[0].cueCount).toBe(1);
+    expect(chunks[1].cueCount).toBe(2);
+  });
+});
+
+describe("chunkVTTCuesByDuration", () => {
+  it("returns one chunk when content already fits under the target duration", () => {
+    const chunks = chunkVTTCuesByDuration(SAMPLE_CUES.slice(0, 3), {
+      targetChunkDurationSeconds: 1800,
+      maxChunkDurationSeconds: 2100,
+    });
+
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0].cueCount).toBe(3);
+  });
+
+  it("splits near natural sentence boundaries around the target duration", () => {
+    const chunks = chunkVTTCuesByDuration(SAMPLE_CUES, {
+      targetChunkDurationSeconds: 1800,
+      maxChunkDurationSeconds: 2100,
+      minChunkDurationSeconds: 1200,
+      boundaryLookaheadCues: 4,
+    });
+
+    expect(chunks).toHaveLength(2);
+    expect(chunks[0].cueEndIndex).toBe(5);
+    expect(chunks[0].endTime).toBe(1800);
+    expect(chunks[1].cueStartIndex).toBe(6);
+  });
+
+  it("falls back to the best available boundary before the max duration", () => {
+    const cues: VTTCue[] = [
+      { startTime: 0, endTime: 400, text: "Lowercase continuation" },
+      { startTime: 400, endTime: 800, text: "still going" },
+      { startTime: 800, endTime: 1200, text: "and still going" },
+      { startTime: 1200, endTime: 1600, text: "finally ending here." },
+      { startTime: 1600, endTime: 2000, text: "Another sentence." },
+    ];
+
+    const chunks = chunkVTTCuesByDuration(cues, {
+      targetChunkDurationSeconds: 900,
+      maxChunkDurationSeconds: 1500,
+      minChunkDurationSeconds: 600,
+      boundaryLookaheadCues: 2,
+    });
+
+    expect(chunks).toHaveLength(2);
+    expect(chunks[0].cueEndIndex).toBe(2);
+    expect(chunks[1].cueStartIndex).toBe(3);
   });
 });
 

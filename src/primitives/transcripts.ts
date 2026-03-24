@@ -51,6 +51,75 @@ export function findCaptionTrack(asset: MuxAsset, languageCode?: string): AssetT
   );
 }
 
+function normalizeLineEndings(value: string): string {
+  return value.replace(/\r\n/g, "\n");
+}
+
+function isTimingLine(line: string): boolean {
+  return line.includes("-->");
+}
+
+function parseNumericCueIdentifier(line: string): number | null {
+  if (!/^\d+$/.test(line)) {
+    return null;
+  }
+
+  return Number.parseInt(line, 10);
+}
+
+function isLikelyTitledCueIdentifier(line: string): boolean {
+  return /^\d+\s+-\s+\S.*$/.test(line);
+}
+
+function isLikelyCueIdentifier({
+  line,
+  nextLine,
+  previousCueIdentifier,
+}: {
+  line: string;
+  nextLine?: string;
+  previousCueIdentifier?: number | null;
+}): boolean {
+  if (!line || !nextLine || !isTimingLine(nextLine)) {
+    return false;
+  }
+
+  const numericIdentifier = parseNumericCueIdentifier(line);
+  if (numericIdentifier !== null) {
+    if (previousCueIdentifier === null || previousCueIdentifier === undefined) {
+      return numericIdentifier === 1;
+    }
+
+    return numericIdentifier === (previousCueIdentifier + 1);
+  }
+
+  return isLikelyTitledCueIdentifier(line);
+}
+
+function getCueIdentifierLineIndex(
+  lines: string[],
+  timingLineIndex: number,
+  previousCueIdentifier: number | null,
+): number {
+  const identifierIndex = timingLineIndex - 1;
+  if (identifierIndex < 0) {
+    return -1;
+  }
+
+  const candidate = lines[identifierIndex].trim();
+  if (!candidate || isTimingLine(candidate)) {
+    return -1;
+  }
+
+  return isLikelyCueIdentifier({
+    line: candidate,
+    nextLine: lines[timingLineIndex]?.trim(),
+    previousCueIdentifier,
+  }) ?
+    identifierIndex :
+      -1;
+}
+
 export function extractTextFromVTT(vttContent: string): string {
   if (!vttContent.trim()) {
     return "";
@@ -58,20 +127,31 @@ export function extractTextFromVTT(vttContent: string): string {
 
   const lines = vttContent.split("\n");
   const textLines: string[] = [];
+  let previousCueIdentifier: number | null = null;
+  let isInsideNoteBlock = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
+    const nextLine = lines[i + 1]?.trim();
 
-    if (!line)
+    if (!line) {
+      isInsideNoteBlock = false;
+      continue;
+    }
+    if (isInsideNoteBlock)
       continue;
     if (line === "WEBVTT")
       continue;
-    if (line.startsWith("NOTE "))
+    if (line === "NOTE" || line.startsWith("NOTE ")) {
+      isInsideNoteBlock = true;
       continue;
-    if (line.includes("-->"))
+    }
+    if (isTimingLine(line))
       continue;
-    if (/^[\w-]+$/.test(line) && !line.includes(" "))
+    if (isLikelyCueIdentifier({ line, nextLine, previousCueIdentifier })) {
+      previousCueIdentifier = parseNumericCueIdentifier(line);
       continue;
+    }
     if (line.startsWith("STYLE") || line.startsWith("REGION"))
       continue;
 
@@ -162,24 +242,51 @@ export function parseVTTCues(vttContent: string): VTTCue[] {
 
   const lines = vttContent.split("\n");
   const cues: VTTCue[] = [];
+  let previousCueIdentifier: number | null = null;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
 
-    if (line.includes("-->")) {
+    if (isTimingLine(line)) {
       const [startStr, endStr] = line.split(" --> ").map(s => s.trim());
       const startTime = vttTimestampToSeconds(startStr);
       const endTime = vttTimestampToSeconds(endStr.split(" ")[0]); // Handle cue settings
+      const currentCueIdentifierLine = lines[i - 1]?.trim() ?? "";
+      const currentCueIdentifier: number | null = isLikelyCueIdentifier({
+        line: currentCueIdentifierLine,
+        nextLine: line,
+        previousCueIdentifier,
+      }) ?
+          parseNumericCueIdentifier(currentCueIdentifierLine) :
+        null;
 
       // Collect text lines until empty line or next timestamp
-      const textLines: string[] = [];
+      const rawTextLines: string[] = [];
       let j = i + 1;
-      while (j < lines.length && lines[j].trim() && !lines[j].includes("-->")) {
-        const cleanLine = lines[j].trim().replace(/<[^>]*>/g, "");
-        if (cleanLine)
-          textLines.push(cleanLine);
+      while (j < lines.length && lines[j].trim() && !isTimingLine(lines[j].trim())) {
+        rawTextLines.push(lines[j].trim());
         j++;
       }
+
+      // Some model-generated VTT output omits the blank line between cues.
+      // In that case, strip a trailing sequential numeric cue identifier while
+      // still preserving legitimate numeric subtitle text like countdowns.
+      const trailingNumericLine = parseNumericCueIdentifier(rawTextLines.at(-1) ?? "");
+      if (
+        trailingNumericLine !== null &&
+        isLikelyCueIdentifier({
+          line: rawTextLines.at(-1) ?? "",
+          nextLine: lines[j]?.trim(),
+          previousCueIdentifier: currentCueIdentifier,
+        }) &&
+        rawTextLines.length > 1
+      ) {
+        rawTextLines.pop();
+      }
+
+      const textLines = rawTextLines
+        .map(textLine => textLine.replace(/<[^>]*>/g, ""))
+        .filter(Boolean);
 
       if (textLines.length > 0) {
         cues.push({
@@ -188,10 +295,144 @@ export function parseVTTCues(vttContent: string): VTTCue[] {
           text: textLines.join(" "),
         });
       }
+
+      previousCueIdentifier = currentCueIdentifier;
     }
   }
 
   return cues;
+}
+
+export function splitVttPreambleAndCueBlocks(vttContent: string): { preamble: string; cueBlocks: string[] } {
+  const normalizedContent = normalizeLineEndings(vttContent).trim();
+  if (!normalizedContent) {
+    return {
+      preamble: "WEBVTT",
+      cueBlocks: [],
+    };
+  }
+
+  const rawBlocks = normalizedContent
+    .split(/\n{2,}/)
+    .map(block => block.trim())
+    .filter(Boolean);
+
+  const cueBlockStartIndex = rawBlocks.findIndex(block => block.includes("-->"));
+  if (cueBlockStartIndex === -1) {
+    return {
+      preamble: normalizedContent.startsWith("WEBVTT") ? normalizedContent : `WEBVTT\n\n${normalizedContent}`,
+      cueBlocks: [],
+    };
+  }
+
+  const hasMergedCueBlocks = rawBlocks
+    .slice(cueBlockStartIndex)
+    .some(block => (block.match(/-->/g) ?? []).length > 1);
+  if (hasMergedCueBlocks) {
+    const lines = normalizedContent.split("\n");
+    const timingLineIndices = lines
+      .map((line, index) => (isTimingLine(line.trim()) ? index : -1))
+      .filter(index => index >= 0);
+
+    let previousCueIdentifier: number | null = null;
+    const firstCueStartIndex = getCueIdentifierLineIndex(lines, timingLineIndices[0], previousCueIdentifier);
+    const preambleEndIndex = firstCueStartIndex >= 0 ? firstCueStartIndex : timingLineIndices[0];
+    const preamble = lines.slice(0, preambleEndIndex).join("\n").trim() || "WEBVTT";
+    const cueBlocks = timingLineIndices.map((timingLineIndex, index) => {
+      const cueIdentifierLineIndex = getCueIdentifierLineIndex(lines, timingLineIndex, previousCueIdentifier);
+      const cueStartIndex = cueIdentifierLineIndex >= 0 ? cueIdentifierLineIndex : timingLineIndex;
+      const currentCueIdentifier = cueIdentifierLineIndex >= 0 ?
+          parseNumericCueIdentifier(lines[cueIdentifierLineIndex].trim()) :
+        null;
+      const nextTimingLineIndex = timingLineIndices[index + 1] ?? lines.length;
+      let cueEndIndex = nextTimingLineIndex - 1;
+
+      while (cueEndIndex > timingLineIndex && !lines[cueEndIndex].trim()) {
+        cueEndIndex--;
+      }
+
+      const nextCueIdentifierLineIndex = index < (timingLineIndices.length - 1) ?
+          getCueIdentifierLineIndex(lines, nextTimingLineIndex, currentCueIdentifier) :
+          -1;
+
+      if (nextCueIdentifierLineIndex === cueEndIndex) {
+        cueEndIndex--;
+      }
+
+      while (cueEndIndex > timingLineIndex && !lines[cueEndIndex].trim()) {
+        cueEndIndex--;
+      }
+
+      previousCueIdentifier = currentCueIdentifier;
+
+      return lines.slice(cueStartIndex, cueEndIndex + 1).join("\n").trim();
+    });
+
+    return {
+      preamble,
+      cueBlocks,
+    };
+  }
+
+  const preambleBlocks = rawBlocks.slice(0, cueBlockStartIndex);
+  const cueBlocks = rawBlocks.slice(cueBlockStartIndex);
+  const preamble = preambleBlocks.length > 0 ? preambleBlocks.join("\n\n") : "WEBVTT";
+
+  return {
+    preamble,
+    cueBlocks,
+  };
+}
+
+export function buildVttFromCueBlocks(cueBlocks: string[], preamble: string = "WEBVTT"): string {
+  if (cueBlocks.length === 0) {
+    return `${preamble.trim()}\n`;
+  }
+
+  return `${preamble.trim()}\n\n${cueBlocks.map(block => block.trim()).join("\n\n")}\n`;
+}
+
+export function replaceCueText(cueBlock: string, translatedText: string): string {
+  const lines = normalizeLineEndings(cueBlock)
+    .split("\n")
+    .map(line => line.trim())
+    .filter(Boolean);
+  const timingLineIndex = lines.findIndex(line => line.includes("-->"));
+
+  if (timingLineIndex === -1) {
+    throw new Error("Cue block is missing a timestamp line");
+  }
+
+  const headerLines = lines.slice(0, timingLineIndex + 1);
+  const translatedLines = normalizeLineEndings(translatedText)
+    .split("\n")
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  return [...headerLines, ...translatedLines].join("\n");
+}
+
+export function buildVttFromTranslatedCueBlocks(
+  cueBlocks: string[],
+  translatedTexts: string[],
+  preamble: string = "WEBVTT",
+): string {
+  if (cueBlocks.length !== translatedTexts.length) {
+    throw new Error(`Expected ${cueBlocks.length} translated cues, received ${translatedTexts.length}`);
+  }
+
+  return buildVttFromCueBlocks(
+    cueBlocks.map((cueBlock, index) => replaceCueText(cueBlock, translatedTexts[index])),
+    preamble,
+  );
+}
+
+export function concatenateVttSegments(
+  segments: string[],
+  preamble: string = "WEBVTT",
+): string {
+  const cueBlocks = segments.flatMap(segment => splitVttPreambleAndCueBlocks(segment).cueBlocks);
+  return buildVttFromCueBlocks(cueBlocks, preamble);
 }
 
 /**
@@ -213,7 +454,7 @@ export async function buildTranscriptUrl(
   const baseUrl = `https://stream.mux.com/${playbackId}/text/${trackId}.vtt`;
 
   if (shouldSign) {
-    return signUrl(baseUrl, playbackId, undefined, "video", undefined, credentials);
+    return signUrl(baseUrl, playbackId, "video", undefined, credentials);
   }
 
   return baseUrl;

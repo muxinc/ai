@@ -5,7 +5,7 @@
 
 Easy to use, purpose-driven, cost effective, configurable **_workflow functions_** in a TypeScript SDK for building AI-powered video and audio workflows on the server, powered by [Mux](https://www.mux.com), with support for popular AI/LLM providers (OpenAI, Anthropic, Google).
 
-- **Examples:** [`getSummaryAndTags`](#video-summarization), [`getModerationScores`](#content-moderation), [`hasBurnedInCaptions`](#burned-in-caption-detection), [`generateEngagementInsights`](#engagement-insights), [`generateChapters`](#chapter-generation), [`generateEmbeddings`](#search-with-embeddings), [`translateCaptions`](#caption-translation), [`translateAudio`](#audio-dubbing)
+- **Examples:** [`getSummaryAndTags`](#video-summarization), [`getModerationScores`](#content-moderation), [`hasBurnedInCaptions`](#burned-in-caption-detection), [`generateChapters`](#chapter-generation), [`generateEmbeddings`](#search-with-embeddings), [`generateEngagementInsights`](#engagement-insights), [`translateCaptions`](#caption-translation), [`editCaptions`](#caption-editing), [`translateAudio`](#audio-dubbing)
 - Workflows automatically ship with `"use workflow"` [compatability with Workflow DevKit](#compatability-with-workflow-devkit)
 
 Turn your Mux video and audio assets into structured, actionable data — summaries, chapters, moderation scores, translations, embeddings, and more — with a single function call. `@mux/ai` handles fetching media data from Mux, formatting it for AI providers, and returning typed results so you can focus on building your product instead of wrangling prompts and media pipelines.
@@ -75,6 +75,7 @@ Workflows are high-level functions that handle complete media AI tasks end-to-en
 | [`generateChapters`](./docs/WORKFLOWS.md#chapter-generation) | Create chapter markers from transcripts | OpenAI, Anthropic, Google | Yes |
 | [`generateEmbeddings`](./docs/WORKFLOWS.md#embeddings) | Generate vector embeddings for semantic search | OpenAI, Google | Yes |
 | [`translateCaptions`](./docs/WORKFLOWS.md#caption-translation) | Translate captions into other languages | OpenAI, Anthropic, Google | Yes |
+| [`editCaptions`](./docs/WORKFLOWS.md#caption-editing) | Edit captions: censor profanity and/or apply static replacements | OpenAI, Anthropic, Google | Yes |
 | [`translateAudio`](./docs/WORKFLOWS.md#audio-dubbing) | Create AI-dubbed audio tracks | ElevenLabs | Yes |
 
 See the [Workflows guide](./docs/WORKFLOWS.md) for detailed documentation, options, and examples for each workflow. See the [API Reference](./docs/API.md) for complete parameter and return type details.
@@ -106,6 +107,27 @@ const result = await generateChapters("your-asset-id", "en", {
 });
 
 // [{ startTime: 0, title: "Introduction" }, { startTime: 45, title: "Main Content" }, ...]
+```
+
+**Caption editing:**
+
+```ts
+import { editCaptions } from "@mux/ai/workflows";
+
+const result = await editCaptions("your-asset-id", "track-id", {
+  provider: "anthropic",
+  autoCensorProfanity: {
+    mode: "blank", // "blank" ([____]), "remove", or "mask" (????)
+    alwaysCensor: ["brandname"],
+    neverCensor: ["damn"],
+  },
+  replacements: [
+    { find: "Mucks", replace: "Mux" },
+  ],
+});
+
+console.log(result.totalReplacementCount); // 8
+console.log(result.autoCensorProfanity?.replacements); // [{cueStartTime: 5, before: "shit", after: "[____]"}, ...]
 ```
 
 **Semantic search embeddings:**

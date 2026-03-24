@@ -46,6 +46,9 @@ npm run example:moderation:compare <asset-id>
 # Caption Translation
 npm run example:translate-captions <asset-id> [from-lang] [to-lang] [provider]
 
+# Caption Editing
+npm run example:edit-captions <asset-id> <track-id> [--provider provider] [--mode mode]
+
 # Audio Translation (Dubbing)
 npm run example:translate-audio <asset-id> -- --to <to-lang> [--from <from-lang>]
 
@@ -77,6 +80,9 @@ npm run example:moderation abc123 hive
 
 # Translate captions from English to Spanish with Anthropic (default)
 npm run example:translate-captions abc123 en es anthropic
+
+# Edit captions (censor profanity)
+npm run example:edit-captions abc123 trackid123 -- --provider anthropic --mode blank
 
 # Summarize a video with Claude Sonnet 4.5 (default)
 npm run example:summarization abc123 anthropic
@@ -201,12 +207,51 @@ npm run aws-sdk-adapter <your-asset-id> -- --s3-bucket <bucket-name>
 
 1. Fetches existing captions from Mux asset
 2. Translates VTT content using your selected provider (default: Claude Sonnet 4.5)
-3. Uploads translated VTT to S3-compatible storage
-4. Generates presigned URL (1-hour expiry)
-5. Adds new subtitle track to Mux asset
-6. Track name: "{Language} (auto-translated)"
+3. Uses built-in VTT-aware chunking for longer assets by default, while keeping shorter assets in a single request
+4. Uploads translated VTT to S3-compatible storage
+5. Generates presigned URL (1-hour expiry)
+6. Adds new subtitle track to Mux asset
+7. Track name: "{Language} (auto-translated)"
 
 > **💡 Tip:** After translation completes, verify your new subtitle tracks at `https://player.mux.com/{PLAYBACK_ID}`
+
+## Caption Editing Examples
+
+- **Basic Usage**: Edit captions with profanity censorship, static replacements, or both
+
+```bash
+cd examples/edit-captions
+npm install
+
+# Censor profanity with blank mode (default) - "shit" => "[____]"
+npm run basic <your-asset-id> <track-id>
+
+# Use mask mode - "shit" => "????"
+npm run basic <your-asset-id> <track-id> -- --mode mask
+
+# Use a specific provider
+npm run basic <your-asset-id> <track-id> -- --provider openai
+
+# Apply static replacements only (no LLM)
+npm run basic <your-asset-id> <track-id> -- --no-profanity --replacements "Mucks:Mux,gonna:going to"
+
+# Combine profanity censorship with static replacements
+npm run basic <your-asset-id> <track-id> -- --replacements "Mucks:Mux" --always-censor "brandname"
+
+# Skip uploading to Mux (just get the edited VTT)
+npm run basic <your-asset-id> <track-id> -- --no-upload
+```
+
+**Editing Workflow:**
+
+1. Fetches existing caption track from Mux asset
+2. Sends plain text to AI provider for profanity detection (if `autoCensorProfanity` is enabled)
+3. Applies `alwaysCensor`/`neverCensor` overrides
+4. Replaces profanity using the selected mode
+5. Applies static replacements (if provided)
+6. Uploads edited VTT to S3-compatible storage
+7. Adds new subtitle track to Mux asset (name: "{Original} (edited)")
+8. Deletes the original track (unless `--no-delete` is passed)
 
 ## Audio Dubbing Examples
 

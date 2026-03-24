@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
+import { getLanguageName } from "@mux/ai/lib/language-codes";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -13,6 +14,7 @@ import type {
   PromptOverrides,
 } from "@mux/ai/lib/prompt-builder";
 import {
+  createLanguageSection,
   createPromptBuilder,
   createToneSection,
   createTranscriptSection,
@@ -24,7 +26,7 @@ import {
   resolveMuxSigningContext,
 } from "@mux/ai/lib/workflow-credentials";
 import { getStoryboardUrl } from "@mux/ai/primitives/storyboards";
-import { fetchTranscriptForAsset } from "@mux/ai/primitives/transcripts";
+import { fetchTranscriptForAsset, getReadyTextTracks } from "@mux/ai/primitives/transcripts";
 import type {
   ImageSubmissionMode,
   MuxAIOptions,
@@ -37,7 +39,9 @@ import type {
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const SUMMARY_KEYWORD_LIMIT = 10;
+export const DEFAULT_SUMMARY_KEYWORD_LIMIT = 10;
+export const DEFAULT_TITLE_LENGTH = 10;
+export const DEFAULT_DESCRIPTION_LENGTH = 50;
 
 export const summarySchema = z.object({
   keywords: z.array(z.string()),
@@ -119,6 +123,18 @@ export interface SummarizationOptions extends MuxAIOptions {
    * Useful for customizing the AI's output for specific use cases (SEO, social media, etc.)
    */
   promptOverrides?: SummarizationPromptOverrides;
+  /** Desired title length in words. */
+  titleLength?: number;
+  /** Desired description length in words. */
+  descriptionLength?: number;
+  /** Desired number of tags. */
+  tagCount?: number;
+  /**
+   * BCP 47 language code for the output (e.g. "en", "fr", "ja").
+   * When omitted, auto-detects from the transcript track's language.
+   * Falls back to unconstrained (LLM decides) if no language metadata is available.
+   */
+  outputLanguageCode?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -133,105 +149,149 @@ const TONE_INSTRUCTIONS: Record<ToneType, string> = {
   professional: "Provide a professional, executive-level analysis suitable for business reporting.",
 };
 
-/**
- * Prompt builder for the summarization user prompt.
- * Sections can be individually overridden via `promptOverrides` in SummarizationOptions.
- */
-const summarizationPromptBuilder = createPromptBuilder<SummarizationPromptSections>({
-  template: {
-    task: {
-      tag: "task",
-      content: "Analyze the storyboard frames and generate metadata that captures the essence of the video content.",
-    },
-    title: {
-      tag: "title_requirements",
-      content: dedent`
-        A short, compelling headline that immediately communicates the subject or action.
-        Aim for brevity - typically under 10 words. Think of how a news headline or video card title would read.
-        Start with the primary subject, action, or topic - never begin with "A video of" or similar phrasing.
-        Use active, specific language.`,
-    },
-    description: {
-      tag: "description_requirements",
-      content: dedent`
-        A concise summary (2-4 sentences) that describes what happens across the video.
-        Cover the main subjects, actions, setting, and any notable progression visible across frames.
-        Write in present tense. Be specific about observable details rather than making assumptions.
-        If the transcript provides dialogue or narration, incorporate key points but prioritize visual content.`,
-    },
-    keywords: {
-      tag: "keywords_requirements",
-      content: dedent`
-        Specific, searchable terms (up to ${SUMMARY_KEYWORD_LIMIT}) that capture:
-        - Primary subjects (people, animals, objects)
-        - Actions and activities being performed
-        - Setting and environment
-        - Notable objects or tools
-        - Style or genre (if applicable)
-        Prefer concrete nouns and action verbs over abstract concepts.
-        Use lowercase. Avoid redundant or overly generic terms like "video" or "content".`,
-    },
-    qualityGuidelines: {
-      tag: "quality_guidelines",
-      content: dedent`
-        - Examine all frames to understand the full context and progression
-        - Be precise: "golden retriever" is better than "dog" when identifiable
-        - Capture the narrative: what begins, develops, and concludes
-        - Balance brevity with informativeness`,
-    },
-  },
-  sectionOrder: ["task", "title", "description", "keywords", "qualityGuidelines"],
-});
+interface PromptConstraints {
+  titleLength?: number;
+  descriptionLength?: number;
+  tagCount?: number;
+}
 
-/**
- * Prompt builder for audio-only content.
- * Focuses on transcript analysis without visual references.
- */
-const audioOnlyPromptBuilder = createPromptBuilder<SummarizationPromptSections>({
-  template: {
-    task: {
-      tag: "task",
-      content: "Analyze the transcript and generate metadata that captures the essence of the audio content.",
+const DESCRIPTION_LENGTH_THRESHOLD_SMALL = 25;
+const DESCRIPTION_LENGTH_THRESHOLD_LARGE = 100;
+
+function buildDescriptionGuidance(wordCount: number, contentType: "video" | "audio"): string {
+  if (wordCount < DESCRIPTION_LENGTH_THRESHOLD_SMALL) {
+    if (contentType === "video") {
+      return dedent`A brief summary of the video in approximately ${wordCount} words.
+        Focus on the single most important subject or action.
+        Write in present tense.`;
+    }
+    return dedent`A brief summary of the audio content in approximately ${wordCount} words.
+      Focus on the single most important topic or theme.
+      Write in present tense.`;
+  }
+
+  if (wordCount > DESCRIPTION_LENGTH_THRESHOLD_LARGE) {
+    if (contentType === "video") {
+      return dedent`A detailed summary that describes what happens across the video.
+        Aim for approximately ${wordCount} words, and you may use multiple sentences.
+        Be thorough: cover subjects, actions, setting, progression, and any notable details visible across frames.
+        Write in present tense. Be specific about observable details rather than making assumptions.
+        If the transcript provides dialogue or narration, incorporate key points but prioritize visual content.`;
+    }
+    return dedent`A detailed summary that describes the audio content.
+      Aim for approximately ${wordCount} words, and you may use multiple sentences.
+      Be thorough: cover topics, speakers, themes, progression, and any notable insights.
+      Write in present tense. Be specific about what is discussed or presented rather than making assumptions.
+      Focus on the spoken content and any key insights, dialogue, or narrative elements.`;
+  }
+
+  if (contentType === "video") {
+    return dedent`A summary that describes what happens across the video.
+      Aim for approximately ${wordCount} words, and you may use multiple sentences.
+      Cover the main subjects, actions, setting, and any notable progression visible across frames.
+      Write in present tense. Be specific about observable details rather than making assumptions.
+      If the transcript provides dialogue or narration, incorporate key points but prioritize visual content.`;
+  }
+  return dedent`A summary that describes the audio content.
+    Aim for approximately ${wordCount} words, and you may use multiple sentences.
+    Cover the main topics, speakers, themes, and any notable progression in the discussion or narration.
+    Write in present tense. Be specific about what is discussed or presented rather than making assumptions.
+    Focus on the spoken content and any key insights, dialogue, or narrative elements.`;
+}
+
+function createSummarizationBuilder({ titleLength, descriptionLength, tagCount }: PromptConstraints = {}) {
+  const titleBrevity = `Aim for approximately ${titleLength ?? DEFAULT_TITLE_LENGTH} words.`;
+  const keywordLimit = tagCount ?? DEFAULT_SUMMARY_KEYWORD_LIMIT;
+
+  return createPromptBuilder<SummarizationPromptSections>({
+    template: {
+      task: {
+        tag: "task",
+        content: "Analyze the storyboard frames and generate metadata that captures the essence of the video content.",
+      },
+      title: {
+        tag: "title_requirements",
+        content: dedent`
+          A short, compelling headline that immediately communicates the subject or action.
+          ${titleBrevity} Think of how a news headline or video card title would read.
+          Start with the primary subject, action, or topic - never begin with "A video of" or similar phrasing.
+          Use active, specific language.`,
+      },
+      description: {
+        tag: "description_requirements",
+        content: buildDescriptionGuidance(descriptionLength ?? DEFAULT_DESCRIPTION_LENGTH, "video"),
+      },
+      keywords: {
+        tag: "keywords_requirements",
+        content: dedent`
+          Specific, searchable terms (up to ${keywordLimit}) that capture:
+          - Primary subjects (people, animals, objects)
+          - Actions and activities being performed
+          - Setting and environment
+          - Notable objects or tools
+          - Style or genre (if applicable)
+          Prefer concrete nouns and action verbs over abstract concepts.
+          Use lowercase. Avoid redundant or overly generic terms like "video" or "content".`,
+      },
+      qualityGuidelines: {
+        tag: "quality_guidelines",
+        content: dedent`
+          - Examine all frames to understand the full context and progression
+          - Be precise: "golden retriever" is better than "dog" when identifiable
+          - Capture the narrative: what begins, develops, and concludes
+          - Balance brevity with informativeness`,
+      },
     },
-    title: {
-      tag: "title_requirements",
-      content: dedent`
-        A short, compelling headline that immediately communicates the subject or topic.
-        Aim for brevity - typically under 10 words. Think of how a podcast title or audio description would read.
-        Start with the primary subject, action, or topic - never begin with "An audio of" or similar phrasing.
-        Use active, specific language.`,
+    sectionOrder: ["task", "title", "description", "keywords", "qualityGuidelines"],
+  });
+}
+
+function createAudioOnlyBuilder({ titleLength, descriptionLength, tagCount }: PromptConstraints = {}) {
+  const titleBrevity = `Aim for approximately ${titleLength ?? DEFAULT_TITLE_LENGTH} words.`;
+  const keywordLimit = tagCount ?? DEFAULT_SUMMARY_KEYWORD_LIMIT;
+
+  return createPromptBuilder<SummarizationPromptSections>({
+    template: {
+      task: {
+        tag: "task",
+        content: "Analyze the transcript and generate metadata that captures the essence of the audio content.",
+      },
+      title: {
+        tag: "title_requirements",
+        content: dedent`
+          A short, compelling headline that immediately communicates the subject or topic.
+          ${titleBrevity} Think of how a podcast title or audio description would read.
+          Start with the primary subject, action, or topic - never begin with "An audio of" or similar phrasing.
+          Use active, specific language.`,
+      },
+      description: {
+        tag: "description_requirements",
+        content: buildDescriptionGuidance(descriptionLength ?? DEFAULT_DESCRIPTION_LENGTH, "audio"),
+      },
+      keywords: {
+        tag: "keywords_requirements",
+        content: dedent`
+          Specific, searchable terms (up to ${keywordLimit}) that capture:
+          - Primary topics and themes
+          - Speakers or presenters (if named)
+          - Key concepts and terminology
+          - Content type (interview, lecture, music, etc.)
+          - Genre or style (if applicable)
+          Prefer concrete nouns and relevant terms over abstract concepts.
+          Use lowercase. Avoid redundant or overly generic terms like "audio" or "content".`,
+      },
+      qualityGuidelines: {
+        tag: "quality_guidelines",
+        content: dedent`
+          - Analyze the full transcript to understand context and themes
+          - Be precise: use specific terminology when mentioned
+          - Capture the narrative: what is introduced, discussed, and concluded
+          - Balance brevity with informativeness`,
+      },
     },
-    description: {
-      tag: "description_requirements",
-      content: dedent`
-        A concise summary (2-4 sentences) that describes the audio content.
-        Cover the main topics, speakers, themes, and any notable progression in the discussion or narration.
-        Write in present tense. Be specific about what is discussed or presented rather than making assumptions.
-        Focus on the spoken content and any key insights, dialogue, or narrative elements.`,
-    },
-    keywords: {
-      tag: "keywords_requirements",
-      content: dedent`
-        Specific, searchable terms (up to ${SUMMARY_KEYWORD_LIMIT}) that capture:
-        - Primary topics and themes
-        - Speakers or presenters (if named)
-        - Key concepts and terminology
-        - Content type (interview, lecture, music, etc.)
-        - Genre or style (if applicable)
-        Prefer concrete nouns and relevant terms over abstract concepts.
-        Use lowercase. Avoid redundant or overly generic terms like "audio" or "content".`,
-    },
-    qualityGuidelines: {
-      tag: "quality_guidelines",
-      content: dedent`
-        - Analyze the full transcript to understand context and themes
-        - Be precise: use specific terminology when mentioned
-        - Capture the narrative: what is introduced, discussed, and concluded
-        - Balance brevity with informativeness`,
-    },
-  },
-  sectionOrder: ["task", "title", "description", "keywords", "qualityGuidelines"],
-});
+    sectionOrder: ["task", "title", "description", "keywords", "qualityGuidelines"],
+  });
+}
 
 const SYSTEM_PROMPT = dedent`
   <role>
@@ -266,6 +326,7 @@ const SYSTEM_PROMPT = dedent`
     - Do not fabricate details or make unsupported assumptions
     - Return structured data matching the requested schema
     - Output only the JSON object; no markdown or extra text
+    - When a <language> section is provided, all output text MUST be written in that language
   </constraints>
 
   <tone_guidance>
@@ -321,6 +382,7 @@ const AUDIO_ONLY_SYSTEM_PROMPT = dedent`
     - Return structured data matching the requested schema
     - Focus entirely on audio/spoken content - there are no visual elements
     - Output only the JSON object; no markdown or extra text
+    - When a <language> section is provided, all output text MUST be written in that language
   </constraints>
 
   <tone_guidance>
@@ -350,6 +412,10 @@ interface UserPromptContext {
   isCleanTranscript?: boolean;
   promptOverrides?: SummarizationPromptOverrides;
   isAudioOnly?: boolean;
+  titleLength?: number;
+  descriptionLength?: number;
+  tagCount?: number;
+  languageName?: string;
 }
 
 function buildUserPrompt({
@@ -358,17 +424,33 @@ function buildUserPrompt({
   isCleanTranscript = true,
   promptOverrides,
   isAudioOnly = false,
+  titleLength,
+  descriptionLength,
+  tagCount,
+  languageName,
 }: UserPromptContext): string {
   // Build dynamic context sections
   const contextSections = [createToneSection(TONE_INSTRUCTIONS[tone])];
+
+  if (languageName) {
+    contextSections.push(createLanguageSection(languageName));
+  } else {
+    contextSections.push({
+      tag: "language",
+      content: "Respond in English. Never switch languages to satisfy length constraints.",
+    });
+  }
 
   if (transcriptText) {
     const format = isCleanTranscript ? "plain text" : "WebVTT";
     contextSections.push(createTranscriptSection(transcriptText, format));
   }
 
-  // Use audio-only prompt builder for audio-only assets
-  const promptBuilder = isAudioOnly ? audioOnlyPromptBuilder : summarizationPromptBuilder;
+  const constraints: PromptConstraints = { titleLength, descriptionLength, tagCount };
+  const promptBuilder = isAudioOnly ?
+      createAudioOnlyBuilder(constraints) :
+      createSummarizationBuilder(constraints);
+
   return promptBuilder.buildWithContext(promptOverrides, contextSections);
 }
 
@@ -471,7 +553,7 @@ async function analyzeAudioOnly(
   };
 }
 
-function normalizeKeywords(keywords?: string[]): string[] {
+function normalizeKeywords(keywords?: string[], limit: number = DEFAULT_SUMMARY_KEYWORD_LIMIT): string[] {
   if (!Array.isArray(keywords) || keywords.length === 0) {
     return [];
   }
@@ -493,7 +575,7 @@ function normalizeKeywords(keywords?: string[]): string[] {
     uniqueLowercase.add(lower);
     normalized.push(trimmed);
 
-    if (normalized.length === SUMMARY_KEYWORD_LIMIT) {
+    if (normalized.length === limit) {
       break;
     }
   }
@@ -516,6 +598,10 @@ export async function getSummaryAndTags(
     imageDownloadOptions,
     promptOverrides,
     credentials,
+    titleLength,
+    descriptionLength,
+    tagCount,
+    outputLanguageCode,
   } = options ?? {};
 
   // Validate tone parameter
@@ -556,15 +642,22 @@ export async function getSummaryAndTags(
     );
   }
 
-  const transcriptText =
+  const transcriptResult =
     includeTranscript ?
-        (await fetchTranscriptForAsset(assetData, playbackId, {
+        await fetchTranscriptForAsset(assetData, playbackId, {
           cleanTranscript,
           shouldSign: policy === "signed",
           credentials: workflowCredentials,
           required: isAudioOnly,
-        })).transcriptText :
-      "";
+        }) :
+      undefined;
+  const transcriptText = transcriptResult?.transcriptText ?? "";
+
+  // Resolve output language: explicit code takes priority, otherwise auto-detect from transcript track
+  const resolvedLanguageCode = outputLanguageCode && outputLanguageCode !== "auto" ?
+    outputLanguageCode :
+      (transcriptResult?.track?.language_code ?? getReadyTextTracks(assetData)[0]?.language_code);
+  const languageName = resolvedLanguageCode ? getLanguageName(resolvedLanguageCode) : undefined;
 
   // Build the user prompt with all context and any overrides
   const userPrompt = buildUserPrompt({
@@ -573,6 +666,10 @@ export async function getSummaryAndTags(
     isCleanTranscript: cleanTranscript,
     promptOverrides,
     isAudioOnly,
+    titleLength,
+    descriptionLength,
+    tagCount,
+    languageName,
   });
 
   let analysisResponse: AnalysisResponse;
@@ -644,7 +741,7 @@ export async function getSummaryAndTags(
     assetId,
     title: analysisResponse.result.title,
     description: analysisResponse.result.description,
-    tags: normalizeKeywords(analysisResponse.result.keywords),
+    tags: normalizeKeywords(analysisResponse.result.keywords, tagCount ?? DEFAULT_SUMMARY_KEYWORD_LIMIT),
     storyboardUrl: imageUrl, // undefined for audio-only assets
     usage: {
       ...analysisResponse.usage,

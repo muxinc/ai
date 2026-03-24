@@ -222,3 +222,14 @@ export function createToneSection(instruction: string): PromptSection {
     content: instruction,
   };
 }
+
+/**
+ * Creates a language section for inclusion in prompts.
+ * Instructs the model to produce all output in the specified language.
+ */
+export function createLanguageSection(languageName: string): PromptSection {
+  return {
+    tag: "language",
+    content: `All output (title, description, keywords, chapter titles) MUST be written in ${languageName}.`,
+  };
+}

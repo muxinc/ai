@@ -2,13 +2,14 @@ import { generateText, Output } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
+import { getLanguageName } from "@mux/ai/lib/language-codes";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
   isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
 import type { PromptOverrides, PromptSection } from "@mux/ai/lib/prompt-builder";
-import { createPromptBuilder } from "@mux/ai/lib/prompt-builder";
+import { createLanguageSection, createPromptBuilder } from "@mux/ai/lib/prompt-builder";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
 import { withRetry } from "@mux/ai/lib/retry";
@@ -92,6 +93,12 @@ export interface ChaptersOptions extends MuxAIOptions {
    * Defaults to 8.
    */
   maxChaptersPerHour?: number;
+  /**
+   * BCP 47 language code for chapter titles (e.g. "en", "fr", "ja").
+   * When omitted, auto-detects from the transcript track's language.
+   * Falls back to unconstrained (LLM decides) if no language metadata is available.
+   */
+  outputLanguageCode?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -175,7 +182,8 @@ const chapterSystemPromptBuilder = createPromptBuilder<ChapterSystemPromptSectio
       content: dedent`
         - Only use information present in the transcript
         - Return structured data that matches the requested JSON schema
-        - Do not add commentary or extra text outside the JSON`,
+        - Do not add commentary or extra text outside the JSON
+        - When a <language> section is provided, all chapter titles MUST be written in that language`,
     },
     qualityGuidelines: {
       tag: "quality_guidelines",
@@ -232,7 +240,7 @@ const chaptersPromptBuilder = createPromptBuilder<ChaptersPromptSections>({
       content: dedent`
         - Keep titles concise and descriptive
         - Avoid filler or generic labels like "Chapter 1"
-        - Use the transcript's language and terminology`,
+        - Use the transcript's terminology`,
     },
   },
   sectionOrder: ["task", "outputFormat", "chapterGuidelines", "titleGuidelines"],
@@ -243,11 +251,13 @@ function buildUserPrompt({
   promptOverrides,
   minChaptersPerHour = 3,
   maxChaptersPerHour = 8,
+  languageName,
 }: {
   timestampedTranscript: string;
   promptOverrides?: ChaptersPromptOverrides;
   minChaptersPerHour?: number;
   maxChaptersPerHour?: number;
+  languageName?: string;
 }): string {
   const contextSections: PromptSection[] = [
     {
@@ -256,6 +266,10 @@ function buildUserPrompt({
       attributes: { format: "seconds" },
     },
   ];
+
+  if (languageName) {
+    contextSections.push(createLanguageSection(languageName));
+  }
 
   // Build dynamic chapter guidelines with configurable min/max per hour
   const dynamicChapterGuidelines = dedent`
@@ -286,6 +300,7 @@ export async function generateChapters(
     minChaptersPerHour,
     maxChaptersPerHour,
     credentials,
+    outputLanguageCode,
   } = options;
 
   const modelConfig = resolveLanguageModelConfig({
@@ -340,11 +355,18 @@ export async function generateChapters(
     throw new Error(`No usable content found in ${contentLabel}`);
   }
 
+  // Resolve output language: explicit code takes priority, otherwise auto-detect from transcript track
+  const resolvedLanguageCode = outputLanguageCode && outputLanguageCode !== "auto" ?
+    outputLanguageCode :
+      (transcriptResult.track?.language_code ?? languageCode);
+  const languageName = resolvedLanguageCode ? getLanguageName(resolvedLanguageCode) : undefined;
+
   const userPrompt = buildUserPrompt({
     timestampedTranscript,
     promptOverrides,
     minChaptersPerHour,
     maxChaptersPerHour,
+    languageName,
   });
 
   // Generate chapters using AI SDK

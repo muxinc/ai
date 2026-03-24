@@ -1,0 +1,18 @@
+{
+  "name": "@mux/ai-examples-edit-captions",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Examples for @mux/ai caption editing functionality",
+  "scripts": {
+    "basic": "ts-node basic-example.ts"
+  },
+  "dependencies": {
+    "@mux/ai": "file:../..",
+    "dotenv": "^16.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "ts-node": "^10.0.0",
+    "typescript": "^5.0.0"
+  }
+}

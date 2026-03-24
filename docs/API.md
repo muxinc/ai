@@ -87,6 +87,7 @@ Analyzes a Mux asset for inappropriate content using OpenAI's Moderation API or 
   isAudioOnly: boolean;
   thumbnailScores: Array<{ // Individual thumbnail results
     url: string;
+    time?: number; // Time in seconds of the thumbnail within the video
     sexual: number; // 0-1 score
     violence: number; // 0-1 score
     error: boolean;
@@ -344,6 +345,14 @@ Translates existing captions from one language to another and optionally adds th
 - `s3Region?: string` - S3 region (default: 'auto')
 - `s3Bucket?: string` - S3 bucket name
 - `storageAdapter?: StorageAdapter` - Optional adapter with `putObject` and `createPresignedGetUrl` methods
+- `s3SignedUrlExpirySeconds?: number` - Expiry duration in seconds for S3 presigned GET URLs (default: 86400 / 24 hours)
+- `chunking?: object` - Optional VTT-aware chunking controls for large caption translations
+  - `enabled?: boolean` - Set to `false` to translate all cues in a single structured request (default: `true`)
+  - `minimumAssetDurationSeconds?: number` - Prefer a single request until the asset is at least this long (default: `1800`)
+  - `targetChunkDurationSeconds?: number` - Soft target for chunk duration once chunking starts (default: `1800`)
+  - `maxConcurrentTranslations?: number` - Max number of concurrent translation requests when chunking (default: `4`)
+  - `maxCuesPerChunk?: number` - Hard cap for cues included in a single AI translation chunk (default: `80`)
+  - `maxCueTextTokensPerChunk?: number` - Approximate cap for cue text tokens included in a single AI translation chunk (default: `2000`)
 
 **Returns:**
 
@@ -357,13 +366,80 @@ interface TranslateCaptionsResult {
   originalVtt: string; // Original VTT content
   translatedVtt: string; // Translated VTT content
   uploadedTrackId?: string; // Mux track ID (if uploaded)
-  presignedUrl?: string; // S3 presigned URL (expires in 1 hour)
+  presignedUrl?: string; // S3 presigned URL (default expiry: 24 hours)
   usage?: TokenUsage; // Token usage from the AI provider
 }
 ```
 
 **Supported Languages:**
 All ISO 639-1 language codes are automatically supported using `Intl.DisplayNames`. Examples: Spanish (es), French (fr), German (de), Italian (it), Portuguese (pt), Polish (pl), Japanese (ja), Korean (ko), Chinese (zh), Russian (ru), Arabic (ar), Hindi (hi), Thai (th), Swahili (sw), and many more.
+
+**Chunking Behavior:**
+
+- Chunking is enabled by default for `translateCaptions`
+- Shorter assets are translated in a single request until `minimumAssetDurationSeconds` is reached
+- When chunking is active, requests stay aligned to VTT cues and the final VTT is rebuilt locally
+- Chunk size is bounded by both cue count and approximate cue text token budget
+
+## `editCaptions(assetId, trackId, options)`
+
+Edits a caption track using LLM-powered profanity censorship, static find/replace, or both. Optionally uploads the edited track to Mux.
+
+**Parameters:**
+
+- `assetId` (string) - Mux asset ID (video or audio-only)
+- `trackId` (string) - ID of the caption track to edit
+- `options` - Configuration options
+
+**Options:**
+
+- `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (required when `autoCensorProfanity` is set)
+- `model?: string` - Model to use (defaults to the provider's chat model if omitted)
+- `autoCensorProfanity?: object` - LLM-powered profanity censorship (optional)
+  - `mode?: 'blank' | 'remove' | 'mask'` - Replacement strategy (default: 'blank')
+    - `'blank'`: `shit` → `[____]` (bracketed underscores matching word length)
+    - `'remove'`: word removed entirely
+    - `'mask'`: `shit` → `????` (question marks matching word length)
+  - `alwaysCensor?: string[]` - Words to always censor regardless of LLM output
+  - `neverCensor?: string[]` - Words to never censor even if the LLM flags them (takes precedence over `alwaysCensor`)
+- `replacements?: Array<{ find: string; replace: string }>` - Static find/replace pairs (optional, no LLM needed)
+- `uploadToMux?: boolean` - Whether to upload edited track to Mux (default: true)
+- `deleteOriginalTrack?: boolean` - Whether to delete the original track after uploading the edited one (default: true)
+- `s3Endpoint?: string` - S3-compatible storage endpoint
+- `s3Region?: string` - S3 region (default: 'auto')
+- `s3Bucket?: string` - S3 bucket name
+- `trackNameSuffix?: string` - Suffix appended to the original track name in parentheses (default: 'edited', e.g. "Subtitles (edited)")
+- `storageAdapter?: StorageAdapter` - Optional adapter with `putObject` and `createPresignedGetUrl` methods
+- `s3SignedUrlExpirySeconds?: number` - Expiry duration in seconds for S3 presigned GET URLs (default: 86400 / 24 hours)
+
+At least one of `autoCensorProfanity` or `replacements` must be provided.
+
+**Returns:**
+
+```typescript
+interface ReplacementRecord {
+  cueStartTime: number; // Start time of the cue where the replacement occurred (seconds)
+  before: string; // Original word/phrase
+  after: string; // Replacement text
+}
+
+interface EditCaptionsResult {
+  assetId: string;
+  trackId: string;
+  originalVtt: string; // Original VTT content
+  editedVtt: string; // Edited VTT content
+  totalReplacementCount: number; // Total replacements across all operations
+  autoCensorProfanity?: { // Present when autoCensorProfanity was used
+    replacements: ReplacementRecord[]; // Each censored word with cue timing
+  };
+  replacements?: { // Present when replacements were used
+    replacements: ReplacementRecord[]; // Each static replacement with cue timing
+  };
+  uploadedTrackId?: string; // Mux track ID (if uploaded)
+  presignedUrl?: string; // S3 presigned URL (default expiry: 24 hours)
+  usage?: TokenUsage; // Token usage (only present if LLM was used)
+}
+```
 
 ## `generateChapters(assetId, languageCode, options?)`
 
@@ -437,6 +513,7 @@ Creates AI-dubbed audio tracks from existing media content using ElevenLabs voic
 - `s3Region?: string` - S3 region (default: 'auto')
 - `s3Bucket?: string` - S3 bucket name
 - `storageAdapter?: StorageAdapter` - Optional adapter with `putObject` and `createPresignedGetUrl` methods
+- `s3SignedUrlExpirySeconds?: number` - Expiry duration in seconds for S3 presigned GET URLs (default: 86400 / 24 hours)
 
 **Returns:**
 
@@ -447,7 +524,7 @@ interface TranslateAudioResult {
   targetLanguage: LanguageCodePair; // { iso639_1: string; iso639_3: string }
   dubbingId: string; // ElevenLabs dubbing job ID
   uploadedTrackId?: string; // Mux audio track ID (if uploaded)
-  presignedUrl?: string; // S3 presigned URL (expires in 1 hour)
+  presignedUrl?: string; // S3 presigned URL (default expiry: 24 hours)
   usage?: TokenUsage; // Workflow usage metadata
 }
 ```

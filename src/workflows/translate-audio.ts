@@ -62,6 +62,8 @@ export interface AudioTranslationOptions extends MuxAIOptions {
   uploadToMux?: boolean;
   /** Optional storage adapter override for upload + presign operations. */
   storageAdapter?: StorageAdapter;
+  /** Expiry duration in seconds for S3 presigned GET URLs. Defaults to 86400 (24 hours). */
+  s3SignedUrlExpirySeconds?: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -305,6 +307,7 @@ async function uploadDubbedAudioToS3({
   s3Region,
   s3Bucket,
   storageAdapter,
+  s3SignedUrlExpirySeconds,
 }: {
   dubbedAudioBuffer: ArrayBuffer;
   assetId: string;
@@ -313,6 +316,7 @@ async function uploadDubbedAudioToS3({
   s3Region: string;
   s3Bucket: string;
   storageAdapter?: StorageAdapter;
+  s3SignedUrlExpirySeconds?: number;
 }): Promise<string> {
   "use step";
 
@@ -340,11 +344,12 @@ async function uploadDubbedAudioToS3({
     region: s3Region,
     bucket: s3Bucket,
     key: audioKey,
-    expiresInSeconds: 3600,
+    expiresInSeconds: s3SignedUrlExpirySeconds ?? 86400,
   }, storageAdapter);
 
+  const expiryHours = Math.round((s3SignedUrlExpirySeconds ?? 86400) / 3600);
   console.warn(`✅ Audio uploaded successfully to: ${audioKey}`);
-  console.warn(`🔗 Generated presigned URL (expires in 1 hour)`);
+  console.warn(`🔗 Generated presigned URL (expires in ${expiryHours} hour${expiryHours === 1 ? "" : "s"})`);
 
   return presignedUrl;
 }
@@ -436,7 +441,7 @@ export async function translateAudio(
   // Build audio URL (signed if needed)
   let audioUrl = `https://stream.mux.com/${playbackId}/audio.m4a`;
   if (policy === "signed") {
-    audioUrl = await signUrl(audioUrl, playbackId, undefined, "video", undefined, credentials);
+    audioUrl = await signUrl(audioUrl, playbackId, "video", undefined, credentials);
   }
 
   // Fetch audio from Mux
@@ -575,6 +580,7 @@ export async function translateAudio(
       s3Region,
       s3Bucket: s3Bucket!,
       storageAdapter: effectiveStorageAdapter,
+      s3SignedUrlExpirySeconds: options.s3SignedUrlExpirySeconds,
     });
   } catch (error) {
     throw new Error(`Failed to upload audio to S3: ${error instanceof Error ? error.message : "Unknown error"}`);
