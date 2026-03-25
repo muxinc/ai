@@ -7,11 +7,13 @@ import {
   getPlaybackIdForAsset,
   isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
+import { getMuxThumbnailBaseUrl } from "@mux/ai/lib/mux-image-url";
 import type { PromptOverrides } from "@mux/ai/lib/prompt-builder";
 import { createPromptBuilder } from "@mux/ai/lib/prompt-builder";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
 import { withRetry } from "@mux/ai/lib/retry";
+import { signUrl } from "@mux/ai/lib/url-signing";
 import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
 import type { HeatmapResponse } from "@mux/ai/primitives/heatmap";
 import { computeHeatmapPercentile, getHeatmapForAsset } from "@mux/ai/primitives/heatmap";
@@ -438,15 +440,27 @@ export function mapShotsToHotspots(shots: Shot[], hotspots: Hotspot[]): string[]
 }
 
 /**
- * Generates basic thumbnail URLs as a fallback when shots are unavailable.
+ * Generates thumbnail URLs for hotspot timestamps as a fallback when shots are unavailable.
+ * Supports signed playback IDs following the same pattern as the thumbnails primitive.
  */
-function getThumbnailUrlsForHotspots(
+async function getThumbnailUrlsForHotspots(
   playbackId: string,
   hotspots: Hotspot[],
-  width: number = 640,
-): string[] {
-  const baseUrl = `https://image.mux.com/${playbackId}/thumbnail.png`;
-  return hotspots.map(h => `${baseUrl}?time=${Math.floor(h.startMs / 1000)}&width=${width}`);
+  options: { width?: number; shouldSign?: boolean; credentials?: WorkflowCredentialsInput } = {},
+): Promise<string[]> {
+  "use step";
+  const { width = 640, shouldSign = false, credentials } = options;
+  const baseUrl = getMuxThumbnailBaseUrl(playbackId);
+
+  const urlPromises = hotspots.map(async (h) => {
+    const time = Math.floor(h.startMs / 1000);
+    if (shouldSign) {
+      return signUrl(baseUrl, playbackId, "thumbnail", { time, width }, credentials);
+    }
+    return `${baseUrl}?time=${time}&width=${width}`;
+  });
+
+  return Promise.all(urlPromises);
 }
 
 /**
@@ -732,7 +746,10 @@ export async function generateEngagementInsights(
           `Shots fetch failed for asset ${assetId}. Falling back to thumbnails.`,
         );
       }
-      imageUrls = getThumbnailUrlsForHotspots(playbackId, hotspots);
+      imageUrls = await getThumbnailUrlsForHotspots(playbackId, hotspots, {
+        shouldSign,
+        credentials,
+      });
     }
 
     // Append storyboard as overview context
