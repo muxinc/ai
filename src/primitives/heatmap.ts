@@ -1,5 +1,4 @@
 import { getMuxClientFromEnv } from "@mux/ai/lib/client-factory";
-import { secondsToTimestamp } from "@mux/ai/primitives/transcripts";
 import type { WorkflowCredentialsInput } from "@mux/ai/types";
 
 export interface HeatmapOptions {
@@ -94,106 +93,6 @@ function transformHeatmapResponse(
     playbackId: response.data.playback_id,
     heatmap: response.data.heatmap,
     timeframe: response.timeframe,
-  };
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Heatmap Statistics
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** Statistics computed from heatmap data. */
-export interface HeatmapStatistics {
-  average: number;
-  peak: { index: number; value: number; timestamp: string };
-  lowest: { index: number; value: number; timestamp: string };
-  /** Segments where engagement drops >25% from local average, merged into ranges. */
-  significantDrops: Array<{
-    startIndex: number;
-    endIndex: number;
-    dropPercentage: number;
-    timestamp: string;
-  }>;
-}
-
-/**
- * Computes statistics from heatmap data including average, peak, lowest,
- * and significant engagement drops (>25% from rolling average).
- *
- * @param heatmap - Array of 100 engagement values
- * @param durationSeconds - Total asset duration in seconds (for timestamp formatting)
- * @returns Computed statistics with human-readable timestamps
- */
-export function computeHeatmapStatistics(heatmap: number[], durationSeconds: number): HeatmapStatistics {
-  if (heatmap.length === 0) {
-    throw new Error("Heatmap data is empty — cannot compute statistics");
-  }
-
-  const average = heatmap.reduce((sum, val) => sum + val, 0) / heatmap.length;
-
-  let peakIndex = 0;
-  let lowestIndex = 0;
-  for (let i = 1; i < heatmap.length; i++) {
-    if (heatmap[i] > heatmap[peakIndex]) {
-      peakIndex = i;
-    }
-    if (heatmap[i] < heatmap[lowestIndex]) {
-      lowestIndex = i;
-    }
-  }
-
-  const indexToTimestamp = (index: number) => {
-    const seconds = (index / heatmap.length) * durationSeconds;
-    return secondsToTimestamp(seconds);
-  };
-
-  // Detect significant drops (>25% from rolling 5-point average)
-  // and merge consecutive drops into ranges
-  const rawDrops: Array<{ index: number; dropPercentage: number }> = [];
-  const windowSize = 5;
-
-  for (let i = windowSize; i < heatmap.length - windowSize; i++) {
-    const before = heatmap.slice(i - windowSize, i);
-    const avgBefore = before.reduce((a, b) => a + b, 0) / before.length;
-    const current = heatmap[i];
-
-    if (avgBefore > 0 && current / avgBefore < 0.75) {
-      rawDrops.push({
-        index: i,
-        dropPercentage: ((avgBefore - current) / avgBefore) * 100,
-      });
-    }
-  }
-
-  // Merge consecutive drops (within 3 indices) into ranges
-  const significantDrops: HeatmapStatistics["significantDrops"] = [];
-  for (const drop of rawDrops) {
-    const last = significantDrops[significantDrops.length - 1];
-    if (last && drop.index - last.endIndex <= 3) {
-      last.endIndex = drop.index;
-      last.dropPercentage = Math.max(last.dropPercentage, drop.dropPercentage);
-    } else {
-      significantDrops.push({
-        startIndex: drop.index,
-        endIndex: drop.index,
-        dropPercentage: drop.dropPercentage,
-        timestamp: indexToTimestamp(drop.index),
-      });
-    }
-  }
-
-  return {
-    average,
-    peak: {
-      index: peakIndex,
-      value: heatmap[peakIndex],
-      timestamp: indexToTimestamp(peakIndex),
-    },
-    lowest: {
-      index: lowestIndex,
-      value: heatmap[lowestIndex],
-      timestamp: indexToTimestamp(lowestIndex),
-    },
-    significantDrops,
   };
 }
 

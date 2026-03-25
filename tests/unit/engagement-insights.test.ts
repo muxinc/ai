@@ -1,68 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { computeHeatmapPercentile, computeHeatmapStatistics } from "../../src/primitives/heatmap";
+import { computeHeatmapPercentile } from "../../src/primitives/heatmap";
 import type { Hotspot } from "../../src/primitives/hotspots";
 import type { Shot } from "../../src/primitives/shots";
 import {
-  deduplicateHotspots,
   extractTranscriptSegmentsForHotspots,
   mapShotsToHotspots,
 } from "../../src/workflows/engagement-insights";
 import { MOCK_HEATMAP_DATA, MOCK_HOTSPOTS_COMBINED, MOCK_SHOTS } from "../helpers/mock-engagement-data";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// computeHeatmapStatistics
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe("computeHeatmapStatistics", () => {
-  it("throws on empty heatmap", () => {
-    expect(() => computeHeatmapStatistics([], 180)).toThrow("Heatmap data is empty");
-  });
-
-  it("handles single-element heatmap", () => {
-    const stats = computeHeatmapStatistics([0.5], 180);
-    expect(stats.average).toBe(0.5);
-    expect(stats.peak.value).toBe(0.5);
-    expect(stats.lowest.value).toBe(0.5);
-    expect(stats.significantDrops).toEqual([]);
-  });
-
-  it("handles all-zero heatmap", () => {
-    const zeros = Array.from<number>({ length: 100 }).fill(0);
-    const stats = computeHeatmapStatistics(zeros, 180);
-    expect(stats.average).toBe(0);
-    expect(stats.peak.value).toBe(0);
-    expect(stats.lowest.value).toBe(0);
-    expect(stats.significantDrops).toEqual([]);
-  });
-
-  it("computes correct statistics for realistic data", () => {
-    const stats = computeHeatmapStatistics(MOCK_HEATMAP_DATA, 180);
-
-    expect(stats.average).toBeGreaterThan(0);
-    expect(stats.peak.value).toBe(Math.max(...MOCK_HEATMAP_DATA));
-    expect(stats.lowest.value).toBe(Math.min(...MOCK_HEATMAP_DATA));
-    expect(stats.peak.timestamp).toBeDefined();
-    expect(stats.lowest.timestamp).toBeDefined();
-  });
-
-  it("merges consecutive significant drops into ranges", () => {
-    // Create a heatmap with a steep, sustained drop in the middle
-    const heatmap = [
-      ...Array.from<number>({ length: 20 }).fill(0.9), // high
-      ...Array.from<number>({ length: 10 }).fill(0.3), // sharp sustained drop
-      ...Array.from<number>({ length: 70 }).fill(0.9), // high again
-    ];
-
-    const stats = computeHeatmapStatistics(heatmap, 180);
-
-    // Drops at indices ~20-29 should be merged into one range, not 10 individual drops
-    const dropsInMidSection = stats.significantDrops.filter(
-      d => d.startIndex >= 18 && d.endIndex <= 32,
-    );
-    expect(dropsInMidSection.length).toBeLessThanOrEqual(2);
-  });
-});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // computeHeatmapPercentile
@@ -181,32 +126,5 @@ Here is the key technique`;
     const hotspots: Hotspot[] = [{ startMs: 45000, endMs: 50000, score: 0.5 }];
     const result = extractTranscriptSegmentsForHotspots(sampleVTT, hotspots);
     expect(result[0].text).toBe("");
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// deduplicateHotspots
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe("deduplicateHotspots", () => {
-  it("returns all hotspots when no duplicates", () => {
-    const result = deduplicateHotspots(MOCK_HOTSPOTS_COMBINED);
-    expect(result.length).toBe(MOCK_HOTSPOTS_COMBINED.length);
-  });
-
-  it("removes exact startMs duplicates, keeping first", () => {
-    const hotspots: Hotspot[] = [
-      { startMs: 1000, endMs: 2000, score: 0.8 },
-      { startMs: 1000, endMs: 2500, score: 0.3 }, // same startMs
-      { startMs: 3000, endMs: 4000, score: 0.5 },
-    ];
-    const result = deduplicateHotspots(hotspots);
-    expect(result.length).toBe(2);
-    expect(result[0].score).toBe(0.8); // first one kept
-    expect(result[1].startMs).toBe(3000);
-  });
-
-  it("handles empty array", () => {
-    expect(deduplicateHotspots([])).toEqual([]);
   });
 });

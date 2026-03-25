@@ -13,8 +13,8 @@ import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
 import { withRetry } from "@mux/ai/lib/retry";
 import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
-import type { HeatmapResponse, HeatmapStatistics } from "@mux/ai/primitives/heatmap";
-import { computeHeatmapPercentile, computeHeatmapStatistics, getHeatmapForAsset } from "@mux/ai/primitives/heatmap";
+import type { HeatmapResponse } from "@mux/ai/primitives/heatmap";
+import { computeHeatmapPercentile, getHeatmapForAsset } from "@mux/ai/primitives/heatmap";
 import type { Hotspot } from "@mux/ai/primitives/hotspots";
 import { getHotspotsForAsset } from "@mux/ai/primitives/hotspots";
 import type { Shot } from "@mux/ai/primitives/shots";
@@ -314,7 +314,7 @@ const engagementInsightsPromptBuilder = createPromptBuilder<EngagementInsightsPr
 function buildUserPrompt(
   hotspots: Hotspot[],
   transcriptSegments: TranscriptSegment[],
-  heatmapStats: HeatmapStatistics,
+  heatmap: number[],
   insightType: "informational" | "actionable" | "both",
   isAudioOnly: boolean,
   overrides?: EngagementInsightsPromptOverrides,
@@ -335,12 +335,8 @@ function buildUserPrompt(
     .join("\n\n");
 
   const heatmapData = dedent`
-    Overall Engagement Statistics:
-    - Average engagement level: ${heatmapStats.average.toFixed(2)}
-    - Peak engagement: ${heatmapStats.peak.timestamp} (value: ${heatmapStats.peak.value.toFixed(2)})
-    - Lowest engagement: ${heatmapStats.lowest.timestamp} (value: ${heatmapStats.lowest.value.toFixed(2)})
-    - Significant drops: ${heatmapStats.significantDrops.length} detected
-    ${heatmapStats.significantDrops.map(d => `  - ${d.timestamp}: ${d.dropPercentage.toFixed(1)}% drop`).join("\n")}
+    Engagement Heatmap (${heatmap.length} values, each representing 1/${heatmap.length}th of the video, higher = more re-watches):
+    [${heatmap.map(v => v.toFixed(2)).join(", ")}]
   `;
 
   const insightGuidelines = buildInsightTypeGuidelines(insightType);
@@ -399,20 +395,6 @@ export function extractTranscriptSegmentsForHotspots(
       text,
       timestamp: secondsToTimestamp(startSec),
     };
-  });
-}
-
-/**
- * Deduplicates hotspots by startMs, keeping the first occurrence.
- */
-export function deduplicateHotspots(hotspots: Hotspot[]): Hotspot[] {
-  const seen = new Set<number>();
-  return hotspots.filter((h) => {
-    if (seen.has(h.startMs)) {
-      return false;
-    }
-    seen.add(h.startMs);
-    return true;
   });
 }
 
@@ -504,9 +486,8 @@ async function fetchEngagementData(
     }),
   ]);
 
-  // Merge, deduplicate by startMs, sort by timestamp
-  const merged = [...peaks, ...valleys].sort((a, b) => a.startMs - b.startMs);
-  const allHotspots = deduplicateHotspots(merged);
+  // Merge peaks and valleys, sort by timestamp
+  const allHotspots = [...peaks, ...valleys].sort((a, b) => a.startMs - b.startMs);
 
   return {
     hotspots: allHotspots,
@@ -696,11 +677,11 @@ export async function generateEngagementInsights(
   }
 
   // Step 3: Data correlation
-  const heatmapStats = computeHeatmapStatistics(heatmap.heatmap, assetDurationSeconds);
+  const heatmapAverage = heatmap.heatmap.reduce((sum, val) => sum + val, 0) / heatmap.heatmap.length;
 
   // Compute engagement type deterministically from heatmap average
   const engagementTypes = hotspots.map(h =>
-    h.score > heatmapStats.average ? "high" as const : "low" as const,
+    h.score > heatmapAverage ? "high" as const : "low" as const,
   );
 
   // Compute percentile for each hotspot
@@ -765,7 +746,7 @@ export async function generateEngagementInsights(
   const userPrompt = buildUserPrompt(
     hotspots,
     transcriptSegments,
-    heatmapStats,
+    heatmap.heatmap,
     insightType,
     audioOnly,
     promptOverrides,
