@@ -213,7 +213,7 @@ function createSummarizationBuilder({ titleLength, descriptionLength, tagCount }
         tag: "title_requirements",
         content: dedent`
           A concise, label-style title — not a sentence or description.
-          Never exceed ${titleLimit} words, but shorter is better. Most good titles are 3–8 words.
+          Never exceed ${titleLimit} words, but shorter is better.
           Think of how a video card title, playlist entry, or file name would read — e.g. "Predator: Badlands Trailer" or "Chef Prepares Holiday Feast".
           Start with the primary subject or topic. Never begin with "A video of" or similar phrasing.
           Use specific nouns over lengthy descriptions. Avoid clauses, conjunctions, or narrative structure.`,
@@ -261,7 +261,7 @@ function createAudioOnlyBuilder({ titleLength, descriptionLength, tagCount }: Pr
         tag: "title_requirements",
         content: dedent`
           A concise, label-style title — not a sentence or description.
-          Never exceed ${titleLimit} words, but shorter is better. Most good titles are 3–8 words.
+          Never exceed ${titleLimit} words, but shorter is better.
           Think of how a podcast episode title or playlist entry would read — e.g. "Weekly News Roundup" or "Interview with Dr. Smith".
           Start with the primary subject or topic. Never begin with "An audio of" or similar phrasing.
           Use specific nouns over lengthy descriptions. Avoid clauses, conjunctions, or narrative structure.`,
