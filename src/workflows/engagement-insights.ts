@@ -316,6 +316,7 @@ function buildUserPrompt(
   transcriptSegments: TranscriptSegment[],
   heatmapStats: HeatmapStatistics,
   insightType: "informational" | "actionable" | "both",
+  isAudioOnly: boolean,
   overrides?: EngagementInsightsPromptOverrides,
 ): string {
   const hotspotData = hotspots
@@ -355,8 +356,12 @@ function buildUserPrompt(
     },
   ];
 
+  // Suppress visual context section for audio-only assets to avoid
+  // contradicting the audio-only system prompt ("no visual elements")
+  const visualContextOverride = isAudioOnly ? { visualContext: "" } : {};
+
   return engagementInsightsPromptBuilder.buildWithContext(
-    { insightGuidelines, ...overrides },
+    { insightGuidelines, ...visualContextOverride, ...overrides },
     contextSections,
   );
 }
@@ -762,6 +767,7 @@ export async function generateEngagementInsights(
     transcriptSegments,
     heatmapStats,
     insightType,
+    audioOnly,
     promptOverrides,
   );
 
