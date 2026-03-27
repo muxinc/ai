@@ -3,6 +3,7 @@ export * from "./burned-in-captions";
 export * from "./chapters";
 export * from "./edit-captions";
 export * from "./embeddings";
+export * from "./engagement-insights";
 export * from "./moderation";
 export * from "./summarization";
 export * from "./translate-audio";

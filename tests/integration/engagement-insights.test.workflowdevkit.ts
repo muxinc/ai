@@ -1,0 +1,70 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { start } from "workflow/api";
+
+import type { SupportedProvider } from "../../src/lib/providers";
+import { generateEngagementInsights } from "../../src/workflows";
+import {
+  createMockHeatmapResponse,
+  createMockHotspotsResponse,
+} from "../helpers/mock-engagement-data";
+import { muxTestAssets } from "../helpers/mux-test-assets";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Mock Setup — only engagement primitives, everything else uses real Mux APIs
+// ─────────────────────────────────────────────────────────────────────────────
+
+vi.mock("../../src/primitives/hotspots", async () => {
+  const actual = await vi.importActual<typeof import("../../src/primitives/hotspots")>(
+    "../../src/primitives/hotspots",
+  );
+  return {
+    ...actual,
+    getHotspotsForAsset: vi.fn(),
+  };
+});
+
+vi.mock("../../src/primitives/heatmap", async () => {
+  const actual = await vi.importActual<typeof import("../../src/primitives/heatmap")>(
+    "../../src/primitives/heatmap",
+  );
+  return {
+    ...actual,
+    getHeatmapForAsset: vi.fn(),
+  };
+});
+
+const { getHotspotsForAsset } = await import("../../src/primitives/hotspots");
+const { getHeatmapForAsset } = await import("../../src/primitives/heatmap");
+
+beforeEach(() => {
+  vi.clearAllMocks();
+
+  vi.mocked(getHotspotsForAsset).mockImplementation(async (_assetId, options) => {
+    const orderDirection = options?.orderDirection ?? "desc";
+    const limit = options?.limit ?? 5;
+    return createMockHotspotsResponse(orderDirection, limit);
+  });
+
+  vi.mocked(getHeatmapForAsset).mockImplementation(async (assetId) => {
+    return createMockHeatmapResponse(assetId);
+  });
+});
+
+describe("engagement Insights Integration Tests", () => {
+  const testAssetId = muxTestAssets.assetId;
+  const providers: SupportedProvider[] = ["openai", "anthropic", "google"];
+
+  // Skipped: WorkflowDevKit runs workflows in a separate Nitro process where vi.mock()
+  // doesn't apply. The test asset has no real engagement data, so the workflow throws.
+  // Re-enable once a test asset with engagement data is available.
+  it.skip.each(providers)("should return a run with a runId for each provider", async (provider) => {
+    const run = await start(generateEngagementInsights, [testAssetId, { provider }]);
+    expect(run.runId).toMatch(/^wrun_/);
+
+    const result = await run.returnValue;
+    expect(result).toHaveProperty("assetId", testAssetId);
+    expect(result).toHaveProperty("momentInsights");
+    expect(result).toHaveProperty("overallInsight");
+    expect(Array.isArray(result.momentInsights)).toBe(true);
+  });
+});
