@@ -41,6 +41,7 @@ const result = await getSummaryAndTags(assetId, {
 | --- | --- |
 | `getSummaryAndTags` | `task`, `title`, `description`, `keywords`, `qualityGuidelines` |
 | `generateChapters` | `task`, `titleGuidelines`, `chapterGuidelines` |
+| `generateScenes` | `task`, `outputFormat`, `sceneGuidelines`, `boundaryGuidelines`, `titleGuidelines` |
 | `hasBurnedInCaptions` | `task`, `positiveIndicators`, `negativeIndicators`, `confidenceGuidelines` |
 
 ## Presets: Common Override Patterns
@@ -106,6 +107,18 @@ const result = await generateChapters(assetId, "en", {
   provider: "openai",
   promptOverrides: {
     titleGuidelines: "Use short, punchy titles under 6 words. Start with an action verb.",
+  },
+});
+```
+
+### Scene Boundary Style
+
+```ts
+const result = await generateScenes(assetId, "en", {
+  provider: "openai",
+  promptOverrides: {
+    boundaryGuidelines: "Prefer broader scenes unless there is a clear narrative or setting change.",
+    titleGuidelines: "Use short cinematic titles under 5 words.",
   },
 });
 ```

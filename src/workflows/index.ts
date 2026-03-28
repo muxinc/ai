@@ -4,6 +4,7 @@ export * from "./chapters";
 export * from "./edit-captions";
 export * from "./embeddings";
 export * from "./moderation";
+export * from "./scenes";
 export * from "./summarization";
 export * from "./translate-audio";
 export * from "./translate-captions";
