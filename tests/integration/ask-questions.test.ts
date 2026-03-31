@@ -184,7 +184,7 @@ describe("ask Questions Integration Tests", () => {
 
     // Irrelevant question should be skipped
     expect(result.answers[1].skipped).toBe(true);
-    expect(result.answers[1].answer).toBeUndefined();
+    expect(result.answers[1].answer).toBeNull();
     expect(result.answers[1].confidence).toBe(0);
     expect(result.answers[1].reasoning.length).toBeGreaterThan(0);
 
