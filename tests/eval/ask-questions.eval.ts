@@ -179,7 +179,7 @@ evalite("Ask Questions", {
         const answerFieldsValid = output.answers.every((answer, idx) =>
           answer.question === input.questions[idx].question &&
           (answer.skipped ?
-            answer.answer === undefined && answer.confidence === 0 :
+            answer.answer === null && answer.confidence === 0 :
               expected.allowedAnswers.includes(answer.answer!)) &&
               typeof answer.confidence === "number" &&
               typeof answer.reasoning === "string");

@@ -160,7 +160,7 @@ describe("ask Questions Integration Tests", () => {
 
     const answer = result.answers[0];
     expect(answer.skipped).toBe(true);
-    expect(answer.answer).toBeUndefined();
+    expect(answer.answer).toBeNull();
     expect(answer.confidence).toBe(0);
     expect(typeof answer.reasoning).toBe("string");
     expect(answer.reasoning.length).toBeGreaterThan(0);
