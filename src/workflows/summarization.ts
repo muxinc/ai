@@ -123,9 +123,9 @@ export interface SummarizationOptions extends MuxAIOptions {
    * Useful for customizing the AI's output for specific use cases (SEO, social media, etc.)
    */
   promptOverrides?: SummarizationPromptOverrides;
-  /** Desired title length in words. */
+  /** Maximum title length in words. Shorter titles are preferred. */
   titleLength?: number;
-  /** Desired description length in words. */
+  /** Maximum description length in words. Shorter descriptions are acceptable. */
   descriptionLength?: number;
   /** Desired number of tags. */
   tagCount?: number;
@@ -161,11 +161,11 @@ const DESCRIPTION_LENGTH_THRESHOLD_LARGE = 100;
 function buildDescriptionGuidance(wordCount: number, contentType: "video" | "audio"): string {
   if (wordCount < DESCRIPTION_LENGTH_THRESHOLD_SMALL) {
     if (contentType === "video") {
-      return dedent`A brief summary of the video in approximately ${wordCount} words.
+      return dedent`A brief summary of the video in no more than ${wordCount} words. Shorter is fine.
         Focus on the single most important subject or action.
         Write in present tense.`;
     }
-    return dedent`A brief summary of the audio content in approximately ${wordCount} words.
+    return dedent`A brief summary of the audio content in no more than ${wordCount} words. Shorter is fine.
       Focus on the single most important topic or theme.
       Write in present tense.`;
   }
@@ -173,13 +173,13 @@ function buildDescriptionGuidance(wordCount: number, contentType: "video" | "aud
   if (wordCount > DESCRIPTION_LENGTH_THRESHOLD_LARGE) {
     if (contentType === "video") {
       return dedent`A detailed summary that describes what happens across the video.
-        Aim for approximately ${wordCount} words, and you may use multiple sentences.
+        Never exceed ${wordCount} words, but shorter is perfectly fine. You may use multiple sentences.
         Be thorough: cover subjects, actions, setting, progression, and any notable details visible across frames.
         Write in present tense. Be specific about observable details rather than making assumptions.
         If the transcript provides dialogue or narration, incorporate key points but prioritize visual content.`;
     }
     return dedent`A detailed summary that describes the audio content.
-      Aim for approximately ${wordCount} words, and you may use multiple sentences.
+      Never exceed ${wordCount} words, but shorter is perfectly fine. You may use multiple sentences.
       Be thorough: cover topics, speakers, themes, progression, and any notable insights.
       Write in present tense. Be specific about what is discussed or presented rather than making assumptions.
       Focus on the spoken content and any key insights, dialogue, or narrative elements.`;
@@ -187,20 +187,20 @@ function buildDescriptionGuidance(wordCount: number, contentType: "video" | "aud
 
   if (contentType === "video") {
     return dedent`A summary that describes what happens across the video.
-      Aim for approximately ${wordCount} words, and you may use multiple sentences.
+      Never exceed ${wordCount} words, but shorter is perfectly fine. You may use multiple sentences.
       Cover the main subjects, actions, setting, and any notable progression visible across frames.
       Write in present tense. Be specific about observable details rather than making assumptions.
       If the transcript provides dialogue or narration, incorporate key points but prioritize visual content.`;
   }
   return dedent`A summary that describes the audio content.
-    Aim for approximately ${wordCount} words, and you may use multiple sentences.
+    Never exceed ${wordCount} words, but shorter is perfectly fine. You may use multiple sentences.
     Cover the main topics, speakers, themes, and any notable progression in the discussion or narration.
     Write in present tense. Be specific about what is discussed or presented rather than making assumptions.
     Focus on the spoken content and any key insights, dialogue, or narrative elements.`;
 }
 
 function createSummarizationBuilder({ titleLength, descriptionLength, tagCount }: PromptConstraints = {}) {
-  const titleBrevity = `Aim for approximately ${titleLength ?? DEFAULT_TITLE_LENGTH} words.`;
+  const titleLimit = titleLength ?? DEFAULT_TITLE_LENGTH;
   const keywordLimit = tagCount ?? DEFAULT_SUMMARY_KEYWORD_LIMIT;
 
   return createPromptBuilder<SummarizationPromptSections>({
@@ -212,10 +212,11 @@ function createSummarizationBuilder({ titleLength, descriptionLength, tagCount }
       title: {
         tag: "title_requirements",
         content: dedent`
-          A short, compelling headline that immediately communicates the subject or action.
-          ${titleBrevity} Think of how a news headline or video card title would read.
-          Start with the primary subject, action, or topic - never begin with "A video of" or similar phrasing.
-          Use active, specific language.`,
+          A concise, label-style title — not a sentence or description.
+          Never exceed ${titleLimit} words, but shorter is better.
+          Think of how a video card title, playlist entry, or file name would read — e.g. "Predator: Badlands Trailer" or "Chef Prepares Holiday Feast".
+          Start with the primary subject or topic. Never begin with "A video of" or similar phrasing.
+          Use specific nouns over lengthy descriptions. Avoid clauses, conjunctions, or narrative structure.`,
       },
       description: {
         tag: "description_requirements",
@@ -247,7 +248,7 @@ function createSummarizationBuilder({ titleLength, descriptionLength, tagCount }
 }
 
 function createAudioOnlyBuilder({ titleLength, descriptionLength, tagCount }: PromptConstraints = {}) {
-  const titleBrevity = `Aim for approximately ${titleLength ?? DEFAULT_TITLE_LENGTH} words.`;
+  const titleLimit = titleLength ?? DEFAULT_TITLE_LENGTH;
   const keywordLimit = tagCount ?? DEFAULT_SUMMARY_KEYWORD_LIMIT;
 
   return createPromptBuilder<SummarizationPromptSections>({
@@ -259,10 +260,11 @@ function createAudioOnlyBuilder({ titleLength, descriptionLength, tagCount }: Pr
       title: {
         tag: "title_requirements",
         content: dedent`
-          A short, compelling headline that immediately communicates the subject or topic.
-          ${titleBrevity} Think of how a podcast title or audio description would read.
-          Start with the primary subject, action, or topic - never begin with "An audio of" or similar phrasing.
-          Use active, specific language.`,
+          A concise, label-style title — not a sentence or description.
+          Never exceed ${titleLimit} words, but shorter is better.
+          Think of how a podcast episode title or playlist entry would read — e.g. "Weekly News Roundup" or "Interview with Dr. Smith".
+          Start with the primary subject or topic. Never begin with "An audio of" or similar phrasing.
+          Use specific nouns over lengthy descriptions. Avoid clauses, conjunctions, or narrative structure.`,
       },
       description: {
         tag: "description_requirements",

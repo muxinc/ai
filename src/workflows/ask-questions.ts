@@ -28,8 +28,8 @@ export interface Question {
 export interface QuestionAnswer {
   /** The original question */
   question: string;
-  /** Answer selected from the allowed options. Undefined when skipped. */
-  answer?: string;
+  /** Answer selected from the allowed options. Null when skipped. */
+  answer: string | null;
   /** Confidence score between 0 and 1. Always 0 when skipped. */
   confidence: number;
   /** Reasoning explaining the answer, or why the question was skipped */
@@ -79,7 +79,7 @@ export interface AskQuestionsResult {
 /** Zod schema for a single answer (matches the public QuestionAnswer interface). */
 export const questionAnswerSchema = z.object({
   question: z.string(),
-  answer: z.string().optional(),
+  answer: z.string().nullable(),
   confidence: z.number(),
   reasoning: z.string(),
   skipped: z.boolean(),
@@ -481,7 +481,7 @@ export async function askQuestions(
       confidence: isSkipped ? 0 : Math.min(1, Math.max(0, raw.confidence)),
       reasoning: raw.reasoning,
       skipped: isSkipped,
-      ...(isSkipped ? {} : { answer: raw.answer }),
+      answer: isSkipped ? null : raw.answer,
     };
   });
 
