@@ -72,7 +72,6 @@ describe("engagement Insights Integration Tests", () => {
 
   it("should generate informational insights", async () => {
     const result = await generateEngagementInsights(testAssetId, {
-      insightType: "informational",
       hotspotLimit: 3,
     });
 
@@ -104,46 +103,6 @@ describe("engagement Insights Integration Tests", () => {
     expect(result.overallInsight.summary.length).toBeGreaterThan(0);
     expect(result.overallInsight).toHaveProperty("trends");
     expect(Array.isArray(result.overallInsight.trends)).toBe(true);
-  });
-
-  it("should generate actionable insights with recommendations", async () => {
-    const result = await generateEngagementInsights(testAssetId, {
-      insightType: "actionable",
-      hotspotLimit: 3,
-    });
-
-    expect(result).toBeDefined();
-
-    result.momentInsights.forEach((insight) => {
-      expect(insight).toHaveProperty("recommendation");
-      if (insight.recommendation) {
-        expect(typeof insight.recommendation).toBe("string");
-        expect(insight.recommendation.length).toBeGreaterThan(0);
-      }
-    });
-
-    expect(result.overallInsight).toHaveProperty("recommendations");
-    expect(Array.isArray(result.overallInsight.recommendations)).toBe(true);
-  });
-
-  it("should generate both informational and actionable insights", async () => {
-    const result = await generateEngagementInsights(testAssetId, {
-      insightType: "both",
-      hotspotLimit: 3,
-    });
-
-    expect(result).toBeDefined();
-
-    result.momentInsights.forEach((insight) => {
-      expect(insight).toHaveProperty("insight");
-      expect(insight).toHaveProperty("recommendation");
-      expect(typeof insight.insight).toBe("string");
-      expect(insight.insight.length).toBeGreaterThan(0);
-    });
-
-    expect(result.overallInsight).toHaveProperty("summary");
-    expect(result.overallInsight).toHaveProperty("trends");
-    expect(result.overallInsight).toHaveProperty("recommendations");
   });
 
   it("should respect hotspotLimit parameter", async () => {

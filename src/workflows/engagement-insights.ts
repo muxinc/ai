@@ -51,14 +51,9 @@ export interface EngagementInsightsOptions extends MuxAIOptions {
    * Note: actual moment count may be up to 2x this value since both peaks and valleys are fetched.
    */
   hotspotLimit?: number;
-  /** Type of insights to generate (default: 'informational') */
-  insightType?: "informational" | "actionable" | "both";
   /** Timeframe for engagement data (default: '7:days') */
   timeframe?: string;
-  /**
-   * Override specific sections of the prompt.
-   * Note: overriding `insightGuidelines` will take precedence over the `insightType` option.
-   */
+  /** Override specific sections of the prompt. */
   promptOverrides?: EngagementInsightsPromptOverrides;
   /**
    * Skip shots integration and use basic thumbnails instead (default: false).
@@ -83,8 +78,7 @@ export interface MomentInsight {
   percentile: number;
   /** Primary insight explaining the engagement pattern */
   insight: string;
-  /** Optional actionable recommendation (present if insightType is 'actionable' or 'both') */
-  recommendation?: string;
+  /** Primary insight explaining the engagement pattern */
 }
 
 /** Overall engagement analysis across the entire video */
@@ -93,8 +87,6 @@ export interface OverallInsight {
   summary: string;
   /** Key trends identified across the video */
   trends: string[];
-  /** Recommended optimizations (if insightType is 'actionable' or 'both') */
-  recommendations?: string[];
 }
 
 /** Transcript segment aligned with a hotspot */
@@ -121,13 +113,7 @@ export interface EngagementInsightsResult {
 // Zod Schemas (given to AI — type and percentile are injected post-generation)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Zod schema for a single moment insight returned by the AI.
- * Note: recommendation and recommendations are required strings/arrays
- * (not optional) because OpenAI structured output requires all properties
- * in 'required'. The AI returns empty string / empty array when not
- * applicable, and we convert to undefined in the transform step.
- */
+/** Zod schema for a single moment insight returned by the AI. */
 const aiMomentInsightSchema = z.object({
   hotspotIndex: z.number(),
   startMs: z.number(),
@@ -135,14 +121,12 @@ const aiMomentInsightSchema = z.object({
   timestamp: z.string(),
   engagementScore: z.number(),
   insight: z.string(),
-  recommendation: z.string(),
 });
 
 /** Zod schema for overall insight returned by the AI. */
 const aiOverallInsightSchema = z.object({
   summary: z.string(),
   trends: z.array(z.string()),
-  recommendations: z.array(z.string()),
 });
 
 /** Combined schema for AI response */
@@ -240,48 +224,12 @@ const AUDIO_ONLY_SYSTEM_PROMPT = dedent`
   </quality_guidelines>
 `;
 
-function buildInsightTypeGuidelines(insightType: "informational" | "actionable" | "both"): string {
-  switch (insightType) {
-    case "informational":
-      return dedent`
-        <insight_style>
-          Provide explanatory insights that describe WHY moments are engaging.
-          Focus on observable patterns and viewer behavior correlation.
-          Example: "The cooking demonstration at 2:15 has 3x average engagement
-          because it shows the key technique viewers are searching for."
-
-          For the 'recommendation' field, return an empty string ("") since we only want explanations.
-          For the 'recommendations' array in overallInsight, return an empty array ([]).
-        </insight_style>
-      `;
-
-    case "actionable":
-      return dedent`
-        <insight_style>
-          Provide actionable recommendations for content optimization.
-          Focus on what could be improved or changed.
-          Example: "Engagement drops 40% after the intro, suggesting the pacing
-          could be improved by moving the demonstration earlier."
-
-          Use 'insight' for brief context, and 'recommendation' for actionable advice.
-          Both fields should have meaningful content.
-        </insight_style>
-      `;
-
-    case "both":
-      return dedent`
-        <insight_style>
-          Provide both explanation AND recommendations.
-          First explain why engagement occurs (in the 'insight' field),
-          then suggest optimizations (in the 'recommendation' field).
-          Example insight: "The Q&A section at 5:30 has low engagement (0.3x average) because the questions are generic."
-          Example recommendation: "Consider using viewer-submitted questions to increase relevance."
-
-          Both 'insight' and 'recommendation' fields must be filled with meaningful content.
-        </insight_style>
-      `;
-  }
-}
+const INSIGHT_GUIDELINES = dedent`
+  Provide explanatory insights that describe WHY moments are engaging.
+  Focus on observable patterns and viewer behavior correlation.
+  Example: "The cooking demonstration at 2:15 has 3x average engagement
+  because it shows the key technique viewers are searching for."
+`;
 
 const engagementInsightsPromptBuilder = createPromptBuilder<EngagementInsightsPromptSections>({
   template: {
@@ -291,7 +239,7 @@ const engagementInsightsPromptBuilder = createPromptBuilder<EngagementInsightsPr
     },
     insightGuidelines: {
       tag: "insight_guidelines",
-      content: "", // Dynamically filled based on insightType
+      content: INSIGHT_GUIDELINES,
     },
     outputFormat: {
       tag: "output_format",
@@ -317,7 +265,6 @@ function buildUserPrompt(
   hotspots: Hotspot[],
   transcriptSegments: TranscriptSegment[],
   heatmap: number[],
-  insightType: "informational" | "actionable" | "both",
   isAudioOnly: boolean,
   overrides?: EngagementInsightsPromptOverrides,
 ): string {
@@ -341,8 +288,6 @@ function buildUserPrompt(
     [${heatmap.map(v => v.toFixed(2)).join(", ")}]
   `;
 
-  const insightGuidelines = buildInsightTypeGuidelines(insightType);
-
   const contextSections = [
     {
       tag: "engagement_hotspots",
@@ -359,7 +304,7 @@ function buildUserPrompt(
   const visualContextOverride = isAudioOnly ? { visualContext: "" } : {};
 
   return engagementInsightsPromptBuilder.buildWithContext(
-    { insightGuidelines, ...visualContextOverride, ...overrides },
+    { ...visualContextOverride, ...overrides },
     contextSections,
   );
 }
@@ -598,7 +543,6 @@ export async function generateEngagementInsights(
     provider = "openai",
     model,
     hotspotLimit = 5,
-    insightType = "informational",
     timeframe = "7:days",
     credentials,
     promptOverrides,
@@ -764,7 +708,6 @@ export async function generateEngagementInsights(
     hotspots,
     transcriptSegments,
     heatmap.heatmap,
-    insightType,
     audioOnly,
     promptOverrides,
   );
@@ -805,7 +748,6 @@ export async function generateEngagementInsights(
       type: engagementTypes[idx],
       percentile: percentiles[idx],
       insight: aiMoment.insight,
-      recommendation: aiMoment.recommendation || undefined,
     });
   }
 
@@ -830,9 +772,6 @@ export async function generateEngagementInsights(
     overallInsight: {
       summary: aiInsights.overallInsight.summary,
       trends: aiInsights.overallInsight.trends,
-      recommendations: aiInsights.overallInsight.recommendations.length > 0 ?
-        aiInsights.overallInsight.recommendations :
-        undefined,
     },
     usage: usageWithMetadata,
   };

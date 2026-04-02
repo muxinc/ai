@@ -232,16 +232,12 @@ import { generateEngagementInsights } from "@mux/ai/workflows";
 
 const result = await generateEngagementInsights("your-mux-asset-id", {
   provider: "openai",
-  insightType: "both",
   hotspotLimit: 5
 });
 
 // Per-moment insights
 result.momentInsights.forEach(insight => {
-  console.log(`${insight.timestamp}: ${insight.insight}`);
-  if (insight.recommendation) {
-    console.log(`  → ${insight.recommendation}`);
-  }
+  console.log(`${insight.timestamp} (${insight.type}): ${insight.insight}`);
 });
 
 // Overall analysis
@@ -261,23 +257,10 @@ console.log("Trends:", result.overallInsight.trends);
 const result = await generateEngagementInsights(assetId, {
   provider: "openai", // "openai", "anthropic", or "google"
   hotspotLimit: 5, // Moments per direction (1-10, default: 5). Up to 2x total.
-  insightType: "informational", // "informational" | "actionable" | "both"
   timeframe: "7:days", // "1:hour", "24:hours", "7:days", "30:days"
   skipShots: false, // Skip shots polling, use thumbnails (default: false)
 });
 ```
-
-**Insight Types:**
-
-- **`informational`** (default): Explains *why* moments are engaging
-  - Example: *"The cooking demonstration at 2:15 has 3x average engagement because it shows the key technique viewers are searching for."*
-
-- **`actionable`**: Provides recommendations for content optimization
-  - Example: *"Engagement drops 40% after the intro, suggesting the pacing could be improved by moving the demonstration earlier."*
-
-- **`both`**: Combines explanation and recommendations
-  - Includes both insight and recommendation fields in moment insights
-  - Overall insight includes both trends and recommendations
 
 ### How It Works
 
@@ -285,7 +268,7 @@ The workflow combines multiple data sources for comprehensive analysis:
 
 1. **Fetches engagement data** - Both peaks (high engagement) and valleys (low engagement) from Mux Data API
 2. **Fetches visual context** - Scene-representative frames via shots API (falls back to thumbnails if unavailable)
-3. **Computes heatmap statistics** - Average engagement, peaks, significant drops >25%, and percentile ranking
+3. **Computes heatmap statistics** - Average engagement and percentile ranking
 4. **Analyzes transcript** - Matches transcript segments to engagement moments
 5. **Generates AI insights** - Explains patterns based on observable evidence from visuals and transcript
 
@@ -303,7 +286,6 @@ The workflow combines multiple data sources for comprehensive analysis:
       type: "high", // Computed from heatmap average
       percentile: 92, // Percentile rank within video (0-100)
       insight: "The cooking demonstration shows...",
-      recommendation: "Consider expanding technique demonstrations...", // Optional
     }
   ],
   overallInsight: {
@@ -312,10 +294,6 @@ The workflow combines multiple data sources for comprehensive analysis:
       "Engagement peaks during visual demonstrations",
       "Significant 40% drop after intro"
     ],
-    recommendations: [ // Optional (if insightType is "actionable" or "both")
-      "Front-load demonstrations earlier in the video",
-      "Shorten intro segments"
-    ]
   },
   usage: {...} // Token usage stats
 }
@@ -327,13 +305,12 @@ The workflow combines multiple data sources for comprehensive analysis:
 - **Audience Analysis**: Understand which content types drive re-watching
 - **Pacing Improvements**: Find moments where viewers drop off
 - **A/B Testing**: Compare engagement patterns across video variations
-- **Creator Insights**: Provide actionable feedback to content creators
+- **Creator Insights**: Provide engagement feedback to content creators
 
 ### Best Practices
 
 - Use a **7-day timeframe** (default) for stable engagement data
 - Increase **timeframe** for newer videos that haven't accumulated views
-- Set **`insightType: "both"`** for comprehensive analysis
 - Use **`skipShots: true`** for latency-sensitive API endpoints (saves up to 30s)
 - Videos need sufficient view data — new or low-view videos may not have engagement data
 - Audio-only assets work but lack visual analysis
