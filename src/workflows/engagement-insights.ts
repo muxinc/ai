@@ -63,7 +63,6 @@ export interface MomentInsight {
   engagementScore: number;
   /** Primary insight explaining the engagement pattern */
   insight: string;
-  /** Primary insight explaining the engagement pattern */
 }
 
 /** Overall engagement analysis across the entire video */
@@ -340,7 +339,8 @@ export function extractTranscriptSegmentsForHotspots(
  * startTime to hotspot.startMs/1000.
  */
 export function mapShotsToHotspots(shots: Shot[], hotspots: Hotspot[]): string[] {
-  if (shots.length === 0) {
+  const validShots = shots.filter(s => s.imageUrl);
+  if (validShots.length === 0) {
     return [];
   }
 
@@ -350,7 +350,7 @@ export function mapShotsToHotspots(shots: Shot[], hotspots: Hotspot[]): string[]
     const midpoint = (startSec + endSec) / 2;
 
     // Find shots within the hotspot's time range
-    const inRange = shots.filter(
+    const inRange = validShots.filter(
       s => s.startTime >= startSec && s.startTime <= endSec,
     );
 
@@ -363,7 +363,7 @@ export function mapShotsToHotspots(shots: Shot[], hotspots: Hotspot[]): string[]
     }
 
     // No shot in range — pick nearest to startMs
-    const nearest = shots.reduce((best, s) =>
+    const nearest = validShots.reduce((best, s) =>
       Math.abs(s.startTime - startSec) < Math.abs(best.startTime - startSec) ? s : best,
     );
     return nearest.imageUrl;
@@ -379,7 +379,6 @@ async function getThumbnailUrlsForHotspots(
   hotspots: Hotspot[],
   options: { width?: number; shouldSign?: boolean; credentials?: WorkflowCredentialsInput } = {},
 ): Promise<string[]> {
-  "use step";
   const { width = 640, shouldSign = false, credentials } = options;
   const baseUrl = getMuxThumbnailBaseUrl(playbackId);
 

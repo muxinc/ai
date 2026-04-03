@@ -17,7 +17,7 @@ export interface HotspotOptions {
   orderDirection?: "asc" | "desc";
   /** Order by field (default: 'score') */
   orderBy?: "score";
-  /** Time window for results, e.g., '7:days' (default: '24:hours') */
+  /** Time window for results, e.g., '7:days' (default: '7:days') */
   timeframe?: string;
   /** Optional workflow credentials */
   credentials?: WorkflowCredentialsInput;
