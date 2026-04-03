@@ -126,7 +126,7 @@ async function fetchHeatmap(
   options: HeatmapOptions,
 ): Promise<HeatmapResponse> {
   "use step";
-  const { timeframe = "24:hours", credentials } = options;
+  const { timeframe = "7:days", credentials } = options;
 
   const muxClient = await getMuxClientFromEnv(credentials);
   const mux = await muxClient.createClient();

@@ -8,7 +8,6 @@ import {
   isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
 import { getMuxThumbnailBaseUrl } from "@mux/ai/lib/mux-image-url";
-import type { PromptOverrides } from "@mux/ai/lib/prompt-builder";
 import { createPromptBuilder } from "@mux/ai/lib/prompt-builder";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
@@ -32,14 +31,6 @@ import type { MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "@mux/ai
 /**
  * Sections of the engagement insights user prompt that can be overridden.
  */
-export type EngagementInsightsPromptSections =
-  "task" |
-  "insightGuidelines" |
-  "outputFormat" |
-  "visualContext";
-
-export type EngagementInsightsPromptOverrides = PromptOverrides<EngagementInsightsPromptSections>;
-
 /** Configuration options for engagement insights workflow. */
 export interface EngagementInsightsOptions extends MuxAIOptions {
   /** AI provider to run (defaults to 'openai'). */
@@ -53,8 +44,6 @@ export interface EngagementInsightsOptions extends MuxAIOptions {
   hotspotLimit?: number;
   /** Timeframe for engagement data (default: '7:days') */
   timeframe?: string;
-  /** Override specific sections of the prompt. */
-  promptOverrides?: EngagementInsightsPromptOverrides;
   /**
    * Skip shots integration and use basic thumbnails instead (default: false).
    * Recommended for latency-sensitive use cases.
@@ -231,7 +220,9 @@ const INSIGHT_GUIDELINES = dedent`
   because it shows the key technique viewers are searching for."
 `;
 
-const engagementInsightsPromptBuilder = createPromptBuilder<EngagementInsightsPromptSections>({
+type PromptSections = "task" | "insightGuidelines" | "outputFormat" | "visualContext";
+
+const engagementInsightsPromptBuilder = createPromptBuilder<PromptSections>({
   template: {
     task: {
       tag: "task",
@@ -266,7 +257,6 @@ function buildUserPrompt(
   transcriptSegments: TranscriptSegment[],
   heatmap: number[],
   isAudioOnly: boolean,
-  overrides?: EngagementInsightsPromptOverrides,
 ): string {
   const hotspotData = hotspots
     .map((h, idx) => {
@@ -304,7 +294,7 @@ function buildUserPrompt(
   const visualContextOverride = isAudioOnly ? { visualContext: "" } : {};
 
   return engagementInsightsPromptBuilder.buildWithContext(
-    { ...visualContextOverride, ...overrides },
+    { ...visualContextOverride },
     contextSections,
   );
 }
@@ -545,7 +535,6 @@ export async function generateEngagementInsights(
     hotspotLimit = 5,
     timeframe = "7:days",
     credentials,
-    promptOverrides,
     skipShots = false,
   } = options;
 
@@ -709,7 +698,6 @@ export async function generateEngagementInsights(
     transcriptSegments,
     heatmap.heatmap,
     audioOnly,
-    promptOverrides,
   );
 
   // Step 5: Generate insights with AI

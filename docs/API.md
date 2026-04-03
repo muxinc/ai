@@ -252,7 +252,7 @@ Generate AI-powered insights explaining viewer engagement patterns by analyzing 
 - `hotspotLimit?: number` - Number of engagement moments to analyze per direction (default: 5, range: 1-10). Note: actual moment count may be up to 2x this value since both peaks and valleys are fetched.
 - `timeframe?: string` - Engagement data timeframe (default: '7:days')
   - Examples: `'60:minutes'`, `'24:hours'`, `'7:days'`, `'30:days'`
-- `promptOverrides?: EngagementInsightsPromptOverrides` - Override specific prompt sections
+
 - `skipShots?: boolean` - Skip shots integration, use thumbnails instead (default: false). Recommended for latency-sensitive use cases.
 
 **Returns:**

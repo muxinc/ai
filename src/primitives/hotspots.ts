@@ -130,7 +130,7 @@ async function fetchHotspots(
     limit = 5,
     orderDirection = "desc",
     orderBy = "score",
-    timeframe = "24:hours",
+    timeframe = "7:days",
     credentials,
   } = options;
 
