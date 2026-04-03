@@ -265,7 +265,6 @@ interface EngagementInsightsResult {
     endMs: number; // End time in milliseconds
     timestamp: string; // Human-readable timestamp (e.g., "2:15")
     engagementScore: number; // Normalized score (0.0-1.0)
-    percentile: number; // Percentile rank within video (0-100)
     insight: string; // Explanation of engagement pattern
   }>;
   overallInsight: {
@@ -287,7 +286,7 @@ interface EngagementInsightsResult {
 const result = await generateEngagementInsights("asset-id");
 
 result.momentInsights.forEach(m => {
-  console.log(`${m.timestamp} (p${m.percentile}): ${m.insight}`);
+  console.log(`${m.timestamp}: ${m.insight}`);
 });
 
 // Custom timeframe

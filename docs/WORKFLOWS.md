@@ -237,7 +237,7 @@ const result = await generateEngagementInsights("your-mux-asset-id", {
 
 // Per-moment insights
 result.momentInsights.forEach(insight => {
-  console.log(`${insight.timestamp} (p${insight.percentile}): ${insight.insight}`);
+  console.log(`${insight.timestamp}: ${insight.insight}`);
 });
 
 // Overall analysis
@@ -268,7 +268,7 @@ The workflow combines multiple data sources for comprehensive analysis:
 
 1. **Fetches engagement data** - Both peaks (high engagement) and valleys (low engagement) from Mux Data API
 2. **Fetches visual context** - Scene-representative frames via shots API (falls back to thumbnails if unavailable)
-3. **Computes heatmap statistics** - Average engagement and percentile ranking
+3. **Fetches heatmap data** - Full engagement curve for context
 4. **Analyzes transcript** - Matches transcript segments to engagement moments
 5. **Generates AI insights** - Explains patterns based on observable evidence from visuals and transcript
 
@@ -283,7 +283,6 @@ The workflow combines multiple data sources for comprehensive analysis:
       endMs: 90331,
       timestamp: "1:26",
       engagementScore: 0.875, // 0-1 normalized score
-      percentile: 92, // Percentile rank within video (0-100)
       insight: "The cooking demonstration shows...",
     }
   ],

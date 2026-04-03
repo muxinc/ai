@@ -95,7 +95,7 @@ export interface EngagementInsightsResult {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Zod Schemas (given to AI — type and percentile are injected post-generation)
+// Zod Schemas (given to AI)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Zod schema for a single moment insight returned by the AI. */
@@ -515,7 +515,7 @@ async function generateInsightsWithAI(
  * });
  *
  * result.momentInsights.forEach(m => {
- *   console.log(`${m.timestamp} (${m.type}, p${m.percentile}): ${m.insight}`);
+ *   console.log(`${m.timestamp}: ${m.insight}`);
  * });
  * ```
  */
@@ -698,7 +698,7 @@ export async function generateEngagementInsights(
     throw new Error("Failed to generate insights from AI response");
   }
 
-  // Step 6: Transform — re-associate by hotspotIndex, inject type + percentile
+  // Step 6: Transform — re-associate AI output with hotspots by hotspotIndex
   const momentInsights: MomentInsight[] = [];
 
   for (const aiMoment of aiInsights.momentInsights) {
