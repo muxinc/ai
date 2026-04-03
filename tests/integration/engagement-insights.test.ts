@@ -128,12 +128,15 @@ describe("engagement Insights Integration Tests", () => {
     expect(typeof result.usage?.totalTokens).toBe("number");
   });
 
-  it("should throw error when no engagement data is available", async () => {
+  it("should return early with empty moments when no engagement data is available", async () => {
     vi.mocked(getHotspotsForAsset).mockResolvedValue([]);
 
-    await expect(
-      generateEngagementInsights(testAssetId, { timeframe: "1:hour" }),
-    ).rejects.toThrow("No engagement data available");
+    const result = await generateEngagementInsights(testAssetId, { timeframe: "1:hour" });
+
+    expect(result.momentInsights).toEqual([]);
+    expect(result.overallInsight.summary).toContain("No engagement data available");
+    expect(result.overallInsight.trends).toEqual([]);
+    expect(result.usage).toBeUndefined();
   });
 
   it("should handle audio-only assets gracefully", async () => {
