@@ -223,6 +223,97 @@ const withAudio = await askQuestions(assetId, [
 
 The AI will prioritize visual evidence when transcript and visuals conflict.
 
+## Engagement Insights
+
+Generate AI-powered explanations of viewer engagement patterns by analyzing hotspot data, heatmap statistics, visual frames, and transcripts.
+
+```typescript
+import { generateEngagementInsights } from "@mux/ai/workflows";
+
+const result = await generateEngagementInsights("your-mux-asset-id", {
+  provider: "openai",
+  hotspotLimit: 5
+});
+
+// Per-moment insights
+result.momentInsights.forEach(insight => {
+  console.log(`${insight.timestamp}: ${insight.insight}`);
+});
+
+// Overall analysis
+console.log(result.overallInsight.summary);
+console.log("Trends:", result.overallInsight.trends);
+```
+
+### Requirements
+
+- Asset must have engagement data (views with re-watch activity)
+- Engagement data is pulled from the specified timeframe (default: 7 days)
+- For audio-only assets, visual analysis is skipped
+
+### Configuration Options
+
+```typescript
+const result = await generateEngagementInsights(assetId, {
+  provider: "openai", // "openai", "anthropic", or "google"
+  hotspotLimit: 5, // Moments per direction (1-10, default: 5). Up to 2x total.
+  timeframe: "7:days", // "1:hour", "24:hours", "7:days", "30:days"
+  skipShots: false, // Skip shots polling, use thumbnails (default: false)
+});
+```
+
+### How It Works
+
+The workflow combines multiple data sources for comprehensive analysis:
+
+1. **Fetches engagement data** - Both peaks (high engagement) and valleys (low engagement) from Mux Data API
+2. **Fetches visual context** - Scene-representative frames via shots API (falls back to thumbnails if unavailable)
+3. **Fetches heatmap data** - Full engagement curve for context
+4. **Analyzes transcript** - Matches transcript segments to engagement moments
+5. **Generates AI insights** - Explains patterns based on observable evidence from visuals and transcript
+
+### Output Structure
+
+```typescript
+{
+  assetId: "abc123",
+  momentInsights: [
+    {
+      startMs: 86922,
+      endMs: 90331,
+      timestamp: "1:26",
+      engagementScore: 0.875, // 0-1 normalized score
+      insight: "The cooking demonstration shows...",
+    }
+  ],
+  overallInsight: {
+    summary: "This video has strong engagement during...",
+    trends: [
+      "Engagement peaks during visual demonstrations",
+      "Significant 40% drop after intro"
+    ],
+  },
+  usage: {...} // Token usage stats
+}
+```
+
+### Use Cases
+
+- **Content Optimization**: Identify what works and what doesn't in your videos
+- **Audience Analysis**: Understand which content types drive re-watching
+- **Pacing Improvements**: Find moments where viewers drop off
+- **A/B Testing**: Compare engagement patterns across video variations
+- **Creator Insights**: Provide engagement feedback to content creators
+
+### Best Practices
+
+- Use a **7-day timeframe** (default) for stable engagement data
+- Increase **timeframe** for newer videos that haven't accumulated views
+- Use **`skipShots: true`** for latency-sensitive API endpoints (saves up to 30s)
+- Videos need sufficient view data — new or low-view videos may not have engagement data
+- Audio-only assets work but lack visual analysis
+- The heatmap is 100 data points regardless of video length — each point represents 1/100th of the video
+
 ## Chapter Generation
 
 Generate AI-powered chapter markers from video or audio transcripts.

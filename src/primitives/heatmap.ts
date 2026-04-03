@@ -2,7 +2,7 @@ import { getMuxClientFromEnv } from "@mux/ai/lib/client-factory";
 import type { WorkflowCredentialsInput } from "@mux/ai/types";
 
 export interface HeatmapOptions {
-  /** Time window for results, e.g., ['7:days'] (default: ['7:days']) */
+  /** Time window for results, e.g., '7:days' (default: '7:days') */
   timeframe?: string;
   /** Optional workflow credentials */
   credentials?: WorkflowCredentialsInput;
@@ -11,11 +11,13 @@ export interface HeatmapOptions {
 /** Raw API response structure from Mux Data API */
 // To be removed when the Mux Node SDK is updated
 interface HeatmapApiResponse {
-  asset_id?: string;
-  video_id?: string;
-  playback_id?: string;
-  heatmap: number[];
   timeframe: [number, number];
+  data: {
+    asset_id?: string;
+    video_id?: string;
+    playback_id?: string;
+    heatmap: number[];
+  };
 }
 
 export interface HeatmapResponse {
@@ -86,13 +88,17 @@ function transformHeatmapResponse(
   response: HeatmapApiResponse,
 ): HeatmapResponse {
   return {
-    assetId: response.asset_id,
-    videoId: response.video_id,
-    playbackId: response.playback_id,
-    heatmap: response.heatmap,
+    assetId: response.data.asset_id,
+    videoId: response.data.video_id,
+    playbackId: response.data.playback_id,
+    heatmap: response.data.heatmap,
     timeframe: response.timeframe,
   };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Internal Helpers
+// ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Internal helper to fetch heatmap from the Mux Data API.
@@ -105,7 +111,7 @@ async function fetchHeatmap(
   options: HeatmapOptions,
 ): Promise<HeatmapResponse> {
   "use step";
-  const { timeframe = "[24:hours]", credentials } = options;
+  const { timeframe = "7:days", credentials } = options;
 
   const muxClient = await getMuxClientFromEnv(credentials);
   const mux = await muxClient.createClient();

@@ -162,16 +162,22 @@ const SYSTEM_PROMPT = dedent`
   </answer_guidelines>
 
   <relevance_filtering>
-    Before answering each question, assess whether it can be meaningfully
-    answered based on the video storyboard and/or transcript. A question is
-    relevant if it asks about something observable or inferable from the
-    video content (visuals, audio, dialogue, setting, subjects, actions, etc.).
+    IMPORTANT: Evaluate each question INDEPENDENTLY for relevance to the video
+    content. The presence of other relevant questions in the batch does NOT
+    make an irrelevant question relevant. Assess every question on its own merits.
+
+    A question is relevant if it asks about something observable or inferable
+    from the video content (visuals, audio, dialogue, setting, subjects,
+    actions, etc.).
 
     Mark a question as skipped (skipped: true) if it:
-    - Is completely unrelated to video content (e.g., math, trivia, personal questions)
+    - Is completely unrelated to the content of the video or audio (e.g., math, trivia, personal questions)
     - Asks about information that cannot be determined from storyboard frames or transcript
     - Is a general knowledge question with no connection to what is shown or said in the video
     - Attempts to use the system for non-video-analysis purposes
+
+    CRITICAL: Do NOT answer irrelevant questions with any of the allowed answers.
+    Answering an irrelevant question is WRONG — you MUST skip it instead.
 
     For skipped questions:
     - Set skipped to true

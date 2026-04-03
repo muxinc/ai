@@ -17,7 +17,7 @@ export interface HotspotOptions {
   orderDirection?: "asc" | "desc";
   /** Order by field (default: 'score') */
   orderBy?: "score";
-  /** Time window for results, e.g., ['7:days'] (default: ['7:days']) */
+  /** Time window for results, e.g., '7:days' (default: '7:days') */
   timeframe?: string;
   /** Optional workflow credentials */
   credentials?: WorkflowCredentialsInput;
@@ -130,7 +130,7 @@ async function fetchHotspots(
     limit = 5,
     orderDirection = "desc",
     orderBy = "score",
-    timeframe = "[24:hours]",
+    timeframe = "7:days",
     credentials,
   } = options;
 

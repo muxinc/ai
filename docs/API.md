@@ -236,7 +236,88 @@ const triState = await askQuestions("asset-id", questions, {
 - Questions should have clear answers that map to your allowed options
 - The AI prioritizes visual evidence when transcript and visuals conflict
 
-## `translateCaptions(assetId, fromLanguageCode, toLanguageCode, options)`
+## `generateEngagementInsights(assetId, options?)`
+
+Generate AI-powered insights explaining viewer engagement patterns by analyzing hotspot data, heatmap statistics, visual frames, and transcripts.
+
+**Parameters:**
+
+- `assetId` (string) - Mux asset ID
+- `options` (optional) - Configuration options
+
+**Options:**
+
+- `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
+- `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
+- `hotspotLimit?: number` - Number of engagement moments to analyze per direction (default: 5, range: 1-10). Note: actual moment count may be up to 2x this value since both peaks and valleys are fetched.
+- `timeframe?: string` - Engagement data timeframe (default: '7:days')
+  - Examples: `'60:minutes'`, `'24:hours'`, `'7:days'`, `'30:days'`
+
+- `skipShots?: boolean` - Skip shots integration, use thumbnails instead (default: false). Recommended for latency-sensitive use cases.
+
+**Returns:**
+
+```typescript
+interface EngagementInsightsResult {
+  assetId: string;
+  momentInsights: Array<{
+    startMs: number; // Start time in milliseconds
+    endMs: number; // End time in milliseconds
+    timestamp: string; // Human-readable timestamp (e.g., "2:15")
+    engagementScore: number; // Normalized score (0.0-1.0)
+    insight: string; // Explanation of engagement pattern
+  }>;
+  overallInsight: {
+    summary: string; // Overall engagement summary
+    trends: string[]; // Key trends identified
+  };
+  usage?: { // Token usage statistics
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
+}
+```
+
+**Examples:**
+
+```typescript
+// Basic usage - informational insights
+const result = await generateEngagementInsights("asset-id");
+
+result.momentInsights.forEach(m => {
+  console.log(`${m.timestamp}: ${m.insight}`);
+});
+
+// Custom timeframe
+const result = await generateEngagementInsights("asset-id", {
+  timeframe: "30:days",
+  hotspotLimit: 5,
+});
+
+console.log(result.overallInsight.summary);
+console.log("Trends:", result.overallInsight.trends);
+
+// Low-latency mode (skip shots polling)
+const result = await generateEngagementInsights("asset-id", {
+  skipShots: true,
+});
+```
+
+**Requirements:**
+
+- Newer or low-view videos may not have sufficient engagement data
+- Works with both video and audio-only assets (audio-only skips visual analysis)
+
+**Use Cases:**
+
+- Content optimization based on viewer behavior
+- Understanding what drives re-watching and engagement
+- Identifying pacing issues and drop-off points
+- A/B testing video variations
+- Providing engagement feedback to content creators
+
+## `translateCaptions(assetId, fromLanguageCode, toLanguageCode, options?)`
 
 Translates existing captions from one language to another and optionally adds them as a new track to the Mux asset.
 
