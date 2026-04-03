@@ -15,7 +15,7 @@ import { withRetry } from "@mux/ai/lib/retry";
 import { signUrl } from "@mux/ai/lib/url-signing";
 import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
 import type { HeatmapResponse } from "@mux/ai/primitives/heatmap";
-import { computeHeatmapPercentile, getHeatmapForAsset } from "@mux/ai/primitives/heatmap";
+import { getHeatmapForAsset } from "@mux/ai/primitives/heatmap";
 import type { Hotspot } from "@mux/ai/primitives/hotspots";
 import { getHotspotsForAsset } from "@mux/ai/primitives/hotspots";
 import type { Shot } from "@mux/ai/primitives/shots";
@@ -61,10 +61,6 @@ export interface MomentInsight {
   timestamp: string;
   /** Normalized engagement score (0-1) */
   engagementScore: number;
-  /** Type of engagement moment: 'high' (above average) or 'low' (below average) */
-  type: "high" | "low";
-  /** Percentile rank of this moment's engagement within the video (0-100) */
-  percentile: number;
   /** Primary insight explaining the engagement pattern */
   insight: string;
   /** Primary insight explaining the engagement pattern */
@@ -624,18 +620,6 @@ export async function generateEngagementInsights(
   }
 
   // Step 3: Data correlation
-  const heatmapAverage = heatmap.heatmap.reduce((sum, val) => sum + val, 0) / heatmap.heatmap.length;
-
-  // Compute engagement type deterministically from heatmap average
-  const engagementTypes = hotspots.map(h =>
-    h.score > heatmapAverage ? "high" as const : "low" as const,
-  );
-
-  // Compute percentile for each hotspot
-  const percentiles = hotspots.map(h =>
-    computeHeatmapPercentile(h.score, heatmap.heatmap),
-  );
-
   // Extract transcript segments
   let transcriptText = "";
   if (transcriptResult.status === "fulfilled") {
@@ -733,8 +717,6 @@ export async function generateEngagementInsights(
       endMs: hotspot.endMs,
       timestamp: secondsToTimestamp(hotspot.startMs / 1000),
       engagementScore: hotspot.score,
-      type: engagementTypes[idx],
-      percentile: percentiles[idx],
       insight: aiMoment.insight,
     });
   }

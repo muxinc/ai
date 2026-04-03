@@ -96,21 +96,6 @@ function transformHeatmapResponse(
   };
 }
 
-/**
- * Computes the percentile rank of a value within the heatmap distribution.
- *
- * @param value - The value to rank
- * @param heatmap - The full heatmap array to compare against
- * @returns Percentile rank (0-100)
- */
-export function computeHeatmapPercentile(value: number, heatmap: number[]): number {
-  if (heatmap.length === 0) {
-    return 0;
-  }
-  const belowCount = heatmap.filter(v => v < value).length;
-  return Math.round((belowCount / heatmap.length) * 100);
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Internal Helpers
 // ─────────────────────────────────────────────────────────────────────────────

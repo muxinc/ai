@@ -237,7 +237,7 @@ const result = await generateEngagementInsights("your-mux-asset-id", {
 
 // Per-moment insights
 result.momentInsights.forEach(insight => {
-  console.log(`${insight.timestamp} (${insight.type}): ${insight.insight}`);
+  console.log(`${insight.timestamp} (p${insight.percentile}): ${insight.insight}`);
 });
 
 // Overall analysis
@@ -283,7 +283,6 @@ The workflow combines multiple data sources for comprehensive analysis:
       endMs: 90331,
       timestamp: "1:26",
       engagementScore: 0.875, // 0-1 normalized score
-      type: "high", // Computed from heatmap average
       percentile: 92, // Percentile rank within video (0-100)
       insight: "The cooking demonstration shows...",
     }

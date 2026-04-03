@@ -110,7 +110,7 @@ describe("getHeatmapForAsset", () => {
     await getHeatmapForAsset("test-asset-123");
 
     expect(mockMuxGet).toHaveBeenCalledWith(
-      expect.stringContaining("timeframe%5B%5D=24%3Ahours"),
+      expect.stringContaining("timeframe%5B%5D=7%3Adays"),
     );
   });
 

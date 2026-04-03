@@ -149,7 +149,7 @@ describe("getHotspotsForAsset", () => {
       expect.stringContaining("order_by=score"),
     );
     expect(mockMuxGet).toHaveBeenCalledWith(
-      expect.stringContaining("timeframe%5B%5D=24%3Ahours"),
+      expect.stringContaining("timeframe%5B%5D=7%3Adays"),
     );
   });
 

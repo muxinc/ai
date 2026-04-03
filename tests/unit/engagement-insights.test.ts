@@ -1,48 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { computeHeatmapPercentile } from "../../src/primitives/heatmap";
 import type { Hotspot } from "../../src/primitives/hotspots";
 import type { Shot } from "../../src/primitives/shots";
 import {
   extractTranscriptSegmentsForHotspots,
   mapShotsToHotspots,
 } from "../../src/workflows/engagement-insights";
-import { MOCK_HEATMAP_DATA, MOCK_HOTSPOTS_COMBINED, MOCK_SHOTS } from "../helpers/mock-engagement-data";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// computeHeatmapPercentile
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe("computeHeatmapPercentile", () => {
-  it("returns 0 for empty heatmap", () => {
-    expect(computeHeatmapPercentile(0.5, [])).toBe(0);
-  });
-
-  it("returns 0 for lowest value", () => {
-    const min = Math.min(...MOCK_HEATMAP_DATA);
-    expect(computeHeatmapPercentile(min, MOCK_HEATMAP_DATA)).toBe(0);
-  });
-
-  it("returns high percentile for peak value", () => {
-    const max = Math.max(...MOCK_HEATMAP_DATA);
-    const percentile = computeHeatmapPercentile(max, MOCK_HEATMAP_DATA);
-    expect(percentile).toBeGreaterThanOrEqual(90);
-  });
-
-  it("returns correct percentile for median-ish value", () => {
-    const sorted = [...MOCK_HEATMAP_DATA].sort((a, b) => a - b);
-    const median = sorted[50];
-    const percentile = computeHeatmapPercentile(median, MOCK_HEATMAP_DATA);
-    expect(percentile).toBeGreaterThanOrEqual(30);
-    expect(percentile).toBeLessThanOrEqual(70);
-  });
-
-  it("handles all-same scores", () => {
-    const same = Array.from<number>({ length: 100 }).fill(0.5);
-    expect(computeHeatmapPercentile(0.5, same)).toBe(0);
-    expect(computeHeatmapPercentile(0.6, same)).toBe(100);
-  });
-});
+import { MOCK_HOTSPOTS_COMBINED, MOCK_SHOTS } from "../helpers/mock-engagement-data";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // mapShotsToHotspots

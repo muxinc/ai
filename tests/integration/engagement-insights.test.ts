@@ -86,12 +86,6 @@ describe("engagement Insights Integration Tests", () => {
       expect(insight).toHaveProperty("endMs");
       expect(insight).toHaveProperty("timestamp");
       expect(insight).toHaveProperty("engagementScore");
-      expect(insight).toHaveProperty("type");
-      expect(["high", "low"]).toContain(insight.type);
-      expect(insight).toHaveProperty("percentile");
-      expect(typeof insight.percentile).toBe("number");
-      expect(insight.percentile).toBeGreaterThanOrEqual(0);
-      expect(insight.percentile).toBeLessThanOrEqual(100);
       expect(insight).toHaveProperty("insight");
       expect(typeof insight.insight).toBe("string");
       expect(insight.insight.length).toBeGreaterThan(0);
