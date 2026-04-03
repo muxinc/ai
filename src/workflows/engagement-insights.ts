@@ -612,10 +612,16 @@ export async function generateEngagementInsights(
   const { hotspots, heatmap } = engagementResult.value;
 
   if (hotspots.length === 0) {
-    throw new Error(
-      `No engagement data available for asset ${assetId} in timeframe ${timeframe}. ` +
-      `Video may not have been viewed yet or engagement tracking is not enabled.`,
-    );
+    return {
+      assetId,
+      momentInsights: [],
+      overallInsight: {
+        summary:
+          `No engagement data available for asset ${assetId} in timeframe ${timeframe}. ` +
+          `Video may not have been viewed yet, not contain notable engagement patterns, or engagement tracking is not enabled.`,
+        trends: [],
+      },
+    };
   }
 
   // Step 3: Data correlation
