@@ -169,7 +169,7 @@ describe("ask Questions Integration Tests", () => {
   it("should handle a mix of relevant and irrelevant questions", async () => {
     const questions = [
       { question: "Is this video about glasses?" },
-      { question: "What is the square root of 144?" },
+      { question: "What is the capital of France?" },
       { question: "Is this video in color?" },
     ];
 
