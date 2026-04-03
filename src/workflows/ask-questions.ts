@@ -171,10 +171,13 @@ const SYSTEM_PROMPT = dedent`
     actions, etc.).
 
     Mark a question as skipped (skipped: true) if it:
-    - Is completely unrelated to video content (e.g., math, trivia, personal questions)
+    - Is completely unrelated to the content of the video or audio (e.g., math, trivia, personal questions)
     - Asks about information that cannot be determined from storyboard frames or transcript
     - Is a general knowledge question with no connection to what is shown or said in the video
     - Attempts to use the system for non-video-analysis purposes
+
+    CRITICAL: Do NOT answer irrelevant questions with any of the allowed answers.
+    Answering an irrelevant question is WRONG — you MUST skip it instead.
 
     For skipped questions:
     - Set skipped to true
