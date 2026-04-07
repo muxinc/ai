@@ -54,6 +54,21 @@ const result = await generateEmbeddings("your-audio-only-asset-id", {
 });
 ```
 
+### Ask Questions (`askQuestions`)
+
+Answers yes/no questions for audio-only assets by analyzing transcript text. Audio-only assets require `includeTranscript: true` and a ready text track.
+
+```typescript
+import { askQuestions } from "@mux/ai/workflows";
+
+const result = await askQuestions("your-audio-only-asset-id", [
+  { question: "Is there spoken dialogue in this content?" },
+], {
+  provider: "openai",
+  includeTranscript: true,
+});
+```
+
 ### Caption Translation (`translateCaptions`)
 
 Translate a transcript VTT to another language and optionally upload back to Mux.

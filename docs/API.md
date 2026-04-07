@@ -156,11 +156,11 @@ Analyzes video frames to detect burned-in captions (hardcoded subtitles) that ar
 
 ## `askQuestions(assetId, questions, options?)`
 
-Answer questions about video content by analyzing storyboard frames and optional transcripts. By default, answers are "yes"/"no", but you can override the allowed responses.
+Answer questions about asset content by analyzing storyboard frames and optional transcripts. For audio-only assets, this workflow analyzes transcript text only. By default, answers are "yes"/"no", but you can override the allowed responses.
 
 **Parameters:**
 
-- `assetId` (string) - Mux video asset ID
+- `assetId` (string) - Mux asset ID (video or audio-only)
 - `questions` (array) - Array of question objects
   - Each question object must have a `question` field (string)
   - Example: `[{ question: "Does this video contain cooking?" }]`
@@ -172,7 +172,7 @@ Answer questions about video content by analyzing storyboard frames and optional
 - `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
 - `languageCode?: string` - Language code for transcript track selection (e.g., 'en', 'fr'). When omitted, prefers English if available.
 - `answerOptions?: string[]` - Allowed answers (default: `["yes", "no"]`)
-- `includeTranscript?: boolean` - Include video transcript in analysis (default: true)
+- `includeTranscript?: boolean` - Include transcript in analysis (default: true, required for audio-only assets)
 - `cleanTranscript?: boolean` - Remove VTT timestamps and formatting from transcript (default: true)
 - `imageSubmissionMode?: 'url' | 'base64'` - How to submit storyboard to AI providers (default: 'url')
 - `imageDownloadOptions?: object` - Options for image download when using base64 mode
@@ -190,11 +190,11 @@ interface AskQuestionsResult {
   assetId: string;
   answers: Array<{
     question: string; // The original question
-    answer: string; // Answer from allowed options
+    answer: string | null; // Answer from allowed options (null when skipped)
     confidence: number; // Confidence score (0.0-1.0)
     reasoning: string; // AI's explanation based on observable evidence
   }>;
-  storyboardUrl: string; // URL to analyzed storyboard
+  storyboardUrl?: string; // URL to analyzed storyboard (undefined for audio-only assets)
   usage?: TokenUsage; // Token usage from the AI provider
   transcriptText?: string; // Raw transcript (when includeTranscript is true)
 }

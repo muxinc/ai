@@ -1,6 +1,6 @@
 # Ask Questions Examples
 
-Examples demonstrating how to use the `askQuestions` workflow to answer yes/no questions about video content.
+Examples demonstrating how to use the `askQuestions` workflow to answer yes/no questions about asset content.
 
 ## Setup
 
@@ -58,6 +58,20 @@ npm run multiple <asset-id> "Question 1?" "Question 2?" "Question 3?"
 npm run example:ask-questions:multiple -- <asset-id> "Question 1?" "Question 2?" "Question 3?"
 ```
 
+### Audio-Only Example
+
+Ask a question about an audio-only asset using transcript analysis:
+
+```bash
+# From the examples/ask-questions directory
+npm run audio-only [audio-only-asset-id] ["Is there spoken dialogue in this content?"]
+
+# Or from the root directory
+npm run example:ask-questions:audio-only -- [audio-only-asset-id] ["Is there spoken dialogue in this content?"]
+```
+
+If no asset ID is provided, the script uses `MUX_TEST_ASSET_ID_AUDIO_ONLY`.
+
 #### Options
 
 - `-m, --model <model>` - Specify the OpenAI model to use (default: gpt-5.1)
@@ -85,9 +99,9 @@ The multiple questions example shows:
 The `askQuestions` workflow:
 
 1. **Fetches video data** - Gets the asset information and playback ID from Mux
-2. **Generates storyboard** - Creates a grid of frames showing the video timeline
+2. **Generates storyboard** - Creates a grid of frames showing the video timeline (video assets only)
 3. **Fetches transcript** - Optionally includes the video's transcript/captions
-4. **Analyzes content** - Sends the storyboard and transcript to the AI model
+4. **Analyzes content** - Sends storyboard+transcript (video) or transcript-only (audio-only) to the AI model
 5. **Returns structured answers** - Provides yes/no answer, confidence score (0-1), and reasoning
 
 ## Answer Format

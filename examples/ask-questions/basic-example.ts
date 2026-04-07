@@ -6,9 +6,9 @@ const program = new Command();
 
 program
   .name("ask-questions")
-  .description("Ask yes/no questions about a Mux video asset")
+  .description("Ask yes/no questions about a Mux asset")
   .argument("<asset-id>", "Mux asset ID to analyze")
-  .argument("<question>", "Yes/no question to ask about the video")
+  .argument("<question>", "Yes/no question to ask about the asset")
   .option("-p, --provider <provider>", "AI provider: openai, anthropic, google (default: openai)")
   .option("-m, --model <model>", "Model name (default varies by provider)")
   .option("--no-transcript", "Exclude transcript from analysis")
@@ -41,7 +41,7 @@ program
       console.log("\n💭 Reasoning:");
       console.log(answer.reasoning);
       console.log("\n🖼️  Storyboard URL:");
-      console.log(result.storyboardUrl);
+      console.log(result.storyboardUrl ?? "N/A (audio-only asset)");
 
       if (result.usage) {
         console.log("\n📈 Token Usage:");

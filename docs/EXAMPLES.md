@@ -34,6 +34,7 @@ npm run example:burned-in:compare <asset-id>
 # Ask Questions
 npm run example:ask-questions <asset-id> "<question>"
 npm run example:ask-questions:multiple <asset-id> "<question1>" "<question2>" ...
+npm run example:ask-questions:audio-only [audio-only-asset-id] ["<question>"]
 
 # Summarization
 npm run example:summarization <asset-id> [provider]
@@ -71,6 +72,9 @@ npm run example:ask-questions abc123 "Does this video contain cooking?"
 
 # Ask multiple questions at once
 npm run example:ask-questions:multiple abc123 "Does this video contain people?" "Is this in color?"
+
+# Ask a question about an audio-only asset (uses MUX_TEST_ASSET_ID_AUDIO_ONLY by default)
+npm run example:ask-questions:audio-only
 
 # Compare OpenAI vs Anthropic chapter generation
 npm run example:chapters:compare abc123 en
@@ -145,6 +149,7 @@ npm run compare <your-asset-id>
 
 - **Basic Usage**: Answer single yes/no questions about video content
 - **Multiple Questions**: Process multiple questions efficiently in one API call
+- **Audio-Only Usage**: Ask questions on transcript-only assets
 
 ```bash
 cd examples/ask-questions
@@ -155,6 +160,9 @@ npm run basic <your-asset-id> "Does this video contain music?"
 
 # Multiple questions
 npm run multiple <your-asset-id> "Does this show people?" "Is this in color?" "Does it have dialogue?"
+
+# Audio-only question (defaults to MUX_TEST_ASSET_ID_AUDIO_ONLY)
+npm run audio-only [audio-only-asset-id] ["Is there spoken dialogue in this content?"]
 
 # Use different providers
 npm run basic <your-asset-id> "Is this a tutorial?" --provider anthropic

@@ -6,9 +6,9 @@ const program = new Command();
 
 program
   .name("ask-multiple-questions")
-  .description("Ask multiple yes/no questions about a Mux video asset")
+  .description("Ask multiple yes/no questions about a Mux asset")
   .argument("<asset-id>", "Mux asset ID to analyze")
-  .argument("<questions...>", "Yes/no questions to ask about the video (space-separated)")
+  .argument("<questions...>", "Yes/no questions to ask about the asset (space-separated)")
   .option("-p, --provider <provider>", "AI provider: openai, anthropic, google (default: openai)")
   .option("-m, --model <model>", "Model name (default varies by provider)")
   .option("--no-transcript", "Exclude transcript from analysis")
@@ -39,9 +39,10 @@ program
       console.log(`RESULTS (${result.answers.length} questions answered)\n`);
 
       result.answers.forEach((answer, idx) => {
+        const formattedAnswer = answer.answer?.toUpperCase() ?? "SKIPPED";
         console.log(`${idx + 1}. ❓ Question:`);
         console.log(`   ${answer.question}`);
-        console.log(`\n   ✅ Answer: ${answer.answer.toUpperCase()}`);
+        console.log(`\n   ✅ Answer: ${formattedAnswer}`);
         console.log(`   📊 Confidence: ${(answer.confidence * 100).toFixed(1)}%`);
         console.log(`\n   💭 Reasoning:`);
         console.log(`   ${answer.reasoning.replace(/\n/g, "\n   ")}`);
@@ -49,7 +50,7 @@ program
       });
 
       console.log(`🖼️  Storyboard URL:`);
-      console.log(result.storyboardUrl);
+      console.log(result.storyboardUrl ?? "N/A (audio-only asset)");
 
       if (result.usage) {
         console.log("\n📈 Token Usage:");

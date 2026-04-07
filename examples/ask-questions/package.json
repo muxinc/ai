@@ -5,7 +5,8 @@
   "description": "Examples for @mux/ai ask-questions functionality",
   "scripts": {
     "basic": "ts-node basic-example.ts",
-    "multiple": "ts-node multiple-questions-example.ts"
+    "multiple": "ts-node multiple-questions-example.ts",
+    "audio-only": "ts-node audio-only-example.ts"
   },
   "dependencies": {
     "@mux/ai": "file:../..",
