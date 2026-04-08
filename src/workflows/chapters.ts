@@ -62,7 +62,7 @@ export type ChaptersPromptSections =
  *
  * @example
  * ```typescript
- * const result = await generateChapters(assetId, "en", {
+ * const result = await generateChapters(assetId, {
  *   promptOverrides: {
  *     titleGuidelines: "Use short, punchy titles under 6 words.",
  *   },

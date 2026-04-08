@@ -16,6 +16,7 @@ Analyzes a Mux video or audio asset and returns AI-generated metadata.
 - `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
 - `tone?: 'neutral' | 'playful' | 'professional'` - Analysis tone (default: 'neutral')
 - `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
+- `languageCode?: string` - Language code for transcript track selection (e.g., 'en', 'fr'). When omitted, prefers English if available.
 - `includeTranscript?: boolean` - Include transcript in analysis (default: true)
 - `cleanTranscript?: boolean` - Remove VTT timestamps and formatting from transcript (default: true)
 - `imageSubmissionMode?: 'url' | 'base64'` - How to submit storyboard to AI providers (default: 'url')
@@ -169,6 +170,7 @@ Answer questions about video content by analyzing storyboard frames and optional
 
 - `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
 - `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
+- `languageCode?: string` - Language code for transcript track selection (e.g., 'en', 'fr'). When omitted, prefers English if available.
 - `answerOptions?: string[]` - Allowed answers (default: `["yes", "no"]`)
 - `includeTranscript?: boolean` - Include video transcript in analysis (default: true)
 - `cleanTranscript?: boolean` - Remove VTT timestamps and formatting from transcript (default: true)
@@ -317,14 +319,14 @@ const result = await generateEngagementInsights("asset-id", {
 - A/B testing video variations
 - Providing engagement feedback to content creators
 
-## `translateCaptions(assetId, fromLanguageCode, toLanguageCode, options?)`
+## `translateCaptions(assetId, trackId, toLanguageCode, options?)`
 
-Translates existing captions from one language to another and optionally adds them as a new track to the Mux asset.
+Translates existing captions from one language to another and optionally adds them as a new track to the Mux asset. The source language is inferred from the track's metadata.
 
 **Parameters:**
 
 - `assetId` (string) - Mux asset ID (video or audio-only)
-- `fromLanguageCode` (string) - Source language code (e.g., 'en', 'es', 'fr')
+- `trackId` (string) - ID of the source caption track to translate
 - `toLanguageCode` (string) - Target language code (e.g., 'es', 'fr', 'de')
 - `options` - Configuration options
 
@@ -349,9 +351,10 @@ Translates existing captions from one language to another and optionally adds th
 **Returns:**
 
 ```typescript
-interface TranslateCaptionsResult {
+interface TranslationResult {
   assetId: string;
-  sourceLanguageCode: string;
+  trackId: string; // Source track ID
+  sourceLanguageCode: string; // Inferred from track metadata
   targetLanguageCode: string;
   sourceLanguage: LanguageCodePair; // { iso639_1: string; iso639_3: string }
   targetLanguage: LanguageCodePair; // { iso639_1: string; iso639_3: string }
@@ -433,18 +436,18 @@ interface EditCaptionsResult {
 }
 ```
 
-## `generateChapters(assetId, languageCode, options?)`
+## `generateChapters(assetId, options?)`
 
 Generates AI-powered chapter markers by analyzing video or audio transcripts. Creates logical chapter breaks based on topic changes and content transitions.
 
 **Parameters:**
 
 - `assetId` (string) - Mux asset ID (video or audio-only)
-- `languageCode` (string) - Language code for captions (e.g., 'en', 'es', 'fr')
 - `options` (optional) - Configuration options
 
 **Options:**
 
+- `languageCode?: string` - Language code for captions (e.g., 'en', 'es', 'fr'). When omitted, prefers English if available.
 - `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
 - `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
 - `promptOverrides?: object` - Override specific sections of the chaptering prompt
@@ -460,7 +463,7 @@ Generates AI-powered chapter markers by analyzing video or audio transcripts. Cr
 ```typescript
 {
   assetId: string;
-  languageCode: string;
+  languageCode?: string; // Resolved from input or track metadata
   chapters: Array<{
     startTime: number; // Chapter start time in seconds
     title: string; // Descriptive chapter title
@@ -471,7 +474,8 @@ Generates AI-powered chapter markers by analyzing video or audio transcripts. Cr
 
 **Requirements:**
 
-- Asset must have a ready caption/transcript track in the specified language
+- Asset must have a ready caption/transcript track
+- When `languageCode` is omitted, prefers an English track if available
 - Uses existing auto-generated or uploaded captions/transcripts
 
 **Example Output:**
@@ -551,7 +555,7 @@ Generate vector embeddings for transcript chunks from video or audio assets for 
   - `maxTokens?: number` - Maximum tokens per chunk (default: 500)
   - `overlap?: number` - Token overlap between chunks (for type: 'token', default: 100)
   - `overlapCues?: number` - VTT cue overlap between chunks (for type: 'vtt', default: 2)
-- `languageCode?: string` - Language code for transcript (default: first available track)
+- `languageCode?: string` - Language code for transcript track selection. When omitted, prefers English if available.
 - `batchSize?: number` - Maximum number of chunks to process concurrently (default: 5)
 
 **Returns:**

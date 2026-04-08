@@ -85,7 +85,7 @@ Use `createWorkflowStorageClient(...)` when you need a workflow-compatible adapt
 ```ts
 import { createWorkflowStorageClient, workflows } from "@mux/ai";
 
-await workflows.translateCaptions(assetId, "en", "es", {
+await workflows.translateCaptions(assetId, "your-track-id", "es", {
   provider: "openai",
   s3Endpoint: "https://s3.amazonaws.com",
   s3Bucket: "my-bucket",

@@ -102,7 +102,7 @@ const result = await getSummaryAndTags(assetId, {
 ### Chapter Title Style
 
 ```ts
-const result = await generateChapters(assetId, "en", {
+const result = await generateChapters(assetId, {
   provider: "openai",
   promptOverrides: {
     titleGuidelines: "Use short, punchy titles under 6 words. Start with an action verb.",
