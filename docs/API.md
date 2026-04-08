@@ -64,7 +64,7 @@ Analyzes a Mux asset for inappropriate content using OpenAI's Moderation API or 
 - `provider?: 'openai' | 'hive'` - Moderation provider (default: 'openai')
 - `model?: string` - OpenAI moderation model to use (default: `omni-moderation-latest`)
 - `languageCode?: string` - Transcript language code when moderating audio-only assets (optional)
-- `thresholds?: { sexual?: number; violence?: number }` - Custom thresholds (default: {sexual: 0.7, violence: 0.8})
+- `thresholds?: { sexual?: number; violence?: number; hate?: number; selfHarm?: number; drugs?: number }` - Custom thresholds (default: 0.8 for all categories)
 - `thumbnailInterval?: number` - Seconds between thumbnails for long videos (default: 10)
 - `thumbnailWidth?: number` - Thumbnail width in pixels (default: 640)
 - `maxSamples?: number` - Maximum number of thumbnails to sample. Acts as a cap: if `thumbnailInterval` produces fewer samples than this limit the interval is respected; otherwise samples are evenly distributed with first and last frames pinned. (default: unlimited)
@@ -91,12 +91,18 @@ Analyzes a Mux asset for inappropriate content using OpenAI's Moderation API or 
     time?: number; // Time in seconds of the thumbnail within the video
     sexual: number; // 0-1 score
     violence: number; // 0-1 score
+    hate: number; // 0-1 score
+    selfHarm: number; // 0-1 score
+    drugs: number; // 0-1 score
     error: boolean;
     errorMessage?: string;
   }>;
   maxScores: { // Highest scores across all thumbnails (or transcript chunks for audio-only)
     sexual: number;
     violence: number;
+    hate: number;
+    selfHarm: number;
+    drugs: number;
   };
   coverage: {
     requestedSampleCount: number;
@@ -110,6 +116,9 @@ Analyzes a Mux asset for inappropriate content using OpenAI's Moderation API or 
   thresholds: { // Threshold values used
     sexual: number;
     violence: number;
+    hate: number;
+    selfHarm: number;
+    drugs: number;
   };
   usage?: TokenUsage; // Workflow usage metadata
 }

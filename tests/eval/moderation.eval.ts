@@ -356,6 +356,15 @@ evalite("Moderation", {
           typeof output.maxScores.violence === "number" &&
           output.maxScores.violence >= 0 &&
           output.maxScores.violence <= 1,
+          typeof output.maxScores.hate === "number" &&
+          output.maxScores.hate >= 0 &&
+          output.maxScores.hate <= 1,
+          typeof output.maxScores.selfHarm === "number" &&
+          output.maxScores.selfHarm >= 0 &&
+          output.maxScores.selfHarm <= 1,
+          typeof output.maxScores.drugs === "number" &&
+          output.maxScores.drugs >= 0 &&
+          output.maxScores.drugs <= 1,
           // exceedsThreshold is boolean
           typeof output.exceedsThreshold === "boolean",
           // thresholds contain valid numbers in 0-1 range
@@ -365,6 +374,15 @@ evalite("Moderation", {
           typeof output.thresholds.violence === "number" &&
           output.thresholds.violence >= 0 &&
           output.thresholds.violence <= 1,
+          typeof output.thresholds.hate === "number" &&
+          output.thresholds.hate >= 0 &&
+          output.thresholds.hate <= 1,
+          typeof output.thresholds.selfHarm === "number" &&
+          output.thresholds.selfHarm >= 0 &&
+          output.thresholds.selfHarm <= 1,
+          typeof output.thresholds.drugs === "number" &&
+          output.thresholds.drugs >= 0 &&
+          output.thresholds.drugs <= 1,
         ];
 
         const passed = checks.filter(Boolean).length;
@@ -485,6 +503,9 @@ evalite("Moderation", {
       { label: "Exceeds Threshold", value: String(output.exceedsThreshold) },
       { label: "Max Sexual", value: output.maxScores.sexual.toFixed(4) },
       { label: "Max Violence", value: output.maxScores.violence.toFixed(4) },
+      { label: "Max Hate", value: output.maxScores.hate.toFixed(4) },
+      { label: "Max Self-Harm", value: output.maxScores.selfHarm.toFixed(4) },
+      { label: "Max Drugs", value: output.maxScores.drugs.toFixed(4) },
       { label: "Samples", value: output.thumbnailScores.length },
       { label: "Latency", value: `${Math.round(output.latencyMs)}ms` },
       { label: "Duration", value: output.usage?.metadata?.assetDurationSeconds ? `${output.usage.metadata.assetDurationSeconds}s` : "n/a" },
