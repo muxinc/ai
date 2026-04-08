@@ -325,21 +325,12 @@ export async function generateChapters(
   }
 
   const readyTextTracks = getReadyTextTracks(assetData);
-  let transcriptResult = await fetchTranscriptForAsset(assetData, playbackId, {
+  const transcriptResult = await fetchTranscriptForAsset(assetData, playbackId, {
     languageCode,
     cleanTranscript: false, // keep timestamps for chapter segmentation
     shouldSign: policy === "signed",
     credentials,
   });
-
-  if (isAudioOnly && !transcriptResult.track && readyTextTracks.length === 1) {
-    transcriptResult = await fetchTranscriptForAsset(assetData, playbackId, {
-      cleanTranscript: false, // keep timestamps for chapter segmentation
-      shouldSign: policy === "signed",
-      credentials,
-      required: true,
-    });
-  }
 
   if (!transcriptResult.track || !transcriptResult.transcriptText) {
     const availableLanguages = readyTextTracks
