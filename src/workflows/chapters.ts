@@ -40,7 +40,7 @@ export type ChaptersType = z.infer<typeof chaptersSchema>;
 /** Structured return payload from `generateChapters`. */
 export interface ChaptersResult {
   assetId: string;
-  languageCode: string;
+  languageCode?: string;
   chapters: Chapter[];
   /** Token usage from the AI provider (for efficiency/cost analysis). */
   usage?: TokenUsage;
@@ -400,7 +400,7 @@ export async function generateChapters(
 
   return {
     assetId,
-    languageCode: languageCode ?? transcriptResult.track?.language_code ?? "unknown",
+    languageCode: languageCode ?? transcriptResult.track?.language_code,
     chapters: validChapters,
     usage: usageWithMetadata,
   };
