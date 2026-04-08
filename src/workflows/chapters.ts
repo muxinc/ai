@@ -410,7 +410,7 @@ export async function generateChapters(
 
   return {
     assetId,
-    languageCode: languageCode ?? transcriptResult.track?.language_code ?? "unknown",
+    languageCode: languageCode ?? transcriptResult.track?.language_code ?? "en",
     chapters: validChapters,
     usage: usageWithMetadata,
   };
