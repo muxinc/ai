@@ -9,6 +9,7 @@ describe("audio Translation Integration Tests", () => {
   it("should translate audio to French without uploading to Mux", async () => {
     const result = await translateAudio(assetId, "fr", {
       provider: "elevenlabs",
+      uploadToS3: false,
       uploadToMux: false,
     });
 
@@ -30,7 +31,7 @@ describe("audio Translation Integration Tests", () => {
     expect(typeof result.dubbingId).toBe("string");
     expect(result.dubbingId.length).toBeGreaterThan(0);
 
-    // Since uploadToMux is false, these should not be present
+    // Since both uploadToS3 and uploadToMux are false, neither should be present
     expect(result.uploadedTrackId).toBeUndefined();
     expect(result.presignedUrl).toBeUndefined();
   }, 600000); // 10 minute timeout for ElevenLabs processing

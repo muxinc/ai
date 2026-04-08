@@ -328,7 +328,8 @@ evalite("Caption Translation", {
     const result = await translateCaptions(assetId, sourceTrack.id, targetLanguage, {
       provider,
       model,
-      uploadToMux: false, // Don't upload during evals
+      uploadToS3: false, // Don't upload during evals
+      uploadToMux: false,
     });
     const latencyMs = performance.now() - startTime;
 

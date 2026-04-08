@@ -25,6 +25,7 @@ describe("Caption Translation Integration Tests for Workflow DevKit", () => {
   it.each(providers)("should translate captions to French with %s provider without uploading to Mux", async (provider) => {
     const run = await start(translateCaptions, [assetId, englishTrackId, "fr", {
       provider,
+      uploadToS3: false,
       uploadToMux: false,
     }]);
     expect(run.runId).toMatch(/^wrun_/);
@@ -71,7 +72,7 @@ describe("Caption Translation Integration Tests for Workflow DevKit", () => {
     expect(result.usage?.inputTokens).toBeGreaterThan(0);
     expect(result.usage?.outputTokens).toBeGreaterThan(0);
 
-    // Since uploadToMux is false, these should not be present
+    // Since both uploadToS3 and uploadToMux are false, neither should be present
     expect(result.uploadedTrackId).toBeUndefined();
     expect(result.presignedUrl).toBeUndefined();
   }, 120000); // 2 minute timeout for AI processing

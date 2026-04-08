@@ -86,8 +86,17 @@ export interface TranslationOptions<P extends SupportedProvider = SupportedProvi
   /** Bucket that will store translated VTT files. */
   s3Bucket?: string;
   /**
-   * When true (default) the translated VTT is uploaded to the configured
-   * bucket and attached to the Mux asset.
+   * When `true` the translated VTT is uploaded to the configured
+   * S3-compatible bucket and a `presignedUrl` is returned.
+   * Defaults to the value of `uploadToMux` when omitted.
+   * Ignored (treated as `true`) when `uploadToMux` is `true`,
+   * since Mux track creation requires a presigned URL.
+   */
+  uploadToS3?: boolean;
+  /**
+   * When true (default) the translated VTT is attached as a track on the
+   * Mux asset. Implies `uploadToS3: true` because a presigned URL is
+   * required for track creation.
    */
   uploadToMux?: boolean;
   /** Optional storage adapter override for upload + presign operations. */
@@ -687,6 +696,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     s3Endpoint: providedS3Endpoint,
     s3Region: providedS3Region,
     s3Bucket: providedS3Bucket,
+    uploadToS3: uploadToS3Option,
     uploadToMux: uploadToMuxOption,
     storageAdapter,
     credentials: providedCredentials,
@@ -702,6 +712,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   const s3AccessKeyId = env.S3_ACCESS_KEY_ID;
   const s3SecretAccessKey = env.S3_SECRET_ACCESS_KEY;
   const uploadToMux = uploadToMuxOption !== false; // Default to true
+  const uploadToS3 = uploadToS3Option || uploadToMux; // Defaults to uploadToMux; uploadToMux: true forces S3 upload
 
   const modelConfig = resolveLanguageModelConfig({
     ...options,
@@ -709,8 +720,8 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     provider: provider as SupportedProvider,
   });
 
-  if (uploadToMux && (!s3Endpoint || !s3Bucket || (!effectiveStorageAdapter && (!s3AccessKeyId || !s3SecretAccessKey)))) {
-    throw new Error("Storage configuration is required for uploading to Mux. Provide s3Endpoint and s3Bucket. If no storageAdapter is supplied, also provide s3AccessKeyId and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.");
+  if (uploadToS3 && (!s3Endpoint || !s3Bucket || (!effectiveStorageAdapter && (!s3AccessKeyId || !s3SecretAccessKey)))) {
+    throw new Error("Storage configuration is required for uploading. Provide s3Endpoint and s3Bucket. If no storageAdapter is supplied, also provide s3AccessKeyId and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.");
   }
 
   // Fetch asset data and playback ID from Mux
@@ -792,56 +803,44 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   const sourceLanguage = getLanguageCodePair(fromLanguageCode);
   const targetLanguage = getLanguageCodePair(toLanguageCode);
 
-  // If uploadToMux is false, just return the translation
-  if (!uploadToMux) {
-    return {
-      assetId,
-      trackId,
-      sourceLanguageCode: fromLanguageCode as SupportedISO639_1,
-      targetLanguageCode: toLanguageCode as SupportedISO639_1,
-      sourceLanguage,
-      targetLanguage,
-      originalVtt: vttContent,
-      translatedVtt,
-      usage: usageWithMetadata,
-    };
-  }
-
   // Upload translated VTT to S3-compatible storage
-  let presignedUrl: string;
-
-  try {
-    presignedUrl = await uploadVttToS3({
-      translatedVtt,
-      assetId,
-      fromLanguageCode,
-      toLanguageCode,
-      s3Endpoint: s3Endpoint!,
-      s3Region,
-      s3Bucket: s3Bucket!,
-      storageAdapter: effectiveStorageAdapter,
-      s3SignedUrlExpirySeconds: options.s3SignedUrlExpirySeconds,
-    });
-  } catch (error) {
-    throw new Error(`Failed to upload VTT to S3: ${error instanceof Error ? error.message : "Unknown error"}`);
-  }
-
-  // Add translated track to Mux asset
+  let presignedUrl: string | undefined;
   let uploadedTrackId: string | undefined;
 
-  try {
-    const languageName = getLanguageName(toLanguageCode);
-    const trackName = `${languageName} (auto-translated)`;
+  if (uploadToS3) {
+    try {
+      presignedUrl = await uploadVttToS3({
+        translatedVtt,
+        assetId,
+        fromLanguageCode,
+        toLanguageCode,
+        s3Endpoint: s3Endpoint!,
+        s3Region,
+        s3Bucket: s3Bucket!,
+        storageAdapter: effectiveStorageAdapter,
+        s3SignedUrlExpirySeconds: options.s3SignedUrlExpirySeconds,
+      });
+    } catch (error) {
+      throw new Error(`Failed to upload VTT to S3: ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
 
-    uploadedTrackId = await createTextTrackOnMux(
-      assetId,
-      toLanguageCode,
-      trackName,
-      presignedUrl,
-      credentials,
-    );
-  } catch (error) {
-    console.warn(`Failed to add track to Mux asset: ${error instanceof Error ? error.message : "Unknown error"}`);
+    // Add translated track to Mux asset (only when uploadToMux is true)
+    if (uploadToMux) {
+      try {
+        const languageName = getLanguageName(toLanguageCode);
+        const trackName = `${languageName} (auto-translated)`;
+
+        uploadedTrackId = await createTextTrackOnMux(
+          assetId,
+          toLanguageCode,
+          trackName,
+          presignedUrl,
+          credentials,
+        );
+      } catch (error) {
+        console.warn(`Failed to add track to Mux asset: ${error instanceof Error ? error.message : "Unknown error"}`);
+      }
+    }
   }
 
   return {
