@@ -363,64 +363,25 @@ async function fetchImageAsBase64(
   return downloadResult.base64Data;
 }
 
-async function analyzeQuestionsWithStoryboard(
-  imageDataUrl: string,
-  provider: SupportedProvider,
-  modelId: string,
-  userPrompt: string,
-  systemPrompt: string,
-  allowedAnswers: [string, ...string[]],
-  credentials?: WorkflowCredentialsInput,
-): Promise<AnalysisResponse> {
-  "use step";
-  const model = await createLanguageModelFromConfig(provider, modelId, credentials);
-  const responseSchema = createAskQuestionsSchema(allowedAnswers);
-
-  const response = await generateText({
-    model,
-    output: Output.object({ schema: responseSchema }),
-    experimental_telemetry: { isEnabled: true },
-    messages: [
-      {
-        role: "system",
-        content: systemPrompt,
-      },
-      {
-        role: "user",
-        content: [
-          { type: "text", text: userPrompt },
-          { type: "image", image: imageDataUrl },
-        ],
-      },
-    ],
-  });
-
-  if (!response.output) {
-    throw new Error("Ask-questions output missing");
-  }
-
-  const parsed = responseSchema.parse(response.output);
-
-  return {
-    result: parsed,
-    usage: {
-      inputTokens: response.usage.inputTokens,
-      outputTokens: response.usage.outputTokens,
-      totalTokens: response.usage.totalTokens,
-      reasoningTokens: response.usage.reasoningTokens,
-      cachedInputTokens: response.usage.cachedInputTokens,
-    },
-  };
+interface AnalyzeQuestionsInput {
+  provider: SupportedProvider;
+  modelId: string;
+  userPrompt: string;
+  systemPrompt: string;
+  allowedAnswers: [string, ...string[]];
+  imageDataUrl?: string;
+  credentials?: WorkflowCredentialsInput;
 }
 
-async function analyzeQuestionsAudioOnly(
-  provider: SupportedProvider,
-  modelId: string,
-  userPrompt: string,
-  systemPrompt: string,
-  allowedAnswers: [string, ...string[]],
-  credentials?: WorkflowCredentialsInput,
-): Promise<AnalysisResponse> {
+async function analyzeQuestions({
+  provider,
+  modelId,
+  userPrompt,
+  systemPrompt,
+  allowedAnswers,
+  imageDataUrl,
+  credentials,
+}: AnalyzeQuestionsInput): Promise<AnalysisResponse> {
   "use step";
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
   const responseSchema = createAskQuestionsSchema(allowedAnswers);
@@ -436,7 +397,12 @@ async function analyzeQuestionsAudioOnly(
       },
       {
         role: "user",
-        content: userPrompt,
+        content: imageDataUrl ?
+            [
+              { type: "text", text: userPrompt },
+              { type: "image", image: imageDataUrl },
+            ] :
+          userPrompt,
       },
     ],
   });
@@ -590,14 +556,14 @@ export async function askQuestions(
 
   try {
     if (isAudioOnly) {
-      analysisResponse = await analyzeQuestionsAudioOnly(
-        modelConfig.provider,
-        modelConfig.modelId,
+      analysisResponse = await analyzeQuestions({
+        provider: modelConfig.provider,
+        modelId: modelConfig.modelId,
         userPrompt,
         systemPrompt,
         allowedAnswers,
         credentials,
-      );
+      });
     } else {
       // Generate storyboard URL (signed if needed)
       const storyboardUrl = await getStoryboardUrl(
@@ -610,27 +576,27 @@ export async function askQuestions(
 
       if (imageSubmissionMode === "base64") {
         const base64Data = await fetchImageAsBase64(storyboardUrl, imageDownloadOptions);
-        analysisResponse = await analyzeQuestionsWithStoryboard(
-          base64Data,
-          modelConfig.provider,
-          modelConfig.modelId,
+        analysisResponse = await analyzeQuestions({
+          provider: modelConfig.provider,
+          modelId: modelConfig.modelId,
           userPrompt,
           systemPrompt,
           allowedAnswers,
+          imageDataUrl: base64Data,
           credentials,
-        );
+        });
       } else {
         // URL-based submission with retry
         analysisResponse = await withRetry(() =>
-          analyzeQuestionsWithStoryboard(
-            storyboardUrl,
-            modelConfig.provider,
-            modelConfig.modelId,
+          analyzeQuestions({
+            provider: modelConfig.provider,
+            modelId: modelConfig.modelId,
             userPrompt,
             systemPrompt,
             allowedAnswers,
+            imageDataUrl: storyboardUrl,
             credentials,
-          ),
+          }),
         );
       }
     }
