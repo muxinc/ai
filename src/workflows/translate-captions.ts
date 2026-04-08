@@ -86,10 +86,11 @@ export interface TranslationOptions<P extends SupportedProvider = SupportedProvi
   /** Bucket that will store translated VTT files. */
   s3Bucket?: string;
   /**
-   * When true (default) the translated VTT is uploaded to the configured
+   * When `true` the translated VTT is uploaded to the configured
    * S3-compatible bucket and a `presignedUrl` is returned.
-   * Note: even when explicitly set to `false`, S3 upload still occurs if
-   * `uploadToMux` is `true` (since Mux track creation requires a presigned URL).
+   * Defaults to the value of `uploadToMux` when omitted.
+   * Ignored (treated as `true`) when `uploadToMux` is `true`,
+   * since Mux track creation requires a presigned URL.
    */
   uploadToS3?: boolean;
   /**
