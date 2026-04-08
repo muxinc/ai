@@ -413,7 +413,7 @@ export async function translateAudio(
   const effectiveStorageAdapter = storageAdapter;
 
   const uploadToMux = uploadToMuxOption !== false; // Default to true
-  const uploadToS3 = uploadToS3Option ?? uploadToMux; // Default to uploadToMux; explicit true/false always wins
+  const uploadToS3 = (uploadToS3Option ?? uploadToMux) || uploadToMux; // Default to uploadToMux; uploadToMux: true forces S3 upload
 
   // S3 configuration
   const s3Endpoint = options.s3Endpoint ?? env.S3_ENDPOINT;
