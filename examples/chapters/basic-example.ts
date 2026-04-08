@@ -36,8 +36,9 @@ program
     try {
       const start = Date.now();
 
-      const result = await generateChapters(assetId, options.language, {
+      const result = await generateChapters(assetId, {
         provider: options.provider,
+        languageCode: options.language,
         outputLanguageCode: options.outputLanguage,
         promptOverrides: {
           titleGuidelines: "Use concise titles under 6 words.",

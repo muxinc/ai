@@ -286,8 +286,9 @@ describe("signed Playback Integration Tests", () => {
 
     describe("generateChapters", () => {
       it.skipIf(!canRunSignedTests)("should generate chapters for signed asset", async () => {
-        const result = await generateChapters(signedAssetId, "en", {
+        const result = await generateChapters(signedAssetId, {
           provider: "anthropic",
+          languageCode: "en",
         });
 
         expect(result).toBeDefined();

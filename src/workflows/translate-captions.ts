@@ -15,7 +15,6 @@ import type { LanguageCodePair, SupportedISO639_1 } from "@mux/ai/lib/language-c
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
-  isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
 import { createTextTrackOnMux, fetchVttFromMux } from "@mux/ai/lib/mux-tracks";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
@@ -51,6 +50,7 @@ import type {
 /** Output returned from `translateCaptions`. */
 export interface TranslationResult {
   assetId: string;
+  trackId: string;
   /** Source language code (ISO 639-1 two-letter format). */
   sourceLanguageCode: SupportedISO639_1;
   /** Target language code (ISO 639-1 two-letter format). */
@@ -676,7 +676,7 @@ async function uploadVttToS3({
 
 export async function translateCaptions<P extends SupportedProvider = SupportedProvider>(
   assetId: string,
-  fromLanguageCode: string,
+  trackId: string,
   toLanguageCode: string,
   options: TranslationOptions<P>,
 ): Promise<TranslationResult> {
@@ -716,7 +716,6 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   // Fetch asset data and playback ID from Mux
   const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
-  const isAudioOnly = isAudioOnlyAsset(assetData);
 
   // Resolve signing context for signed playback IDs
   const signingContext = await resolveMuxSigningContext(credentials);
@@ -727,44 +726,30 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     );
   }
 
-  // Find text track with the source language
+  // Validate track exists
   const readyTextTracks = getReadyTextTracks(assetData);
-  if (!readyTextTracks.length) {
-    throw new Error("No ready text tracks found for this asset");
-  }
-
-  let sourceTextTrack = readyTextTracks.find(track =>
-    track.text_type === "subtitles" &&
-    track.language_code === fromLanguageCode,
-  );
-
-  if (!sourceTextTrack && isAudioOnly && readyTextTracks.length === 1) {
-    sourceTextTrack = readyTextTracks[0];
-  }
-
+  const sourceTextTrack = readyTextTracks.find(t => t.id === trackId);
   if (!sourceTextTrack) {
-    const availableLanguages = readyTextTracks
-      .map(t => t.language_code)
+    const availableTrackIds = readyTextTracks
+      .map(t => t.id)
       .filter(Boolean)
       .join(", ");
-    if (isAudioOnly) {
-      throw new Error(
-        `No transcript track found with language code '${fromLanguageCode}' for this asset. ` +
-        `Audio-only assets require a transcript. Available languages: ${availableLanguages || "none"}`,
-      );
-    }
     throw new Error(
-      `No ready text track found with language code '${fromLanguageCode}' for this asset. ` +
-      `Available languages: ${availableLanguages || "none"}`,
+      `Track '${trackId}' not found or not ready on asset '${assetId}'. ` +
+      `Available track IDs: ${availableTrackIds || "none"}`,
     );
   }
 
-  if (!sourceTextTrack.id) {
-    throw new Error("Transcript track is missing an id");
+  const fromLanguageCode = sourceTextTrack.language_code;
+  if (!fromLanguageCode) {
+    throw new Error(
+      `Track '${trackId}' is missing language metadata (language_code). ` +
+      `Cannot determine source language for translation.`,
+    );
   }
 
   // Fetch the VTT file content (signed if needed)
-  const vttUrl = await buildTranscriptUrl(playbackId, sourceTextTrack.id, policy === "signed", credentials);
+  const vttUrl = await buildTranscriptUrl(playbackId, trackId, policy === "signed", credentials);
 
   let vttContent: string;
   try {
@@ -811,6 +796,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   if (!uploadToMux) {
     return {
       assetId,
+      trackId,
       sourceLanguageCode: fromLanguageCode as SupportedISO639_1,
       targetLanguageCode: toLanguageCode as SupportedISO639_1,
       sourceLanguage,
@@ -860,6 +846,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
 
   return {
     assetId,
+    trackId,
     sourceLanguageCode: fromLanguageCode as SupportedISO639_1,
     targetLanguageCode: toLanguageCode as SupportedISO639_1,
     sourceLanguage,

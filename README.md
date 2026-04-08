@@ -102,7 +102,7 @@ if (result.exceedsThreshold) {
 ```ts
 import { generateChapters } from "@mux/ai/workflows";
 
-const result = await generateChapters("your-asset-id", "en", {
+const result = await generateChapters("your-asset-id", {
   provider: "anthropic"
 });
 

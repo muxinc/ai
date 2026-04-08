@@ -17,7 +17,6 @@ import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
 import {
   extractTimestampedTranscript,
   fetchTranscriptForAsset,
-  getReadyTextTracks,
 } from "@mux/ai/primitives/transcripts";
 import type { MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "@mux/ai/types";
 
@@ -41,7 +40,7 @@ export type ChaptersType = z.infer<typeof chaptersSchema>;
 /** Structured return payload from `generateChapters`. */
 export interface ChaptersResult {
   assetId: string;
-  languageCode: string;
+  languageCode?: string;
   chapters: Chapter[];
   /** Token usage from the AI provider (for efficiency/cost analysis). */
   usage?: TokenUsage;
@@ -63,7 +62,7 @@ export type ChaptersPromptSections =
  *
  * @example
  * ```typescript
- * const result = await generateChapters(assetId, "en", {
+ * const result = await generateChapters(assetId, {
  *   promptOverrides: {
  *     titleGuidelines: "Use short, punchy titles under 6 words.",
  *   },
@@ -74,6 +73,8 @@ export type ChaptersPromptOverrides = PromptOverrides<ChaptersPromptSections>;
 
 /** Configuration accepted by `generateChapters`. */
 export interface ChaptersOptions extends MuxAIOptions {
+  /** BCP 47 language code of the caption track to use (e.g. "en", "fr"). When omitted, prefers English if available. */
+  languageCode?: string;
   /** AI provider used to interpret the transcript (defaults to 'openai'). */
   provider?: SupportedProvider;
   /** Provider-specific model identifier. */
@@ -289,11 +290,11 @@ function buildUserPrompt({
 
 export async function generateChapters(
   assetId: string,
-  languageCode: string,
   options: ChaptersOptions = {},
 ): Promise<ChaptersResult> {
   "use workflow";
   const {
+    languageCode,
     provider = "openai",
     model,
     promptOverrides,
@@ -322,32 +323,13 @@ export async function generateChapters(
     );
   }
 
-  const readyTextTracks = getReadyTextTracks(assetData);
-  let transcriptResult = await fetchTranscriptForAsset(assetData, playbackId, {
+  const transcriptResult = await fetchTranscriptForAsset(assetData, playbackId, {
     languageCode,
     cleanTranscript: false, // keep timestamps for chapter segmentation
     shouldSign: policy === "signed",
     credentials,
+    required: true,
   });
-
-  if (isAudioOnly && !transcriptResult.track && readyTextTracks.length === 1) {
-    transcriptResult = await fetchTranscriptForAsset(assetData, playbackId, {
-      cleanTranscript: false, // keep timestamps for chapter segmentation
-      shouldSign: policy === "signed",
-      credentials,
-      required: true,
-    });
-  }
-
-  if (!transcriptResult.track || !transcriptResult.transcriptText) {
-    const availableLanguages = readyTextTracks
-      .map(t => t.language_code)
-      .filter(Boolean)
-      .join(", ");
-    throw new Error(
-      `No caption track found for language '${languageCode}'. Available languages: ${availableLanguages || "none"}`,
-    );
-  }
 
   const timestampedTranscript = extractTimestampedTranscript(transcriptResult.transcriptText);
   if (!timestampedTranscript) {
@@ -418,7 +400,7 @@ export async function generateChapters(
 
   return {
     assetId,
-    languageCode,
+    languageCode: languageCode ?? transcriptResult.track?.language_code,
     chapters: validChapters,
     usage: usageWithMetadata,
   };

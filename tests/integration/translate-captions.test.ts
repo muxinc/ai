@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
+import { getPlaybackIdForAsset } from "../../src/lib/mux-assets";
 import type { SupportedProvider } from "../../src/lib/providers";
+import { getReadyTextTracks } from "../../src/primitives/transcripts";
 import { translateCaptions } from "../../src/workflows";
 import { muxTestAssets } from "../helpers/mux-test-assets";
 
@@ -8,14 +10,26 @@ describe("translateCaptions Integration Tests", () => {
   const testAssetId = muxTestAssets.assetId;
   const providers: SupportedProvider[] = ["openai", "anthropic", "google"];
 
+  let englishTrackId: string;
+
+  beforeAll(async () => {
+    const { asset } = await getPlaybackIdForAsset(testAssetId);
+    const tracks = getReadyTextTracks(asset);
+    const englishTrack = tracks.find(t => t.language_code === "en");
+    if (!englishTrack?.id)
+      throw new Error("Test asset missing English track");
+    englishTrackId = englishTrack.id;
+  });
+
   it.each(providers)("should return valid result for %s provider", async (provider) => {
-    const result = await translateCaptions(testAssetId, "en", "fr", {
+    const result = await translateCaptions(testAssetId, englishTrackId, "fr", {
       provider,
       uploadToMux: false,
     });
 
     expect(result).toBeDefined();
     expect(result).toHaveProperty("assetId", testAssetId);
+    expect(result).toHaveProperty("trackId", englishTrackId);
     expect(result).toHaveProperty("sourceLanguageCode", "en");
     expect(result).toHaveProperty("targetLanguageCode", "fr");
     expect(result).toHaveProperty("originalVtt");
