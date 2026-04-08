@@ -96,6 +96,7 @@ const result = await getModerationScores("your-mux-asset-id", {
 
 console.log(result.maxScores); // Highest scores across all thumbnails (or transcript for audio-only)
 console.log(result.exceedsThreshold); // true if content should be flagged
+console.log(result.coverage); // sample coverage and low-confidence metadata
 
 // Use Hive for visual moderation
 const hiveResult = await getModerationScores("your-mux-asset-id", {
@@ -135,7 +136,7 @@ console.log(result.detectedLanguage); // Language if captions detected
 
 ## Ask Questions
 
-Answer questions about video content by analyzing storyboard frames and optional transcripts. By default, answers are "yes"/"no", but you can override the allowed responses.
+Answer questions about asset content by analyzing storyboard frames and optional transcripts. For audio-only assets, this workflow analyzes transcript text only. By default, answers are "yes"/"no", but you can override the allowed responses.
 
 ```typescript
 import { askQuestions } from "@mux/ai/workflows";
@@ -222,6 +223,16 @@ const withAudio = await askQuestions(assetId, [
 ```
 
 The AI will prioritize visual evidence when transcript and visuals conflict.
+
+For audio-only assets, transcript support is required:
+
+```typescript
+const audioOnlyResult = await askQuestions(audioOnlyAssetId, [
+  { question: "Is there spoken dialogue in this content?" }
+], {
+  includeTranscript: true
+});
+```
 
 ## Engagement Insights
 

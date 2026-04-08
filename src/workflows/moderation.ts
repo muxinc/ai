@@ -9,6 +9,7 @@ import {
   isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
 import { getMuxThumbnailBaseUrl } from "@mux/ai/lib/mux-image-url";
+import { withRetry } from "@mux/ai/lib/retry";
 import { planSamplingTimestamps } from "@mux/ai/lib/sampling-plan";
 import { signUrl } from "@mux/ai/lib/url-signing";
 import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
@@ -44,6 +45,22 @@ export interface ModerationResult {
   /** Convenience flag so callers can understand why `thumbnailScores` may contain a transcript entry. */
   isAudioOnly: boolean;
   thumbnailScores: ThumbnailModerationScore[];
+  /** Coverage metadata describing how many requested moderation samples actually succeeded. */
+  coverage: {
+    requestedSampleCount: number;
+    successfulSampleCount: number;
+    failedSampleCount: number;
+    /** Fraction of requested samples that produced a usable moderation result. */
+    sampleCoverage: number;
+    /** True when at least one sample failed but the workflow still returned a result. */
+    isPartial: boolean;
+    /**
+     * True when threshold interpretation should be treated cautiously.
+     * For thumbnail moderation, this means we either covered less than half of planned samples
+     * or ended up with fewer than 3 successful thumbnails.
+     */
+    isLowConfidence: boolean;
+  };
   /** Workflow usage metadata (asset duration, thumbnails, etc.). */
   usage?: TokenUsage;
   maxScores: {
@@ -111,6 +128,12 @@ const DEFAULT_THRESHOLDS = {
 };
 
 const DEFAULT_PROVIDER = "openai";
+const OPENAI_MODERATION_RETRIABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
+const OPENAI_MODERATION_MAX_RETRIES = 2;
+const OPENAI_MODERATION_BASE_DELAY_MS = 750;
+const OPENAI_MODERATION_MAX_DELAY_MS = 3000;
+const MIN_SAMPLE_COVERAGE_FOR_CONFIDENT_THRESHOLDING = 0.5;
+const MIN_SUCCESSFUL_THUMBNAILS_FOR_CONFIDENT_THRESHOLDING = 3;
 
 const HIVE_ENDPOINT = "https://api.thehive.ai/api/v2/task/sync";
 export const HIVE_SEXUAL_CATEGORIES = [
@@ -134,6 +157,121 @@ export const HIVE_VIOLENCE_CATEGORIES = [
   "yes_self_harm",
   "garm_death_injury_or_military_conflict",
 ];
+
+class OpenAIModerationRequestError extends Error {
+  readonly status?: number;
+  readonly retriable: boolean;
+
+  constructor(
+    message: string,
+    {
+      status,
+      retriable,
+    }: {
+      status?: number;
+      retriable: boolean;
+    },
+  ) {
+    super(message);
+    this.name = "OpenAIModerationRequestError";
+    this.status = status;
+    this.retriable = retriable;
+  }
+}
+
+function isRetriableOpenAIModerationStatus(status: number): boolean {
+  return OPENAI_MODERATION_RETRIABLE_STATUS_CODES.has(status);
+}
+
+function compactBodySnippet(body: string, maxLength: number = 180): string {
+  const compact = body.replace(/\s+/g, " ").trim();
+  if (!compact) {
+    return "(empty response body)";
+  }
+  return compact.length > maxLength ? `${compact.slice(0, maxLength)}...` : compact;
+}
+
+function parseOpenAIModerationResponse(
+  bodyText: string,
+  status: number,
+  statusText: string,
+): any {
+  if (!bodyText.trim()) {
+    throw new OpenAIModerationRequestError(
+      `OpenAI moderation returned an empty response (${status} ${statusText}).`,
+      { status, retriable: isRetriableOpenAIModerationStatus(status) },
+    );
+  }
+
+  try {
+    return JSON.parse(bodyText);
+  } catch {
+    throw new OpenAIModerationRequestError(
+      `OpenAI moderation returned non-JSON response (${status} ${statusText}): ${compactBodySnippet(bodyText)}`,
+      { status, retriable: true },
+    );
+  }
+}
+
+async function callOpenAIModerationApi({
+  model,
+  input,
+  credentials,
+}: {
+  model: string;
+  input: string | Array<{ type: "image_url"; image_url: { url: string } }>;
+  credentials?: WorkflowCredentialsInput;
+}): Promise<any> {
+  "use step";
+  const apiKey = await getApiKeyFromEnv("openai", credentials);
+
+  return withRetry(
+    async () => {
+      let res: Response;
+
+      try {
+        res = await fetch("https://api.openai.com/v1/moderations", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model,
+            input,
+          }),
+        });
+      } catch (error) {
+        throw new OpenAIModerationRequestError(
+          `OpenAI moderation request failed: ${error instanceof Error ? error.message : String(error)}`,
+          { retriable: true },
+        );
+      }
+
+      const bodyText = await res.text();
+      const json = parseOpenAIModerationResponse(bodyText, res.status, res.statusText);
+
+      if (!res.ok) {
+        throw new OpenAIModerationRequestError(
+          `OpenAI moderation error: ${res.status} ${res.statusText} - ${JSON.stringify(json)}`,
+          {
+            status: res.status,
+            retriable: isRetriableOpenAIModerationStatus(res.status),
+          },
+        );
+      }
+
+      return json;
+    },
+    {
+      maxRetries: OPENAI_MODERATION_MAX_RETRIES,
+      baseDelay: OPENAI_MODERATION_BASE_DELAY_MS,
+      maxDelay: OPENAI_MODERATION_MAX_DELAY_MS,
+      shouldRetry: error =>
+        error instanceof OpenAIModerationRequestError ? error.retriable : true,
+    },
+  );
+}
 
 async function processConcurrently<T>(
   items: any[],
@@ -161,34 +299,19 @@ async function moderateImageWithOpenAI(entry: {
   credentials?: WorkflowCredentialsInput;
 }): Promise<ThumbnailModerationScore> {
   "use step";
-  const apiKey = await getApiKeyFromEnv("openai", entry.credentials);
   try {
-    const res = await fetch("https://api.openai.com/v1/moderations", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: entry.model,
-        input: [
-          {
-            type: "image_url",
-            image_url: {
-              url: entry.image,
-            },
+    const json: any = await callOpenAIModerationApi({
+      model: entry.model,
+      input: [
+        {
+          type: "image_url",
+          image_url: {
+            url: entry.image,
           },
-        ],
-      }),
+        },
+      ],
+      credentials: entry.credentials,
     });
-
-    const json: any = await res.json();
-    if (!res.ok) {
-      throw new Error(
-        `OpenAI moderation error: ${res.status} ${res.statusText} - ${JSON.stringify(json)}`,
-      );
-    }
-
     const categoryScores = json.results?.[0]?.category_scores || {};
 
     return {
@@ -240,27 +363,12 @@ async function requestOpenAITextModeration(
   credentials?: WorkflowCredentialsInput,
 ): Promise<ThumbnailModerationScore> {
   "use step";
-  const apiKey = await getApiKeyFromEnv("openai", credentials);
   try {
-    const res = await fetch("https://api.openai.com/v1/moderations", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        input: text,
-      }),
+    const json: any = await callOpenAIModerationApi({
+      model,
+      input: text,
+      credentials,
     });
-
-    const json: any = await res.json();
-    if (!res.ok) {
-      throw new Error(
-        `OpenAI moderation error: ${res.status} ${res.statusText} - ${JSON.stringify(json)}`,
-      );
-    }
-
     const categoryScores = json.results?.[0]?.category_scores || {};
 
     return {
@@ -622,24 +730,47 @@ export async function getModerationScores(
   }
 
   const failed = thumbnailScores.filter(s => s.error);
-  if (failed.length > 0) {
+  const successful = thumbnailScores.filter(s => !s.error);
+  if (successful.length === 0) {
     const details = failed.map(s => `${s.url}: ${s.errorMessage || "Unknown error"}`).join("; ");
     throw new Error(
-      `Moderation failed for ${failed.length}/${thumbnailScores.length} thumbnail(s): ${details}`,
+      `Moderation failed for all ${thumbnailScores.length} sample(s): ${details}`,
+    );
+  }
+
+  if (failed.length > 0) {
+    console.warn(
+      `Moderation had partial failures (${failed.length}/${thumbnailScores.length}); continuing with successful samples.`,
     );
   }
 
   // Find highest scores across all thumbnails
-  const maxSexual = Math.max(...thumbnailScores.map(s => s.sexual));
-  const maxViolence = Math.max(...thumbnailScores.map(s => s.violence));
+  const maxSexual = Math.max(...successful.map(s => s.sexual));
+  const maxViolence = Math.max(...successful.map(s => s.violence));
 
   const finalThresholds = { ...DEFAULT_THRESHOLDS, ...thresholds };
+  const requestedSampleCount = thumbnailScores.length;
+  const successfulSampleCount = successful.length;
+  const failedSampleCount = failed.length;
+  const sampleCoverage = successfulSampleCount / requestedSampleCount;
+  const hasEnoughSuccessfulSamples = mode === "transcript" ||
+    successfulSampleCount >= MIN_SUCCESSFUL_THUMBNAILS_FOR_CONFIDENT_THRESHOLDING;
+  const isLowConfidence = sampleCoverage < MIN_SAMPLE_COVERAGE_FOR_CONFIDENT_THRESHOLDING ||
+    !hasEnoughSuccessfulSamples;
 
   return {
     assetId,
     mode,
     isAudioOnly,
     thumbnailScores,
+    coverage: {
+      requestedSampleCount,
+      successfulSampleCount,
+      failedSampleCount,
+      sampleCoverage,
+      isPartial: failedSampleCount > 0,
+      isLowConfidence,
+    },
     usage: {
       metadata: {
         assetDurationSeconds: duration,

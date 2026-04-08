@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
-import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
+import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset, isAudioOnlyAsset } from "@mux/ai/lib/mux-assets";
 import { createPromptBuilder, createTranscriptSection, renderSection } from "@mux/ai/lib/prompt-builder";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
@@ -18,7 +18,7 @@ import type { ImageSubmissionMode, MuxAIOptions, TokenUsage, WorkflowCredentials
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** A single yes/no question to be answered about video content. */
+/** A single yes/no question to be answered about asset content. */
 export interface Question {
   /** The question text */
   question: string;
@@ -34,7 +34,7 @@ export interface QuestionAnswer {
   confidence: number;
   /** Reasoning explaining the answer, or why the question was skipped */
   reasoning: string;
-  /** Whether the question was skipped due to irrelevance to the video content */
+  /** Whether the question was skipped due to irrelevance to the asset content */
   skipped: boolean;
 }
 
@@ -48,7 +48,7 @@ export interface AskQuestionsOptions extends MuxAIOptions {
   languageCode?: string;
   /** Allowed answers for each question (defaults to ["yes", "no"]). */
   answerOptions?: string[];
-  /** Fetch transcript alongside storyboard (defaults to true). */
+  /** Fetch transcript alongside storyboard (defaults to true, required for audio-only assets). */
   includeTranscript?: boolean;
   /** Strip timestamps/markup from transcripts (defaults to true). */
   cleanTranscript?: boolean;
@@ -66,8 +66,8 @@ export interface AskQuestionsResult {
   assetId: string;
   /** Array of answers for each question. */
   answers: QuestionAnswer[];
-  /** Storyboard image URL that was analyzed. */
-  storyboardUrl: string;
+  /** Storyboard image URL that was analyzed (undefined for audio-only assets). */
+  storyboardUrl?: string;
   /** Token usage from the AI provider (for efficiency/cost analysis). */
   usage?: TokenUsage;
   /** Raw transcript text used for analysis (when includeTranscript is true). */
@@ -209,30 +209,120 @@ const SYSTEM_PROMPT = dedent`
     - Be specific and evidence-based
   </language_guidelines>`;
 
+const AUDIO_ONLY_SYSTEM_PROMPT = dedent`
+  <role>
+    You are an audio content analyst specializing in classification tasks.
+    Your job is to answer questions about audio content based on transcript data.
+  </role>
+
+  <context>
+    You will receive:
+    - A transcript of the audio/dialogue
+    - A list of questions about the asset content
+  </context>
+
+  <transcript_guidance>
+    - Use the transcript to understand spoken content, dialogue, and audio context
+    - Consider only transcript evidence when answering questions
+  </transcript_guidance>
+
+  <task>
+    For each question provided, you must:
+    1. Analyze the transcript
+    2. Answer with ONLY the allowed response options - no other values are acceptable
+    3. Provide a confidence score between 0 and 1 reflecting your certainty
+    4. Explain your reasoning based on observable evidence
+  </task>
+
+  <answer_guidelines>
+    - Choose the affirmative option only if you have clear evidence supporting it
+    - Choose the negative/contradicting option if evidence contradicts or if insufficient evidence exists
+    - Confidence should reflect the clarity and strength of evidence:
+      * 0.9-1.0: Clear, unambiguous evidence
+      * 0.7-0.9: Strong evidence with minor ambiguity
+      * 0.5-0.7: Moderate evidence or some conflicting signals
+      * 0.3-0.5: Weak evidence or significant ambiguity
+      * 0.0-0.3: Very uncertain, minimal relevant evidence
+    - Reasoning should cite specific transcript evidence
+    - Be precise: cite specific quotes or passages from transcript text
+  </answer_guidelines>
+
+  <relevance_filtering>
+    Before answering each question, assess whether it can be meaningfully
+    answered based on the transcript. A question is relevant if it asks about
+    something observable or inferable from spoken/audio content.
+
+    Mark a question as skipped (skipped: true) if it:
+    - Is completely unrelated to transcript/audio content (e.g., math, trivia, personal questions)
+    - Asks about information that cannot be determined from transcript content
+    - Is a general knowledge question with no connection to what is said in the transcript
+    - Attempts to use the system for non-content-analysis purposes
+
+    For skipped questions:
+    - Set skipped to true
+    - Set answer to "${SKIP_SENTINEL}"
+    - Set confidence to 0
+    - Use the reasoning field to explain why the question is not answerable
+      from transcript content
+
+    For borderline questions that are loosely related to transcript content,
+    still answer them but use a lower confidence score to reflect uncertainty.
+  </relevance_filtering>
+
+  <constraints>
+    - You MUST answer every relevant question with one of the allowed response options
+    - Skip irrelevant questions as described in relevance_filtering
+    - Only describe observable evidence from transcript content
+    - Do not fabricate details or make unsupported assumptions
+    - Return structured data matching the requested schema exactly
+    - Provide reasoning in the same language as the question
+  </constraints>
+
+  <language_guidelines>
+    When explaining reasoning:
+    - Describe content directly, not the medium
+    - BAD: "The audio says someone is running"
+    - GOOD: "The speaker describes running through a park"
+    - Be specific and evidence-based
+  </language_guidelines>`;
+
 type AskQuestionsPromptSections = "questions";
 
 const askQuestionsPromptBuilder = createPromptBuilder<AskQuestionsPromptSections>({
   template: {
     questions: {
       tag: "questions",
-      content: "Please answer the following yes/no questions about this video:",
+      content: "Please answer the following questions about this content:",
     },
   },
   sectionOrder: ["questions"],
 });
 
-function buildUserPrompt(
-  questions: Question[],
-  allowedAnswers: string[],
-  transcriptText?: string,
-  isCleanTranscript: boolean = true,
-): string {
+interface UserPromptContext {
+  questions: Question[];
+  allowedAnswers: string[];
+  transcriptText?: string;
+  isCleanTranscript?: boolean;
+  isAudioOnly?: boolean;
+}
+
+function buildUserPrompt({
+  questions,
+  allowedAnswers,
+  transcriptText,
+  isCleanTranscript = true,
+  isAudioOnly = false,
+}: UserPromptContext): string {
   const questionsList = questions
     .map((q, idx) => `${idx + 1}. ${q.question}`)
     .join("\n");
 
+  const questionsIntro = isAudioOnly ?
+    "Please answer the following questions about this audio content using transcript evidence:" :
+    "Please answer the following questions about this content:";
+
   const questionsContent = dedent`
-    Please answer the following yes/no questions about this video:
+    ${questionsIntro}
 
     ${questionsList}`;
 
@@ -273,15 +363,25 @@ async function fetchImageAsBase64(
   return downloadResult.base64Data;
 }
 
-async function analyzeQuestionsWithStoryboard(
-  imageDataUrl: string,
-  provider: SupportedProvider,
-  modelId: string,
-  userPrompt: string,
-  systemPrompt: string,
-  allowedAnswers: [string, ...string[]],
-  credentials?: WorkflowCredentialsInput,
-): Promise<AnalysisResponse> {
+interface AnalyzeQuestionsInput {
+  provider: SupportedProvider;
+  modelId: string;
+  userPrompt: string;
+  systemPrompt: string;
+  allowedAnswers: [string, ...string[]];
+  imageDataUrl?: string;
+  credentials?: WorkflowCredentialsInput;
+}
+
+async function analyzeQuestions({
+  provider,
+  modelId,
+  userPrompt,
+  systemPrompt,
+  allowedAnswers,
+  imageDataUrl,
+  credentials,
+}: AnalyzeQuestionsInput): Promise<AnalysisResponse> {
   "use step";
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
   const responseSchema = createAskQuestionsSchema(allowedAnswers);
@@ -297,16 +397,24 @@ async function analyzeQuestionsWithStoryboard(
       },
       {
         role: "user",
-        content: [
-          { type: "text", text: userPrompt },
-          { type: "image", image: imageDataUrl },
-        ],
+        content: imageDataUrl ?
+            [
+              { type: "text", text: userPrompt },
+              { type: "image", image: imageDataUrl },
+            ] :
+          userPrompt,
       },
     ],
   });
 
+  if (!response.output) {
+    throw new Error("Ask-questions output missing");
+  }
+
+  const parsed = responseSchema.parse(response.output);
+
   return {
-    result: response.output,
+    result: parsed,
     usage: {
       inputTokens: response.usage.inputTokens,
       outputTokens: response.usage.outputTokens,
@@ -318,7 +426,8 @@ async function analyzeQuestionsWithStoryboard(
 }
 
 /**
- * Answer questions about a Mux video asset by analyzing storyboard frames and transcript.
+ * Answer questions about a Mux asset by analyzing storyboard frames and transcript.
+ * For audio-only assets, this workflow analyzes transcript content only.
  * Defaults to yes/no answers unless `answerOptions` are provided.
  *
  * This workflow takes a list of questions and returns structured answers with confidence
@@ -403,6 +512,13 @@ export async function askQuestions(
   const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
 
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
+  const isAudioOnly = isAudioOnlyAsset(assetData);
+
+  if (isAudioOnly && !includeTranscript) {
+    throw new Error(
+      "Audio-only assets require a transcript. Set includeTranscript: true and ensure the asset has a ready text track (captions/subtitles).",
+    );
+  }
 
   // Resolve signing context for signed playback IDs
   const signingContext = await resolveMuxSigningContext(credentials);
@@ -413,58 +529,81 @@ export async function askQuestions(
     );
   }
 
-  const transcriptText =
+  const transcriptResult =
     includeTranscript ?
-        (await fetchTranscriptForAsset(assetData, playbackId, {
+        await fetchTranscriptForAsset(assetData, playbackId, {
           languageCode,
           cleanTranscript,
           shouldSign: policy === "signed",
-        })).transcriptText :
-      "";
+          credentials,
+          required: isAudioOnly,
+        }) :
+      undefined;
+  const transcriptText = transcriptResult?.transcriptText ?? "";
 
   // Build the user prompt with questions, allowed answers, and optional transcript
-  const userPrompt = buildUserPrompt(questions, allowedAnswers, transcriptText, cleanTranscript);
-  const systemPrompt = SYSTEM_PROMPT;
-
-  // Generate storyboard URL (signed if needed)
-  const imageUrl = await getStoryboardUrl(
-    playbackId,
-    storyboardWidth,
-    policy === "signed",
-    credentials,
-  );
+  const userPrompt = buildUserPrompt({
+    questions,
+    allowedAnswers,
+    transcriptText,
+    isCleanTranscript: cleanTranscript,
+    isAudioOnly,
+  });
+  const systemPrompt = isAudioOnly ? AUDIO_ONLY_SYSTEM_PROMPT : SYSTEM_PROMPT;
 
   let analysisResponse: AnalysisResponse;
+  let imageUrl: string | undefined;
 
   try {
-    if (imageSubmissionMode === "base64") {
-      const base64Data = await fetchImageAsBase64(imageUrl, imageDownloadOptions);
-      analysisResponse = await analyzeQuestionsWithStoryboard(
-        base64Data,
-        modelConfig.provider,
-        modelConfig.modelId,
+    if (isAudioOnly) {
+      analysisResponse = await analyzeQuestions({
+        provider: modelConfig.provider,
+        modelId: modelConfig.modelId,
         userPrompt,
         systemPrompt,
         allowedAnswers,
         credentials,
-      );
+      });
     } else {
-      // URL-based submission with retry
-      analysisResponse = await withRetry(() =>
-        analyzeQuestionsWithStoryboard(
-          imageUrl,
-          modelConfig.provider,
-          modelConfig.modelId,
+      // Generate storyboard URL (signed if needed)
+      const storyboardUrl = await getStoryboardUrl(
+        playbackId,
+        storyboardWidth,
+        policy === "signed",
+        credentials,
+      );
+      imageUrl = storyboardUrl;
+
+      if (imageSubmissionMode === "base64") {
+        const base64Data = await fetchImageAsBase64(storyboardUrl, imageDownloadOptions);
+        analysisResponse = await analyzeQuestions({
+          provider: modelConfig.provider,
+          modelId: modelConfig.modelId,
           userPrompt,
           systemPrompt,
           allowedAnswers,
+          imageDataUrl: base64Data,
           credentials,
-        ),
-      );
+        });
+      } else {
+        // URL-based submission with retry
+        analysisResponse = await withRetry(() =>
+          analyzeQuestions({
+            provider: modelConfig.provider,
+            modelId: modelConfig.modelId,
+            userPrompt,
+            systemPrompt,
+            allowedAnswers,
+            imageDataUrl: storyboardUrl,
+            credentials,
+          }),
+        );
+      }
     }
   } catch (error: unknown) {
+    const contentType = isAudioOnly ? "audio" : "video";
     throw new Error(
-      `Failed to analyze questions with ${provider}: ${
+      `Failed to analyze ${contentType} questions with ${provider}: ${
         error instanceof Error ? error.message : "Unknown error"
       }`,
     );

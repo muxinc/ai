@@ -7,6 +7,7 @@ import { muxTestAssets } from "../helpers/mux-test-assets";
 describe("ask Questions Integration Tests", () => {
   // Use glasses video for clear, consistent answers across all providers
   const testAssetId = "gIRjPqMSRcdk200kIKvsUo2K4JQr6UjNg7qKZc02egCcM";
+  const audioOnlyAssetId = muxTestAssets.audioOnlyAssetId;
   const providers: SupportedProvider[] = ["openai", "anthropic", "google"];
 
   it.each(providers)("should return valid result for %s provider", async (provider) => {
@@ -216,5 +217,57 @@ describe("ask Questions Integration Tests", () => {
 
     // If we get here, the result should have the correct number of answers
     expect(result.answers).toHaveLength(questions.length);
+  });
+
+  describe("audio-only assets", () => {
+    it.each(providers)("should answer questions for audio-only asset with %s provider", async (provider) => {
+      const result = await askQuestions(audioOnlyAssetId, [
+        { question: "Is there spoken dialogue in this content?" },
+      ], { provider });
+
+      expect(result).toBeDefined();
+      expect(result).toHaveProperty("assetId", audioOnlyAssetId);
+      expect(result.answers).toHaveLength(1);
+      expect(result.answers[0].skipped).toBe(false);
+      expect(["yes", "no"]).toContain(result.answers[0].answer);
+      expect(typeof result.answers[0].reasoning).toBe("string");
+      expect(result.answers[0].reasoning.length).toBeGreaterThan(0);
+    });
+
+    it("should return undefined storyboardUrl for audio-only asset", async () => {
+      const provider = providers[0];
+      const result = await askQuestions(audioOnlyAssetId, [
+        { question: "Is there spoken dialogue in this content?" },
+      ], { provider });
+
+      expect(result.storyboardUrl).toBeUndefined();
+    });
+
+    it("should include transcript text for audio-only asset", async () => {
+      const provider = providers[0];
+      const result = await askQuestions(audioOnlyAssetId, [
+        { question: "Is there spoken dialogue in this content?" },
+      ], {
+        provider,
+        includeTranscript: true,
+      });
+
+      expect(result.transcriptText).toBeDefined();
+      expect(typeof result.transcriptText).toBe("string");
+      expect((result.transcriptText ?? "").length).toBeGreaterThan(0);
+    });
+
+    it("should throw error if includeTranscript is false for audio-only asset", async () => {
+      const provider = providers[0];
+
+      await expect(
+        askQuestions(audioOnlyAssetId, [
+          { question: "Is there spoken dialogue in this content?" },
+        ], {
+          provider,
+          includeTranscript: false,
+        }),
+      ).rejects.toThrow("Audio-only assets require a transcript");
+    });
   });
 });

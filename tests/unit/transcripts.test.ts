@@ -6,11 +6,13 @@ import {
   buildVttFromTranslatedCueBlocks,
   concatenateVttSegments,
   extractTextFromVTT,
+  findCaptionTrack,
   parseVTTCues,
   secondsToTimestamp,
   splitVttPreambleAndCueBlocks,
   vttTimestampToSeconds,
 } from "../../src/primitives/transcripts";
+import type { MuxAsset } from "../../src/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // vttTimestampToSeconds
@@ -271,6 +273,28 @@ describe("extractTextFromVTT", () => {
     const result = extractTextFromVTT(vttContent);
 
     expect(result).toBe("Hello World");
+  });
+});
+
+describe("findCaptionTrack", () => {
+  it("falls back to the only ready text track for audio-only assets", () => {
+    const asset: Partial<MuxAsset> = {
+      id: "audio-only",
+      tracks: [
+        { type: "audio", id: "audio-1" },
+        {
+          type: "text",
+          id: "text-1",
+          status: "ready",
+          text_type: "subtitles",
+          language_code: "es",
+        },
+      ],
+    };
+
+    const track = findCaptionTrack(asset as MuxAsset, "fr");
+
+    expect(track?.id).toBe("text-1");
   });
 });
 
