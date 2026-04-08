@@ -711,7 +711,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   const s3AccessKeyId = env.S3_ACCESS_KEY_ID;
   const s3SecretAccessKey = env.S3_SECRET_ACCESS_KEY;
   const uploadToMux = uploadToMuxOption !== false; // Default to true
-  const uploadToS3 = uploadToS3Option !== false || uploadToMux; // Default to true; implied by uploadToMux
+  const uploadToS3 = uploadToS3Option ?? uploadToMux; // Default to uploadToMux; explicit true/false always wins
 
   const modelConfig = resolveLanguageModelConfig({
     ...options,
