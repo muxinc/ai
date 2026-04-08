@@ -17,6 +17,7 @@ import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
 import {
   extractTimestampedTranscript,
   fetchTranscriptForAsset,
+  getReadyTextTracks,
 } from "@mux/ai/primitives/transcripts";
 import type { MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "@mux/ai/types";
 
@@ -40,7 +41,7 @@ export type ChaptersType = z.infer<typeof chaptersSchema>;
 /** Structured return payload from `generateChapters`. */
 export interface ChaptersResult {
   assetId: string;
-  languageCode?: string;
+  languageCode: string;
   chapters: Chapter[];
   /** Token usage from the AI provider (for efficiency/cost analysis). */
   usage?: TokenUsage;
@@ -323,14 +324,32 @@ export async function generateChapters(
     );
   }
 
-  const transcriptResult = await fetchTranscriptForAsset(assetData, playbackId, {
+  const readyTextTracks = getReadyTextTracks(assetData);
+  let transcriptResult = await fetchTranscriptForAsset(assetData, playbackId, {
     languageCode,
     cleanTranscript: false, // keep timestamps for chapter segmentation
     shouldSign: policy === "signed",
     credentials,
-    required: true,
   });
 
+  if (isAudioOnly && !transcriptResult.track && readyTextTracks.length === 1) {
+    transcriptResult = await fetchTranscriptForAsset(assetData, playbackId, {
+      cleanTranscript: false, // keep timestamps for chapter segmentation
+      shouldSign: policy === "signed",
+      credentials,
+      required: true,
+    });
+  }
+
+  if (!transcriptResult.track || !transcriptResult.transcriptText) {
+    const availableLanguages = readyTextTracks
+      .map(t => t.language_code)
+      .filter(Boolean)
+      .join(", ");
+    throw new Error(
+      `No caption track found${languageCode ? ` for language '${languageCode}'` : ""}. Available languages: ${availableLanguages || "none"}`,
+    );
+  }
   const timestampedTranscript = extractTimestampedTranscript(transcriptResult.transcriptText);
   if (!timestampedTranscript) {
     const contentLabel = isAudioOnly ? "transcript" : "caption track";
@@ -400,7 +419,7 @@ export async function generateChapters(
 
   return {
     assetId,
-    languageCode: languageCode ?? transcriptResult.track?.language_code,
+    languageCode: languageCode ?? transcriptResult.track?.language_code ?? "unknown",
     chapters: validChapters,
     usage: usageWithMetadata,
   };
