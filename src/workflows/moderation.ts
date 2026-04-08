@@ -578,20 +578,15 @@ export async function getModerationScores(
       throw new Error(`Unsupported moderation provider: ${provider}`);
     }
   } else {
-    // Always start with interval-based thumbnails.
-    const intervalBasedUrls = await getThumbnailUrls(playbackId, duration, {
-      interval: thumbnailInterval,
-      width: thumbnailWidth,
-      shouldSign: policy === "signed",
-      credentials,
-    });
+    // Cheaply estimate how many thumbnails the interval would produce so we
+    // can skip generating (and potentially JWT-signing) URLs we'd discard.
+    const estimatedIntervalCount = duration <= 50 ? 5 : Math.ceil(duration / thumbnailInterval);
 
     // maxSamples acts as a true cap: if the interval already fits within the
-    // budget we keep those results. Only when the interval produces more
-    // thumbnails than allowed do we switch to the intelligent sampling plan.
+    // budget we use the interval-based path. Only when the interval would
+    // produce more thumbnails than allowed do we switch to the sampling plan.
     const thumbnailUrls =
-      maxSamples === undefined || intervalBasedUrls.length <= maxSamples ?
-        intervalBasedUrls :
+      maxSamples !== undefined && estimatedIntervalCount > maxSamples ?
           await getThumbnailUrlsFromTimestamps(
             playbackId,
             planSamplingTimestamps({
@@ -607,7 +602,13 @@ export async function getModerationScores(
               shouldSign: policy === "signed",
               credentials,
             },
-          );
+          ) :
+          await getThumbnailUrls(playbackId, duration, {
+            interval: thumbnailInterval,
+            width: thumbnailWidth,
+            shouldSign: policy === "signed",
+            credentials,
+          });
     thumbnailCount = thumbnailUrls.length;
 
     if (provider === "openai") {
