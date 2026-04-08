@@ -66,7 +66,7 @@ Analyzes a Mux asset for inappropriate content using OpenAI's Moderation API or 
 - `thresholds?: { sexual?: number; violence?: number }` - Custom thresholds (default: {sexual: 0.7, violence: 0.8})
 - `thumbnailInterval?: number` - Seconds between thumbnails for long videos (default: 10)
 - `thumbnailWidth?: number` - Thumbnail width in pixels (default: 640)
-- `maxSamples?: number` - Maximum number of thumbnails to sample. When set, samples are evenly distributed with first and last frames pinned. (default: unlimited)
+- `maxSamples?: number` - Maximum number of thumbnails to sample. Acts as a cap: if `thumbnailInterval` produces fewer samples than this limit the interval is respected; otherwise samples are evenly distributed with first and last frames pinned. (default: unlimited)
 - `maxConcurrent?: number` - Maximum concurrent API requests (default: 5)
 - `imageSubmissionMode?: 'url' | 'base64'` - How to submit images to AI providers (default: 'url')
 - `imageDownloadOptions?: object` - Options for image download when using base64 mode
