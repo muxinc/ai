@@ -41,7 +41,10 @@ export function findCaptionTrack(asset: MuxAsset, languageCode?: string): AssetT
     return undefined;
 
   if (!languageCode) {
-    return tracks[0];
+    const englishTrack = tracks.find(
+      track => track.text_type === "subtitles" && track.language_code === "en",
+    );
+    return englishTrack ?? tracks[0];
   }
 
   return tracks.find(

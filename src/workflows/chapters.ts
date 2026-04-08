@@ -74,6 +74,8 @@ export type ChaptersPromptOverrides = PromptOverrides<ChaptersPromptSections>;
 
 /** Configuration accepted by `generateChapters`. */
 export interface ChaptersOptions extends MuxAIOptions {
+  /** BCP 47 language code of the caption track to use (e.g. "en", "fr"). When omitted, prefers English if available. */
+  languageCode?: string;
   /** AI provider used to interpret the transcript (defaults to 'openai'). */
   provider?: SupportedProvider;
   /** Provider-specific model identifier. */
@@ -289,11 +291,11 @@ function buildUserPrompt({
 
 export async function generateChapters(
   assetId: string,
-  languageCode: string,
   options: ChaptersOptions = {},
 ): Promise<ChaptersResult> {
   "use workflow";
   const {
+    languageCode,
     provider = "openai",
     model,
     promptOverrides,
@@ -345,7 +347,7 @@ export async function generateChapters(
       .filter(Boolean)
       .join(", ");
     throw new Error(
-      `No caption track found for language '${languageCode}'. Available languages: ${availableLanguages || "none"}`,
+      `No caption track found${languageCode ? ` for language '${languageCode}'` : ""}. Available languages: ${availableLanguages || "none"}`,
     );
   }
 
@@ -418,7 +420,7 @@ export async function generateChapters(
 
   return {
     assetId,
-    languageCode,
+    languageCode: languageCode ?? transcriptResult.track?.language_code ?? "unknown",
     chapters: validChapters,
     usage: usageWithMetadata,
   };

@@ -44,6 +44,8 @@ export interface AskQuestionsOptions extends MuxAIOptions {
   provider?: SupportedProvider;
   /** Provider-specific chat model identifier. */
   model?: ModelIdByProvider[SupportedProvider];
+  /** BCP 47 language code of the caption track to use (e.g. "en", "fr"). When omitted, prefers English if available. */
+  languageCode?: string;
   /** Allowed answers for each question (defaults to ["yes", "no"]). */
   answerOptions?: string[];
   /** Fetch transcript alongside storyboard (defaults to true). */
@@ -368,6 +370,7 @@ export async function askQuestions(
   const {
     provider = "openai",
     model,
+    languageCode,
     answerOptions,
     includeTranscript = true,
     cleanTranscript = true,
@@ -413,6 +416,7 @@ export async function askQuestions(
   const transcriptText =
     includeTranscript ?
         (await fetchTranscriptForAsset(assetData, playbackId, {
+          languageCode,
           cleanTranscript,
           shouldSign: policy === "signed",
         })).transcriptText :

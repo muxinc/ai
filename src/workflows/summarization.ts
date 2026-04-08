@@ -108,6 +108,8 @@ export interface SummarizationOptions extends MuxAIOptions {
   provider?: SupportedProvider;
   /** Provider-specific chat model identifier. */
   model?: ModelIdByProvider[SupportedProvider];
+  /** BCP 47 language code of the caption track to use (e.g. "en", "fr"). When omitted, prefers English if available. */
+  languageCode?: string;
   /** Prompt tone shim applied to the system instruction (defaults to 'neutral'). */
   tone?: ToneType;
   /** Fetch the transcript and send it alongside the storyboard (defaults to true). */
@@ -593,6 +595,7 @@ export async function getSummaryAndTags(
   const {
     provider = "openai",
     model,
+    languageCode,
     tone = "neutral",
     includeTranscript = true,
     cleanTranscript = true,
@@ -647,6 +650,7 @@ export async function getSummaryAndTags(
   const transcriptResult =
     includeTranscript ?
         await fetchTranscriptForAsset(assetData, playbackId, {
+          languageCode,
           cleanTranscript,
           shouldSign: policy === "signed",
           credentials: workflowCredentials,

@@ -243,7 +243,7 @@ evalite("Chapters", {
   data,
   task: async ({ assetId, provider, model, languageCode, promptOverrides }): Promise<EvalOutput> => {
     const startTime = performance.now();
-    const result = await generateChapters(assetId, languageCode, { provider, model, promptOverrides });
+    const result = await generateChapters(assetId, { provider, model, promptOverrides, languageCode });
     const latencyMs = performance.now() - startTime;
 
     console.warn(

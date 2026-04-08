@@ -6,8 +6,10 @@ import { reportTrace } from "evalite/traces";
 import { z } from "zod";
 
 import { isValidISO639_1, isValidISO639_3, toISO639_1, toISO639_3 } from "../../src/lib/language-codes";
+import { getPlaybackIdForAsset } from "../../src/lib/mux-assets";
 import { calculateModelCost, EVAL_MODEL_CONFIGS } from "../../src/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "../../src/lib/providers";
+import { getReadyTextTracks } from "../../src/primitives/transcripts";
 import type { TokenUsage } from "../../src/types";
 import { translateCaptions } from "../../src/workflows";
 import type { TranslationResult } from "../../src/workflows";
@@ -316,8 +318,14 @@ async function scoreTranslationFaithfulness({
 evalite("Caption Translation", {
   data,
   task: async ({ assetId, provider, model, sourceLanguage, targetLanguage }): Promise<EvalOutput> => {
+    const { asset } = await getPlaybackIdForAsset(assetId);
+    const tracks = getReadyTextTracks(asset);
+    const sourceTrack = tracks.find(t => t.language_code === sourceLanguage);
+    if (!sourceTrack?.id)
+      throw new Error(`No ${sourceLanguage} track for ${assetId}`);
+
     const startTime = performance.now();
-    const result = await translateCaptions(assetId, sourceLanguage, targetLanguage, {
+    const result = await translateCaptions(assetId, sourceTrack.id, targetLanguage, {
       provider,
       model,
       uploadToMux: false, // Don't upload during evals

@@ -10,7 +10,7 @@ describe("chapters Integration Tests", () => {
   const providers: SupportedProvider[] = ["openai", "anthropic", "google"];
 
   it.each(providers)("should return valid result for %s provider", async (provider) => {
-    const result = await generateChapters(assetId, languageCode, { provider });
+    const result = await generateChapters(assetId, { provider, languageCode });
 
     expect(result).toBeDefined();
     expect(result).toHaveProperty("assetId", assetId);
@@ -21,8 +21,9 @@ describe("chapters Integration Tests", () => {
 
   describe("language parameter", () => {
     it("should accept an explicit language code for chapter titles", async () => {
-      const result = await generateChapters(assetId, languageCode, {
+      const result = await generateChapters(assetId, {
         provider: "openai",
+        languageCode,
         outputLanguageCode: "es",
       });
 
@@ -32,8 +33,9 @@ describe("chapters Integration Tests", () => {
     });
 
     it("should accept outputLanguageCode: 'auto' without error", async () => {
-      const result = await generateChapters(assetId, languageCode, {
+      const result = await generateChapters(assetId, {
         provider: "openai",
+        languageCode,
         outputLanguageCode: "auto",
       });
 
