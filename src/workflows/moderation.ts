@@ -45,6 +45,22 @@ export interface ModerationResult {
   /** Convenience flag so callers can understand why `thumbnailScores` may contain a transcript entry. */
   isAudioOnly: boolean;
   thumbnailScores: ThumbnailModerationScore[];
+  /** Coverage metadata describing how many requested moderation samples actually succeeded. */
+  coverage: {
+    requestedSampleCount: number;
+    successfulSampleCount: number;
+    failedSampleCount: number;
+    /** Fraction of requested samples that produced a usable moderation result. */
+    sampleCoverage: number;
+    /** True when at least one sample failed but the workflow still returned a result. */
+    isPartial: boolean;
+    /**
+     * True when threshold interpretation should be treated cautiously.
+     * For thumbnail moderation, this means we either covered less than half of planned samples
+     * or ended up with fewer than 3 successful thumbnails.
+     */
+    isLowConfidence: boolean;
+  };
   /** Workflow usage metadata (asset duration, thumbnails, etc.). */
   usage?: TokenUsage;
   maxScores: {
@@ -116,6 +132,8 @@ const OPENAI_MODERATION_RETRIABLE_STATUS_CODES = new Set([408, 429, 500, 502, 50
 const OPENAI_MODERATION_MAX_RETRIES = 2;
 const OPENAI_MODERATION_BASE_DELAY_MS = 750;
 const OPENAI_MODERATION_MAX_DELAY_MS = 3000;
+const MIN_SAMPLE_COVERAGE_FOR_CONFIDENT_THRESHOLDING = 0.5;
+const MIN_SUCCESSFUL_THUMBNAILS_FOR_CONFIDENT_THRESHOLDING = 3;
 
 const HIVE_ENDPOINT = "https://api.thehive.ai/api/v2/task/sync";
 export const HIVE_SEXUAL_CATEGORIES = [
@@ -731,12 +749,28 @@ export async function getModerationScores(
   const maxViolence = Math.max(...successful.map(s => s.violence));
 
   const finalThresholds = { ...DEFAULT_THRESHOLDS, ...thresholds };
+  const requestedSampleCount = thumbnailScores.length;
+  const successfulSampleCount = successful.length;
+  const failedSampleCount = failed.length;
+  const sampleCoverage = successfulSampleCount / requestedSampleCount;
+  const hasEnoughSuccessfulSamples = mode === "transcript" ||
+    successfulSampleCount >= MIN_SUCCESSFUL_THUMBNAILS_FOR_CONFIDENT_THRESHOLDING;
+  const isLowConfidence = sampleCoverage < MIN_SAMPLE_COVERAGE_FOR_CONFIDENT_THRESHOLDING ||
+    !hasEnoughSuccessfulSamples;
 
   return {
     assetId,
     mode,
     isAudioOnly,
     thumbnailScores,
+    coverage: {
+      requestedSampleCount,
+      successfulSampleCount,
+      failedSampleCount,
+      sampleCoverage,
+      isPartial: failedSampleCount > 0,
+      isLowConfidence,
+    },
     usage: {
       metadata: {
         assetDurationSeconds: duration,

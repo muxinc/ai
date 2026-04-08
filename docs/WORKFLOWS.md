@@ -96,6 +96,7 @@ const result = await getModerationScores("your-mux-asset-id", {
 
 console.log(result.maxScores); // Highest scores across all thumbnails (or transcript for audio-only)
 console.log(result.exceedsThreshold); // true if content should be flagged
+console.log(result.coverage); // sample coverage and low-confidence metadata
 
 // Use Hive for visual moderation
 const hiveResult = await getModerationScores("your-mux-asset-id", {

@@ -98,6 +98,14 @@ Analyzes a Mux asset for inappropriate content using OpenAI's Moderation API or 
     sexual: number;
     violence: number;
   };
+  coverage: {
+    requestedSampleCount: number;
+    successfulSampleCount: number;
+    failedSampleCount: number;
+    sampleCoverage: number; // 0-1 fraction of requested samples that succeeded
+    isPartial: boolean; // true when some samples failed but the workflow still returned a result
+    isLowConfidence: boolean; // true when coverage is thin and thresholds should be interpreted cautiously
+  };
   exceedsThreshold: boolean; // true if content should be flagged
   thresholds: { // Threshold values used
     sexual: number;
