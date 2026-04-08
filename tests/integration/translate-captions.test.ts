@@ -11,6 +11,7 @@ describe("translateCaptions Integration Tests", () => {
   it.each(providers)("should return valid result for %s provider", async (provider) => {
     const result = await translateCaptions(testAssetId, "en", "fr", {
       provider,
+      uploadToS3: false,
       uploadToMux: false,
     });
 

@@ -56,10 +56,14 @@ export interface AudioTranslationOptions extends MuxAIOptions {
   /** Bucket that will store dubbed audio files. */
   s3Bucket?: string;
   /**
-   * When true (default) the dubbed audio file is uploaded to the configured
-   * bucket and attached as a track on the Mux asset.
-   * When false the dubbed audio is still uploaded to S3 and a `presignedUrl`
-   * is returned, but no track is created on the Mux asset.
+   * When true (default) the dubbed audio is uploaded to the configured
+   * S3-compatible bucket and a `presignedUrl` is returned.
+   */
+  uploadToS3?: boolean;
+  /**
+   * When true (default) the dubbed audio is attached as a track on the
+   * Mux asset. Implies `uploadToS3: true` because a presigned URL is
+   * required for track creation.
    */
   uploadToMux?: boolean;
   /** Optional storage adapter override for upload + presign operations. */
@@ -393,7 +397,8 @@ export async function translateAudio(
     provider = "elevenlabs",
     fromLanguageCode,
     numSpeakers = 0, // 0 = auto-detect
-    uploadToMux = true,
+    uploadToS3: uploadToS3Option,
+    uploadToMux: uploadToMuxOption,
     storageAdapter,
     credentials: providedCredentials,
   } = options;
@@ -405,6 +410,9 @@ export async function translateAudio(
   const credentials = providedCredentials;
   const effectiveStorageAdapter = storageAdapter;
 
+  const uploadToMux = uploadToMuxOption !== false; // Default to true
+  const uploadToS3 = uploadToS3Option !== false || uploadToMux; // Default to true; implied by uploadToMux
+
   // S3 configuration
   const s3Endpoint = options.s3Endpoint ?? env.S3_ENDPOINT;
   const s3Region = options.s3Region ?? env.S3_REGION ?? "auto";
@@ -412,8 +420,8 @@ export async function translateAudio(
   const s3AccessKeyId = env.S3_ACCESS_KEY_ID;
   const s3SecretAccessKey = env.S3_SECRET_ACCESS_KEY;
 
-  if (!s3Endpoint || !s3Bucket || (!effectiveStorageAdapter && (!s3AccessKeyId || !s3SecretAccessKey))) {
-    throw new Error("Storage configuration is required. Provide s3Endpoint and s3Bucket. If no storageAdapter is supplied, also provide s3AccessKeyId and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.");
+  if (uploadToS3 && (!s3Endpoint || !s3Bucket || (!effectiveStorageAdapter && (!s3AccessKeyId || !s3SecretAccessKey)))) {
+    throw new Error("Storage configuration is required for uploading. Provide s3Endpoint and s3Bucket. If no storageAdapter is supplied, also provide s3AccessKeyId and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.");
   }
 
   // Fetch asset data and playback ID from Mux
@@ -516,84 +524,85 @@ export async function translateAudio(
 
   console.warn("✅ Dubbing completed successfully!");
 
-  // Download dubbed audio from ElevenLabs
-  console.warn("📥 Downloading dubbed audio from ElevenLabs...");
-
-  let dubbedAudioBuffer: ArrayBuffer;
-
-  try {
-    // Use the language code from the ElevenLabs status response
-    // ElevenLabs returns target_languages array with the exact codes available for download
-    const requestedLangCode = toISO639_3(toLanguageCode);
-
-    // Find the matching language code from ElevenLabs response
-    // First try exact match, then try case-insensitive match
-    let downloadLangCode = targetLanguages.find(
-      lang => lang === requestedLangCode,
-    ) ?? targetLanguages.find(
-      lang => lang.toLowerCase() === requestedLangCode.toLowerCase(),
-    );
-
-    // Fallback to first available target language if no match found
-    if (!downloadLangCode && targetLanguages.length > 0) {
-      downloadLangCode = targetLanguages[0];
-      console.warn(`⚠️ Requested language "${requestedLangCode}" not found in target_languages. Using "${downloadLangCode}" instead.`);
-    }
-
-    // If still no language code, fall back to the original behavior
-    if (!downloadLangCode) {
-      downloadLangCode = requestedLangCode;
-      console.warn(`⚠️ No target_languages available from ElevenLabs status. Using requested language code: ${requestedLangCode}`);
-    }
-
-    dubbedAudioBuffer = await downloadDubbedAudioFromElevenLabs({
-      dubbingId,
-      languageCode: downloadLangCode,
-      credentials,
-    });
-    console.warn("✅ Dubbed audio downloaded successfully!");
-  } catch (error) {
-    throw new Error(`Failed to download dubbed audio: ${error instanceof Error ? error.message : "Unknown error"}`);
-  }
-
-  // Upload to S3-compatible storage
-  console.warn("📤 Uploading dubbed audio to S3-compatible storage...");
-
-  let presignedUrl: string;
-
-  try {
-    presignedUrl = await uploadDubbedAudioToS3({
-      dubbedAudioBuffer,
-      assetId,
-      toLanguageCode,
-      s3Endpoint: s3Endpoint!,
-      s3Region,
-      s3Bucket: s3Bucket!,
-      storageAdapter: effectiveStorageAdapter,
-      s3SignedUrlExpirySeconds: options.s3SignedUrlExpirySeconds,
-    });
-  } catch (error) {
-    throw new Error(`Failed to upload audio to S3: ${error instanceof Error ? error.message : "Unknown error"}`);
-  }
-
-  // Add translated audio track to Mux asset (only when uploadToMux is true)
+  let presignedUrl: string | undefined;
   let uploadedTrackId: string | undefined;
 
-  if (uploadToMux) {
-    console.warn("📹 Adding dubbed audio track to Mux asset...");
-    // Mux uses ISO 639-1 (2-letter) codes for track language_code
-    const muxLangCode = toISO639_1(toLanguageCode);
+  if (uploadToS3) {
+    // Download dubbed audio from ElevenLabs
+    console.warn("📥 Downloading dubbed audio from ElevenLabs...");
+
+    let dubbedAudioBuffer: ArrayBuffer;
 
     try {
-      uploadedTrackId = await createAudioTrackOnMux(assetId, muxLangCode, presignedUrl, credentials);
-      const languageName = new Intl.DisplayNames(["en"], { type: "language" }).of(muxLangCode) || muxLangCode.toUpperCase();
-      const trackName = `${languageName} (auto-dubbed)`;
-      console.warn(`✅ Track added to Mux asset with ID: ${uploadedTrackId}`);
-      console.warn(`📋 Track name: "${trackName}"`);
+      // Use the language code from the ElevenLabs status response
+      // ElevenLabs returns target_languages array with the exact codes available for download
+      const requestedLangCode = toISO639_3(toLanguageCode);
+
+      // Find the matching language code from ElevenLabs response
+      // First try exact match, then try case-insensitive match
+      let downloadLangCode = targetLanguages.find(
+        lang => lang === requestedLangCode,
+      ) ?? targetLanguages.find(
+        lang => lang.toLowerCase() === requestedLangCode.toLowerCase(),
+      );
+
+      // Fallback to first available target language if no match found
+      if (!downloadLangCode && targetLanguages.length > 0) {
+        downloadLangCode = targetLanguages[0];
+        console.warn(`⚠️ Requested language "${requestedLangCode}" not found in target_languages. Using "${downloadLangCode}" instead.`);
+      }
+
+      // If still no language code, fall back to the original behavior
+      if (!downloadLangCode) {
+        downloadLangCode = requestedLangCode;
+        console.warn(`⚠️ No target_languages available from ElevenLabs status. Using requested language code: ${requestedLangCode}`);
+      }
+
+      dubbedAudioBuffer = await downloadDubbedAudioFromElevenLabs({
+        dubbingId,
+        languageCode: downloadLangCode,
+        credentials,
+      });
+      console.warn("✅ Dubbed audio downloaded successfully!");
     } catch (error) {
-      console.warn(`⚠️ Failed to add audio track to Mux asset: ${error instanceof Error ? error.message : "Unknown error"}`);
-      console.warn("🔗 You can manually add the track using this presigned URL:");
-      console.warn(presignedUrl);
+      throw new Error(`Failed to download dubbed audio: ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
+
+    // Upload to S3-compatible storage
+    console.warn("📤 Uploading dubbed audio to S3-compatible storage...");
+
+    try {
+      presignedUrl = await uploadDubbedAudioToS3({
+        dubbedAudioBuffer,
+        assetId,
+        toLanguageCode,
+        s3Endpoint: s3Endpoint!,
+        s3Region,
+        s3Bucket: s3Bucket!,
+        storageAdapter: effectiveStorageAdapter,
+        s3SignedUrlExpirySeconds: options.s3SignedUrlExpirySeconds,
+      });
+    } catch (error) {
+      throw new Error(`Failed to upload audio to S3: ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
+
+    // Add translated audio track to Mux asset (only when uploadToMux is true)
+    if (uploadToMux) {
+      console.warn("📹 Adding dubbed audio track to Mux asset...");
+      // Mux uses ISO 639-1 (2-letter) codes for track language_code
+      const muxLangCode = toISO639_1(toLanguageCode);
+
+      try {
+        uploadedTrackId = await createAudioTrackOnMux(assetId, muxLangCode, presignedUrl, credentials);
+        const languageName = new Intl.DisplayNames(["en"], { type: "language" }).of(muxLangCode) || muxLangCode.toUpperCase();
+        const trackName = `${languageName} (auto-dubbed)`;
+        console.warn(`✅ Track added to Mux asset with ID: ${uploadedTrackId}`);
+        console.warn(`📋 Track name: "${trackName}"`);
+      } catch (error) {
+        console.warn(`⚠️ Failed to add audio track to Mux asset: ${error instanceof Error ? error.message : "Unknown error"}`);
+        console.warn("🔗 You can manually add the track using this presigned URL:");
+        console.warn(presignedUrl);
+      }
     }
   }
 

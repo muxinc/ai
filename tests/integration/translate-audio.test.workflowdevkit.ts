@@ -10,6 +10,7 @@ describe("audio Translation Integration Tests for Workflow DevKit", () => {
   it("should translate audio to French without uploading to Mux", async () => {
     const run = await start(translateAudio, [assetId, "fr", {
       provider: "elevenlabs",
+      uploadToS3: false,
       uploadToMux: false,
     }]);
     expect(run.runId).toMatch(/^wrun_/);
@@ -33,9 +34,8 @@ describe("audio Translation Integration Tests for Workflow DevKit", () => {
     expect(typeof result.dubbingId).toBe("string");
     expect(result.dubbingId.length).toBeGreaterThan(0);
 
-    // Since uploadToMux is false, no Mux track should be created
+    // Since both uploadToS3 and uploadToMux are false, neither should be present
     expect(result.uploadedTrackId).toBeUndefined();
-    // But presignedUrl should still be present (S3 upload always happens)
-    expect(result.presignedUrl).toBeDefined();
+    expect(result.presignedUrl).toBeUndefined();
   }, 300000); // 5 minute timeout for ElevenLabs processing
 });
