@@ -20,7 +20,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version-file: .nvmrc
+          node-version: 22.22.1 # Pinned: 22.22.2 has broken npm (nodejs/node#62425)
           cache: npm
 
       - name: Update npm to latest
