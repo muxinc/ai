@@ -200,7 +200,8 @@ interface AskQuestionsResult {
     question: string; // The original question
     answer: string | null; // Answer from allowed options (null when skipped)
     confidence: number; // Confidence score (0.0-1.0)
-    reasoning: string; // AI's explanation based on observable evidence
+    reasoning: string; // AI's explanation based on observable evidence or why the question was skipped
+    skipped: boolean; // True when the question was not answerable from the asset content
   }>;
   storyboardUrl?: string; // URL to analyzed storyboard (undefined for audio-only assets)
   usage?: TokenUsage; // Token usage from the AI provider
