@@ -30,7 +30,7 @@ program
       for (const config of providers) {
         console.log(`Testing ${config.name} chapter generation...`);
         const start = Date.now();
-        const result = await generateChapters(assetId, options.language, { provider: config.provider });
+        const result = await generateChapters(assetId, { provider: config.provider, languageCode: options.language });
         const duration = Date.now() - start;
 
         console.log("📊 Results:");

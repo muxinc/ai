@@ -10,7 +10,7 @@ describe("Chapters Integration Tests for Workflow DevKit", () => {
   const providers: SupportedProvider[] = ["openai", "anthropic", "google"];
 
   it.each(providers)("should generate chapters with %s provider", async (provider) => {
-    const run = await start(generateChapters, [assetId, "en", { provider }]);
+    const run = await start(generateChapters, [assetId, { provider }]);
     expect(run.runId).toMatch(/^wrun_/);
 
     const result = await run.returnValue;

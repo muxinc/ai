@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { start } from "workflow/api";
 
+import { getPlaybackIdForAsset } from "../../src/lib/mux-assets";
 import type { SupportedProvider } from "../../src/lib/providers";
+import { getReadyTextTracks } from "../../src/primitives/transcripts";
 import { translateCaptions } from "../../src/workflows";
 import { muxTestAssets } from "../helpers/mux-test-assets";
 
@@ -9,8 +11,19 @@ describe("Caption Translation Integration Tests for Workflow DevKit", () => {
   const assetId = muxTestAssets.assetId;
   const providers: SupportedProvider[] = ["openai", "anthropic", "google"];
 
+  let englishTrackId: string;
+
+  beforeAll(async () => {
+    const { asset } = await getPlaybackIdForAsset(assetId);
+    const tracks = getReadyTextTracks(asset);
+    const englishTrack = tracks.find(t => t.language_code === "en");
+    if (!englishTrack?.id)
+      throw new Error("Test asset missing English track");
+    englishTrackId = englishTrack.id;
+  });
+
   it.each(providers)("should translate captions to French with %s provider without uploading to Mux", async (provider) => {
-    const run = await start(translateCaptions, [assetId, "en", "fr", {
+    const run = await start(translateCaptions, [assetId, englishTrackId, "fr", {
       provider,
       uploadToS3: false,
       uploadToMux: false,
@@ -24,6 +37,7 @@ describe("Caption Translation Integration Tests for Workflow DevKit", () => {
 
     // Verify structure
     expect(result).toHaveProperty("assetId");
+    expect(result).toHaveProperty("trackId");
     expect(result).toHaveProperty("sourceLanguageCode");
     expect(result).toHaveProperty("targetLanguageCode");
     expect(result).toHaveProperty("sourceLanguage");
@@ -34,6 +48,7 @@ describe("Caption Translation Integration Tests for Workflow DevKit", () => {
 
     // Verify asset ID matches
     expect(result.assetId).toBe(assetId);
+    expect(result.trackId).toBe(englishTrackId);
 
     // Verify language codes
     expect(result.sourceLanguageCode).toBe("en");

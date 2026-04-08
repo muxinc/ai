@@ -13,7 +13,7 @@ import { planSamplingTimestamps } from "@mux/ai/lib/sampling-plan";
 import { signUrl } from "@mux/ai/lib/url-signing";
 import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
 import { getThumbnailUrls } from "@mux/ai/primitives/thumbnails";
-import { fetchTranscriptForAsset, getReadyTextTracks } from "@mux/ai/primitives/transcripts";
+import { fetchTranscriptForAsset } from "@mux/ai/primitives/transcripts";
 import type {
   ImageSubmissionMode,
   MuxAIOptions,
@@ -91,7 +91,7 @@ export interface ModerationOptions extends MuxAIOptions {
   thumbnailInterval?: number;
   /** Width of storyboard thumbnails in pixels (defaults to 640). */
   thumbnailWidth?: number;
-  /** Maximum number of thumbnails to sample (defaults to unlimited). When set, samples are evenly distributed with first and last frames pinned. */
+  /** Maximum number of thumbnails to sample (defaults to unlimited). Acts as a cap: if `thumbnailInterval` produces fewer samples than this limit the interval is respected; otherwise samples are evenly distributed with first and last frames pinned. */
   maxSamples?: number;
   /** Max concurrent moderation requests (defaults to 5). */
   maxConcurrent?: number;
@@ -545,25 +545,13 @@ export async function getModerationScores(
 
   if (isAudioOnly) {
     mode = "transcript";
-    const readyTextTracks = getReadyTextTracks(asset);
-    let transcriptResult = await fetchTranscriptForAsset(asset, playbackId, {
+    const transcriptResult = await fetchTranscriptForAsset(asset, playbackId, {
       languageCode,
       cleanTranscript: true,
       shouldSign: policy === "signed",
       credentials,
       required: true,
     });
-
-    // Audio-only assets may have a single ready text track that isn't "subtitles" (e.g. transcripts).
-    // If a language-specific subtitle wasn't found but there's exactly one track, fall back to it.
-    if (!transcriptResult.track && readyTextTracks.length === 1) {
-      transcriptResult = await fetchTranscriptForAsset(asset, playbackId, {
-        cleanTranscript: true,
-        shouldSign: policy === "signed",
-        credentials,
-        required: true,
-      });
-    }
 
     if (provider === "openai") {
       thumbnailScores = await requestOpenAITranscriptModeration(
@@ -578,33 +566,37 @@ export async function getModerationScores(
       throw new Error(`Unsupported moderation provider: ${provider}`);
     }
   } else {
-    const thumbnailUrls = maxSamples === undefined ?
-        // Generate thumbnail URLs (signed if needed) using existing interval-based logic.
-        await getThumbnailUrls(playbackId, duration, {
-          interval: thumbnailInterval,
-          width: thumbnailWidth,
-          shouldSign: policy === "signed",
-          credentials,
-        }) :
-        // In maxSamples mode, sample valid timestamps over the trimmed usable span.
-        // Use proportional trims (≈ duration/6, capped at 5s) to stay well inside the
-        // renderable range — Mux can't always serve thumbnails at the very edges.
-        await getThumbnailUrlsFromTimestamps(
-          playbackId,
-          planSamplingTimestamps({
-            duration_sec: duration,
-            max_candidates: maxSamples,
-            trim_start_sec: duration > 2 ? Math.min(5, Math.max(1, duration / 6)) : 0,
-            trim_end_sec: duration > 2 ? Math.min(5, Math.max(1, duration / 6)) : 0,
-            fps: videoTrackFps,
-            base_cadence_hz: thumbnailInterval > 0 ? 1 / thumbnailInterval : undefined,
-          }),
-          {
+    // Cheaply estimate how many thumbnails the interval would produce so we
+    // can skip generating (and potentially JWT-signing) URLs we'd discard.
+    const estimatedIntervalCount = duration <= 50 ? 5 : Math.ceil(duration / thumbnailInterval);
+
+    // maxSamples acts as a true cap: if the interval already fits within the
+    // budget we use the interval-based path. Only when the interval would
+    // produce more thumbnails than allowed do we switch to the sampling plan.
+    const thumbnailUrls =
+      maxSamples !== undefined && estimatedIntervalCount > maxSamples ?
+          await getThumbnailUrlsFromTimestamps(
+            playbackId,
+            planSamplingTimestamps({
+              duration_sec: duration,
+              max_candidates: maxSamples,
+              trim_start_sec: duration > 2 ? Math.min(5, Math.max(1, duration / 6)) : 0,
+              trim_end_sec: duration > 2 ? Math.min(5, Math.max(1, duration / 6)) : 0,
+              fps: videoTrackFps,
+              base_cadence_hz: thumbnailInterval > 0 ? 1 / thumbnailInterval : undefined,
+            }),
+            {
+              width: thumbnailWidth,
+              shouldSign: policy === "signed",
+              credentials,
+            },
+          ) :
+          await getThumbnailUrls(playbackId, duration, {
+            interval: thumbnailInterval,
             width: thumbnailWidth,
             shouldSign: policy === "signed",
             credentials,
-          },
-        );
+          });
     thumbnailCount = thumbnailUrls.length;
 
     if (provider === "openai") {

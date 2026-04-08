@@ -70,7 +70,7 @@ program
   .name("translate-captions-aws-sdk")
   .description("Translate captions using AWS SDK v3 via storageAdapter")
   .argument("<asset-id>", "Mux asset ID to translate")
-  .option("-f, --from <language>", "Source language code", "en")
+  .requiredOption("--track <trackId>", "Source text track ID")
   .option("-t, --to <language>", "Target language code", "es")
   .option("-p, --provider <provider>", "AI provider (openai, anthropic, google)", "anthropic")
   .option("-m, --model <model>", "Model name (overrides default for provider)")
@@ -78,7 +78,7 @@ program
   .option("--s3-region <region>", "S3 region", process.env.S3_REGION ?? "us-east-1")
   .option("--s3-bucket <name>", "S3 bucket", process.env.S3_BUCKET)
   .action(async (assetId: string, options: {
-    from: string;
+    track: string;
     to: string;
     provider: Provider;
     model?: string;
@@ -100,14 +100,15 @@ program
     const storageAdapter = createAwsSdkStorageAdapter();
 
     console.log(`Asset ID: ${assetId}`);
-    console.log(`Translation: ${options.from} -> ${options.to}`);
+    console.log(`Track ID: ${options.track}`);
+    console.log(`Target language: ${options.to}`);
     console.log(`Provider: ${options.provider} (${model})`);
     console.log(`S3 endpoint: ${options.s3Endpoint}`);
     console.log(`S3 region: ${options.s3Region}`);
     console.log(`S3 bucket: ${options.s3Bucket}\n`);
 
     try {
-      const result = await translateCaptions(assetId, options.from, options.to, {
+      const result = await translateCaptions(assetId, options.track, options.to, {
         provider: options.provider,
         model,
         s3Endpoint: options.s3Endpoint,

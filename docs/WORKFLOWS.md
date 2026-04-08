@@ -321,7 +321,7 @@ Generate AI-powered chapter markers from video or audio transcripts.
 ```typescript
 import { generateChapters } from "@mux/ai/workflows";
 
-const result = await generateChapters("your-mux-asset-id", "en", {
+const result = await generateChapters("your-mux-asset-id", {
   provider: "openai"
 });
 
@@ -334,7 +334,8 @@ player.addChapters(result.chapters);
 
 ### Requirements
 
-- Asset must have a ready caption/transcript track in the specified language
+- Asset must have a ready caption/transcript track
+- When `languageCode` is omitted, prefers an English track if available
 - Uses existing auto-generated or uploaded captions/transcripts
 
 ## Embeddings
@@ -401,11 +402,11 @@ Translate existing captions to different languages and add as new tracks (video 
 ```typescript
 import { translateCaptions } from "@mux/ai/workflows";
 
-// Translate English to Spanish and upload to Mux
+// Translate a caption track to Spanish and upload to Mux
 const result = await translateCaptions(
   "your-mux-asset-id",
-  "en", // from language
-  "es", // to language
+  "your-track-id", // source caption track ID
+  "es", // target language
   {
     provider: "google",
     model: "gemini-3-flash-preview"
@@ -421,7 +422,7 @@ By default, `translateCaptions` uses VTT-aware chunking for longer assets. It pr
 
 ```typescript
 // Override chunking behavior for large assets
-const result = await translateCaptions("your-mux-asset-id", "en", "es", {
+const result = await translateCaptions("your-mux-asset-id", "your-track-id", "es", {
   provider: "anthropic",
   chunking: {
     enabled: true,
@@ -464,7 +465,7 @@ S3_SECRET_ACCESS_KEY=your-secret-key
 `s3Endpoint`, `s3Region` and `s3Bucket` can also be used to override the environment varialbes
 
 ```typescript
-const result = await translateCaptions(assetId, "en", "es", {
+const result = await translateCaptions(assetId, "your-track-id", "es", {
   provider: "anthropic",
   s3Endpoint: "https://your-endpoint.com",
   s3Region: "auto",
@@ -685,17 +686,17 @@ Works with any workflow:
 import { generateChapters } from "@mux/ai/workflows";
 
 // OpenAI (default: gpt-5.1)
-const openaiChapters = await generateChapters(assetId, "en", {
+const openaiChapters = await generateChapters(assetId, {
   provider: "openai"
 });
 
 // Anthropic (default: claude-sonnet-4-5)
-const anthropicChapters = await generateChapters(assetId, "en", {
+const anthropicChapters = await generateChapters(assetId, {
   provider: "anthropic"
 });
 
 // Google (default: gemini-3-flash-preview)
-const googleChapters = await generateChapters(assetId, "en", {
+const googleChapters = await generateChapters(assetId, {
   provider: "google"
 });
 ```

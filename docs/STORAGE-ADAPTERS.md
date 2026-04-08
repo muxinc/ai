@@ -25,7 +25,7 @@ import {
   workflows,
 } from "@mux/ai";
 
-await workflows.translateCaptions(assetId, "en", "es", {
+await workflows.translateCaptions(assetId, "your-track-id", "es", {
   provider: "openai",
   s3Endpoint: "https://s3.amazonaws.com",
   s3Bucket: "my-bucket",
@@ -72,7 +72,7 @@ const adapter: StorageAdapter = {
 ```typescript
 import { workflows } from "@mux/ai";
 
-await workflows.translateCaptions(assetId, "en", "es", {
+await workflows.translateCaptions(assetId, "your-track-id", "es", {
   provider: "openai",
   s3Endpoint: "https://s3.amazonaws.com",
   s3Bucket: "my-bucket",

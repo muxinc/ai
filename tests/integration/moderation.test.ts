@@ -235,7 +235,7 @@ describe("moderation Integration Tests", () => {
       expect(resultWithLargeMax.thumbnailScores.length).toBeGreaterThan(0);
     });
 
-    it("should combine maxSamples with custom thumbnail interval", async () => {
+    it("should cap thumbnails when interval produces more than maxSamples", async () => {
       const result = await getModerationScores(safeAsset, {
         provider: "openai",
         model: "omni-moderation-latest",
@@ -244,8 +244,22 @@ describe("moderation Integration Tests", () => {
       });
 
       expect(result).toBeDefined();
-      // maxSamples should override the interval-based count
+      // interval at 5s produces more than 3 thumbnails, so maxSamples caps the count
       expect(result.thumbnailScores.length).toBe(3);
+    });
+
+    it("should respect interval when it fits within maxSamples", async () => {
+      const result = await getModerationScores(safeAsset, {
+        provider: "openai",
+        model: "omni-moderation-latest",
+        thumbnailInterval: 10,
+        maxSamples: 1000,
+      });
+
+      expect(result).toBeDefined();
+      // interval at 10s produces far fewer than 1000 thumbnails, so interval is respected
+      expect(result.thumbnailScores.length).toBeGreaterThan(0);
+      expect(result.thumbnailScores.length).toBeLessThan(1000);
     });
   });
 });

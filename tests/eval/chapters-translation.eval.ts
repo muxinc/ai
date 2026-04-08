@@ -115,9 +115,10 @@ evalite("Chapters Translation", {
   data,
   task: async ({ assetId, provider, model, languageCode, variant, outputLanguageCode }): Promise<EvalOutput> => {
     const startTime = performance.now();
-    const result = await generateChapters(assetId, languageCode, {
+    const result = await generateChapters(assetId, {
       provider,
       model,
+      languageCode,
       outputLanguageCode,
     });
     const latencyMs = performance.now() - startTime;

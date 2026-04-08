@@ -36,7 +36,7 @@ Chapters are generated from the transcript with timestamps. If the asset has a s
 ```typescript
 import { generateChapters } from "@mux/ai/workflows";
 
-const result = await generateChapters("your-audio-only-asset-id", "en", {
+const result = await generateChapters("your-audio-only-asset-id", {
   provider: "openai",
 });
 ```
@@ -56,12 +56,12 @@ const result = await generateEmbeddings("your-audio-only-asset-id", {
 
 ### Caption Translation (`translateCaptions`)
 
-Translate a transcript VTT to another language and optionally upload back to Mux. Audio-only assets can use the single available text track.
+Translate a transcript VTT to another language and optionally upload back to Mux.
 
 ```typescript
 import { translateCaptions } from "@mux/ai/workflows";
 
-const result = await translateCaptions("your-audio-only-asset-id", "en", "es", {
+const result = await translateCaptions("your-audio-only-asset-id", "your-track-id", "es", {
   provider: "google",
 });
 ```

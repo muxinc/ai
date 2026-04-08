@@ -1,3 +1,4 @@
+import { isAudioOnlyAsset } from "@mux/ai/lib/mux-assets";
 import { signUrl } from "@mux/ai/lib/url-signing";
 import type { AssetTextTrack, MuxAsset, WorkflowCredentialsInput } from "@mux/ai/types";
 
@@ -41,14 +42,26 @@ export function findCaptionTrack(asset: MuxAsset, languageCode?: string): AssetT
     return undefined;
 
   if (!languageCode) {
-    return tracks[0];
+    const englishTrack = tracks.find(
+      track => track.text_type === "subtitles" && track.language_code === "en",
+    );
+    return englishTrack ?? tracks[0];
   }
 
-  return tracks.find(
+  const languageMatch = tracks.find(
     track =>
       track.text_type === "subtitles" &&
       track.language_code === languageCode,
   );
+  if (languageMatch)
+    return languageMatch;
+
+  // Audio-only assets may have a single track that isn't "subtitles" — fall back to it
+  if (isAudioOnlyAsset(asset) && tracks.length === 1) {
+    return tracks[0];
+  }
+
+  return undefined;
 }
 
 function normalizeLineEndings(value: string): string {
