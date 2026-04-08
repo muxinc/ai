@@ -3,14 +3,13 @@ import { embed } from "ai";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
-  isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
 import type { EmbeddingModelIdByProvider, SupportedEmbeddingProvider } from "@mux/ai/lib/providers";
 import { createEmbeddingModelFromConfig, resolveEmbeddingModelConfig } from "@mux/ai/lib/providers";
 import { withRetry } from "@mux/ai/lib/retry";
 import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
 import { chunkText, chunkVTTCues } from "@mux/ai/primitives/text-chunking";
-import { fetchTranscriptForAsset, getReadyTextTracks, parseVTTCues } from "@mux/ai/primitives/transcripts";
+import { fetchTranscriptForAsset, parseVTTCues } from "@mux/ai/primitives/transcripts";
 import type {
   ChunkEmbedding,
   ChunkingStrategy,
@@ -162,7 +161,6 @@ async function generateEmbeddingsInternal(
   // Fetch asset and playback ID
   const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
-  const isAudioOnly = isAudioOnlyAsset(assetData);
 
   // Resolve signing context for signed playback IDs
   const signingContext = await resolveMuxSigningContext(credentials);
@@ -174,43 +172,16 @@ async function generateEmbeddingsInternal(
   }
 
   // Fetch transcript (raw VTT for VTT strategy, cleaned text otherwise)
-  const readyTextTracks = getReadyTextTracks(assetData);
   const useVttChunking = chunkingStrategy.type === "vtt";
-  let transcriptResult = await fetchTranscriptForAsset(assetData, playbackId, {
+  const transcriptResult = await fetchTranscriptForAsset(assetData, playbackId, {
     languageCode,
     cleanTranscript: !useVttChunking,
     shouldSign: policy === "signed",
     credentials,
+    required: true,
   });
 
-  if (isAudioOnly && !transcriptResult.track && readyTextTracks.length === 1) {
-    transcriptResult = await fetchTranscriptForAsset(assetData, playbackId, {
-      cleanTranscript: !useVttChunking,
-      shouldSign: policy === "signed",
-      credentials,
-    });
-  }
-
-  if (!transcriptResult.track || !transcriptResult.transcriptText) {
-    const availableLanguages = readyTextTracks
-      .map(t => t.language_code)
-      .filter(Boolean)
-      .join(", ");
-    if (isAudioOnly) {
-      throw new Error(
-        `No transcript track found${languageCode ? ` for language '${languageCode}'` : ""}. ` +
-        `Audio-only assets require a transcript. Available languages: ${availableLanguages || "none"}`,
-      );
-    }
-    throw new Error(
-      `No caption track found${languageCode ? ` for language '${languageCode}'` : ""}. Available languages: ${availableLanguages || "none"}`,
-    );
-  }
-
   const transcriptText = transcriptResult.transcriptText;
-  if (!transcriptText.trim()) {
-    throw new Error("Transcript is empty");
-  }
 
   // Chunk the transcript
   const chunks = useVttChunking ?

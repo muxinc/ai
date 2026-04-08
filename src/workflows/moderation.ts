@@ -13,7 +13,7 @@ import { planSamplingTimestamps } from "@mux/ai/lib/sampling-plan";
 import { signUrl } from "@mux/ai/lib/url-signing";
 import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
 import { getThumbnailUrls } from "@mux/ai/primitives/thumbnails";
-import { fetchTranscriptForAsset, getReadyTextTracks } from "@mux/ai/primitives/transcripts";
+import { fetchTranscriptForAsset } from "@mux/ai/primitives/transcripts";
 import type {
   ImageSubmissionMode,
   MuxAIOptions,
@@ -545,25 +545,13 @@ export async function getModerationScores(
 
   if (isAudioOnly) {
     mode = "transcript";
-    const readyTextTracks = getReadyTextTracks(asset);
-    let transcriptResult = await fetchTranscriptForAsset(asset, playbackId, {
+    const transcriptResult = await fetchTranscriptForAsset(asset, playbackId, {
       languageCode,
       cleanTranscript: true,
       shouldSign: policy === "signed",
       credentials,
       required: true,
     });
-
-    // Audio-only assets may have a single ready text track that isn't "subtitles" (e.g. transcripts).
-    // If a language-specific subtitle wasn't found but there's exactly one track, fall back to it.
-    if (!transcriptResult.track && readyTextTracks.length === 1) {
-      transcriptResult = await fetchTranscriptForAsset(asset, playbackId, {
-        cleanTranscript: true,
-        shouldSign: policy === "signed",
-        credentials,
-        required: true,
-      });
-    }
 
     if (provider === "openai") {
       thumbnailScores = await requestOpenAITranscriptModeration(
