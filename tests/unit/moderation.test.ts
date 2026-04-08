@@ -52,10 +52,7 @@ describe("hive moderation categories", () => {
     expect(HIVE_ILLICIT_CATEGORIES).toEqual([
       "yes_pills",
       "illicit_injectables",
-      "yes_smoking",
       "yes_marijuana",
-      "yes_gambling",
-      "yes_drinking_alcohol",
     ]);
   });
 });
