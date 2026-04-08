@@ -57,7 +57,9 @@ export interface AudioTranslationOptions extends MuxAIOptions {
   s3Bucket?: string;
   /**
    * When true (default) the dubbed audio file is uploaded to the configured
-   * bucket and attached to the Mux asset.
+   * bucket and attached as a track on the Mux asset.
+   * When false the dubbed audio is still uploaded to S3 and a `presignedUrl`
+   * is returned, but no track is created on the Mux asset.
    */
   uploadToMux?: boolean;
   /** Optional storage adapter override for upload + presign operations. */
@@ -410,8 +412,8 @@ export async function translateAudio(
   const s3AccessKeyId = env.S3_ACCESS_KEY_ID;
   const s3SecretAccessKey = env.S3_SECRET_ACCESS_KEY;
 
-  if (uploadToMux && (!s3Endpoint || !s3Bucket || (!effectiveStorageAdapter && (!s3AccessKeyId || !s3SecretAccessKey)))) {
-    throw new Error("Storage configuration is required for uploading to Mux. Provide s3Endpoint and s3Bucket. If no storageAdapter is supplied, also provide s3AccessKeyId and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.");
+  if (!s3Endpoint || !s3Bucket || (!effectiveStorageAdapter && (!s3AccessKeyId || !s3SecretAccessKey))) {
+    throw new Error("Storage configuration is required. Provide s3Endpoint and s3Bucket. If no storageAdapter is supplied, also provide s3AccessKeyId and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.");
   }
 
   // Fetch asset data and playback ID from Mux
@@ -514,18 +516,6 @@ export async function translateAudio(
 
   console.warn("✅ Dubbing completed successfully!");
 
-  // If uploadToMux is false, just return the dubbing info
-  // Return ISO 639-1 (2-letter) code for consistency with Mux/player expectations
-  if (!uploadToMux) {
-    const targetLanguage = getLanguageCodePair(toLanguageCode);
-    return {
-      assetId,
-      targetLanguageCode: targetLanguage.iso639_1 as SupportedISO639_1,
-      targetLanguage,
-      dubbingId,
-    };
-  }
-
   // Download dubbed audio from ElevenLabs
   console.warn("📥 Downloading dubbed audio from ElevenLabs...");
 
@@ -586,23 +576,25 @@ export async function translateAudio(
     throw new Error(`Failed to upload audio to S3: ${error instanceof Error ? error.message : "Unknown error"}`);
   }
 
-  // Add translated audio track to Mux asset
-  console.warn("📹 Adding dubbed audio track to Mux asset...");
-
+  // Add translated audio track to Mux asset (only when uploadToMux is true)
   let uploadedTrackId: string | undefined;
-  // Mux uses ISO 639-1 (2-letter) codes for track language_code
-  const muxLangCode = toISO639_1(toLanguageCode);
 
-  try {
-    uploadedTrackId = await createAudioTrackOnMux(assetId, muxLangCode, presignedUrl, credentials);
-    const languageName = new Intl.DisplayNames(["en"], { type: "language" }).of(muxLangCode) || muxLangCode.toUpperCase();
-    const trackName = `${languageName} (auto-dubbed)`;
-    console.warn(`✅ Track added to Mux asset with ID: ${uploadedTrackId}`);
-    console.warn(`📋 Track name: "${trackName}"`);
-  } catch (error) {
-    console.warn(`⚠️ Failed to add audio track to Mux asset: ${error instanceof Error ? error.message : "Unknown error"}`);
-    console.warn("🔗 You can manually add the track using this presigned URL:");
-    console.warn(presignedUrl);
+  if (uploadToMux) {
+    console.warn("📹 Adding dubbed audio track to Mux asset...");
+    // Mux uses ISO 639-1 (2-letter) codes for track language_code
+    const muxLangCode = toISO639_1(toLanguageCode);
+
+    try {
+      uploadedTrackId = await createAudioTrackOnMux(assetId, muxLangCode, presignedUrl, credentials);
+      const languageName = new Intl.DisplayNames(["en"], { type: "language" }).of(muxLangCode) || muxLangCode.toUpperCase();
+      const trackName = `${languageName} (auto-dubbed)`;
+      console.warn(`✅ Track added to Mux asset with ID: ${uploadedTrackId}`);
+      console.warn(`📋 Track name: "${trackName}"`);
+    } catch (error) {
+      console.warn(`⚠️ Failed to add audio track to Mux asset: ${error instanceof Error ? error.message : "Unknown error"}`);
+      console.warn("🔗 You can manually add the track using this presigned URL:");
+      console.warn(presignedUrl);
+    }
   }
 
   const targetLanguage = getLanguageCodePair(toLanguageCode);

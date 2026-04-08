@@ -64,7 +64,9 @@ export interface EditCaptionsOptions<P extends SupportedProvider = SupportedProv
   deleteOriginalTrack?: boolean;
   /**
    * When true (default) the edited VTT is uploaded to the configured
-   * bucket and attached to the Mux asset.
+   * bucket and attached as a track on the Mux asset.
+   * When false the edited VTT is still uploaded to S3 and a `presignedUrl`
+   * is returned, but no track is created on the Mux asset.
    */
   uploadToMux?: boolean;
   /** Optional override for the S3-compatible endpoint used for uploads. */
@@ -436,9 +438,9 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
   const s3AccessKeyId = env.S3_ACCESS_KEY_ID;
   const s3SecretAccessKey = env.S3_SECRET_ACCESS_KEY;
 
-  if (uploadToMux && (!s3Endpoint || !s3Bucket || (!storageAdapter && (!s3AccessKeyId || !s3SecretAccessKey)))) {
+  if (!s3Endpoint || !s3Bucket || (!storageAdapter && (!s3AccessKeyId || !s3SecretAccessKey))) {
     throw new Error(
-      "Storage configuration is required for uploading to Mux. Provide s3Endpoint and s3Bucket. " +
+      "Storage configuration is required. Provide s3Endpoint and s3Bucket. " +
       "If no storageAdapter is supplied, also provide s3AccessKeyId and s3SecretAccessKey in options " +
       "or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.",
     );
@@ -541,20 +543,6 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
       } :
     undefined;
 
-  // If not uploading, return early with the edited VTT
-  if (!uploadToMux) {
-    return {
-      assetId,
-      trackId,
-      originalVtt: vttContent,
-      editedVtt,
-      totalReplacementCount,
-      autoCensorProfanity: autoCensorResult,
-      replacements: replacementsResult,
-      usage: usageWithMetadata,
-    };
-  }
-
   // Upload edited VTT to S3-compatible storage
   let presignedUrl: string;
 
@@ -573,31 +561,33 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
     throw new Error(`Failed to upload VTT to S3: ${error instanceof Error ? error.message : "Unknown error"}`);
   }
 
-  // Add edited track to Mux asset
+  // Add edited track to Mux asset (only when uploadToMux is true)
   let uploadedTrackId: string | undefined;
 
-  try {
-    const languageCode = sourceTrack.language_code || "en";
-    const suffix = trackNameSuffix ?? "edited";
-    const trackName = `${sourceTrack.name || "Subtitles"} (${suffix})`;
-
-    uploadedTrackId = await createTextTrackOnMux(
-      assetId,
-      languageCode,
-      trackName,
-      presignedUrl,
-      credentials,
-    );
-  } catch (error) {
-    console.warn(`Failed to add track to Mux asset: ${error instanceof Error ? error.message : "Unknown error"}`);
-  }
-
-  // Delete original track only if the replacement track was created
-  if (deleteOriginal && uploadedTrackId) {
+  if (uploadToMux) {
     try {
-      await deleteTrackOnMux(assetId, trackId, credentials);
+      const languageCode = sourceTrack.language_code || "en";
+      const suffix = trackNameSuffix ?? "edited";
+      const trackName = `${sourceTrack.name || "Subtitles"} (${suffix})`;
+
+      uploadedTrackId = await createTextTrackOnMux(
+        assetId,
+        languageCode,
+        trackName,
+        presignedUrl,
+        credentials,
+      );
     } catch (error) {
-      console.warn(`Failed to delete original track: ${error instanceof Error ? error.message : "Unknown error"}`);
+      console.warn(`Failed to add track to Mux asset: ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
+
+    // Delete original track only if the replacement track was created
+    if (deleteOriginal && uploadedTrackId) {
+      try {
+        await deleteTrackOnMux(assetId, trackId, credentials);
+      } catch (error) {
+        console.warn(`Failed to delete original track: ${error instanceof Error ? error.message : "Unknown error"}`);
+      }
     }
   }
 

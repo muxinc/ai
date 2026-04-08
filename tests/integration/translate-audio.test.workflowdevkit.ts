@@ -33,8 +33,9 @@ describe("audio Translation Integration Tests for Workflow DevKit", () => {
     expect(typeof result.dubbingId).toBe("string");
     expect(result.dubbingId.length).toBeGreaterThan(0);
 
-    // Since uploadToMux is false, these should not be present
+    // Since uploadToMux is false, no Mux track should be created
     expect(result.uploadedTrackId).toBeUndefined();
-    expect(result.presignedUrl).toBeUndefined();
+    // But presignedUrl should still be present (S3 upload always happens)
+    expect(result.presignedUrl).toBeDefined();
   }, 300000); // 5 minute timeout for ElevenLabs processing
 });
