@@ -292,24 +292,37 @@ const askQuestionsPromptBuilder = createPromptBuilder<AskQuestionsPromptSections
   template: {
     questions: {
       tag: "questions",
-      content: "Please answer the following yes/no questions about this content:",
+      content: "Please answer the following questions about this content:",
     },
   },
   sectionOrder: ["questions"],
 });
 
-function buildUserPrompt(
-  questions: Question[],
-  allowedAnswers: string[],
-  transcriptText?: string,
-  isCleanTranscript: boolean = true,
-): string {
+interface UserPromptContext {
+  questions: Question[];
+  allowedAnswers: string[];
+  transcriptText?: string;
+  isCleanTranscript?: boolean;
+  isAudioOnly?: boolean;
+}
+
+function buildUserPrompt({
+  questions,
+  allowedAnswers,
+  transcriptText,
+  isCleanTranscript = true,
+  isAudioOnly = false,
+}: UserPromptContext): string {
   const questionsList = questions
     .map((q, idx) => `${idx + 1}. ${q.question}`)
     .join("\n");
 
+  const questionsIntro = isAudioOnly ?
+    "Please answer the following questions about this audio content using transcript evidence:" :
+    "Please answer the following questions about this content:";
+
   const questionsContent = dedent`
-    Please answer the following yes/no questions about this content:
+    ${questionsIntro}
 
     ${questionsList}`;
 
@@ -382,8 +395,14 @@ async function analyzeQuestionsWithStoryboard(
     ],
   });
 
+  if (!response.output) {
+    throw new Error("Ask-questions output missing");
+  }
+
+  const parsed = responseSchema.parse(response.output);
+
   return {
-    result: response.output,
+    result: parsed,
     usage: {
       inputTokens: response.usage.inputTokens,
       outputTokens: response.usage.outputTokens,
@@ -422,8 +441,14 @@ async function analyzeQuestionsAudioOnly(
     ],
   });
 
+  if (!response.output) {
+    throw new Error("Ask-questions output missing");
+  }
+
+  const parsed = responseSchema.parse(response.output);
+
   return {
-    result: response.output,
+    result: parsed,
     usage: {
       inputTokens: response.usage.inputTokens,
       outputTokens: response.usage.outputTokens,
@@ -551,7 +576,13 @@ export async function askQuestions(
   const transcriptText = transcriptResult?.transcriptText ?? "";
 
   // Build the user prompt with questions, allowed answers, and optional transcript
-  const userPrompt = buildUserPrompt(questions, allowedAnswers, transcriptText, cleanTranscript);
+  const userPrompt = buildUserPrompt({
+    questions,
+    allowedAnswers,
+    transcriptText,
+    isCleanTranscript: cleanTranscript,
+    isAudioOnly,
+  });
   const systemPrompt = isAudioOnly ? AUDIO_ONLY_SYSTEM_PROMPT : SYSTEM_PROMPT;
 
   let analysisResponse: AnalysisResponse;
