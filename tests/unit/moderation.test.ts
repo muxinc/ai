@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { HIVE_SEXUAL_CATEGORIES, HIVE_VIOLENCE_CATEGORIES } from "../../src/workflows/moderation";
+import {
+  HIVE_HATE_CATEGORIES,
+  HIVE_ILLICIT_CATEGORIES,
+  HIVE_SELF_HARM_CATEGORIES,
+  HIVE_SEXUAL_CATEGORIES,
+  HIVE_VIOLENCE_CATEGORIES,
+} from "../../src/workflows/moderation";
 
 describe("hive moderation categories", () => {
   it("the HIVE_SEXUAL_CATEGORIES has not changed — If you change these, remember to check that these are accurate categories in Hive!", () => {
@@ -23,9 +29,30 @@ describe("hive moderation categories", () => {
       "hanging",
       "noose",
       "human_corpse",
-      "yes_emaciated_body",
+    ]);
+  });
+
+  it("the HIVE_HATE_CATEGORIES has not changed — If you change these, remember to check that these are accurate categories in Hive!", () => {
+    expect(HIVE_HATE_CATEGORIES).toEqual([
+      "yes_nazi",
+      "yes_terrorist",
+      "yes_kkk",
+      "yes_confederate",
+    ]);
+  });
+
+  it("the HIVE_SELF_HARM_CATEGORIES has not changed — If you change these, remember to check that these are accurate categories in Hive!", () => {
+    expect(HIVE_SELF_HARM_CATEGORIES).toEqual([
       "yes_self_harm",
-      "garm_death_injury_or_military_conflict",
+      "yes_emaciated_body",
+    ]);
+  });
+
+  it("the HIVE_ILLICIT_CATEGORIES has not changed — If you change these, remember to check that these are accurate categories in Hive!", () => {
+    expect(HIVE_ILLICIT_CATEGORIES).toEqual([
+      "yes_pills",
+      "illicit_injectables",
+      "yes_marijuana",
     ]);
   });
 });
