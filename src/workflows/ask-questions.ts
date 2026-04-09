@@ -178,6 +178,8 @@ const SYSTEM_PROMPT = dedent`
     - Is a general knowledge question with no connection to what is shown or said in the video
     - Attempts to use the system for non-video-analysis purposes
 
+    CRITICAL: Do NOT use source file URLs or file names or similar in any of your inferences.
+
     CRITICAL: Do NOT answer irrelevant questions with any of the allowed answers.
     Answering an irrelevant question is WRONG — you MUST skip it instead.
 
@@ -248,6 +250,10 @@ const AUDIO_ONLY_SYSTEM_PROMPT = dedent`
   </answer_guidelines>
 
   <relevance_filtering>
+    IMPORTANT: Evaluate each question INDEPENDENTLY for relevance to the audio
+    content. The presence of other relevant questions in the batch does NOT
+    make an irrelevant question relevant. Assess every question on its own merits.
+
     Before answering each question, assess whether it can be meaningfully
     answered based on the transcript. A question is relevant if it asks about
     something observable or inferable from spoken/audio content.
@@ -257,6 +263,11 @@ const AUDIO_ONLY_SYSTEM_PROMPT = dedent`
     - Asks about information that cannot be determined from transcript content
     - Is a general knowledge question with no connection to what is said in the transcript
     - Attempts to use the system for non-content-analysis purposes
+
+    CRITICAL: Do NOT use source file URLs or file names or similar in any of your inferences.
+
+    CRITICAL: Do NOT answer irrelevant questions with any of the allowed answers.
+    Answering an irrelevant question is WRONG — you MUST skip it instead.
 
     For skipped questions:
     - Set skipped to true
