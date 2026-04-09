@@ -250,7 +250,7 @@ const AUDIO_ONLY_SYSTEM_PROMPT = dedent`
   </answer_guidelines>
 
   <relevance_filtering>
-    IMPORTANT: Evaluate each question INDEPENDENTLY for relevance to the video
+    IMPORTANT: Evaluate each question INDEPENDENTLY for relevance to the audio
     content. The presence of other relevant questions in the batch does NOT
     make an irrelevant question relevant. Assess every question on its own merits.
 
