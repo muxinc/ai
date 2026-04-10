@@ -746,8 +746,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
       .filter(Boolean)
       .join(", ");
     throw new MuxAiError(
-      `Track '${trackId}' not found or not ready on asset '${assetId}'. ` +
-      `Available track IDs: ${availableTrackIds || "none"}`,
+      `Track ${trackId} not found or not ready on asset ${assetId}. Available track IDs: ${availableTrackIds || "none"}.`,
       { type: "validation_error" },
     );
   }
@@ -755,8 +754,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   const fromLanguageCode = sourceTextTrack.language_code;
   if (!fromLanguageCode) {
     throw new MuxAiError(
-      `Track '${trackId}' is missing language metadata (language_code). ` +
-      `Cannot determine source language for translation.`,
+      `Track ${trackId} is missing language metadata. Cannot determine source language for translation.`,
       { type: "validation_error" },
     );
   }

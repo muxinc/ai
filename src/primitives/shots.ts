@@ -265,7 +265,7 @@ export async function waitForShotsForAsset(
     }
 
     if (result.status === "errored") {
-      throw new MuxAiError(`Shots generation errored for asset '${assetId}'`);
+      throw new MuxAiError(`Shot generation failed for asset ${assetId}.`);
     }
 
     if (attempt < normalizedMaxAttempts - 1) {
@@ -274,7 +274,7 @@ export async function waitForShotsForAsset(
   }
 
   throw new MuxAiError(
-    `Timed out waiting for shots for asset '${assetId}' after ${normalizedMaxAttempts} attempts. Last status: ${lastStatus ?? "unknown"}`,
+    `Timed out waiting for shots for asset ${assetId}. Last status: ${lastStatus ?? "unknown"}.`,
     { type: "timeout_error", retryable: true },
   );
 }

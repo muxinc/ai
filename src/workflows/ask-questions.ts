@@ -476,14 +476,14 @@ export async function askQuestions(
 
   // Validate questions array is non-empty
   if (!questions || questions.length === 0) {
-    throw new MuxAiError("At least one question must be provided", { type: "validation_error" });
+    throw new MuxAiError("At least one question must be provided.", { type: "validation_error" });
   }
 
   // Validate each question has valid text
   questions.forEach((q, idx) => {
     if (!q.question || typeof q.question !== "string" || !q.question.trim()) {
       throw new MuxAiError(
-        `Question at index ${idx} is invalid: must have non-empty 'question' field`,
+        `Question at index ${idx} is invalid: must have a non-empty question field.`,
         { type: "validation_error" },
       );
     }
@@ -511,7 +511,7 @@ export async function askQuestions(
   );
 
   if (!normalizedAnswerOptions.length) {
-    throw new MuxAiError("answerOptions must include at least one non-empty value", { type: "validation_error" });
+    throw new MuxAiError("answerOptions must include at least one non-empty value.", { type: "validation_error" });
   }
 
   const allowedAnswers = normalizedAnswerOptions as [string, ...string[]];
@@ -621,13 +621,13 @@ export async function askQuestions(
   }
 
   if (!analysisResponse.result?.answers) {
-    throw new MuxAiError(`Failed to get answers for asset ${assetId}`);
+    throw new MuxAiError(`Failed to generate answers for asset ${assetId}.`);
   }
 
   // Validate we got answers for all questions
   if (analysisResponse.result.answers.length !== questions.length) {
     throw new MuxAiError(
-      `Expected ${questions.length} answers but received ${analysisResponse.result.answers.length}`,
+      `Failed to generate answers for all questions for asset ${assetId}.`,
     );
   }
 

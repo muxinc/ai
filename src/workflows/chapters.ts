@@ -340,14 +340,14 @@ export async function generateChapters(
       .filter(Boolean)
       .join(", ");
     throw new MuxAiError(
-      `No caption track found${languageCode ? ` for language '${languageCode}'` : ""}. Available languages: ${availableLanguages || "none"}`,
+      `No caption track found${languageCode ? ` for language ${languageCode}` : ""}. Available languages: ${availableLanguages || "none"}.`,
       { type: "validation_error" },
     );
   }
   const timestampedTranscript = extractTimestampedTranscript(transcriptResult.transcriptText);
   if (!timestampedTranscript) {
     const contentLabel = isAudioOnly ? "transcript" : "caption track";
-    throw new MuxAiError(`No usable content found in ${contentLabel}`, { type: "validation_error" });
+    throw new MuxAiError(`No usable content found in ${contentLabel}.`, { type: "validation_error" });
   }
 
   // Resolve output language: explicit code takes priority, otherwise auto-detect from transcript track
@@ -383,7 +383,7 @@ export async function generateChapters(
   }
 
   if (!chaptersData || !chaptersData.chapters) {
-    throw new MuxAiError("No chapters generated from AI response");
+    throw new MuxAiError(`Failed to generate chapters for asset ${assetId}.`);
   }
 
   // Validate and sort chapters
@@ -393,7 +393,7 @@ export async function generateChapters(
     .sort((a, b) => a.startTime - b.startTime);
 
   if (validChapters.length === 0) {
-    throw new MuxAiError("No valid chapters found in AI response");
+    throw new MuxAiError(`Failed to generate valid chapters for asset ${assetId}.`);
   }
 
   // Ensure first chapter starts at 0

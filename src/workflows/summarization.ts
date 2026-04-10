@@ -733,15 +733,15 @@ export async function getSummaryAndTags(
 
   if (!analysisResponse.result) {
     const contentType = isAudioOnly ? "audio" : "video";
-    throw new MuxAiError(`Failed to analyze ${contentType} content for asset ${assetId}`);
+    throw new MuxAiError(`Failed to analyze ${contentType} content for asset ${assetId}.`);
   }
 
   if (!analysisResponse.result.title) {
-    throw new MuxAiError(`Failed to generate title for asset ${assetId}`);
+    throw new MuxAiError(`Failed to generate title for asset ${assetId}.`);
   }
 
   if (!analysisResponse.result.description) {
-    throw new MuxAiError(`Failed to generate description for asset ${assetId}`);
+    throw new MuxAiError(`Failed to generate description for asset ${assetId}.`);
   }
 
   return {

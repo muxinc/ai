@@ -535,7 +535,7 @@ export async function generateEngagementInsights(
   } = options;
 
   if (!Number.isInteger(hotspotLimit) || hotspotLimit < 1 || hotspotLimit > 10) {
-    throw new MuxAiError("hotspotLimit must be an integer between 1 and 10", { type: "validation_error" });
+    throw new MuxAiError("hotspotLimit must be an integer between 1 and 10.", { type: "validation_error" });
   }
 
   const modelConfig = resolveLanguageModelConfig({
@@ -549,7 +549,7 @@ export async function generateEngagementInsights(
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(asset);
 
   if (!assetDurationSeconds) {
-    throw new MuxAiError(`Asset ${assetId} has no valid duration`, { type: "validation_error" });
+    throw new MuxAiError(`Asset ${assetId} has no valid duration.`, { type: "validation_error" });
   }
 
   const audioOnly = isAudioOnlyAsset(asset);
@@ -702,7 +702,7 @@ export async function generateEngagementInsights(
   );
 
   if (!aiInsights.momentInsights || aiInsights.momentInsights.length === 0) {
-    throw new MuxAiError("Failed to generate insights from AI response");
+    throw new MuxAiError(`Failed to generate insights for asset ${assetId}.`);
   }
 
   // Step 6: Transform — re-associate AI output with hotspots by hotspotIndex
@@ -730,8 +730,7 @@ export async function generateEngagementInsights(
 
   if (momentInsights.length === 0) {
     throw new MuxAiError(
-      "AI returned insights but none matched valid hotspot indices. " +
-      "This may indicate a prompt or model issue.",
+      `Failed to generate valid insights for asset ${assetId}.`,
     );
   }
 

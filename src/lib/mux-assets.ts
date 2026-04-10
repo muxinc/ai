@@ -24,8 +24,7 @@ function getPlaybackId(asset: MuxAsset): { id: string; policy: PlaybackPolicy } 
   }
 
   throw new MuxAiError(
-    "No public or signed playback ID found for this asset. " +
-    "A public or signed playback ID is required. DRM playback IDs are not currently supported.",
+    "No public or signed playback ID found for this asset. DRM playback IDs are not currently supported.",
     { type: "validation_error" },
   );
 }

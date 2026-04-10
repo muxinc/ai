@@ -408,7 +408,7 @@ export async function translateAudio(
   } = options;
 
   if (provider !== "elevenlabs") {
-    throw new MuxAiError("Only ElevenLabs provider is currently supported for audio translation", { type: "validation_error" });
+    throw new MuxAiError("Only ElevenLabs provider is currently supported for audio translation.", { type: "validation_error" });
   }
 
   const credentials = providedCredentials;

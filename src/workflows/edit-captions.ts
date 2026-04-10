@@ -480,8 +480,7 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
       .filter(Boolean)
       .join(", ");
     throw new MuxAiError(
-      `Track '${trackId}' not found or not ready on asset '${assetId}'. ` +
-      `Available track IDs: ${availableTrackIds || "none"}`,
+      `Track ${trackId} not found or not ready on asset ${assetId}. Available track IDs: ${availableTrackIds || "none"}.`,
       { type: "validation_error" },
     );
   }
