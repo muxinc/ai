@@ -2,6 +2,7 @@ import { generateText, Output } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
+import { MuxAiError } from "@mux/ai/lib/mux-ai-error";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -534,7 +535,7 @@ export async function generateEngagementInsights(
   } = options;
 
   if (!Number.isInteger(hotspotLimit) || hotspotLimit < 1 || hotspotLimit > 10) {
-    throw new Error("hotspotLimit must be an integer between 1 and 10");
+    throw new MuxAiError("hotspotLimit must be an integer between 1 and 10", { type: "validation_error" });
   }
 
   const modelConfig = resolveLanguageModelConfig({
@@ -548,16 +549,17 @@ export async function generateEngagementInsights(
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(asset);
 
   if (!assetDurationSeconds) {
-    throw new Error(`Asset ${assetId} has no valid duration`);
+    throw new MuxAiError(`Asset ${assetId} has no valid duration`, { type: "validation_error" });
   }
 
   const audioOnly = isAudioOnlyAsset(asset);
 
   const signingContext = await resolveMuxSigningContext(credentials);
   if (policy === "signed" && !signingContext) {
-    throw new Error(
+    throw new MuxAiError(
       "Signed playback ID requires signing credentials. " +
       "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
+      { type: "validation_error" },
     );
   }
 
@@ -700,7 +702,7 @@ export async function generateEngagementInsights(
   );
 
   if (!aiInsights.momentInsights || aiInsights.momentInsights.length === 0) {
-    throw new Error("Failed to generate insights from AI response");
+    throw new MuxAiError("Failed to generate insights from AI response");
   }
 
   // Step 6: Transform — re-associate AI output with hotspots by hotspotIndex
@@ -727,7 +729,7 @@ export async function generateEngagementInsights(
   }
 
   if (momentInsights.length === 0) {
-    throw new Error(
+    throw new MuxAiError(
       "AI returned insights but none matched valid hotspot indices. " +
       "This may indicate a prompt or model issue.",
     );

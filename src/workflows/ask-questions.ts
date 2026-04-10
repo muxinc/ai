@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
+import { MuxAiError } from "@mux/ai/lib/mux-ai-error";
 import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset, isAudioOnlyAsset } from "@mux/ai/lib/mux-assets";
 import { createPromptBuilder, createTranscriptSection, renderSection } from "@mux/ai/lib/prompt-builder";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
@@ -475,14 +476,15 @@ export async function askQuestions(
 
   // Validate questions array is non-empty
   if (!questions || questions.length === 0) {
-    throw new Error("At least one question must be provided");
+    throw new MuxAiError("At least one question must be provided", { type: "validation_error" });
   }
 
   // Validate each question has valid text
   questions.forEach((q, idx) => {
     if (!q.question || typeof q.question !== "string" || !q.question.trim()) {
-      throw new Error(
+      throw new MuxAiError(
         `Question at index ${idx} is invalid: must have non-empty 'question' field`,
+        { type: "validation_error" },
       );
     }
   });
@@ -509,7 +511,7 @@ export async function askQuestions(
   );
 
   if (!normalizedAnswerOptions.length) {
-    throw new Error("answerOptions must include at least one non-empty value");
+    throw new MuxAiError("answerOptions must include at least one non-empty value", { type: "validation_error" });
   }
 
   const allowedAnswers = normalizedAnswerOptions as [string, ...string[]];
@@ -526,17 +528,19 @@ export async function askQuestions(
   const isAudioOnly = isAudioOnlyAsset(assetData);
 
   if (isAudioOnly && !includeTranscript) {
-    throw new Error(
+    throw new MuxAiError(
       "Audio-only assets require a transcript. Set includeTranscript: true and ensure the asset has a ready text track (captions/subtitles).",
+      { type: "validation_error" },
     );
   }
 
   // Resolve signing context for signed playback IDs
   const signingContext = await resolveMuxSigningContext(credentials);
   if (policy === "signed" && !signingContext) {
-    throw new Error(
+    throw new MuxAiError(
       "Signed playback ID requires signing credentials. " +
       "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
+      { type: "validation_error" },
     );
   }
 
@@ -621,12 +625,12 @@ export async function askQuestions(
   }
 
   if (!analysisResponse.result?.answers) {
-    throw new Error(`Failed to get answers for asset ${assetId}`);
+    throw new MuxAiError(`Failed to get answers for asset ${assetId}`);
   }
 
   // Validate we got answers for all questions
   if (analysisResponse.result.answers.length !== questions.length) {
-    throw new Error(
+    throw new MuxAiError(
       `Expected ${questions.length} answers but received ${analysisResponse.result.answers.length}`,
     );
   }

@@ -1,4 +1,5 @@
 import { getMuxClientFromEnv } from "@mux/ai/lib/client-factory";
+import { MuxAiError } from "@mux/ai/lib/mux-ai-error";
 import type { WorkflowCredentialsInput } from "@mux/ai/types";
 
 export interface Shot {
@@ -264,7 +265,7 @@ export async function waitForShotsForAsset(
     }
 
     if (result.status === "errored") {
-      throw new Error(`Shots generation errored for asset '${assetId}'`);
+      throw new MuxAiError(`Shots generation errored for asset '${assetId}'`);
     }
 
     if (attempt < normalizedMaxAttempts - 1) {
@@ -272,7 +273,8 @@ export async function waitForShotsForAsset(
     }
   }
 
-  throw new Error(
+  throw new MuxAiError(
     `Timed out waiting for shots for asset '${assetId}' after ${normalizedMaxAttempts} attempts. Last status: ${lastStatus ?? "unknown"}`,
+    { retryable: true },
   );
 }

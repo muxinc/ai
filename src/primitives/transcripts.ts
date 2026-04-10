@@ -1,3 +1,4 @@
+import { MuxAiError } from "@mux/ai/lib/mux-ai-error";
 import { isAudioOnlyAsset } from "@mux/ai/lib/mux-assets";
 import { signUrl } from "@mux/ai/lib/url-signing";
 import type { AssetTextTrack, MuxAsset, WorkflowCredentialsInput } from "@mux/ai/types";
@@ -494,7 +495,7 @@ export async function fetchTranscriptForAsset(
         .map(t => t.language_code)
         .filter(Boolean)
         .join(", ");
-      throw new Error(
+      throw new MuxAiError(
         `No transcript track found${languageCode ? ` for language '${languageCode}'` : ""}. Available languages: ${availableLanguages || "none"}`,
       );
     }
@@ -503,7 +504,7 @@ export async function fetchTranscriptForAsset(
 
   if (!track.id) {
     if (required) {
-      throw new Error("Transcript track is missing an id");
+      throw new MuxAiError("Transcript track is missing an id");
     }
     return { transcriptText: "", track };
   }
@@ -523,7 +524,7 @@ export async function fetchTranscriptForAsset(
     const transcriptText = cleanTranscript ? extractTextFromVTT(rawVtt) : rawVtt;
 
     if (required && !transcriptText.trim()) {
-      throw new Error("Transcript is empty");
+      throw new MuxAiError("Transcript is empty");
     }
 
     return { transcriptText, transcriptUrl, track };

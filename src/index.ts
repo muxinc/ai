@@ -1,5 +1,8 @@
 import { version } from "../package.json";
 
+// Error types
+export { MuxAiError } from "./lib/mux-ai-error";
+
 // Workflow credential utilities
 export { setWorkflowCredentialsProvider } from "./lib/workflow-credentials";
 export type { WorkflowCredentialsProvider } from "./lib/workflow-credentials";

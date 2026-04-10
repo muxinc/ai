@@ -2,6 +2,7 @@ import env from "@mux/ai/env";
 import { getApiKeyFromEnv } from "@mux/ai/lib/client-factory";
 import { getLanguageCodePair, toISO639_1, toISO639_3 } from "@mux/ai/lib/language-codes";
 import type { LanguageCodePair, SupportedISO639_1 } from "@mux/ai/lib/language-codes";
+import { MuxAiError } from "@mux/ai/lib/mux-ai-error";
 import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
 import {
   createPresignedGetUrlWithStorageAdapter,
@@ -185,14 +186,15 @@ async function waitForAudioStaticRendition({
     );
 
     if (currentStatus === "errored") {
-      throw new Error(
+      throw new MuxAiError(
         "Mux failed to create the static rendition for this asset. Please check the asset in the Mux dashboard.",
       );
     }
   }
 
-  throw new Error(
+  throw new MuxAiError(
     "Timed out waiting for the static rendition to become ready. Please try again in a moment.",
+    { retryable: true },
   );
 }
 
@@ -407,7 +409,7 @@ export async function translateAudio(
   } = options;
 
   if (provider !== "elevenlabs") {
-    throw new Error("Only ElevenLabs provider is currently supported for audio translation");
+    throw new MuxAiError("Only ElevenLabs provider is currently supported for audio translation", { type: "validation_error" });
   }
 
   const credentials = providedCredentials;
@@ -424,7 +426,7 @@ export async function translateAudio(
   const s3SecretAccessKey = env.S3_SECRET_ACCESS_KEY;
 
   if (uploadToS3 && (!s3Endpoint || !s3Bucket || (!effectiveStorageAdapter && (!s3AccessKeyId || !s3SecretAccessKey)))) {
-    throw new Error("Storage configuration is required for uploading. Provide s3Endpoint and s3Bucket. If no storageAdapter is supplied, also provide s3AccessKeyId and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.");
+    throw new MuxAiError("Storage configuration is required for uploading. Provide s3Endpoint and s3Bucket. If no storageAdapter is supplied, also provide s3AccessKeyId and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.", { type: "validation_error" });
   }
 
   // Fetch asset data and playback ID from Mux
@@ -446,7 +448,7 @@ export async function translateAudio(
   const audioRendition = getReadyAudioStaticRendition(currentAsset);
 
   if (!audioRendition) {
-    throw new Error(
+    throw new MuxAiError(
       "Unable to obtain an audio-only static rendition for this asset. Please verify static renditions are enabled in Mux.",
     );
   }
@@ -522,7 +524,7 @@ export async function translateAudio(
   }
 
   if (dubbingStatus !== "dubbed") {
-    throw new Error(`Dubbing job timed out or failed. Final status: ${dubbingStatus}`);
+    throw new MuxAiError(`Dubbing job timed out or failed. Final status: ${dubbingStatus}`, { retryable: true });
   }
 
   console.warn("✅ Dubbing completed successfully!");
