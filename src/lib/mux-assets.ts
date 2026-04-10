@@ -1,4 +1,5 @@
 import { getMuxClientFromEnv } from "@mux/ai/lib/client-factory";
+import { MuxAiError } from "@mux/ai/lib/mux-ai-error";
 import type { MuxAsset, PlaybackAsset, PlaybackPolicy, WorkflowCredentialsInput, WorkflowMuxClient } from "@mux/ai/types";
 
 /**
@@ -22,9 +23,9 @@ function getPlaybackId(asset: MuxAsset): { id: string; policy: PlaybackPolicy } 
     return { id: signedPlaybackId.id, policy: "signed" };
   }
 
-  throw new Error(
-    "No public or signed playback ID found for this asset. " +
-    "A public or signed playback ID is required. DRM playback IDs are not currently supported.",
+  throw new MuxAiError(
+    "No public or signed playback ID found for this asset. DRM playback IDs are not currently supported.",
+    { type: "validation_error" },
   );
 }
 

@@ -3,6 +3,7 @@ import dedent from "dedent";
 import { z } from "zod";
 
 import env from "@mux/ai/env";
+import { MuxAiError, wrapError } from "@mux/ai/lib/mux-ai-error";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -429,11 +430,11 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
   const hasAutoCensor = !!autoCensorOption;
   const hasReplacements = !!replacementsOption && replacementsOption.length > 0;
   if (!hasAutoCensor && !hasReplacements) {
-    throw new Error("At least one of autoCensorProfanity or replacements must be provided.");
+    throw new MuxAiError("At least one of autoCensorProfanity or replacements must be provided.", { type: "validation_error" });
   }
 
   if (autoCensorOption && !provider) {
-    throw new Error("provider is required when using autoCensorProfanity.");
+    throw new MuxAiError("provider is required when using autoCensorProfanity.", { type: "validation_error" });
   }
 
   const deleteOriginal = deleteOriginalTrack !== false;
@@ -448,10 +449,11 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
   const s3SecretAccessKey = env.S3_SECRET_ACCESS_KEY;
 
   if (uploadToS3 && (!s3Endpoint || !s3Bucket || (!storageAdapter && (!s3AccessKeyId || !s3SecretAccessKey)))) {
-    throw new Error(
+    throw new MuxAiError(
       "Storage configuration is required for uploading. Provide s3Endpoint and s3Bucket. " +
       "If no storageAdapter is supplied, also provide s3AccessKeyId and s3SecretAccessKey in options " +
       "or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.",
+      { type: "validation_error" },
     );
   }
 
@@ -462,9 +464,10 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
   // Resolve signing context for signed playback IDs
   const signingContext = await resolveMuxSigningContext(credentials);
   if (policy === "signed" && !signingContext) {
-    throw new Error(
+    throw new MuxAiError(
       "Signed playback ID requires signing credentials. " +
       "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
+      { type: "validation_error" },
     );
   }
 
@@ -476,9 +479,9 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
       .map(t => t.id)
       .filter(Boolean)
       .join(", ");
-    throw new Error(
-      `Track '${trackId}' not found or not ready on asset '${assetId}'. ` +
-      `Available track IDs: ${availableTrackIds || "none"}`,
+    throw new MuxAiError(
+      `Track ${trackId} not found or not ready on asset ${assetId}. Available track IDs: ${availableTrackIds || "none"}.`,
+      { type: "validation_error" },
     );
   }
 
@@ -489,7 +492,7 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
   try {
     vttContent = await fetchVttFromMux(vttUrl);
   } catch (error) {
-    throw new Error(`Failed to fetch VTT content: ${error instanceof Error ? error.message : "Unknown error"}`);
+    wrapError(error, "Failed to fetch VTT content");
   }
 
   let editedVtt = vttContent;
@@ -503,7 +506,7 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
 
     const plainText = extractTextFromVTT(vttContent);
     if (!plainText.trim()) {
-      throw new Error("Track transcript is empty; nothing to censor.");
+      throw new MuxAiError("Track transcript is empty; nothing to censor.", { type: "validation_error" });
     }
 
     const modelConfig = resolveLanguageModelConfig({
@@ -523,7 +526,7 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
       detectedProfanity = result.profanity;
       usage = result.usage;
     } catch (error) {
-      throw new Error(`Failed to detect profanity with ${modelConfig.provider}: ${error instanceof Error ? error.message : "Unknown error"}`);
+      wrapError(error, `Failed to detect profanity with ${modelConfig.provider}`);
     }
 
     const finalProfanity = applyOverrideLists(detectedProfanity, alwaysCensor, neverCensor);
@@ -569,7 +572,7 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
         s3SignedUrlExpirySeconds: options.s3SignedUrlExpirySeconds,
       });
     } catch (error) {
-      throw new Error(`Failed to upload VTT to S3: ${error instanceof Error ? error.message : "Unknown error"}`);
+      wrapError(error, "Failed to upload VTT to S3");
     }
 
     // Add edited track to Mux asset (only when uploadToMux is true)

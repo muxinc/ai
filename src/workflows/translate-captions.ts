@@ -12,6 +12,7 @@ import { z } from "zod";
 import env from "@mux/ai/env";
 import { getLanguageCodePair, getLanguageName } from "@mux/ai/lib/language-codes";
 import type { LanguageCodePair, SupportedISO639_1 } from "@mux/ai/lib/language-codes";
+import { MuxAiError, wrapError } from "@mux/ai/lib/mux-ai-error";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -538,9 +539,7 @@ async function translateChunkWithFallback({
     };
   } catch (error) {
     if (!shouldSplitChunkTranslationError(error) || chunk.cueCount <= 1) {
-      throw new Error(
-        `Chunk ${chunk.id} failed for ${Math.round(chunk.startTime)}s-${Math.round(chunk.endTime)}s: ${error instanceof Error ? error.message : "Unknown error"}`,
-      );
+      wrapError(error, `Chunk ${chunk.id} failed for ${Math.round(chunk.startTime)}s-${Math.round(chunk.endTime)}s`);
     }
 
     const [leftChunk, rightChunk] = splitTranslationChunkAtMidpoint(chunk);
@@ -721,7 +720,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   });
 
   if (uploadToS3 && (!s3Endpoint || !s3Bucket || (!effectiveStorageAdapter && (!s3AccessKeyId || !s3SecretAccessKey)))) {
-    throw new Error("Storage configuration is required for uploading. Provide s3Endpoint and s3Bucket. If no storageAdapter is supplied, also provide s3AccessKeyId and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.");
+    throw new MuxAiError("Storage configuration is required for uploading. Provide s3Endpoint and s3Bucket. If no storageAdapter is supplied, also provide s3AccessKeyId and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.", { type: "validation_error" });
   }
 
   // Fetch asset data and playback ID from Mux
@@ -731,9 +730,10 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   // Resolve signing context for signed playback IDs
   const signingContext = await resolveMuxSigningContext(credentials);
   if (policy === "signed" && !signingContext) {
-    throw new Error(
+    throw new MuxAiError(
       "Signed playback ID requires signing credentials. " +
       "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
+      { type: "validation_error" },
     );
   }
 
@@ -745,17 +745,17 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
       .map(t => t.id)
       .filter(Boolean)
       .join(", ");
-    throw new Error(
-      `Track '${trackId}' not found or not ready on asset '${assetId}'. ` +
-      `Available track IDs: ${availableTrackIds || "none"}`,
+    throw new MuxAiError(
+      `Track ${trackId} not found or not ready on asset ${assetId}. Available track IDs: ${availableTrackIds || "none"}.`,
+      { type: "validation_error" },
     );
   }
 
   const fromLanguageCode = sourceTextTrack.language_code;
   if (!fromLanguageCode) {
-    throw new Error(
-      `Track '${trackId}' is missing language metadata (language_code). ` +
-      `Cannot determine source language for translation.`,
+    throw new MuxAiError(
+      `Track ${trackId} is missing language metadata. Cannot determine source language for translation.`,
+      { type: "validation_error" },
     );
   }
 
@@ -766,7 +766,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   try {
     vttContent = await fetchVttFromMux(vttUrl);
   } catch (error) {
-    throw new Error(`Failed to fetch VTT content: ${error instanceof Error ? error.message : "Unknown error"}`);
+    wrapError(error, "Failed to fetch VTT content");
   }
 
   // Translate VTT content using configured provider via ai-sdk
@@ -787,7 +787,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     translatedVtt = result.translatedVtt;
     usage = result.usage;
   } catch (error) {
-    throw new Error(`Failed to translate VTT with ${modelConfig.provider}: ${error instanceof Error ? error.message : "Unknown error"}`);
+    wrapError(error, `Failed to translate VTT with ${modelConfig.provider}`);
   }
 
   const usageWithMetadata = usage ?
@@ -821,7 +821,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
         s3SignedUrlExpirySeconds: options.s3SignedUrlExpirySeconds,
       });
     } catch (error) {
-      throw new Error(`Failed to upload VTT to S3: ${error instanceof Error ? error.message : "Unknown error"}`);
+      wrapError(error, "Failed to upload VTT to S3");
     }
 
     // Add translated track to Mux asset (only when uploadToMux is true)

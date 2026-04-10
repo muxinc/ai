@@ -3,6 +3,7 @@ import dedent from "dedent";
 import { z } from "zod";
 
 import { getLanguageName } from "@mux/ai/lib/language-codes";
+import { MuxAiError, wrapError } from "@mux/ai/lib/mux-ai-error";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -318,9 +319,10 @@ export async function generateChapters(
   // Resolve signing context for signed playback IDs
   const signingContext = await resolveMuxSigningContext(credentials);
   if (policy === "signed" && !signingContext) {
-    throw new Error(
+    throw new MuxAiError(
       "Signed playback ID requires signing credentials. " +
       "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
+      { type: "validation_error" },
     );
   }
 
@@ -337,14 +339,15 @@ export async function generateChapters(
       .map(t => t.language_code)
       .filter(Boolean)
       .join(", ");
-    throw new Error(
-      `No caption track found${languageCode ? ` for language '${languageCode}'` : ""}. Available languages: ${availableLanguages || "none"}`,
+    throw new MuxAiError(
+      `No caption track found${languageCode ? ` for language ${languageCode}` : ""}. Available languages: ${availableLanguages || "none"}.`,
+      { type: "validation_error" },
     );
   }
   const timestampedTranscript = extractTimestampedTranscript(transcriptResult.transcriptText);
   if (!timestampedTranscript) {
     const contentLabel = isAudioOnly ? "transcript" : "caption track";
-    throw new Error(`No usable content found in ${contentLabel}`);
+    throw new MuxAiError(`No usable content found in ${contentLabel}.`, { type: "validation_error" });
   }
 
   // Resolve output language: explicit code takes priority, otherwise auto-detect from transcript track
@@ -376,13 +379,11 @@ export async function generateChapters(
       credentials,
     });
   } catch (error) {
-    throw new Error(
-      `Failed to generate chapters with ${provider}: ${error instanceof Error ? error.message : "Unknown error"}`,
-    );
+    wrapError(error, `Failed to generate chapters with ${provider}`);
   }
 
   if (!chaptersData || !chaptersData.chapters) {
-    throw new Error("No chapters generated from AI response");
+    throw new MuxAiError(`Failed to generate chapters for asset ${assetId}.`);
   }
 
   // Validate and sort chapters
@@ -392,7 +393,7 @@ export async function generateChapters(
     .sort((a, b) => a.startTime - b.startTime);
 
   if (validChapters.length === 0) {
-    throw new Error("No valid chapters found in AI response");
+    throw new MuxAiError(`Failed to generate valid chapters for asset ${assetId}.`);
   }
 
   // Ensure first chapter starts at 0

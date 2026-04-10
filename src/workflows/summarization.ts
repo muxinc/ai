@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
 import { getLanguageName } from "@mux/ai/lib/language-codes";
+import { MuxAiError, wrapError } from "@mux/ai/lib/mux-ai-error";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -611,8 +612,9 @@ export async function getSummaryAndTags(
 
   // Validate tone parameter
   if (!VALID_TONES.includes(tone)) {
-    throw new Error(
-      `Invalid tone "${tone}". Valid tones are: ${VALID_TONES.join(", ")}`,
+    throw new MuxAiError(
+      `Invalid tone "${tone}". Valid tones are: ${VALID_TONES.join(", ")}.`,
+      { type: "validation_error" },
     );
   }
 
@@ -633,17 +635,19 @@ export async function getSummaryAndTags(
 
   // Audio-only assets require transcripts since there's no visual content
   if (isAudioOnly && !includeTranscript) {
-    throw new Error(
+    throw new MuxAiError(
       "Audio-only assets require a transcript. Set includeTranscript: true and ensure the asset has a ready text track (captions/subtitles).",
+      { type: "validation_error" },
     );
   }
 
   // Resolve signing context for signed playback IDs
   const signingContext = await resolveMuxSigningContext(workflowCredentials);
   if (policy === "signed" && !signingContext) {
-    throw new Error(
+    throw new MuxAiError(
       "Signed playback ID requires signing credentials. " +
       "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
+      { type: "validation_error" },
     );
   }
 
@@ -724,23 +728,20 @@ export async function getSummaryAndTags(
     }
   } catch (error: unknown) {
     const contentType = isAudioOnly ? "audio" : "video";
-    throw new Error(
-      `Failed to analyze ${contentType} content with ${provider}: ${
-        error instanceof Error ? error.message : "Unknown error"
-      }`,
-    );
+    wrapError(error, `Failed to analyze ${contentType} content with ${provider}`);
   }
 
   if (!analysisResponse.result) {
-    throw new Error(`Failed to analyze video content for asset ${assetId}`);
+    const contentType = isAudioOnly ? "audio" : "video";
+    throw new MuxAiError(`Failed to analyze ${contentType} content for asset ${assetId}.`);
   }
 
   if (!analysisResponse.result.title) {
-    throw new Error(`Failed to generate title for asset ${assetId}`);
+    throw new MuxAiError(`Failed to generate title for asset ${assetId}.`);
   }
 
   if (!analysisResponse.result.description) {
-    throw new Error(`Failed to generate description for asset ${assetId}`);
+    throw new MuxAiError(`Failed to generate description for asset ${assetId}.`);
   }
 
   return {

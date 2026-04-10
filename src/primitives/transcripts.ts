@@ -1,3 +1,4 @@
+import { MuxAiError, wrapError } from "@mux/ai/lib/mux-ai-error";
 import { isAudioOnlyAsset } from "@mux/ai/lib/mux-assets";
 import { signUrl } from "@mux/ai/lib/url-signing";
 import type { AssetTextTrack, MuxAsset, WorkflowCredentialsInput } from "@mux/ai/types";
@@ -494,8 +495,9 @@ export async function fetchTranscriptForAsset(
         .map(t => t.language_code)
         .filter(Boolean)
         .join(", ");
-      throw new Error(
-        `No transcript track found${languageCode ? ` for language '${languageCode}'` : ""}. Available languages: ${availableLanguages || "none"}`,
+      throw new MuxAiError(
+        `No caption track found${languageCode ? ` for language ${languageCode}` : ""}. Available languages: ${availableLanguages || "none"}.`,
+        { type: "validation_error" },
       );
     }
     return { transcriptText: "" };
@@ -503,7 +505,7 @@ export async function fetchTranscriptForAsset(
 
   if (!track.id) {
     if (required) {
-      throw new Error("Transcript track is missing an id");
+      throw new MuxAiError("Transcript track is missing an id.", { type: "validation_error" });
     }
     return { transcriptText: "", track };
   }
@@ -523,15 +525,13 @@ export async function fetchTranscriptForAsset(
     const transcriptText = cleanTranscript ? extractTextFromVTT(rawVtt) : rawVtt;
 
     if (required && !transcriptText.trim()) {
-      throw new Error("Transcript is empty");
+      throw new MuxAiError("Transcript is empty.", { type: "validation_error" });
     }
 
     return { transcriptText, transcriptUrl, track };
   } catch (error) {
     if (required) {
-      throw new Error(
-        `Failed to fetch transcript: ${error instanceof Error ? error.message : "Unknown error"}`,
-      );
+      wrapError(error, "Failed to fetch transcript");
     }
     console.warn("Failed to fetch transcript:", error);
     return { transcriptText: "", transcriptUrl, track };
