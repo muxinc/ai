@@ -507,7 +507,7 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
 
     const plainText = extractTextFromVTT(vttContent);
     if (!plainText.trim()) {
-      throw new MuxAiError("Track transcript is empty; nothing to censor.");
+      throw new MuxAiError("Track transcript is empty; nothing to censor.", { type: "validation_error" });
     }
 
     const modelConfig = resolveLanguageModelConfig({

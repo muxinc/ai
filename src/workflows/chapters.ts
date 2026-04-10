@@ -341,12 +341,13 @@ export async function generateChapters(
       .join(", ");
     throw new MuxAiError(
       `No caption track found${languageCode ? ` for language '${languageCode}'` : ""}. Available languages: ${availableLanguages || "none"}`,
+      { type: "validation_error" },
     );
   }
   const timestampedTranscript = extractTimestampedTranscript(transcriptResult.transcriptText);
   if (!timestampedTranscript) {
     const contentLabel = isAudioOnly ? "transcript" : "caption track";
-    throw new MuxAiError(`No usable content found in ${contentLabel}`);
+    throw new MuxAiError(`No usable content found in ${contentLabel}`, { type: "validation_error" });
   }
 
   // Resolve output language: explicit code takes priority, otherwise auto-detect from transcript track

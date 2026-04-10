@@ -497,6 +497,7 @@ export async function fetchTranscriptForAsset(
         .join(", ");
       throw new MuxAiError(
         `No transcript track found${languageCode ? ` for language '${languageCode}'` : ""}. Available languages: ${availableLanguages || "none"}`,
+        { type: "validation_error" },
       );
     }
     return { transcriptText: "" };
@@ -504,7 +505,7 @@ export async function fetchTranscriptForAsset(
 
   if (!track.id) {
     if (required) {
-      throw new MuxAiError("Transcript track is missing an id");
+      throw new MuxAiError("Transcript track is missing an id", { type: "validation_error" });
     }
     return { transcriptText: "", track };
   }
@@ -524,11 +525,14 @@ export async function fetchTranscriptForAsset(
     const transcriptText = cleanTranscript ? extractTextFromVTT(rawVtt) : rawVtt;
 
     if (required && !transcriptText.trim()) {
-      throw new MuxAiError("Transcript is empty");
+      throw new MuxAiError("Transcript is empty", { type: "validation_error" });
     }
 
     return { transcriptText, transcriptUrl, track };
   } catch (error) {
+    if (error instanceof MuxAiError) {
+      throw error;
+    }
     if (required) {
       throw new Error(
         `Failed to fetch transcript: ${error instanceof Error ? error.message : "Unknown error"}`,

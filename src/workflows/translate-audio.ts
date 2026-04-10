@@ -450,6 +450,7 @@ export async function translateAudio(
   if (!audioRendition) {
     throw new MuxAiError(
       "Unable to obtain an audio-only static rendition for this asset. Please verify static renditions are enabled in Mux.",
+      { type: "validation_error" },
     );
   }
 
