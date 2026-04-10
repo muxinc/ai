@@ -613,7 +613,7 @@ export async function getSummaryAndTags(
   // Validate tone parameter
   if (!VALID_TONES.includes(tone)) {
     throw new MuxAiError(
-      `Invalid tone "${tone}". Valid tones are: ${VALID_TONES.join(", ")}`,
+      `Invalid tone "${tone}". Valid tones are: ${VALID_TONES.join(", ")}.`,
       { type: "validation_error" },
     );
   }

@@ -524,7 +524,7 @@ export async function translateAudio(
   }
 
   if (dubbingStatus !== "dubbed") {
-    throw new MuxAiError(`Dubbing job timed out or failed. Final status: ${dubbingStatus}`, { type: "timeout_error", retryable: true });
+    throw new MuxAiError("Audio translation timed out or failed. Please try again.", { type: "timeout_error", retryable: true });
   }
 
   console.warn("✅ Dubbing completed successfully!");
