@@ -3,7 +3,7 @@ import dedent from "dedent";
 import { z } from "zod";
 
 import { getLanguageName } from "@mux/ai/lib/language-codes";
-import { MuxAiError } from "@mux/ai/lib/mux-ai-error";
+import { MuxAiError, wrapError } from "@mux/ai/lib/mux-ai-error";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -379,9 +379,7 @@ export async function generateChapters(
       credentials,
     });
   } catch (error) {
-    throw new Error(
-      `Failed to generate chapters with ${provider}: ${error instanceof Error ? error.message : "Unknown error"}`,
-    );
+    wrapError(error, `Failed to generate chapters with ${provider}`);
   }
 
   if (!chaptersData || !chaptersData.chapters) {

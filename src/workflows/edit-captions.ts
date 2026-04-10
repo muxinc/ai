@@ -3,7 +3,7 @@ import dedent from "dedent";
 import { z } from "zod";
 
 import env from "@mux/ai/env";
-import { MuxAiError } from "@mux/ai/lib/mux-ai-error";
+import { MuxAiError, wrapError } from "@mux/ai/lib/mux-ai-error";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -493,7 +493,7 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
   try {
     vttContent = await fetchVttFromMux(vttUrl);
   } catch (error) {
-    throw new Error(`Failed to fetch VTT content: ${error instanceof Error ? error.message : "Unknown error"}`);
+    wrapError(error, "Failed to fetch VTT content");
   }
 
   let editedVtt = vttContent;
@@ -527,7 +527,7 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
       detectedProfanity = result.profanity;
       usage = result.usage;
     } catch (error) {
-      throw new Error(`Failed to detect profanity with ${modelConfig.provider}: ${error instanceof Error ? error.message : "Unknown error"}`);
+      wrapError(error, `Failed to detect profanity with ${modelConfig.provider}`);
     }
 
     const finalProfanity = applyOverrideLists(detectedProfanity, alwaysCensor, neverCensor);
@@ -573,7 +573,7 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
         s3SignedUrlExpirySeconds: options.s3SignedUrlExpirySeconds,
       });
     } catch (error) {
-      throw new Error(`Failed to upload VTT to S3: ${error instanceof Error ? error.message : "Unknown error"}`);
+      wrapError(error, "Failed to upload VTT to S3");
     }
 
     // Add edited track to Mux asset (only when uploadToMux is true)

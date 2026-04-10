@@ -2,7 +2,7 @@ import env from "@mux/ai/env";
 import { getApiKeyFromEnv } from "@mux/ai/lib/client-factory";
 import { getLanguageCodePair, toISO639_1, toISO639_3 } from "@mux/ai/lib/language-codes";
 import type { LanguageCodePair, SupportedISO639_1 } from "@mux/ai/lib/language-codes";
-import { MuxAiError } from "@mux/ai/lib/mux-ai-error";
+import { MuxAiError, wrapError } from "@mux/ai/lib/mux-ai-error";
 import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
 import {
   createPresignedGetUrlWithStorageAdapter,
@@ -139,8 +139,7 @@ async function requestStaticRenditionCreation(
       return;
     }
 
-    const message = error instanceof Error ? error.message : "Unknown error";
-    throw new Error(`Failed to request static rendition from Mux: ${message}`);
+    wrapError(error, "Failed to request static rendition from Mux");
   }
 }
 
@@ -194,7 +193,7 @@ async function waitForAudioStaticRendition({
 
   throw new MuxAiError(
     "Timed out waiting for the static rendition to become ready. Please try again in a moment.",
-    { retryable: true },
+    { type: "timeout_error", retryable: true },
   );
 }
 
@@ -467,7 +466,7 @@ export async function translateAudio(
   try {
     audioBuffer = await fetchAudioFromMux(audioUrl);
   } catch (error) {
-    throw new Error(`Failed to fetch audio from Mux: ${error instanceof Error ? error.message : "Unknown error"}`);
+    wrapError(error, "Failed to fetch audio from Mux");
   }
 
   // Create dubbing job in ElevenLabs
@@ -493,7 +492,7 @@ export async function translateAudio(
     });
     console.warn(`✅ Dubbing job created with ID: ${dubbingId}`);
   } catch (error) {
-    throw new Error(`Failed to create ElevenLabs dubbing job: ${error instanceof Error ? error.message : "Unknown error"}`);
+    wrapError(error, "Failed to create ElevenLabs dubbing job");
   }
 
   // Poll for completion
@@ -520,12 +519,12 @@ export async function translateAudio(
         throw new Error("ElevenLabs dubbing job failed");
       }
     } catch (error) {
-      throw new Error(`Failed to check dubbing status: ${error instanceof Error ? error.message : "Unknown error"}`);
+      wrapError(error, "Failed to check dubbing status");
     }
   }
 
   if (dubbingStatus !== "dubbed") {
-    throw new MuxAiError(`Dubbing job timed out or failed. Final status: ${dubbingStatus}`, { retryable: true });
+    throw new MuxAiError(`Dubbing job timed out or failed. Final status: ${dubbingStatus}`, { type: "timeout_error", retryable: true });
   }
 
   console.warn("✅ Dubbing completed successfully!");
@@ -571,7 +570,7 @@ export async function translateAudio(
       });
       console.warn("✅ Dubbed audio downloaded successfully!");
     } catch (error) {
-      throw new Error(`Failed to download dubbed audio: ${error instanceof Error ? error.message : "Unknown error"}`);
+      wrapError(error, "Failed to download dubbed audio");
     }
 
     // Upload to S3-compatible storage
@@ -589,7 +588,7 @@ export async function translateAudio(
         s3SignedUrlExpirySeconds: options.s3SignedUrlExpirySeconds,
       });
     } catch (error) {
-      throw new Error(`Failed to upload audio to S3: ${error instanceof Error ? error.message : "Unknown error"}`);
+      wrapError(error, "Failed to upload audio to S3");
     }
 
     // Add translated audio track to Mux asset (only when uploadToMux is true)

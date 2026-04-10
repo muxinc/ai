@@ -275,6 +275,6 @@ export async function waitForShotsForAsset(
 
   throw new MuxAiError(
     `Timed out waiting for shots for asset '${assetId}' after ${normalizedMaxAttempts} attempts. Last status: ${lastStatus ?? "unknown"}`,
-    { retryable: true },
+    { type: "timeout_error", retryable: true },
   );
 }

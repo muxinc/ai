@@ -12,7 +12,7 @@ import { z } from "zod";
 import env from "@mux/ai/env";
 import { getLanguageCodePair, getLanguageName } from "@mux/ai/lib/language-codes";
 import type { LanguageCodePair, SupportedISO639_1 } from "@mux/ai/lib/language-codes";
-import { MuxAiError } from "@mux/ai/lib/mux-ai-error";
+import { MuxAiError, wrapError } from "@mux/ai/lib/mux-ai-error";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -539,9 +539,7 @@ async function translateChunkWithFallback({
     };
   } catch (error) {
     if (!shouldSplitChunkTranslationError(error) || chunk.cueCount <= 1) {
-      throw new Error(
-        `Chunk ${chunk.id} failed for ${Math.round(chunk.startTime)}s-${Math.round(chunk.endTime)}s: ${error instanceof Error ? error.message : "Unknown error"}`,
-      );
+      wrapError(error, `Chunk ${chunk.id} failed for ${Math.round(chunk.startTime)}s-${Math.round(chunk.endTime)}s`);
     }
 
     const [leftChunk, rightChunk] = splitTranslationChunkAtMidpoint(chunk);
@@ -770,7 +768,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   try {
     vttContent = await fetchVttFromMux(vttUrl);
   } catch (error) {
-    throw new Error(`Failed to fetch VTT content: ${error instanceof Error ? error.message : "Unknown error"}`);
+    wrapError(error, "Failed to fetch VTT content");
   }
 
   // Translate VTT content using configured provider via ai-sdk
@@ -791,7 +789,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     translatedVtt = result.translatedVtt;
     usage = result.usage;
   } catch (error) {
-    throw new Error(`Failed to translate VTT with ${modelConfig.provider}: ${error instanceof Error ? error.message : "Unknown error"}`);
+    wrapError(error, `Failed to translate VTT with ${modelConfig.provider}`);
   }
 
   const usageWithMetadata = usage ?
@@ -825,7 +823,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
         s3SignedUrlExpirySeconds: options.s3SignedUrlExpirySeconds,
       });
     } catch (error) {
-      throw new Error(`Failed to upload VTT to S3: ${error instanceof Error ? error.message : "Unknown error"}`);
+      wrapError(error, "Failed to upload VTT to S3");
     }
 
     // Add translated track to Mux asset (only when uploadToMux is true)

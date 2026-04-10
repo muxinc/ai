@@ -1,4 +1,4 @@
-import { MuxAiError } from "@mux/ai/lib/mux-ai-error";
+import { MuxAiError, wrapError } from "@mux/ai/lib/mux-ai-error";
 import { isAudioOnlyAsset } from "@mux/ai/lib/mux-assets";
 import { signUrl } from "@mux/ai/lib/url-signing";
 import type { AssetTextTrack, MuxAsset, WorkflowCredentialsInput } from "@mux/ai/types";
@@ -530,13 +530,8 @@ export async function fetchTranscriptForAsset(
 
     return { transcriptText, transcriptUrl, track };
   } catch (error) {
-    if (error instanceof MuxAiError) {
-      throw error;
-    }
     if (required) {
-      throw new Error(
-        `Failed to fetch transcript: ${error instanceof Error ? error.message : "Unknown error"}`,
-      );
+      wrapError(error, "Failed to fetch transcript");
     }
     console.warn("Failed to fetch transcript:", error);
     return { transcriptText: "", transcriptUrl, track };

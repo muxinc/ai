@@ -1,5 +1,7 @@
+export type MuxAiErrorType = "validation_error" | "processing_error" | "timeout_error";
+
 /**
- * An error whose message is safe to surface .
+ * An error whose message is safe to surface verbatim to the customer.
  *
  * Uses a structural brand (`__robots_error = true`) so that downstream
  * consumers can identify customer-safe errors via duck typing — no
@@ -7,16 +9,16 @@
  * this brand (unexpected SDK failures, upstream provider errors, etc.)
  * should be treated as internal and obfuscated.
  *
- * Own properties (`publicMessage`, `publicType`, `retryable`, `fatal`)
- * survive JSON serialization across workflow step boundaries, unlike
- * inherited `Error.message`.
+ * Own properties (`publicMessage`, `publicType`, `retryable`) survive
+ * JSON serialization across workflow step boundaries, unlike inherited
+ * `Error.message`.
  */
 export class MuxAiError extends Error {
   /** Structural brand for duck-type identification. */
   readonly __robots_error = true;
 
   /** Error category shown in the API response. */
-  readonly publicType: string;
+  readonly publicType: MuxAiErrorType;
 
   /** Customer-facing message. Must be safe to show verbatim. */
   readonly publicMessage: string;
@@ -24,11 +26,8 @@ export class MuxAiError extends Error {
   /** Whether the customer should retry the job. */
   readonly retryable: boolean;
 
-  /** Tells the workflow runtime to skip step-level retries. */
-  readonly fatal = true;
-
   constructor(message: string, opts?: {
-    type?: string;
+    type?: MuxAiErrorType;
     retryable?: boolean;
   }) {
     super(message);
@@ -37,4 +36,19 @@ export class MuxAiError extends Error {
     this.publicMessage = message;
     this.retryable = opts?.retryable ?? false;
   }
+}
+
+/**
+ * Re-throws {@link MuxAiError} instances to preserve the structural brand,
+ * wraps everything else in a plain `Error` with a contextual message.
+ *
+ * Use this in catch blocks that re-throw so a customer-safe error from a
+ * callee isn't accidentally converted into an internal error.
+ */
+export function wrapError(error: unknown, message: string): never {
+  if (error instanceof MuxAiError) {
+    throw error;
+  }
+  const detail = error instanceof Error ? error.message : "Unknown error";
+  throw new Error(`${message}: ${detail}`);
 }

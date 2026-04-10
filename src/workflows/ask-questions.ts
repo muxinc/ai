@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
-import { MuxAiError } from "@mux/ai/lib/mux-ai-error";
+import { MuxAiError, wrapError } from "@mux/ai/lib/mux-ai-error";
 import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset, isAudioOnlyAsset } from "@mux/ai/lib/mux-assets";
 import { createPromptBuilder, createTranscriptSection, renderSection } from "@mux/ai/lib/prompt-builder";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
@@ -617,11 +617,7 @@ export async function askQuestions(
     }
   } catch (error: unknown) {
     const contentType = isAudioOnly ? "audio" : "video";
-    throw new Error(
-      `Failed to analyze ${contentType} questions with ${provider}: ${
-        error instanceof Error ? error.message : "Unknown error"
-      }`,
-    );
+    wrapError(error, `Failed to analyze ${contentType} questions with ${provider}`);
   }
 
   if (!analysisResponse.result?.answers) {

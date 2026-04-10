@@ -5,7 +5,7 @@ import { z } from "zod";
 import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
 import { getLanguageName } from "@mux/ai/lib/language-codes";
-import { MuxAiError } from "@mux/ai/lib/mux-ai-error";
+import { MuxAiError, wrapError } from "@mux/ai/lib/mux-ai-error";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -728,15 +728,12 @@ export async function getSummaryAndTags(
     }
   } catch (error: unknown) {
     const contentType = isAudioOnly ? "audio" : "video";
-    throw new Error(
-      `Failed to analyze ${contentType} content with ${provider}: ${
-        error instanceof Error ? error.message : "Unknown error"
-      }`,
-    );
+    wrapError(error, `Failed to analyze ${contentType} content with ${provider}`);
   }
 
   if (!analysisResponse.result) {
-    throw new MuxAiError(`Failed to analyze video content for asset ${assetId}`);
+    const contentType = isAudioOnly ? "audio" : "video";
+    throw new MuxAiError(`Failed to analyze ${contentType} content for asset ${assetId}`);
   }
 
   if (!analysisResponse.result.title) {
