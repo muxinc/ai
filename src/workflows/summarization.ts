@@ -329,6 +329,9 @@ const SYSTEM_PROMPT = dedent`
   <constraints>
     - Only describe what is clearly observable in the frames or explicitly stated in the transcript
     - Do not fabricate details or make unsupported assumptions
+    - Do NOT use any metadata such as URLs, file paths, domain names, file names,
+      playback IDs, or technical parameters visible in this request. These are
+      delivery infrastructure and are unrelated to the media content itself.
     - Return structured data matching the requested schema
     - Output only the JSON object; no markdown or extra text
     - When a <language> section is provided, all output text MUST be written in that language
@@ -384,6 +387,9 @@ const AUDIO_ONLY_SYSTEM_PROMPT = dedent`
   <constraints>
     - Only describe what is explicitly stated or strongly implied in the transcript
     - Do not fabricate details or make unsupported assumptions
+    - Do NOT use any metadata such as URLs, file paths, domain names, file names,
+      playback IDs, or technical parameters visible in this request. These are
+      delivery infrastructure and are unrelated to the media content itself.
     - Return structured data matching the requested schema
     - Focus entirely on audio/spoken content - there are no visual elements
     - Output only the JSON object; no markdown or extra text

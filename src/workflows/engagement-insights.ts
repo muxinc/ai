@@ -155,6 +155,9 @@ const SYSTEM_PROMPT = dedent`
   <constraints>
     - Only describe what you can see in images or read in transcripts
     - Do not fabricate details or make unsupported assumptions
+    - Do NOT use any metadata such as URLs, file paths, domain names, file names,
+      playback IDs, or technical parameters visible in this request. These are
+      delivery infrastructure and are unrelated to the media content itself.
     - Correlate engagement scores with observable content
     - Return structured data matching the requested schema exactly
     - Each momentInsight MUST include the hotspotIndex from the input data
@@ -196,6 +199,9 @@ const AUDIO_ONLY_SYSTEM_PROMPT = dedent`
   <constraints>
     - Only describe what you can read in the transcript
     - Do not fabricate details or make unsupported assumptions
+    - Do NOT use any metadata such as URLs, file paths, domain names, file names,
+      playback IDs, or technical parameters visible in this request. These are
+      delivery infrastructure and are unrelated to the media content itself.
     - Correlate engagement scores with observable content
     - Return structured data matching the requested schema exactly
     - Each momentInsight MUST include the hotspotIndex from the input data

@@ -126,6 +126,9 @@ const SYSTEM_PROMPT = dedent`
   <constraints>
     - Only classify as burned-in captions when evidence is clear across multiple frames
     - Base decisions on observable visual evidence
+    - Do NOT use any metadata such as URLs, file paths, domain names, file names,
+      playback IDs, or technical parameters visible in this request. These are
+      delivery infrastructure and are unrelated to the media content itself.
     - Return structured data matching the requested schema
   </constraints>`;
 
