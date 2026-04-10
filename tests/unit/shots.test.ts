@@ -284,7 +284,7 @@ describe("waitForShotsForAsset", () => {
       maxAttempts: 3,
     });
     const expectation = expect(promise).rejects.toThrow(
-      "Timed out waiting for shots for asset 'test-asset-123' after 3 attempts. Last status: pending",
+      "Timed out waiting for shots for asset test-asset-123. Last status: pending.",
     );
 
     await vi.runAllTimersAsync();
@@ -302,7 +302,7 @@ describe("waitForShotsForAsset", () => {
       maxAttempts: 3,
     });
     const expectation = expect(promise).rejects.toThrow(
-      "Shots generation errored for asset 'test-asset-123'",
+      "Shot generation failed for asset test-asset-123.",
     );
 
     await vi.runAllTimersAsync();
