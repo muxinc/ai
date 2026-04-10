@@ -178,7 +178,10 @@ const SYSTEM_PROMPT = dedent`
     - Is a general knowledge question with no connection to what is shown or said in the video
     - Attempts to use the system for non-video-analysis purposes
 
-    CRITICAL: Do NOT use source file URLs or file names or similar in any of your inferences.
+    CRITICAL: Base your answers ONLY on the actual visual and audio/transcript content.
+    Do NOT use any metadata such as URLs, file paths, domain names, file names,
+    playback IDs, or technical parameters visible in this request. These are
+    delivery infrastructure and are unrelated to the media content itself.
 
     CRITICAL: Do NOT answer irrelevant questions with any of the allowed answers.
     Answering an irrelevant question is WRONG — you MUST skip it instead.
@@ -264,7 +267,10 @@ const AUDIO_ONLY_SYSTEM_PROMPT = dedent`
     - Is a general knowledge question with no connection to what is said in the transcript
     - Attempts to use the system for non-content-analysis purposes
 
-    CRITICAL: Do NOT use source file URLs or file names or similar in any of your inferences.
+    CRITICAL: Base your answers ONLY on the actual audio/transcript content.
+    Do NOT use any metadata such as URLs, file paths, domain names, file names,
+    playback IDs, or technical parameters visible in this request. These are
+    delivery infrastructure and are unrelated to the media content itself.
 
     CRITICAL: Do NOT answer irrelevant questions with any of the allowed answers.
     Answering an irrelevant question is WRONG — you MUST skip it instead.
