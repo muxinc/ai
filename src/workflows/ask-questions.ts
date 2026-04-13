@@ -23,6 +23,8 @@ import type { ImageSubmissionMode, MuxAIOptions, TokenUsage, WorkflowCredentials
 export interface Question {
   /** The question text */
   question: string;
+  /** Allowed answers for this question (defaults to ["yes", "no"]). */
+  answerOptions?: string[];
 }
 
 /** A single answer to a question. */
@@ -47,8 +49,6 @@ export interface AskQuestionsOptions extends MuxAIOptions {
   model?: ModelIdByProvider[SupportedProvider];
   /** BCP 47 language code of the caption track to use (e.g. "en", "fr"). When omitted, prefers English if available. */
   languageCode?: string;
-  /** Allowed answers for each question (defaults to ["yes", "no"]). */
-  answerOptions?: string[];
   /** Fetch transcript alongside storyboard (defaults to true, required for audio-only assets). */
   includeTranscript?: boolean;
   /** Strip timestamps/markup from transcripts (defaults to true). */
@@ -146,12 +146,14 @@ const SYSTEM_PROMPT = dedent`
   <task>
     For each question provided, you must:
     1. Analyze the storyboard frames and transcript (if provided)
-    2. Answer with ONLY the allowed response options - no other values are acceptable
+    2. Answer with ONLY the allowed response options listed for that question - no other values are acceptable
     3. Provide a confidence score between 0 and 1 reflecting your certainty
     4. Explain your reasoning based on observable evidence
   </task>
 
   <answer_guidelines>
+    - Each question specifies its own allowed answers in brackets after the question text
+    - Choose only from the options listed for that specific question
     - Choose the affirmative option only if you have clear evidence supporting it
     - Choose the negative/contradicting option if evidence contradicts or if insufficient evidence exists
     - Confidence should reflect the clarity and strength of evidence:
@@ -199,7 +201,7 @@ const SYSTEM_PROMPT = dedent`
   </relevance_filtering>
 
   <constraints>
-    - You MUST answer every relevant question with one of the allowed response options
+    - You MUST answer every relevant question with one of its own listed allowed response options
     - Skip irrelevant questions as described in relevance_filtering
     - Only describe observable evidence from frames or transcript
     - Do not fabricate details or make unsupported assumptions
@@ -235,12 +237,14 @@ const AUDIO_ONLY_SYSTEM_PROMPT = dedent`
   <task>
     For each question provided, you must:
     1. Analyze the transcript
-    2. Answer with ONLY the allowed response options - no other values are acceptable
+    2. Answer with ONLY the allowed response options listed for that question - no other values are acceptable
     3. Provide a confidence score between 0 and 1 reflecting your certainty
     4. Explain your reasoning based on observable evidence
   </task>
 
   <answer_guidelines>
+    - Each question specifies its own allowed answers in brackets after the question text
+    - Choose only from the options listed for that specific question
     - Choose the affirmative option only if you have clear evidence supporting it
     - Choose the negative/contradicting option if evidence contradicts or if insufficient evidence exists
     - Confidence should reflect the clarity and strength of evidence:
@@ -288,7 +292,7 @@ const AUDIO_ONLY_SYSTEM_PROMPT = dedent`
   </relevance_filtering>
 
   <constraints>
-    - You MUST answer every relevant question with one of the allowed response options
+    - You MUST answer every relevant question with one of its own listed allowed response options
     - Skip irrelevant questions as described in relevance_filtering
     - Only describe observable evidence from transcript content
     - Do not fabricate details or make unsupported assumptions
@@ -316,9 +320,10 @@ const askQuestionsPromptBuilder = createPromptBuilder<AskQuestionsPromptSections
   sectionOrder: ["questions"],
 });
 
+type NormalizedQuestion = Question & { answerOptions: [string, ...string[]] };
+
 interface UserPromptContext {
-  questions: Question[];
-  allowedAnswers: string[];
+  questions: NormalizedQuestion[];
   transcriptText?: string;
   isCleanTranscript?: boolean;
   isAudioOnly?: boolean;
@@ -326,13 +331,15 @@ interface UserPromptContext {
 
 function buildUserPrompt({
   questions,
-  allowedAnswers,
   transcriptText,
   isCleanTranscript = true,
   isAudioOnly = false,
 }: UserPromptContext): string {
   const questionsList = questions
-    .map((q, idx) => `${idx + 1}. ${q.question}`)
+    .map((q, idx) => {
+      const answerList = q.answerOptions.map(a => `"${a}"`).join(", ");
+      return `${idx + 1}. ${q.question} [Allowed answers: ${answerList}]`;
+    })
     .join("\n");
 
   const questionsIntro = isAudioOnly ?
@@ -342,24 +349,20 @@ function buildUserPrompt({
   const questionsContent = dedent`
     ${questionsIntro}
 
-    ${questionsList}`;
+    ${questionsList}
 
-  const answerList = allowedAnswers.map(answer => `"${answer}"`).join(", ");
-  const responseOptions = dedent`
-    <response_options>
-      Allowed answers: ${answerList}
-    </response_options>`;
+    Each question lists its own allowed answers in brackets. Select from those options only, or skip if the question is not answerable from the content.`;
 
   const questionsSection = askQuestionsPromptBuilder.build({ questions: questionsContent });
 
   if (!transcriptText) {
-    return `${questionsSection}\n\n${responseOptions}`;
+    return questionsSection;
   }
 
   const format = isCleanTranscript ? "plain text" : "WebVTT";
   const transcriptSection = renderSection(createTranscriptSection(transcriptText, format));
 
-  return `${transcriptSection}\n\n${questionsSection}\n\n${responseOptions}`;
+  return `${transcriptSection}\n\n${questionsSection}`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -499,7 +502,6 @@ export async function askQuestions(
     provider = "openai",
     model,
     languageCode,
-    answerOptions,
     includeTranscript = true,
     cleanTranscript = true,
     imageSubmissionMode = "url",
@@ -508,19 +510,26 @@ export async function askQuestions(
     credentials,
   } = options ?? {};
 
-  const normalizedAnswerOptions = Array.from(
-    new Set(
-      (answerOptions?.length ? answerOptions : ["yes", "no"])
-        .map(option => option.trim())
-        .filter(Boolean),
-    ),
-  );
+  const normalizedQuestions: NormalizedQuestion[] = questions.map((q, idx) => {
+    const options = Array.from(
+      new Set(
+        (q.answerOptions?.length ? q.answerOptions : ["yes", "no"])
+          .map(o => o.trim())
+          .filter(Boolean),
+      ),
+    );
+    if (!options.length) {
+      throw new MuxAiError(
+        `Question at index ${idx} has invalid answerOptions: must include at least one non-empty value.`,
+        { type: "validation_error" },
+      );
+    }
+    return { ...q, answerOptions: options as [string, ...string[]] };
+  });
 
-  if (!normalizedAnswerOptions.length) {
-    throw new MuxAiError("answerOptions must include at least one non-empty value.", { type: "validation_error" });
-  }
-
-  const allowedAnswers = normalizedAnswerOptions as [string, ...string[]];
+  const allowedAnswers = Array.from(
+    new Set(normalizedQuestions.flatMap(q => q.answerOptions)),
+  ) as [string, ...string[]];
 
   const modelConfig = resolveLanguageModelConfig({
     ...options,
@@ -562,10 +571,9 @@ export async function askQuestions(
       undefined;
   const transcriptText = transcriptResult?.transcriptText ?? "";
 
-  // Build the user prompt with questions, allowed answers, and optional transcript
+  // Build the user prompt with questions (each with their allowed answers) and optional transcript
   const userPrompt = buildUserPrompt({
-    questions,
-    allowedAnswers,
+    questions: normalizedQuestions,
     transcriptText,
     isCleanTranscript: cleanTranscript,
     isAudioOnly,
@@ -639,8 +647,13 @@ export async function askQuestions(
 
   // Post-process raw LLM output into the public QuestionAnswer shape.
   // Treat as skipped if the model flagged it OR if the answer is the sentinel.
-  const answers: QuestionAnswer[] = analysisResponse.result.answers.map((raw) => {
+  const answers: QuestionAnswer[] = analysisResponse.result.answers.map((raw, idx) => {
     const isSkipped = raw.skipped || raw.answer === SKIP_SENTINEL;
+    if (!isSkipped && !normalizedQuestions[idx].answerOptions.includes(raw.answer)) {
+      throw new MuxAiError(
+        `Answer "${raw.answer}" for question ${idx} is not in allowed options: ${normalizedQuestions[idx].answerOptions.join(", ")}`,
+      );
+    }
     return {
       // Strip numbering prefix (e.g., "1. " or "2. ") from questions
       question: raw.question.replace(/^\d+\.\s*/, ""),

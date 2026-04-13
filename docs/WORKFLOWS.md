@@ -136,7 +136,7 @@ console.log(result.detectedLanguage); // Language if captions detected
 
 ## Ask Questions
 
-Answer questions about asset content by analyzing storyboard frames and optional transcripts. For audio-only assets, this workflow analyzes transcript text only. By default, answers are "yes"/"no", but you can override the allowed responses.
+Answer questions about asset content by analyzing storyboard frames and optional transcripts. For audio-only assets, this workflow analyzes transcript text only. By default, answers are "yes"/"no", but you can specify different allowed answers per question.
 
 ```typescript
 import { askQuestions } from "@mux/ai/workflows";
@@ -181,13 +181,24 @@ result.answers.forEach(answer => {
 - **Accessibility Audits:** "Are there visual text elements?", "Does this rely only on audio?"
 - **Metadata Validation:** "Does the content match the title?", "Is this in English?"
 
+### Per-question Answer Options
+
+Each question can specify its own allowed answers. Questions without `answerOptions` default to `["yes", "no"]`:
+
+```typescript
+const result = await askQuestions(assetId, [
+  { question: "Does this video contain people?" }, // defaults to yes/no
+  { question: "Is this suitable for children?", answerOptions: ["yes", "no", "unsure"] },
+  { question: "How is the production quality?", answerOptions: ["low", "medium", "high"] },
+]);
+```
+
 ### Configuration Options
 
 ```typescript
 const result = await askQuestions(assetId, questions, {
   provider: "openai", // "openai", "anthropic", or "google" (default: "openai")
   model: "gpt-5.1", // Override default model
-  answerOptions: ["yes", "no", "unsure"], // Override allowed answers
   includeTranscript: true, // Include transcript (default: true)
   cleanTranscript: true, // Remove timestamps/markup (default: true)
   imageSubmissionMode: "url", // "url" or "base64" (default: "url")
