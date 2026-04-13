@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { askQuestions } from "@mux/ai/workflows";
 
 import env from "../env";
+import { parseQuestionArg } from "./parse-question";
 
 type Provider = "openai" | "anthropic" | "google";
 
@@ -18,23 +19,25 @@ const program = new Command();
 
 program
   .name("ask-questions-audio-only")
-  .description("Ask a yes/no question about an audio-only Mux asset")
+  .description("Ask a question about an audio-only Mux asset")
   .argument(
     "[asset-id]",
     "Mux asset ID to analyze (defaults to MUX_TEST_ASSET_ID_AUDIO_ONLY)",
   )
   .argument(
     "[question]",
-    `Question to ask (defaults to "${DEFAULT_QUESTION}")`,
+    `Question to ask (defaults to "${DEFAULT_QUESTION}"). Defaults to yes/no; ` +
+    "append a pipe + comma-separated options for custom allowed answers, e.g. " +
+    "\"What is the speaker's tone?|calm,excited,angry\"",
   )
   .option("-p, --provider <provider>", "AI provider (openai, anthropic, google)", "openai")
   .option("-m, --model <model>", "Model name (overrides default for provider)")
-  .action(async (assetId: string | undefined, question: string | undefined, options: {
+  .action(async (assetId: string | undefined, questionArg: string | undefined, options: {
     provider: Provider;
     model?: string;
   }) => {
     const resolvedAssetId = assetId ?? env.MUX_TEST_ASSET_ID_AUDIO_ONLY;
-    const resolvedQuestion = question?.trim() || DEFAULT_QUESTION;
+    const parsedQuestion = parseQuestionArg(questionArg?.trim() || DEFAULT_QUESTION);
 
     if (!resolvedAssetId) {
       console.error(
@@ -52,12 +55,13 @@ program
 
     console.log("Asset ID:", resolvedAssetId);
     console.log("Asset Type: audio-only");
-    console.log("Question:", resolvedQuestion);
+    console.log("Question:", parsedQuestion.question);
+    console.log(`Allowed answers: ${(parsedQuestion.answerOptions ?? ["yes", "no"]).join(", ")}`);
     console.log(`Provider: ${options.provider} (${model})`);
     console.log("Include Transcript: true\n");
 
     try {
-      const result = await askQuestions(resolvedAssetId, [{ question: resolvedQuestion }], {
+      const result = await askQuestions(resolvedAssetId, [parsedQuestion], {
         provider: options.provider,
         model,
         includeTranscript: true,

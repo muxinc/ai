@@ -172,7 +172,7 @@ Answer questions about asset content by analyzing storyboard frames and optional
 - `questions` (array) - Array of question objects
   - Each question object must have a `question` field (string)
   - Each question may optionally include `answerOptions?: string[]` (defaults to `["yes", "no"]`)
-  - Example: `[{ question: "Does this video contain cooking?", answerOptions: ["yes", "no", "unsure"] }]`
+  - Example: `[{ question: "What is the production quality?", answerOptions: ["amateur", "semi-pro", "professional"] }]`
 - `options` (optional) - Configuration options
 
 **Options:**
@@ -233,10 +233,12 @@ const result = await askQuestions("asset-id", questions, {
   includeTranscript: false
 });
 
-// Per-question answer options
-const triState = await askQuestions("asset-id", [
-  { question: "Does this contain cooking?", answerOptions: ["yes", "no", "unsure"] },
-  { question: "How is the production quality?", answerOptions: ["low", "medium", "high"] },
+// Per-question answer options — mix yes/no with classification scales
+const result = await askQuestions("asset-id", [
+  { question: "Does this contain cooking?" }, // defaults to yes/no
+  { question: "What is the production quality?", answerOptions: ["amateur", "semi-pro", "professional"] },
+  { question: "What is the primary content type?", answerOptions: ["tutorial", "entertainment", "news", "advertisement"] },
+  { question: "What is the overall sentiment?", answerOptions: ["positive", "neutral", "negative"] },
 ]);
 ```
 

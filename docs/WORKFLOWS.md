@@ -183,13 +183,14 @@ result.answers.forEach(answer => {
 
 ### Per-question Answer Options
 
-Each question can specify its own allowed answers. Questions without `answerOptions` default to `["yes", "no"]`:
+Each question can specify its own allowed answers, so classification scales and enumerations can sit alongside simple yes/no checks in a single call. Questions without `answerOptions` default to `["yes", "no"]`:
 
 ```typescript
 const result = await askQuestions(assetId, [
   { question: "Does this video contain people?" }, // defaults to yes/no
-  { question: "Is this suitable for children?", answerOptions: ["yes", "no", "unsure"] },
-  { question: "How is the production quality?", answerOptions: ["low", "medium", "high"] },
+  { question: "What is the primary content type?", answerOptions: ["tutorial", "entertainment", "news", "advertisement"] },
+  { question: "What is the production quality?", answerOptions: ["amateur", "semi-pro", "professional"] },
+  { question: "What is the primary spoken language?", answerOptions: ["english", "spanish", "french", "other"] },
 ]);
 ```
 

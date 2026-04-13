@@ -6,7 +6,7 @@ import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
 import { MuxAiError, wrapError } from "@mux/ai/lib/mux-ai-error";
 import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset, isAudioOnlyAsset } from "@mux/ai/lib/mux-assets";
-import { createPromptBuilder, createTranscriptSection, renderSection } from "@mux/ai/lib/prompt-builder";
+import { createTranscriptSection, renderSection } from "@mux/ai/lib/prompt-builder";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
 import { withRetry } from "@mux/ai/lib/retry";
@@ -152,8 +152,8 @@ const SYSTEM_PROMPT = dedent`
   </task>
 
   <answer_guidelines>
-    - Each question specifies its own allowed answers in brackets after the question text
-    - Choose only from the options listed for that specific question
+    - Each question is presented as its own <question> block with a <text> element (the question) and an <allowed_answers> element (the permitted response values)
+    - Choose only from the values listed in that question's <allowed_answers> element
     - Choose the affirmative option only if you have clear evidence supporting it
     - Choose the negative/contradicting option if evidence contradicts or if insufficient evidence exists
     - Confidence should reflect the clarity and strength of evidence:
@@ -243,8 +243,8 @@ const AUDIO_ONLY_SYSTEM_PROMPT = dedent`
   </task>
 
   <answer_guidelines>
-    - Each question specifies its own allowed answers in brackets after the question text
-    - Choose only from the options listed for that specific question
+    - Each question is presented as its own <question> block with a <text> element (the question) and an <allowed_answers> element (the permitted response values)
+    - Choose only from the values listed in that question's <allowed_answers> element
     - Choose the affirmative option only if you have clear evidence supporting it
     - Choose the negative/contradicting option if evidence contradicts or if insufficient evidence exists
     - Confidence should reflect the clarity and strength of evidence:
@@ -308,18 +308,6 @@ const AUDIO_ONLY_SYSTEM_PROMPT = dedent`
     - Be specific and evidence-based
   </language_guidelines>`;
 
-type AskQuestionsPromptSections = "questions";
-
-const askQuestionsPromptBuilder = createPromptBuilder<AskQuestionsPromptSections>({
-  template: {
-    questions: {
-      tag: "questions",
-      content: "Please answer the following questions about this content:",
-    },
-  },
-  sectionOrder: ["questions"],
-});
-
 type NormalizedQuestion = Question & { answerOptions: [string, ...string[]] };
 
 interface UserPromptContext {
@@ -335,34 +323,41 @@ function buildUserPrompt({
   isCleanTranscript = true,
   isAudioOnly = false,
 }: UserPromptContext): string {
-  const questionsList = questions
+  const contentDescriptor = isAudioOnly ?
+    "audio content using transcript evidence" :
+    "content";
+
+  const taskSection = renderSection({
+    tag: "task",
+    content: dedent`
+      Answer each question in the <questions> block below about the ${contentDescriptor}.
+      Use only the values listed inside each question's own <allowed_answers> element.
+      Return one answer per question, in the order the questions appear.
+      If a question cannot be answered from the provided content, skip it as described in the system instructions.`,
+  });
+
+  const questionBlocks = questions
     .map((q, idx) => {
-      const answerList = q.answerOptions.map(a => `"${a}"`).join(", ");
-      return `${idx + 1}. ${q.question} [Allowed answers: ${answerList}]`;
+      const textTag = renderSection({ tag: "text", content: q.question });
+      const answersTag = renderSection({
+        tag: "allowed_answers",
+        content: q.answerOptions.map(a => `"${a}"`).join(", "),
+      });
+      return `<question number="${idx + 1}">\n${textTag}\n${answersTag}\n</question>`;
     })
-    .join("\n");
+    .join("\n\n");
 
-  const questionsIntro = isAudioOnly ?
-    "Please answer the following questions about this audio content using transcript evidence:" :
-    "Please answer the following questions about this content:";
+  const questionsSection = `<questions>\n${questionBlocks}\n</questions>`;
 
-  const questionsContent = dedent`
-    ${questionsIntro}
-
-    ${questionsList}
-
-    Each question lists its own allowed answers in brackets. Select from those options only, or skip if the question is not answerable from the content.`;
-
-  const questionsSection = askQuestionsPromptBuilder.build({ questions: questionsContent });
-
-  if (!transcriptText) {
-    return questionsSection;
+  const sections: string[] = [];
+  if (transcriptText) {
+    const format = isCleanTranscript ? "plain text" : "WebVTT";
+    sections.push(renderSection(createTranscriptSection(transcriptText, format)));
   }
+  sections.push(taskSection);
+  sections.push(questionsSection);
 
-  const format = isCleanTranscript ? "plain text" : "WebVTT";
-  const transcriptSection = renderSection(createTranscriptSection(transcriptText, format));
-
-  return `${transcriptSection}\n\n${questionsSection}`;
+  return sections.join("\n\n");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

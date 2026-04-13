@@ -136,16 +136,19 @@ describe("ask Questions Integration Tests", () => {
 
   it("should support per-question answer options", async () => {
     const questions = [
-      { question: "Is this video about glasses?", answerOptions: ["yes", "no", "unsure"] },
       { question: "Is this video in color?" }, // defaults to yes/no
+      {
+        question: "What is the primary subject of this video?",
+        answerOptions: ["glasses", "watches", "shoes", "hats"],
+      },
     ];
 
     const result = await askQuestions(testAssetId, questions);
 
     expect(result.answers).toHaveLength(2);
-    expect(["yes", "no", "unsure"]).toContain(result.answers[0].answer);
-    expect(result.answers[0].answer).toBe("yes");
-    expect(["yes", "no"]).toContain(result.answers[1].answer);
+    expect(["yes", "no"]).toContain(result.answers[0].answer);
+    expect(["glasses", "watches", "shoes", "hats"]).toContain(result.answers[1].answer);
+    expect(result.answers[1].answer).toBe("glasses");
   });
 
   it("should throw error for empty questions array", async () => {
