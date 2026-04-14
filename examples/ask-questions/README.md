@@ -1,6 +1,6 @@
 # Ask Questions Examples
 
-Examples demonstrating how to use the `askQuestions` workflow to answer yes/no questions about asset content.
+Examples demonstrating how to use the `askQuestions` workflow to answer questions about asset content. Each question can specify its own allowed answers (defaulting to `["yes", "no"]`), so simple binary checks and richer classification scales can be mixed in a single call.
 
 ## Setup
 
@@ -16,9 +16,25 @@ npm install
 
 ## Examples
 
+### Per-question Answer Options (CLI syntax)
+
+Each question's answer options default to yes/no. To specify custom allowed answers for a question, append a pipe character followed by a comma-separated list of options:
+
+```
+"Question text|option1,option2,option3"
+```
+
+The pipe must be inside the quoted string so the shell doesn't treat it as a command pipeline. For example:
+
+```bash
+"What is the production quality?|amateur,semi-pro,professional"
+"What is the sentiment?|positive,neutral,negative"
+"Does this contain cooking?"   # no pipe → answer options default to yes/no
+```
+
 ### Basic Example
 
-Ask a single yes/no question about a video:
+Ask a single question about a video:
 
 ```bash
 # From the examples/ask-questions directory
@@ -36,8 +52,11 @@ npm run example:ask-questions -- <asset-id> "Does this video contain cooking?"
 #### Examples
 
 ```bash
-# Ask if a video contains cooking
+# Yes/no question (default)
 npm run basic abc123 "Does this video contain cooking?"
+
+# Custom allowed answers via pipe syntax
+npm run basic abc123 "What is the production quality?|amateur,semi-pro,professional"
 
 # Ask if people are visible, without using transcript
 npm run basic abc123 "Are there people visible in this video?" --no-transcript
@@ -48,7 +67,7 @@ npm run basic abc123 "Is this video shot outdoors?" --model gpt-4o
 
 ### Multiple Questions Example
 
-Ask multiple yes/no questions about a video in a single call (more efficient):
+Ask multiple questions about a video in a single call (more efficient). Questions can mix yes/no checks with custom answer sets using the pipe syntax:
 
 ```bash
 # From the examples/ask-questions directory
@@ -80,8 +99,14 @@ If no asset ID is provided, the script uses `MUX_TEST_ASSET_ID_AUDIO_ONLY`.
 #### Examples
 
 ```bash
-# Ask multiple questions at once
+# Ask multiple yes/no questions at once
 npm run multiple abc123 "Does this contain cooking?" "Are there people visible?" "Is this outdoors?"
+
+# Mix yes/no with per-question answer sets
+npm run multiple abc123 \
+  "Does this contain cooking?" \
+  "What is the production quality?|amateur,semi-pro,professional" \
+  "What is the sentiment?|positive,neutral,negative"
 
 # Multiple questions without transcript
 npm run multiple abc123 "Is this a tutorial?" "Is it shot indoors?" --no-transcript
@@ -102,27 +127,34 @@ The `askQuestions` workflow:
 2. **Generates storyboard** - Creates a grid of frames showing the video timeline (video assets only)
 3. **Fetches transcript** - Optionally includes the video's transcript/captions
 4. **Analyzes content** - Sends storyboard+transcript (video) or transcript-only (audio-only) to the AI model
-5. **Returns structured answers** - Provides yes/no answer, confidence score (0-1), and reasoning
+5. **Returns structured answers** - Provides an answer drawn from the question's allowed options, a confidence score (0-1), and reasoning
 
 ## Answer Format
 
 Each answer includes:
-- **answer**: "yes" or "no"
+- **answer**: One of the question's allowed `answerOptions` (or `null` when skipped as irrelevant)
 - **confidence**: Float between 0 and 1 (e.g., 0.95 = 95% confident)
 - **reasoning**: Explanation citing specific visual or audio evidence
 - **question**: The original question
+- **skipped**: True when the question wasn't answerable from the asset content
 
 ## Multiple Questions
 
-You can ask multiple questions in a single call for efficiency. See the [Multiple Questions Example](#multiple-questions-example) above for a command-line demonstration, or use the API directly:
+You can ask multiple questions in a single call for efficiency. Each question can carry its own `answerOptions`:
 
 ```typescript
 import { askQuestions } from "@mux/ai/workflows";
 
 const result = await askQuestions("asset-id", [
-  { question: "Does this video contain cooking?" },
-  { question: "Are there people visible?" },
-  { question: "Is this shot indoors?" },
+  { question: "Does this video contain cooking?" }, // answer options default to yes/no
+  {
+    question: "What is the primary content type?",
+    answerOptions: ["tutorial", "entertainment", "news", "advertisement"],
+  },
+  {
+    question: "What is the production quality?",
+    answerOptions: ["amateur", "semi-pro", "professional"],
+  },
 ]);
 
 result.answers.forEach(answer => {

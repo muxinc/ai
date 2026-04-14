@@ -2,29 +2,39 @@ import { Command } from "commander";
 
 import { askQuestions } from "@mux/ai/workflows";
 
+import { parseQuestionArg } from "./parse-question";
+
 const program = new Command();
 
 program
   .name("ask-multiple-questions")
-  .description("Ask multiple yes/no questions about a Mux asset")
+  .description("Ask multiple questions about a Mux asset")
   .argument("<asset-id>", "Mux asset ID to analyze")
-  .argument("<questions...>", "Yes/no questions to ask about the asset (space-separated)")
+  .argument(
+    "<questions...>",
+    "Questions to ask (space-separated). Answer options default to yes/no. " +
+    "To use custom allowed answers for a question, append a pipe followed by " +
+    "comma-separated options, e.g. \"What is the quality?|amateur,semi-pro,professional\"",
+  )
   .option("-p, --provider <provider>", "AI provider: openai, anthropic, google (default: openai)")
   .option("-m, --model <model>", "Model name (default varies by provider)")
   .option("--no-transcript", "Exclude transcript from analysis")
-  .action(async (assetId: string, questions: string[], options: {
+  .action(async (assetId: string, questionArgs: string[], options: {
     provider?: string;
     model?: string;
     transcript: boolean;
   }) => {
+    const questionObjects = questionArgs.map(parseQuestionArg);
+
     console.log("Asset ID:", assetId);
-    console.log(`Questions (${questions.length}):`, questions);
+    console.log(`Questions (${questionObjects.length}):`);
+    questionObjects.forEach((q, idx) => {
+      const answers = (q.answerOptions ?? ["yes", "no"]).join(", ");
+      console.log(`  ${idx + 1}. ${q.question} [${answers}]`);
+    });
     console.log(`Provider: ${options.provider || "openai (default)"}`);
     console.log(`Model: ${options.model || "default"}`);
     console.log(`Include Transcript: ${options.transcript}\n`);
-
-    // Convert string array to Question objects
-    const questionObjects = questions.map(q => ({ question: q }));
 
     try {
       // Uses the default prompt built into the library
@@ -60,12 +70,17 @@ program
       }
 
       // Summary statistics
-      const yesCount = result.answers.filter(a => a.answer === "yes").length;
-      const noCount = result.answers.filter(a => a.answer === "no").length;
+      const answerCounts = result.answers.reduce<Record<string, number>>((acc, a) => {
+        const key = a.answer ?? "(skipped)";
+        acc[key] = (acc[key] ?? 0) + 1;
+        return acc;
+      }, {});
       const avgConfidence = result.answers.reduce((sum, a) => sum + a.confidence, 0) / result.answers.length;
 
       console.log("\n📊 Summary:");
-      console.log(`  Yes: ${yesCount}, No: ${noCount}`);
+      for (const [answer, count] of Object.entries(answerCounts)) {
+        console.log(`  ${answer}: ${count}`);
+      }
       console.log(`  Average Confidence: ${(avgConfidence * 100).toFixed(1)}%`);
     } catch (error) {
       console.error("❌ Error:", error instanceof Error ? error.message : error);

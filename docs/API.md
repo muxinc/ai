@@ -171,7 +171,8 @@ Answer questions about asset content by analyzing storyboard frames and optional
 - `assetId` (string) - Mux asset ID (video or audio-only)
 - `questions` (array) - Array of question objects
   - Each question object must have a `question` field (string)
-  - Example: `[{ question: "Does this video contain cooking?" }]`
+  - Each question may optionally include `answerOptions?: string[]` (defaults to `["yes", "no"]`)
+  - Example: `[{ question: "What is the production quality?", answerOptions: ["amateur", "semi-pro", "professional"] }]`
 - `options` (optional) - Configuration options
 
 **Options:**
@@ -179,7 +180,6 @@ Answer questions about asset content by analyzing storyboard frames and optional
 - `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
 - `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
 - `languageCode?: string` - Language code for transcript track selection (e.g., 'en', 'fr'). When omitted, prefers English if available.
-- `answerOptions?: string[]` - Allowed answers (default: `["yes", "no"]`)
 - `includeTranscript?: boolean` - Include transcript in analysis (default: true, required for audio-only assets)
 - `cleanTranscript?: boolean` - Remove VTT timestamps and formatting from transcript (default: true)
 - `imageSubmissionMode?: 'url' | 'base64'` - How to submit storyboard to AI providers (default: 'url')
@@ -233,10 +233,13 @@ const result = await askQuestions("asset-id", questions, {
   includeTranscript: false
 });
 
-// Custom answer options
-const triState = await askQuestions("asset-id", questions, {
-  answerOptions: ["yes", "no", "unsure"]
-});
+// Per-question answer options — mix yes/no with classification scales
+const result = await askQuestions("asset-id", [
+  { question: "Does this contain cooking?" }, // answer options default to yes/no
+  { question: "What is the production quality?", answerOptions: ["amateur", "semi-pro", "professional"] },
+  { question: "What is the primary content type?", answerOptions: ["tutorial", "entertainment", "news", "advertisement"] },
+  { question: "What is the overall sentiment?", answerOptions: ["positive", "neutral", "negative"] },
+]);
 ```
 
 **Tips for Effective Questions:**
