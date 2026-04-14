@@ -81,7 +81,7 @@ export interface AskQuestionsResult {
 
 /** Zod schema for a single answer (matches the public QuestionAnswer interface). */
 export const questionAnswerSchema = z.object({
-  question: z.string(),
+  question: z.string().describe("The full text of the original question"),
   answer: z.string().nullable(),
   confidence: z.number(),
   reasoning: z.string(),
@@ -650,7 +650,7 @@ export async function askQuestions(
       );
     }
     return {
-      // Strip numbering prefix (e.g., "1. " or "2. ") from questions
+      // Strip numbering prefix (e.g. "1. ") if the LLM prepends one
       question: raw.question.replace(/^\d+\.\s*/, ""),
       confidence: isSkipped ? 0 : Math.min(1, Math.max(0, raw.confidence)),
       reasoning: raw.reasoning,
