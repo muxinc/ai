@@ -31,7 +31,7 @@ export class MuxAiError extends Error {
     retryable?: boolean;
   }) {
     super(message);
-    this.name = "FatalError";
+    this.name = opts?.retryable ? "MuxAiError" : "FatalError";
     this.publicType = opts?.type ?? "processing_error";
     this.publicMessage = message;
     this.retryable = opts?.retryable ?? false;
