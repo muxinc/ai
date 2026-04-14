@@ -81,7 +81,7 @@ export function renderSection(section: PromptSection): string {
     value
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;/");
+      .replace(/>/g, "&gt;");
 
   const escapeXmlAttribute = (value: string): string =>
     escapeXmlText(value).replace(/"/g, "&quot;");
