@@ -174,7 +174,8 @@ const SYSTEM_PROMPT = dedent`
 
     A question is relevant if it asks about something observable or inferable
     from the video content (visuals, audio, dialogue, setting, subjects,
-    actions, etc.).
+    actions, etc.). A question is NOT irrelevant because it has non-yes/no
+    answer options — if it asks about the content, it is relevant.
 
     Mark a question as skipped (skipped: true) if it:
     - Is completely unrelated to the content of the video or audio (e.g., math, trivia, personal questions)
@@ -266,7 +267,9 @@ const AUDIO_ONLY_SYSTEM_PROMPT = dedent`
 
     Before answering each question, assess whether it can be meaningfully
     answered based on the transcript. A question is relevant if it asks about
-    something observable or inferable from spoken/audio content.
+    something observable or inferable from spoken/audio content. A question is
+    NOT irrelevant because it has non-yes/no answer options — if it asks about
+    the content, it is relevant.
 
     Mark a question as skipped (skipped: true) if it:
     - Is completely unrelated to transcript/audio content (e.g., math, trivia, personal questions)
