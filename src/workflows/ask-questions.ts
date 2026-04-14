@@ -156,7 +156,7 @@ const SYSTEM_PROMPT = dedent`
     - Choose only from the values listed in that question's <allowed_answers> element
     - Questions may have any set of allowed answers. Always read the <allowed_answers> for each question and select the best matching option based on the evidence
     - Select the answer best supported by observable evidence from the content
-    - When evidence is insufficient to choose confidently among the options, select the most conservative or least committal option available
+    - When evidence is ambiguous but some signal exists, select the most conservative option and use a low confidence score. If the question cannot be answered at all from the content, skip it per the relevance_filtering rules
     - Confidence should reflect the clarity and strength of evidence:
       * 0.9-1.0: Clear, unambiguous evidence
       * 0.7-0.9: Strong evidence with minor ambiguity
@@ -174,8 +174,7 @@ const SYSTEM_PROMPT = dedent`
 
     A question is relevant if it asks about something observable or inferable
     from the video content (visuals, audio, dialogue, setting, subjects,
-    actions, etc.). A question is NOT irrelevant because it has non-yes/no
-    answer options — if it asks about the content, it is relevant.
+    actions, etc.).
 
     Mark a question as skipped (skipped: true) if it:
     - Is completely unrelated to the content of the video or audio (e.g., math, trivia, personal questions)
@@ -249,7 +248,7 @@ const AUDIO_ONLY_SYSTEM_PROMPT = dedent`
     - Choose only from the values listed in that question's <allowed_answers> element
     - Questions may have any set of allowed answers. Always read the <allowed_answers> for each question and select the best matching option based on the evidence
     - Select the answer best supported by observable evidence from the content
-    - When evidence is insufficient to choose confidently among the options, select the most conservative or least committal option available
+    - When evidence is ambiguous but some signal exists, select the most conservative option and use a low confidence score. If the question cannot be answered at all from the content, skip it per the relevance_filtering rules
     - Confidence should reflect the clarity and strength of evidence:
       * 0.9-1.0: Clear, unambiguous evidence
       * 0.7-0.9: Strong evidence with minor ambiguity
@@ -267,9 +266,7 @@ const AUDIO_ONLY_SYSTEM_PROMPT = dedent`
 
     Before answering each question, assess whether it can be meaningfully
     answered based on the transcript. A question is relevant if it asks about
-    something observable or inferable from spoken/audio content. A question is
-    NOT irrelevant because it has non-yes/no answer options — if it asks about
-    the content, it is relevant.
+    something observable or inferable from spoken/audio content.
 
     Mark a question as skipped (skipped: true) if it:
     - Is completely unrelated to transcript/audio content (e.g., math, trivia, personal questions)
