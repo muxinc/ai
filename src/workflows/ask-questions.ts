@@ -154,7 +154,7 @@ const SYSTEM_PROMPT = dedent`
   <answer_guidelines>
     - Each question is presented as its own <question> block with a <text> element (the question) and an <allowed_answers> element (the permitted response values)
     - Choose only from the values listed in that question's <allowed_answers> element
-    - Questions may have any set of allowed answers — they are NOT limited to yes/no. Always read the <allowed_answers> for each question and select the best matching option based on the evidence
+    - Questions may have any set of allowed answers. Always read the <allowed_answers> for each question and select the best matching option based on the evidence
     - Select the answer best supported by observable evidence from the content
     - When evidence is insufficient to choose confidently among the options, select the most conservative or least committal option available
     - Confidence should reflect the clarity and strength of evidence:
@@ -174,8 +174,7 @@ const SYSTEM_PROMPT = dedent`
 
     A question is relevant if it asks about something observable or inferable
     from the video content (visuals, audio, dialogue, setting, subjects,
-    actions, etc.). A question is NOT irrelevant just because it has non-yes/no
-    answer options — if it asks about the content, it is relevant.
+    actions, etc.).
 
     Mark a question as skipped (skipped: true) if it:
     - Is completely unrelated to the content of the video or audio (e.g., math, trivia, personal questions)
@@ -247,7 +246,7 @@ const AUDIO_ONLY_SYSTEM_PROMPT = dedent`
   <answer_guidelines>
     - Each question is presented as its own <question> block with a <text> element (the question) and an <allowed_answers> element (the permitted response values)
     - Choose only from the values listed in that question's <allowed_answers> element
-    - Questions may have any set of allowed answers — they are NOT limited to yes/no. Always read the <allowed_answers> for each question and select the best matching option based on the evidence
+    - Questions may have any set of allowed answers. Always read the <allowed_answers> for each question and select the best matching option based on the evidence
     - Select the answer best supported by observable evidence from the content
     - When evidence is insufficient to choose confidently among the options, select the most conservative or least committal option available
     - Confidence should reflect the clarity and strength of evidence:
@@ -267,9 +266,7 @@ const AUDIO_ONLY_SYSTEM_PROMPT = dedent`
 
     Before answering each question, assess whether it can be meaningfully
     answered based on the transcript. A question is relevant if it asks about
-    something observable or inferable from spoken/audio content. A question is
-    NOT irrelevant just because it has non-yes/no answer options — if it asks
-    about the content, it is relevant.
+    something observable or inferable from spoken/audio content.
 
     Mark a question as skipped (skipped: true) if it:
     - Is completely unrelated to transcript/audio content (e.g., math, trivia, personal questions)
