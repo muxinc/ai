@@ -19,7 +19,7 @@ import type { ImageSubmissionMode, MuxAIOptions, TokenUsage, WorkflowCredentials
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** A single yes/no question to be answered about asset content. */
+/** A single question to be answered about asset content. */
 export interface Question {
   /** The question text */
   question: string;
@@ -154,8 +154,9 @@ const SYSTEM_PROMPT = dedent`
   <answer_guidelines>
     - Each question is presented as its own <question> block with a <text> element (the question) and an <allowed_answers> element (the permitted response values)
     - Choose only from the values listed in that question's <allowed_answers> element
-    - Choose the affirmative option only if you have clear evidence supporting it
-    - Choose the negative/contradicting option if evidence contradicts or if insufficient evidence exists
+    - Questions may have any set of allowed answers. Always read the <allowed_answers> for each question and select the best matching option based on the evidence
+    - Select the answer best supported by observable evidence from the content
+    - When evidence is ambiguous but some signal exists, select the most conservative option and use a low confidence score. If the question cannot be answered at all from the content, skip it per the relevance_filtering rules
     - Confidence should reflect the clarity and strength of evidence:
       * 0.9-1.0: Clear, unambiguous evidence
       * 0.7-0.9: Strong evidence with minor ambiguity
@@ -245,8 +246,9 @@ const AUDIO_ONLY_SYSTEM_PROMPT = dedent`
   <answer_guidelines>
     - Each question is presented as its own <question> block with a <text> element (the question) and an <allowed_answers> element (the permitted response values)
     - Choose only from the values listed in that question's <allowed_answers> element
-    - Choose the affirmative option only if you have clear evidence supporting it
-    - Choose the negative/contradicting option if evidence contradicts or if insufficient evidence exists
+    - Questions may have any set of allowed answers. Always read the <allowed_answers> for each question and select the best matching option based on the evidence
+    - Select the answer best supported by observable evidence from the content
+    - When evidence is ambiguous but some signal exists, select the most conservative option and use a low confidence score. If the question cannot be answered at all from the content, skip it per the relevance_filtering rules
     - Confidence should reflect the clarity and strength of evidence:
       * 0.9-1.0: Clear, unambiguous evidence
       * 0.7-0.9: Strong evidence with minor ambiguity

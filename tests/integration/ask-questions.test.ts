@@ -151,6 +151,24 @@ describe("ask Questions Integration Tests", () => {
     expect(result.answers[1].answer).toBe("glasses");
   });
 
+  it("should not skip content-relevant questions with custom answerOptions", async () => {
+    const result = await askQuestions(testAssetId, [
+      {
+        question: "What is the primary subject of this video?",
+        answerOptions: ["glasses", "watches", "shoes", "hats"],
+      },
+    ]);
+
+    expect(result.answers).toHaveLength(1);
+
+    const answer = result.answers[0];
+    expect(answer.skipped).toBe(false);
+    expect(answer.answer).not.toBeNull();
+    expect(["glasses", "watches", "shoes", "hats"]).toContain(answer.answer);
+    expect(answer.answer).toBe("glasses");
+    expect(answer.confidence).toBeGreaterThan(0);
+  });
+
   it("should throw error for empty questions array", async () => {
     await expect(
       askQuestions(testAssetId, []),
