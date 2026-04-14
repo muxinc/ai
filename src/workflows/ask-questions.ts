@@ -327,14 +327,12 @@ function buildUserPrompt({
     "audio content using transcript evidence" :
     "content";
 
-  const taskSection = renderSection({
-    tag: "task",
-    content: dedent`
-      Answer each question in the <questions> block below about the ${contentDescriptor}.
-      Use only the values listed inside each question's own <allowed_answers> element.
-      Return one answer per question, in the order the questions appear.
-      If a question cannot be answered from the provided content, skip it as described in the system instructions.`,
-  });
+  const taskContent = dedent`
+    Answer each question in the <questions> block below about the ${contentDescriptor}.
+    Use only the values listed inside each question's own <allowed_answers> element.
+    Return one answer per question, in the order the questions appear.
+    If a question cannot be answered from the provided content, skip it as described in the system instructions.`;
+  const taskSection = `<task>\n${taskContent}\n</task>`;
 
   const questionBlocks = questions
     .map((q, idx) => {
