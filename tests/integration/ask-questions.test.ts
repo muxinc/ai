@@ -136,7 +136,7 @@ describe("ask Questions Integration Tests", () => {
 
   it("should support per-question answer options", async () => {
     const questions = [
-      { question: "Is this video in color?" }, // defaults to yes/no
+      { question: "Is this video in color?" }, // answer options default to yes/no
       {
         question: "What is the primary subject of this video?",
         answerOptions: ["glasses", "watches", "shoes", "hats"],

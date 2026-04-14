@@ -18,7 +18,7 @@ npm install
 
 ### Per-question Answer Options (CLI syntax)
 
-Each question defaults to yes/no. To specify custom allowed answers for a question, append a pipe character followed by a comma-separated list of options:
+Each question's answer options default to yes/no. To specify custom allowed answers for a question, append a pipe character followed by a comma-separated list of options:
 
 ```
 "Question text|option1,option2,option3"
@@ -29,7 +29,7 @@ The pipe must be inside the quoted string so the shell doesn't treat it as a com
 ```bash
 "What is the production quality?|amateur,semi-pro,professional"
 "What is the sentiment?|positive,neutral,negative"
-"Does this contain cooking?"   # no pipe → defaults to yes/no
+"Does this contain cooking?"   # no pipe → answer options default to yes/no
 ```
 
 ### Basic Example
@@ -146,7 +146,7 @@ You can ask multiple questions in a single call for efficiency. Each question ca
 import { askQuestions } from "@mux/ai/workflows";
 
 const result = await askQuestions("asset-id", [
-  { question: "Does this video contain cooking?" }, // defaults to yes/no
+  { question: "Does this video contain cooking?" }, // answer options default to yes/no
   {
     question: "What is the primary content type?",
     answerOptions: ["tutorial", "entertainment", "news", "advertisement"],

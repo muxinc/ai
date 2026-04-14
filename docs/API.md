@@ -235,7 +235,7 @@ const result = await askQuestions("asset-id", questions, {
 
 // Per-question answer options — mix yes/no with classification scales
 const result = await askQuestions("asset-id", [
-  { question: "Does this contain cooking?" }, // defaults to yes/no
+  { question: "Does this contain cooking?" }, // answer options default to yes/no
   { question: "What is the production quality?", answerOptions: ["amateur", "semi-pro", "professional"] },
   { question: "What is the primary content type?", answerOptions: ["tutorial", "entertainment", "news", "advertisement"] },
   { question: "What is the overall sentiment?", answerOptions: ["positive", "neutral", "negative"] },

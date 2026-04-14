@@ -4,7 +4,7 @@ import type { Question } from "@mux/ai/workflows";
  * Parse a CLI question string with optional pipe-delimited answer options.
  *
  * Syntax:
- *   "Question text"                                → defaults to yes/no
+ *   "Question text"                                → answer options default to yes/no
  *   "Question text|option1,option2,option3"        → custom allowed answers
  *
  * Examples:

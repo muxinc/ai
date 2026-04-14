@@ -12,7 +12,7 @@ program
   .argument("<asset-id>", "Mux asset ID to analyze")
   .argument(
     "<question>",
-    "Question to ask. Defaults to yes/no. To use custom allowed answers, " +
+    "Question to ask. Answer options default to yes/no. To use custom allowed answers, " +
     "append a pipe followed by comma-separated options, e.g. " +
     "\"What is the quality?|amateur,semi-pro,professional\"",
   )

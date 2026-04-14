@@ -26,7 +26,7 @@ program
   )
   .argument(
     "[question]",
-    `Question to ask (defaults to "${DEFAULT_QUESTION}"). Defaults to yes/no; ` +
+    `Question to ask (defaults to "${DEFAULT_QUESTION}"). Answer options default to yes/no; ` +
     "append a pipe + comma-separated options for custom allowed answers, e.g. " +
     "\"What is the speaker's tone?|calm,excited,angry\"",
   )
