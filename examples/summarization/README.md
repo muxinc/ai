@@ -105,6 +105,7 @@ Key options for `getSummaryAndTags`:
 - `tone`: `'neutral' | 'playful' | 'professional'` (default: `'neutral'`)
 - `includeTranscript`: Include the asset transcript when available (default: `true`)
 - `imageSubmissionMode`: `'url' | 'base64'` storyboard transport (default: `'url'`)
+- `outputLanguageCode`: BCP 47 language code for the generated title, description, and tags (e.g. `'en'`, `'fr'`, `'ja'`). Defaults to auto-detection from the transcript track's language; pass `'auto'` or omit to use the default.
 - `promptOverrides`: Override specific sections of the prompt (see below)
 
 All credentials are automatically read from environment variables (`MUX_TOKEN_ID`, `MUX_TOKEN_SECRET`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`).
