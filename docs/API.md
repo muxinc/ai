@@ -17,6 +17,7 @@ Analyzes a Mux video or audio asset and returns AI-generated metadata.
 - `tone?: 'neutral' | 'playful' | 'professional'` - Analysis tone (default: 'neutral')
 - `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
 - `languageCode?: string` - Language code for transcript track selection (e.g., 'en', 'fr'). When omitted, prefers English if available.
+- `outputLanguageCode?: string` - BCP 47 language code (e.g., 'en', 'fr', 'ja') for the generated title, description, and tags. When omitted or set to `'auto'`, auto-detects from the selected transcript track's language. Falls back to unconstrained (LLM decides) if no language metadata is available.
 - `includeTranscript?: boolean` - Include transcript in analysis (default: true)
 - `cleanTranscript?: boolean` - Remove VTT timestamps and formatting from transcript (default: true)
 - `imageSubmissionMode?: 'url' | 'base64'` - How to submit storyboard to AI providers (default: 'url')
@@ -460,6 +461,7 @@ Generates AI-powered chapter markers by analyzing video or audio transcripts. Cr
 **Options:**
 
 - `languageCode?: string` - Language code for captions (e.g., 'en', 'es', 'fr'). When omitted, prefers English if available.
+- `outputLanguageCode?: string` - BCP 47 language code (e.g., 'en', 'fr', 'ja') for the generated chapter titles. When omitted or set to `'auto'`, auto-detects from the selected transcript track's language. Falls back to unconstrained (LLM decides) if no language metadata is available.
 - `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
 - `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
 - `promptOverrides?: object` - Override specific sections of the chaptering prompt
