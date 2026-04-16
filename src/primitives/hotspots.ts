@@ -146,7 +146,7 @@ async function fetchHotspots(
 
   // Use the raw HTTP method since the SDK doesn't have typed engagement methods yet
   const path = `/data/v1/engagement/${identifierType}/${id}/hotspots?${queryParams.toString()}`;
-  const response = await mux.get<unknown, HotspotApiResponse>(path);
+  const response = await mux.get<HotspotApiResponse>(path);
 
   return transformHotspotResponse(response);
 }

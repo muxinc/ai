@@ -7,12 +7,14 @@ import {
   concatenateVttSegments,
   extractTextFromVTT,
   findCaptionTrack,
+  getReliableLanguageCode,
+  LOW_CONFIDENCE_THRESHOLD,
   parseVTTCues,
   secondsToTimestamp,
   splitVttPreambleAndCueBlocks,
   vttTimestampToSeconds,
 } from "../../src/primitives/transcripts";
-import type { MuxAsset } from "../../src/types";
+import type { AssetTextTrack, MuxAsset } from "../../src/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // vttTimestampToSeconds
@@ -295,6 +297,71 @@ describe("findCaptionTrack", () => {
     const track = findCaptionTrack(asset as MuxAsset, "fr");
 
     expect(track?.id).toBe("text-1");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// getReliableLanguageCode
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("getReliableLanguageCode", () => {
+  it("returns undefined for undefined track", () => {
+    expect(getReliableLanguageCode(undefined)).toBeUndefined();
+  });
+
+  it("returns undefined when track has no language_code", () => {
+    const track = { type: "text", id: "t1" } as AssetTextTrack;
+    expect(getReliableLanguageCode(track)).toBeUndefined();
+  });
+
+  it("returns undefined for undetermined language code", () => {
+    const track = { type: "text", id: "t1", language_code: "und" } as AssetTextTrack;
+    expect(getReliableLanguageCode(track)).toBeUndefined();
+  });
+
+  it("returns undefined for low-confidence auto-detected language", () => {
+    const track = {
+      type: "text",
+      id: "t1",
+      language_code: "nn",
+      auto_language_confidence: 0.27,
+    } as AssetTextTrack;
+    expect(getReliableLanguageCode(track)).toBeUndefined();
+  });
+
+  it("returns the language code for high-confidence auto-detected language", () => {
+    const track = {
+      type: "text",
+      id: "t1",
+      language_code: "en",
+      auto_language_confidence: 0.95,
+    } as AssetTextTrack;
+    expect(getReliableLanguageCode(track)).toBe("en");
+  });
+
+  it("returns the language code when auto_language_confidence is absent (manually set)", () => {
+    const track = { type: "text", id: "t1", language_code: "fr" } as AssetTextTrack;
+    expect(getReliableLanguageCode(track)).toBe("fr");
+  });
+
+  it("returns undefined when confidence is exactly at the threshold", () => {
+    const track = {
+      type: "text",
+      id: "t1",
+      language_code: "de",
+      auto_language_confidence: LOW_CONFIDENCE_THRESHOLD,
+    } as AssetTextTrack;
+    expect(getReliableLanguageCode(track)).toBe("de");
+  });
+
+  it("returns undefined when confidence is just below the threshold", () => {
+    const track = {
+      type: "text",
+      id: "t1",
+      language_code: "de",
+      auto_language_confidence: LOW_CONFIDENCE_THRESHOLD - 0.01,
+    } as AssetTextTrack;
+    expect(getReliableLanguageCode(track)).toBeUndefined();
   });
 });
 

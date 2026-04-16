@@ -827,7 +827,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     // Add translated track to Mux asset (only when uploadToMux is true)
     if (uploadToMux) {
       try {
-        const languageName = getLanguageName(toLanguageCode);
+        const languageName = getLanguageName(toLanguageCode) ?? toLanguageCode.toUpperCase();
         const trackName = `${languageName} (auto-translated)`;
 
         uploadedTrackId = await createTextTrackOnMux(

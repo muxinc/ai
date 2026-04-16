@@ -76,8 +76,6 @@ interface ShotsManifestResponse {
   }>;
 }
 
-type RequestShotsApiRequestBody = Record<string, never>;
-
 const DEFAULT_POLL_INTERVAL_MS = 2000;
 const MIN_POLL_INTERVAL_MS = 1000;
 const DEFAULT_MAX_ATTEMPTS = 60;
@@ -186,7 +184,7 @@ export async function requestShotsForAsset(
   const { credentials } = options;
   const muxClient = await getMuxClientFromEnv(credentials);
   const mux = await muxClient.createClient();
-  const response = await mux.post<RequestShotsApiRequestBody, ShotsApiResponse>(
+  const response = await mux.post<ShotsApiResponse>(
     getShotsPath(assetId),
     { body: {} },
   );
@@ -216,7 +214,7 @@ export async function getShotsForAsset(
   const { credentials } = options;
   const muxClient = await getMuxClientFromEnv(credentials);
   const mux = await muxClient.createClient();
-  const response = await mux.get<unknown, ShotsApiResponse>(
+  const response = await mux.get<ShotsApiResponse>(
     getShotsPath(assetId),
   );
 

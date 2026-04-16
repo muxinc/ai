@@ -19,6 +19,7 @@ import {
   extractTimestampedTranscript,
   fetchTranscriptForAsset,
   getReadyTextTracks,
+  getReliableLanguageCode,
 } from "@mux/ai/primitives/transcripts";
 import type { MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "@mux/ai/types";
 
@@ -350,10 +351,11 @@ export async function generateChapters(
     throw new MuxAiError(`No usable content found in ${contentLabel}.`, { type: "validation_error" });
   }
 
-  // Resolve output language: explicit code takes priority, otherwise auto-detect from transcript track
+  // Resolve output language: explicit code takes priority, otherwise auto-detect from transcript track.
+  // Low-confidence auto-detected languages and undetermined codes ("und") are filtered out.
   const resolvedLanguageCode = outputLanguageCode && outputLanguageCode !== "auto" ?
     outputLanguageCode :
-      (transcriptResult.track?.language_code ?? languageCode);
+      (getReliableLanguageCode(transcriptResult.track) ?? languageCode);
   const languageName = resolvedLanguageCode ? getLanguageName(resolvedLanguageCode) : undefined;
 
   const userPrompt = buildUserPrompt({
@@ -411,7 +413,7 @@ export async function generateChapters(
 
   return {
     assetId,
-    languageCode: languageCode ?? transcriptResult.track?.language_code ?? "en",
+    languageCode: languageCode ?? getReliableLanguageCode(transcriptResult.track) ?? "en",
     chapters: validChapters,
     usage: usageWithMetadata,
   };

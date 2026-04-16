@@ -231,13 +231,41 @@ export function isValidISO639_3(code: string): boolean {
   return code.length === 3 && code.toLowerCase() in ISO639_3_TO_1;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Undetermined / Special Language Codes
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * ISO 639-2 special language codes that do not represent a specific language.
+ * These should not be used as LLM output language instructions.
+ *
+ * - `und` — undetermined (e.g. Mux Video sets this when auto-detection confidence is too low)
+ * - `mul` — multiple languages
+ * - `mis` — miscellaneous / uncoded
+ * - `zxx` — no linguistic content
+ */
+const UNDETERMINED_LANGUAGE_CODES = new Set(["und", "mul", "mis", "zxx"]);
+
+/**
+ * Returns true if the given language code represents an undetermined,
+ * multiple, miscellaneous, or non-linguistic language tag.
+ */
+export function isUndeterminedLanguageCode(code: string): boolean {
+  return UNDETERMINED_LANGUAGE_CODES.has(code.toLowerCase().trim());
+}
+
 /**
  * Gets the human-readable language name for a given code.
+ * Returns `undefined` for undetermined / special language codes
+ * that should not be used as LLM output language instructions.
  *
  * @param code - Language code in either ISO 639-1 or ISO 639-3 format
- * @returns Human-readable language name (e.g., "English", "French")
+ * @returns Human-readable language name (e.g., "English", "French"), or undefined for undetermined codes
  */
-export function getLanguageName(code: string): string {
+export function getLanguageName(code: string): string | undefined {
+  if (isUndeterminedLanguageCode(code)) {
+    return undefined;
+  }
   const iso639_1 = toISO639_1(code);
   try {
     const displayNames = new Intl.DisplayNames(["en"], { type: "language" });
