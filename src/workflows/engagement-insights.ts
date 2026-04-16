@@ -13,6 +13,7 @@ import { createPromptBuilder } from "@mux/ai/lib/prompt-builder";
 import {
   METADATA_BOUNDARY_WARNING,
   NO_FABRICATION_CONSTRAINT,
+  promptDedent,
   STRUCTURED_DATA_CONSTRAINT_EXACT,
 } from "@mux/ai/lib/prompt-fragments";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
@@ -131,7 +132,7 @@ type AIEngagementInsightsResult = z.infer<typeof engagementInsightsSchema>;
 // Prompts
 // ─────────────────────────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = dedent`
+const SYSTEM_PROMPT = promptDedent`
   <role>
     You are a video engagement analyst specializing in understanding viewer behavior.
     Your job is to explain why specific moments in videos have high or low engagement
@@ -174,7 +175,7 @@ const SYSTEM_PROMPT = dedent`
   </quality_guidelines>
 `;
 
-const AUDIO_ONLY_SYSTEM_PROMPT = dedent`
+const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
   <role>
     You are a video engagement analyst specializing in understanding viewer behavior for audio content.
     Your job is to explain why specific moments have high or low engagement based on audio/dialogue and viewer watch patterns.

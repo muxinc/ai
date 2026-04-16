@@ -24,6 +24,7 @@ import {
   createLanguageGuidelines,
   METADATA_BOUNDARY_WARNING,
   NO_FABRICATION_CONSTRAINT,
+  promptDedent,
   STORYBOARD_FRAME_INSTRUCTIONS,
   STRUCTURED_DATA_CONSTRAINT,
   TONE_GUIDANCE,
@@ -306,7 +307,7 @@ function createAudioOnlyBuilder({ titleLength, descriptionLength, tagCount }: Pr
   });
 }
 
-const SYSTEM_PROMPT = dedent`
+const SYSTEM_PROMPT = promptDedent`
   <role>
     You are a video content analyst specializing in storyboard interpretation and multimodal analysis.
   </role>
@@ -350,7 +351,7 @@ const SYSTEM_PROMPT = dedent`
     ${createLanguageGuidelines("video")}
   </language_guidelines>`;
 
-const AUDIO_ONLY_SYSTEM_PROMPT = dedent`
+const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
   <role>
     You are an audio content analyst specializing in transcript analysis and metadata generation.
   </role>

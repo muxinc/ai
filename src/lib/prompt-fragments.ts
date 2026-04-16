@@ -1,3 +1,5 @@
+import dedent from "dedent";
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared prompt fragments
 //
@@ -6,6 +8,22 @@
 // instruction is copy-pasted across files, updates to one copy can diverge
 // from the others over time.
 // ─────────────────────────────────────────────────────────────────────────────
+
+// ── Aligned dedent ───────────────────────────────────────────────────────────
+
+/**
+ * A `dedent` tag configured with `alignValues: true`.
+ *
+ * Plain `dedent` strips the common leading indent from template lines but
+ * does **not** re-indent continuation lines of interpolated multi-line
+ * values — those lines render at column 0, breaking the surrounding XML
+ * structure.  `alignValues: true` fixes this by aligning every continuation
+ * line of an interpolated value to the column of its `${}` placeholder.
+ *
+ * Use this tag (instead of bare `dedent`) for any template that interpolates
+ * multi-line prompt fragment constants.
+ */
+export const promptDedent = dedent.withOptions({ alignValues: true });
 
 // ── Constraint fragments ─────────────────────────────────────────────────────
 

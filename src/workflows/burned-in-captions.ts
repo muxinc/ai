@@ -9,6 +9,7 @@ import type { PromptOverrides } from "@mux/ai/lib/prompt-builder";
 import { createPromptBuilder } from "@mux/ai/lib/prompt-builder";
 import {
   METADATA_BOUNDARY_WARNING,
+  promptDedent,
   STORYBOARD_FRAME_INSTRUCTIONS,
   STRUCTURED_DATA_CONSTRAINT,
 } from "@mux/ai/lib/prompt-fragments";
@@ -94,7 +95,7 @@ export type BurnedInCaptionsAnalysis = z.infer<typeof burnedInCaptionsSchema>;
 // Prompts
 // ─────────────────────────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = dedent`
+const SYSTEM_PROMPT = promptDedent`
   <role>
     You are an expert at analyzing video frames to detect burned-in captions (also called open captions or hardcoded subtitles).
     These are text overlays that are permanently embedded in the video image, common on TikTok, Instagram Reels, and other social media platforms.

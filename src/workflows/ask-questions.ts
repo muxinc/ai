@@ -11,6 +11,7 @@ import {
   CONFIDENCE_SCORING_RUBRIC,
   METADATA_BOUNDARY_WARNING,
   NO_FABRICATION_CONSTRAINT,
+  promptDedent,
   STRUCTURED_DATA_CONSTRAINT_EXACT,
 } from "@mux/ai/lib/prompt-fragments";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
@@ -123,7 +124,7 @@ export type AskQuestionsType = z.infer<AskQuestionsSchema>;
 // Prompts
 // ─────────────────────────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = dedent`
+const SYSTEM_PROMPT = promptDedent`
   <role>
     You are a video content analyst specializing in classification tasks.
     Your job is to answer questions about video content based on storyboard
@@ -218,7 +219,7 @@ const SYSTEM_PROMPT = dedent`
     - Be specific and evidence-based
   </language_guidelines>`;
 
-const AUDIO_ONLY_SYSTEM_PROMPT = dedent`
+const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
   <role>
     You are an audio content analyst specializing in classification tasks.
     Your job is to answer questions about audio content based on transcript data.
