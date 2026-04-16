@@ -10,6 +10,11 @@ import {
 } from "@mux/ai/lib/mux-assets";
 import { getMuxThumbnailBaseUrl } from "@mux/ai/lib/mux-image-url";
 import { createPromptBuilder } from "@mux/ai/lib/prompt-builder";
+import {
+  METADATA_BOUNDARY_WARNING,
+  NO_FABRICATION_CONSTRAINT,
+  STRUCTURED_DATA_CONSTRAINT_EXACT,
+} from "@mux/ai/lib/prompt-fragments";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
 import { withRetry } from "@mux/ai/lib/retry";
@@ -154,12 +159,10 @@ const SYSTEM_PROMPT = dedent`
 
   <constraints>
     - Only describe what you can see in images or read in transcripts
-    - Do not fabricate details or make unsupported assumptions
-    - Do NOT use any metadata such as URLs, file paths, domain names, file names,
-      playback IDs, or technical parameters visible in this request. These are
-      delivery infrastructure and are unrelated to the media content itself.
+    - ${NO_FABRICATION_CONSTRAINT}
+    - ${METADATA_BOUNDARY_WARNING}
     - Correlate engagement scores with observable content
-    - Return structured data matching the requested schema exactly
+    - ${STRUCTURED_DATA_CONSTRAINT_EXACT}
     - Each momentInsight MUST include the hotspotIndex from the input data
   </constraints>
 
@@ -198,12 +201,10 @@ const AUDIO_ONLY_SYSTEM_PROMPT = dedent`
 
   <constraints>
     - Only describe what you can read in the transcript
-    - Do not fabricate details or make unsupported assumptions
-    - Do NOT use any metadata such as URLs, file paths, domain names, file names,
-      playback IDs, or technical parameters visible in this request. These are
-      delivery infrastructure and are unrelated to the media content itself.
+    - ${NO_FABRICATION_CONSTRAINT}
+    - ${METADATA_BOUNDARY_WARNING}
     - Correlate engagement scores with observable content
-    - Return structured data matching the requested schema exactly
+    - ${STRUCTURED_DATA_CONSTRAINT_EXACT}
     - Each momentInsight MUST include the hotspotIndex from the input data
   </constraints>
 

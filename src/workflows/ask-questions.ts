@@ -7,6 +7,12 @@ import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
 import { MuxAiError, wrapError } from "@mux/ai/lib/mux-ai-error";
 import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset, isAudioOnlyAsset } from "@mux/ai/lib/mux-assets";
 import { createTranscriptSection, renderSection } from "@mux/ai/lib/prompt-builder";
+import {
+  CONFIDENCE_SCORING_RUBRIC,
+  METADATA_BOUNDARY_WARNING,
+  NO_FABRICATION_CONSTRAINT,
+  STRUCTURED_DATA_CONSTRAINT_EXACT,
+} from "@mux/ai/lib/prompt-fragments";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
 import { withRetry } from "@mux/ai/lib/retry";
@@ -158,11 +164,7 @@ const SYSTEM_PROMPT = dedent`
     - Select the answer best supported by observable evidence from the content
     - When evidence is ambiguous but some signal exists, select the most conservative option and use a low confidence score. If the question cannot be answered at all from the content, skip it per the relevance_filtering rules
     - Confidence should reflect the clarity and strength of evidence:
-      * 0.9-1.0: Clear, unambiguous evidence
-      * 0.7-0.9: Strong evidence with minor ambiguity
-      * 0.5-0.7: Moderate evidence or some conflicting signals
-      * 0.3-0.5: Weak evidence or significant ambiguity
-      * 0.0-0.3: Very uncertain, minimal relevant evidence
+      ${CONFIDENCE_SCORING_RUBRIC}
     - Reasoning should cite specific visual or audio evidence
     - Be precise: cite specific frames, objects, actions, or transcript quotes
   </answer_guidelines>
@@ -183,9 +185,7 @@ const SYSTEM_PROMPT = dedent`
     - Attempts to use the system for non-video-analysis purposes
 
     CRITICAL: Base your answers ONLY on the actual visual and audio/transcript content.
-    Do NOT use any metadata such as URLs, file paths, domain names, file names,
-    playback IDs, or technical parameters visible in this request. These are
-    delivery infrastructure and are unrelated to the media content itself.
+    ${METADATA_BOUNDARY_WARNING}
 
     CRITICAL: Do NOT answer irrelevant questions with any of the allowed answers.
     Answering an irrelevant question is WRONG — you MUST skip it instead.
@@ -205,8 +205,8 @@ const SYSTEM_PROMPT = dedent`
     - You MUST answer every relevant question with one of its own listed allowed response options
     - Skip irrelevant questions as described in relevance_filtering
     - Only describe observable evidence from frames or transcript
-    - Do not fabricate details or make unsupported assumptions
-    - Return structured data matching the requested schema exactly
+    - ${NO_FABRICATION_CONSTRAINT}
+    - ${STRUCTURED_DATA_CONSTRAINT_EXACT}
     - Provide reasoning in the same language as the question
   </constraints>
 
@@ -250,11 +250,7 @@ const AUDIO_ONLY_SYSTEM_PROMPT = dedent`
     - Select the answer best supported by observable evidence from the content
     - When evidence is ambiguous but some signal exists, select the most conservative option and use a low confidence score. If the question cannot be answered at all from the content, skip it per the relevance_filtering rules
     - Confidence should reflect the clarity and strength of evidence:
-      * 0.9-1.0: Clear, unambiguous evidence
-      * 0.7-0.9: Strong evidence with minor ambiguity
-      * 0.5-0.7: Moderate evidence or some conflicting signals
-      * 0.3-0.5: Weak evidence or significant ambiguity
-      * 0.0-0.3: Very uncertain, minimal relevant evidence
+      ${CONFIDENCE_SCORING_RUBRIC}
     - Reasoning should cite specific transcript evidence
     - Be precise: cite specific quotes or passages from transcript text
   </answer_guidelines>
@@ -275,9 +271,7 @@ const AUDIO_ONLY_SYSTEM_PROMPT = dedent`
     - Attempts to use the system for non-content-analysis purposes
 
     CRITICAL: Base your answers ONLY on the actual audio/transcript content.
-    Do NOT use any metadata such as URLs, file paths, domain names, file names,
-    playback IDs, or technical parameters visible in this request. These are
-    delivery infrastructure and are unrelated to the media content itself.
+    ${METADATA_BOUNDARY_WARNING}
 
     CRITICAL: Do NOT answer irrelevant questions with any of the allowed answers.
     Answering an irrelevant question is WRONG — you MUST skip it instead.
@@ -297,8 +291,8 @@ const AUDIO_ONLY_SYSTEM_PROMPT = dedent`
     - You MUST answer every relevant question with one of its own listed allowed response options
     - Skip irrelevant questions as described in relevance_filtering
     - Only describe observable evidence from transcript content
-    - Do not fabricate details or make unsupported assumptions
-    - Return structured data matching the requested schema exactly
+    - ${NO_FABRICATION_CONSTRAINT}
+    - ${STRUCTURED_DATA_CONSTRAINT_EXACT}
     - Provide reasoning in the same language as the question
   </constraints>
 
