@@ -20,6 +20,15 @@ import {
   createToneSection,
   createTranscriptSection,
 } from "@mux/ai/lib/prompt-builder";
+import {
+  createLanguageGuidelines,
+  METADATA_BOUNDARY_WARNING,
+  NO_FABRICATION_CONSTRAINT,
+  promptDedent,
+  STORYBOARD_FRAME_INSTRUCTIONS,
+  STRUCTURED_DATA_CONSTRAINT,
+  TONE_GUIDANCE,
+} from "@mux/ai/lib/prompt-fragments";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
 import { withRetry } from "@mux/ai/lib/retry";
@@ -298,15 +307,14 @@ function createAudioOnlyBuilder({ titleLength, descriptionLength, tagCount }: Pr
   });
 }
 
-const SYSTEM_PROMPT = dedent`
+const SYSTEM_PROMPT = promptDedent`
   <role>
     You are a video content analyst specializing in storyboard interpretation and multimodal analysis.
   </role>
 
   <context>
     You receive storyboard images containing multiple sequential frames extracted from a video.
-    These frames are arranged in a grid and represent the visual progression of the content over time.
-    Read frames left-to-right, top-to-bottom to understand the temporal sequence.
+    ${STORYBOARD_FRAME_INSTRUCTIONS}
   </context>
 
   <transcript_guidance>
@@ -328,38 +336,22 @@ const SYSTEM_PROMPT = dedent`
 
   <constraints>
     - Only describe what is clearly observable in the frames or explicitly stated in the transcript
-    - Do not fabricate details or make unsupported assumptions
-    - Do NOT use any metadata such as URLs, file paths, domain names, file names,
-      playback IDs, or technical parameters visible in this request. These are
-      delivery infrastructure and are unrelated to the media content itself.
-    - Return structured data matching the requested schema
+    - ${NO_FABRICATION_CONSTRAINT}
+    - ${METADATA_BOUNDARY_WARNING}
+    - ${STRUCTURED_DATA_CONSTRAINT}
     - Output only the JSON object; no markdown or extra text
     - When a <language> section is provided, all output text MUST be written in that language
   </constraints>
 
   <tone_guidance>
-    Pay special attention to the <tone> section and lean heavily into those instructions.
-    Adapt your entire analysis and writing style to match the specified tone - this should influence
-    your word choice, personality, formality level, and overall presentation of the content.
-    The tone instructions are not suggestions but core requirements for how you should express yourself.
+    ${TONE_GUIDANCE}
   </tone_guidance>
 
   <language_guidelines>
-    AVOID these meta-descriptive phrases that reference the medium rather than the content:
-    - "The image shows..." / "The storyboard shows..."
-    - "In this video..." / "This video features..."
-    - "The frames depict..." / "The footage shows..."
-    - "We can see..." / "You can see..."
-    - "The clip shows..." / "The scene shows..."
-
-    INSTEAD, describe the content directly:
-    - BAD: "The video shows a chef preparing a meal"
-    - GOOD: "A chef prepares a meal in a professional kitchen"
-
-    Write as if describing reality, not describing a recording of reality.
+    ${createLanguageGuidelines("video")}
   </language_guidelines>`;
 
-const AUDIO_ONLY_SYSTEM_PROMPT = dedent`
+const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
   <role>
     You are an audio content analyst specializing in transcript analysis and metadata generation.
   </role>
@@ -386,35 +378,20 @@ const AUDIO_ONLY_SYSTEM_PROMPT = dedent`
 
   <constraints>
     - Only describe what is explicitly stated or strongly implied in the transcript
-    - Do not fabricate details or make unsupported assumptions
-    - Do NOT use any metadata such as URLs, file paths, domain names, file names,
-      playback IDs, or technical parameters visible in this request. These are
-      delivery infrastructure and are unrelated to the media content itself.
-    - Return structured data matching the requested schema
+    - ${NO_FABRICATION_CONSTRAINT}
+    - ${METADATA_BOUNDARY_WARNING}
+    - ${STRUCTURED_DATA_CONSTRAINT}
     - Focus entirely on audio/spoken content - there are no visual elements
     - Output only the JSON object; no markdown or extra text
     - When a <language> section is provided, all output text MUST be written in that language
   </constraints>
 
   <tone_guidance>
-    Pay special attention to the <tone> section and lean heavily into those instructions.
-    Adapt your entire analysis and writing style to match the specified tone - this should influence
-    your word choice, personality, formality level, and overall presentation of the content.
-    The tone instructions are not suggestions but core requirements for how you should express yourself.
+    ${TONE_GUIDANCE}
   </tone_guidance>
 
   <language_guidelines>
-    AVOID these meta-descriptive phrases that reference the medium rather than the content:
-    - "The audio shows..." / "The transcript shows..."
-    - "In this recording..." / "This audio features..."
-    - "The speaker says..." / "We can hear..."
-    - "The clip contains..." / "The recording shows..."
-
-    INSTEAD, describe the content directly:
-    - BAD: "The audio features a discussion about climate change"
-    - GOOD: "A panel discusses climate change impacts and solutions"
-
-    Write as if describing reality, not describing a recording of reality.
+    ${createLanguageGuidelines("audio")}
   </language_guidelines>`;
 
 interface UserPromptContext {

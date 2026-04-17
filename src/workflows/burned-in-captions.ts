@@ -7,6 +7,12 @@ import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
 import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
 import type { PromptOverrides } from "@mux/ai/lib/prompt-builder";
 import { createPromptBuilder } from "@mux/ai/lib/prompt-builder";
+import {
+  METADATA_BOUNDARY_WARNING,
+  promptDedent,
+  STORYBOARD_FRAME_INSTRUCTIONS,
+  STRUCTURED_DATA_CONSTRAINT,
+} from "@mux/ai/lib/prompt-fragments";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
 import { getStoryboardUrl } from "@mux/ai/primitives/storyboards";
@@ -89,7 +95,7 @@ export type BurnedInCaptionsAnalysis = z.infer<typeof burnedInCaptionsSchema>;
 // Prompts
 // ─────────────────────────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = dedent`
+const SYSTEM_PROMPT = promptDedent`
   <role>
     You are an expert at analyzing video frames to detect burned-in captions (also called open captions or hardcoded subtitles).
     These are text overlays that are permanently embedded in the video image, common on TikTok, Instagram Reels, and other social media platforms.
@@ -112,8 +118,7 @@ const SYSTEM_PROMPT = dedent`
 
   <context>
     You receive storyboard images containing multiple sequential frames extracted from a video.
-    These frames are arranged in a grid and represent the visual progression of the content over time.
-    Read frames left-to-right, top-to-bottom to understand the temporal sequence.
+    ${STORYBOARD_FRAME_INSTRUCTIONS}
   </context>
 
   <capabilities>
@@ -126,10 +131,8 @@ const SYSTEM_PROMPT = dedent`
   <constraints>
     - Only classify as burned-in captions when evidence is clear across multiple frames
     - Base decisions on observable visual evidence
-    - Do NOT use any metadata such as URLs, file paths, domain names, file names,
-      playback IDs, or technical parameters visible in this request. These are
-      delivery infrastructure and are unrelated to the media content itself.
-    - Return structured data matching the requested schema
+    - ${METADATA_BOUNDARY_WARNING}
+    - ${STRUCTURED_DATA_CONSTRAINT}
   </constraints>`;
 
 /**

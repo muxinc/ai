@@ -10,6 +10,12 @@ import {
 } from "@mux/ai/lib/mux-assets";
 import { getMuxThumbnailBaseUrl } from "@mux/ai/lib/mux-image-url";
 import { createPromptBuilder } from "@mux/ai/lib/prompt-builder";
+import {
+  METADATA_BOUNDARY_WARNING,
+  NO_FABRICATION_CONSTRAINT,
+  promptDedent,
+  STRUCTURED_DATA_CONSTRAINT,
+} from "@mux/ai/lib/prompt-fragments";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
 import { withRetry } from "@mux/ai/lib/retry";
@@ -126,7 +132,7 @@ type AIEngagementInsightsResult = z.infer<typeof engagementInsightsSchema>;
 // Prompts
 // ─────────────────────────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = dedent`
+const SYSTEM_PROMPT = promptDedent`
   <role>
     You are a video engagement analyst specializing in understanding viewer behavior.
     Your job is to explain why specific moments in videos have high or low engagement
@@ -154,12 +160,10 @@ const SYSTEM_PROMPT = dedent`
 
   <constraints>
     - Only describe what you can see in images or read in transcripts
-    - Do not fabricate details or make unsupported assumptions
-    - Do NOT use any metadata such as URLs, file paths, domain names, file names,
-      playback IDs, or technical parameters visible in this request. These are
-      delivery infrastructure and are unrelated to the media content itself.
+    - ${NO_FABRICATION_CONSTRAINT}
+    - ${METADATA_BOUNDARY_WARNING}
     - Correlate engagement scores with observable content
-    - Return structured data matching the requested schema exactly
+    - ${STRUCTURED_DATA_CONSTRAINT}
     - Each momentInsight MUST include the hotspotIndex from the input data
   </constraints>
 
@@ -171,7 +175,7 @@ const SYSTEM_PROMPT = dedent`
   </quality_guidelines>
 `;
 
-const AUDIO_ONLY_SYSTEM_PROMPT = dedent`
+const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
   <role>
     You are a video engagement analyst specializing in understanding viewer behavior for audio content.
     Your job is to explain why specific moments have high or low engagement based on audio/dialogue and viewer watch patterns.
@@ -198,12 +202,10 @@ const AUDIO_ONLY_SYSTEM_PROMPT = dedent`
 
   <constraints>
     - Only describe what you can read in the transcript
-    - Do not fabricate details or make unsupported assumptions
-    - Do NOT use any metadata such as URLs, file paths, domain names, file names,
-      playback IDs, or technical parameters visible in this request. These are
-      delivery infrastructure and are unrelated to the media content itself.
+    - ${NO_FABRICATION_CONSTRAINT}
+    - ${METADATA_BOUNDARY_WARNING}
     - Correlate engagement scores with observable content
-    - Return structured data matching the requested schema exactly
+    - ${STRUCTURED_DATA_CONSTRAINT}
     - Each momentInsight MUST include the hotspotIndex from the input data
   </constraints>
 
