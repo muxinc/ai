@@ -1,3 +1,4 @@
+import { isUndeterminedLanguageCode } from "@mux/ai/lib/language-codes";
 import { MuxAiError, wrapError } from "@mux/ai/lib/mux-ai-error";
 import { isAudioOnlyAsset } from "@mux/ai/lib/mux-assets";
 import { signUrl } from "@mux/ai/lib/url-signing";
@@ -63,6 +64,43 @@ export function findCaptionTrack(asset: MuxAsset, languageCode?: string): AssetT
   }
 
   return undefined;
+}
+
+/**
+ * Default minimum auto-detection confidence required to trust a track's language code.
+ * Below this threshold, the language is treated as undetermined.
+ */
+export const LOW_CONFIDENCE_THRESHOLD = 0.5;
+
+/**
+ * Extracts a trustworthy language code from a track, returning `undefined`
+ * when the language metadata shouldn't be used as an LLM output language.
+ *
+ * Returns `undefined` when:
+ * - The track or its language code is missing
+ * - The language code is undetermined (`und`, `mul`, `mis`, `zxx`)
+ * - The language was auto-detected with confidence below the threshold
+ *
+ * Trusts the language code when:
+ * - `auto_language_confidence` is absent (manually set or non-auto tracks)
+ * - `auto_language_confidence` meets the threshold
+ *
+ * @param track - The text track to inspect
+ * @param confidenceThreshold - Minimum confidence to trust auto-detected language (default: {@link LOW_CONFIDENCE_THRESHOLD})
+ */
+export function getReliableLanguageCode(
+  track: AssetTextTrack | undefined,
+  confidenceThreshold: number = LOW_CONFIDENCE_THRESHOLD,
+): string | undefined {
+  if (!track?.language_code)
+    return undefined;
+  if (isUndeterminedLanguageCode(track.language_code))
+    return undefined;
+  if (track.auto_language_confidence !== undefined &&
+    track.auto_language_confidence < confidenceThreshold) {
+    return undefined;
+  }
+  return track.language_code;
 }
 
 function normalizeLineEndings(value: string): string {
