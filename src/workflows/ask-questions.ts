@@ -12,7 +12,7 @@ import {
   METADATA_BOUNDARY_WARNING,
   NO_FABRICATION_CONSTRAINT,
   promptDedent,
-  STRUCTURED_DATA_CONSTRAINT_EXACT,
+  STRUCTURED_DATA_CONSTRAINT,
 } from "@mux/ai/lib/prompt-fragments";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
@@ -207,7 +207,7 @@ const SYSTEM_PROMPT = promptDedent`
     - Skip irrelevant questions as described in relevance_filtering
     - Only describe observable evidence from frames or transcript
     - ${NO_FABRICATION_CONSTRAINT}
-    - ${STRUCTURED_DATA_CONSTRAINT_EXACT}
+    - ${STRUCTURED_DATA_CONSTRAINT}
     - Provide reasoning in the same language as the question
   </constraints>
 
@@ -293,7 +293,7 @@ const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
     - Skip irrelevant questions as described in relevance_filtering
     - Only describe observable evidence from transcript content
     - ${NO_FABRICATION_CONSTRAINT}
-    - ${STRUCTURED_DATA_CONSTRAINT_EXACT}
+    - ${STRUCTURED_DATA_CONSTRAINT}
     - Provide reasoning in the same language as the question
   </constraints>
 

@@ -14,7 +14,7 @@ import {
   METADATA_BOUNDARY_WARNING,
   NO_FABRICATION_CONSTRAINT,
   promptDedent,
-  STRUCTURED_DATA_CONSTRAINT_EXACT,
+  STRUCTURED_DATA_CONSTRAINT,
 } from "@mux/ai/lib/prompt-fragments";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
@@ -163,7 +163,7 @@ const SYSTEM_PROMPT = promptDedent`
     - ${NO_FABRICATION_CONSTRAINT}
     - ${METADATA_BOUNDARY_WARNING}
     - Correlate engagement scores with observable content
-    - ${STRUCTURED_DATA_CONSTRAINT_EXACT}
+    - ${STRUCTURED_DATA_CONSTRAINT}
     - Each momentInsight MUST include the hotspotIndex from the input data
   </constraints>
 
@@ -205,7 +205,7 @@ const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
     - ${NO_FABRICATION_CONSTRAINT}
     - ${METADATA_BOUNDARY_WARNING}
     - Correlate engagement scores with observable content
-    - ${STRUCTURED_DATA_CONSTRAINT_EXACT}
+    - ${STRUCTURED_DATA_CONSTRAINT}
     - Each momentInsight MUST include the hotspotIndex from the input data
   </constraints>
 
