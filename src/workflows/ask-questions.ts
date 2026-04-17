@@ -12,6 +12,7 @@ import {
   METADATA_BOUNDARY_WARNING,
   NO_FABRICATION_CONSTRAINT,
   promptDedent,
+  STORYBOARD_FRAME_INSTRUCTIONS,
   STRUCTURED_DATA_CONSTRAINT,
 } from "@mux/ai/lib/prompt-fragments";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
@@ -137,9 +138,7 @@ const SYSTEM_PROMPT = promptDedent`
     - A list of questions about the video content
     - Optionally, a transcript of the audio/dialogue
 
-    The storyboard frames are arranged in a grid and represent the visual
-    progression of the content over time. Read frames left-to-right,
-    top-to-bottom to understand the temporal sequence.
+    ${STORYBOARD_FRAME_INSTRUCTIONS}
   </context>
 
   <transcript_guidance>
