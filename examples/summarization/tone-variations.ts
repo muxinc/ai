@@ -5,10 +5,11 @@ import { getSummaryAndTags } from "@mux/ai/workflows";
 
 import "../env";
 
-type Provider = "openai" | "anthropic" | "google";
+type Provider = "openai" | "baseten" | "anthropic" | "google";
 
 const DEFAULT_MODELS: Record<Provider, string> = {
   openai: "gpt-5.1",
+  baseten: process.env.BASETEN_MODEL || "your-baseten-model",
   anthropic: "claude-sonnet-4-5",
   google: "gemini-3-flash-preview",
 };
@@ -19,7 +20,7 @@ program
   .name("tone-variations")
   .description("Demonstrate summary generation with different tone variations")
   .argument("<asset-id>", "Mux asset ID to analyze")
-  .option("-p, --provider <provider>", "AI provider (openai, anthropic, google)", "openai")
+  .option("-p, --provider <provider>", "AI provider (openai, baseten, anthropic, google)", "openai")
   .option("-m, --model <model>", "Model name (overrides default for provider)")
   .option("--no-transcript", "Exclude transcript from analysis")
   .action(async (assetId: string, options: {
@@ -28,8 +29,8 @@ program
     transcript: boolean;
   }) => {
     // Validate provider
-    if (!["openai", "anthropic", "google"].includes(options.provider)) {
-      console.error("❌ Unsupported provider. Choose from: openai, anthropic, google");
+    if (!["openai", "baseten", "anthropic", "google"].includes(options.provider)) {
+      console.error("❌ Unsupported provider. Choose from: openai, baseten, anthropic, google");
       process.exit(1);
     }
 

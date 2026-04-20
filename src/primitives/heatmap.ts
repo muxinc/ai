@@ -122,7 +122,7 @@ async function fetchHeatmap(
 
   // Use the raw HTTP method since the SDK doesn't have typed engagement methods yet
   const path = `/data/v1/engagement/${identifierType}/${id}/heatmap?${queryParams.toString()}`;
-  const response = await mux.get<HeatmapApiResponse>(path);
+  const response = await mux.get(path) as HeatmapApiResponse;
 
   return transformHeatmapResponse(response);
 }

@@ -11,10 +11,11 @@ import { Command } from "commander";
 import type { ToneType } from "@mux/ai";
 import { getSummaryAndTags } from "@mux/ai/workflows";
 
-type Provider = "openai" | "anthropic" | "google";
+type Provider = "openai" | "baseten" | "anthropic" | "google";
 
 const DEFAULT_MODELS: Record<Provider, string> = {
   openai: "gpt-5.1",
+  baseten: process.env.BASETEN_MODEL || "your-baseten-model",
   anthropic: "claude-sonnet-4-5",
   google: "gemini-3-flash-preview",
 };
@@ -25,7 +26,7 @@ program
   .name("signed-summarization")
   .description("Generate summary and tags for a Mux asset with signed playback policy")
   .argument("<asset-id>", "Mux asset ID with signed playback policy")
-  .option("-p, --provider <provider>", "AI provider (openai, anthropic, google)", "anthropic")
+  .option("-p, --provider <provider>", "AI provider (openai, baseten, anthropic, google)", "anthropic")
   .option("-m, --model <model>", "Model name (overrides default for provider)")
   .option("-t, --tone <tone>", "Tone for summary (neutral, playful, professional)", "professional")
   .option("--no-transcript", "Exclude transcript from analysis")
@@ -48,8 +49,8 @@ Notes:
     transcript: boolean;
   }) => {
     // Validate provider
-    if (!["openai", "anthropic", "google"].includes(options.provider)) {
-      console.error("❌ Unsupported provider. Choose from: openai, anthropic, google");
+    if (!["openai", "baseten", "anthropic", "google"].includes(options.provider)) {
+      console.error("❌ Unsupported provider. Choose from: openai, baseten, anthropic, google");
       process.exit(1);
     }
 

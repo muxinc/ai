@@ -5,7 +5,7 @@ import { generateEmbeddings } from "@mux/ai/workflows";
 
 import "../env";
 
-type Provider = "openai" | "google";
+type Provider = "openai" | "baseten" | "google";
 type Strategy = "token" | "vtt";
 
 const program = new Command();
@@ -15,7 +15,7 @@ program
   .description("Generate embeddings for a Mux asset transcript")
   .argument("<asset-id>", "Mux asset ID to analyze")
   .option("-l, --language <code>", "Language code for transcription", "en")
-  .option("-p, --provider <provider>", "AI provider (openai, google)", "openai")
+  .option("-p, --provider <provider>", "AI provider (openai, baseten, google)", "openai")
   .option("-s, --strategy <type>", "Chunking strategy (token, vtt)", "token")
   .option("-t, --max-tokens <number>", "Maximum tokens per chunk", "500")
   .option("-o, --overlap <number>", "Overlap between chunks (tokens for token, cues for vtt)", "100")
@@ -27,8 +27,8 @@ program
     strategy: string;
   }) => {
     // Validate provider
-    if (!["openai", "google"].includes(options.provider)) {
-      console.error("❌ Unsupported provider. Choose from: openai, google");
+    if (!["openai", "baseten", "google"].includes(options.provider)) {
+      console.error("❌ Unsupported provider. Choose from: openai, baseten, google");
       process.exit(1);
     }
 

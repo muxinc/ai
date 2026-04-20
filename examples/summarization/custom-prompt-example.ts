@@ -29,11 +29,12 @@ import type { ToneType } from "@mux/ai";
 import type { SummarizationPromptOverrides } from "@mux/ai/workflows";
 import { getSummaryAndTags } from "@mux/ai/workflows";
 
-type Provider = "openai" | "anthropic" | "google";
+type Provider = "openai" | "baseten" | "anthropic" | "google";
 type Preset = "seo" | "social" | "technical" | "ecommerce";
 
 const DEFAULT_MODELS: Record<Provider, string> = {
   openai: "gpt-5.1",
+  baseten: process.env.BASETEN_MODEL || "your-baseten-model",
   anthropic: "claude-sonnet-4-5",
   google: "gemini-3-flash-preview",
 };
@@ -158,7 +159,7 @@ program
   .option("--title-guidance <text>", "Override title generation guidance")
   .option("--description-guidance <text>", "Override description generation guidance")
   .option("--keywords-guidance <text>", "Override keywords generation guidance")
-  .option("-p, --provider <provider>", "AI provider (openai, anthropic, google)", "openai")
+  .option("-p, --provider <provider>", "AI provider (openai, baseten, anthropic, google)", "openai")
   .option("-m, --model <model>", "Model name (overrides default for provider)")
   .option("-t, --tone <tone>", "Tone for summary (neutral, playful, professional)", "professional")
   .option("--no-transcript", "Exclude transcript from analysis")
@@ -174,8 +175,8 @@ program
     transcript: boolean;
   }) => {
     // Validate provider
-    if (!["openai", "anthropic", "google"].includes(options.provider)) {
-      console.error("❌ Unsupported provider. Choose from: openai, anthropic, google");
+    if (!["openai", "baseten", "anthropic", "google"].includes(options.provider)) {
+      console.error("❌ Unsupported provider. Choose from: openai, baseten, anthropic, google");
       process.exit(1);
     }
 

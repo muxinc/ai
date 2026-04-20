@@ -4,6 +4,8 @@ import { askQuestions } from "@mux/ai/workflows";
 
 import { parseQuestionArg } from "./parse-question";
 
+type Provider = "openai" | "baseten" | "anthropic" | "google";
+
 const program = new Command();
 
 program
@@ -16,11 +18,11 @@ program
     "append a pipe followed by comma-separated options, e.g. " +
     "\"What is the quality?|amateur,semi-pro,professional\"",
   )
-  .option("-p, --provider <provider>", "AI provider: openai, anthropic, google (default: openai)")
+  .option("-p, --provider <provider>", "AI provider: openai, baseten, anthropic, google (default: openai)")
   .option("-m, --model <model>", "Model name (default varies by provider)")
   .option("--no-transcript", "Exclude transcript from analysis")
   .action(async (assetId: string, questionArg: string, options: {
-    provider?: string;
+    provider?: Provider;
     model?: string;
     transcript: boolean;
   }) => {

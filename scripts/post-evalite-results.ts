@@ -12,7 +12,7 @@ import { z } from "zod";
 
 import env from "../src/env";
 import { getAssetDurationSeconds } from "../src/lib/mux-assets";
-import { DEFAULT_LANGUAGE_MODELS } from "../src/lib/providers";
+import { DEFAULT_LANGUAGE_MODELS, getDefaultLanguageModel } from "../src/lib/providers";
 import type { SupportedProvider } from "../src/lib/providers";
 
 import type { LanguageModel } from "ai";
@@ -894,13 +894,15 @@ function resolveInsightsModel(options: GenerateInsightsOptions = {}): ResolvedMo
 
   // If a specific provider is requested, use it (will fail if credentials missing)
   if (preferredProvider) {
-    const modelId = preferredModel ?? DEFAULT_LANGUAGE_MODELS[preferredProvider];
+    const modelId = preferredModel ?? getDefaultLanguageModel(preferredProvider);
     switch (preferredProvider) {
       case "openai":
         if (!env.OPENAI_API_KEY) {
           throw new Error("OPENAI_API_KEY is required when using --provider openai");
         }
         return { model: openai(modelId), provider: "openai", modelId };
+      case "baseten":
+        throw new Error("Baseten is not yet supported for Evalite insights generation.");
       case "anthropic":
         if (!env.ANTHROPIC_API_KEY) {
           throw new Error("ANTHROPIC_API_KEY is required when using --provider anthropic");

@@ -7,10 +7,11 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 import "../env";
 
-type Provider = "openai" | "anthropic" | "google";
+type Provider = "openai" | "baseten" | "anthropic" | "google";
 
 const DEFAULT_MODELS: Record<Provider, string> = {
   openai: "gpt-5.1",
+  baseten: process.env.BASETEN_MODEL || "your-baseten-model",
   anthropic: "claude-sonnet-4-5",
   google: "gemini-3-flash-preview",
 };
@@ -72,7 +73,7 @@ program
   .argument("<asset-id>", "Mux asset ID to translate")
   .requiredOption("--track <trackId>", "Source text track ID")
   .option("-t, --to <language>", "Target language code", "es")
-  .option("-p, --provider <provider>", "AI provider (openai, anthropic, google)", "anthropic")
+  .option("-p, --provider <provider>", "AI provider (openai, baseten, anthropic, google)", "anthropic")
   .option("-m, --model <model>", "Model name (overrides default for provider)")
   .option("--s3-endpoint <url>", "S3 endpoint override", process.env.S3_ENDPOINT ?? "https://s3.amazonaws.com")
   .option("--s3-region <region>", "S3 region", process.env.S3_REGION ?? "us-east-1")
@@ -86,8 +87,8 @@ program
     s3Region: string;
     s3Bucket?: string;
   }) => {
-    if (!["openai", "anthropic", "google"].includes(options.provider)) {
-      console.error("❌ Unsupported provider. Choose from: openai, anthropic, google");
+    if (!["openai", "baseten", "anthropic", "google"].includes(options.provider)) {
+      console.error("❌ Unsupported provider. Choose from: openai, baseten, anthropic, google");
       process.exit(1);
     }
 

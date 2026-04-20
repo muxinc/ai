@@ -45,12 +45,31 @@ Different workflows support various AI providers. You only need to configure API
 
 ### OpenAI
 
-**Used by:** `getSummaryAndTags`, `getModerationScores`, `hasBurnedInCaptions`, `askQuestions`, `generateChapters`, `generateEmbeddings`, `translateCaptions`
+**Used by:** `getSummaryAndTags`, `getModerationScores`, `hasBurnedInCaptions`, `askQuestions`, `generateChapters`, `generateEmbeddings`, `translateCaptions`, `editCaptions`
 
 **Get your API key:** [OpenAI API Keys](https://platform.openai.com/api-keys)
 
 ```bash
 OPENAI_API_KEY=your_openai_api_key
+```
+
+### Baseten
+
+**Used by:** `getSummaryAndTags`, `hasBurnedInCaptions`, `askQuestions`, `generateChapters`, `generateEmbeddings`, `translateCaptions`, `editCaptions`
+
+**Get your API key:** [Baseten API Keys](https://app.baseten.co/settings/api_keys)
+
+```bash
+BASETEN_API_KEY=your_baseten_api_key
+BASETEN_BASE_URL=https://model-123.api.baseten.co/environments/production/sync/v1
+BASETEN_MODEL=your-baseten-chat-model
+```
+
+For embeddings, you can point to a separate embedding deployment or reuse the same endpoint if it supports embeddings:
+
+```bash
+BASETEN_EMBEDDING_BASE_URL=https://model-456.api.baseten.co/environments/production/sync/v1
+BASETEN_EMBEDDING_MODEL=your-baseten-embedding-model
 ```
 
 ### Anthropic
@@ -160,6 +179,9 @@ Supported credential fields:
 | `muxSigningKey` | Mux signing key ID (for signed playback) |
 | `muxPrivateKey` | Mux private key (for signed playback) |
 | `openaiApiKey` | OpenAI API key |
+| `basetenApiKey` | Baseten API key |
+| `basetenBaseUrl` | Baseten base URL for language-model requests |
+| `basetenEmbeddingBaseUrl` | Baseten base URL for embedding requests |
 | `anthropicApiKey` | Anthropic API key |
 | `googleApiKey` | Google Generative AI API key |
 | `hiveApiKey` | Hive API key |
@@ -226,6 +248,11 @@ MUX_PRIVATE_KEY=your_base64_encoded_private_key
 
 # AI Providers (configure only what you need)
 OPENAI_API_KEY=your_openai_api_key
+BASETEN_API_KEY=your_baseten_api_key
+BASETEN_BASE_URL=https://model-123.api.baseten.co/environments/production/sync/v1
+BASETEN_MODEL=your-baseten-chat-model
+BASETEN_EMBEDDING_BASE_URL=https://model-456.api.baseten.co/environments/production/sync/v1
+BASETEN_EMBEDDING_MODEL=your-baseten-embedding-model
 ANTHROPIC_API_KEY=your_anthropic_api_key
 GOOGLE_GENERATIVE_AI_API_KEY=your_google_api_key
 ELEVENLABS_API_KEY=your_elevenlabs_api_key

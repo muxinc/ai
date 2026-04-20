@@ -10,7 +10,8 @@ npm install
 ```
 
 2. Set the required environment variables:
-   - `OPENAI_API_KEY` - Your OpenAI API key
+   - `OPENAI_API_KEY` or Baseten/Anthropic/Google credentials for the provider you plan to use
+   - `BASETEN_API_KEY`, `BASETEN_BASE_URL`, and `BASETEN_MODEL` when using Baseten
    - `MUX_TOKEN_ID` - Your Mux API token ID
    - `MUX_TOKEN_SECRET` - Your Mux API token secret
 
@@ -46,7 +47,8 @@ npm run example:ask-questions -- <asset-id> "Does this video contain cooking?"
 
 #### Options
 
-- `-m, --model <model>` - Specify the OpenAI model to use (default: gpt-5.1)
+- `-m, --model <model>` - Specify the AI model to use (provider default when omitted)
+- `-p, --provider <provider>` - Choose `openai`, `baseten`, `anthropic`, or `google` (default: `openai`)
 - `--no-transcript` - Exclude the transcript from analysis (visual only)
 
 #### Examples
@@ -63,6 +65,9 @@ npm run basic abc123 "Are there people visible in this video?" --no-transcript
 
 # Use a specific model
 npm run basic abc123 "Is this video shot outdoors?" --model gpt-4o
+
+# Run against Baseten
+npm run basic abc123 "Does this video contain cooking?" --provider baseten
 ```
 
 ### Multiple Questions Example
@@ -93,8 +98,8 @@ If no asset ID is provided, the script uses `MUX_TEST_ASSET_ID_AUDIO_ONLY`.
 
 #### Options
 
-- `-m, --model <model>` - Specify the OpenAI model to use (default: gpt-5.1)
-- `--no-transcript` - Exclude the transcript from analysis (visual only)
+- `-m, --model <model>` - Specify the AI model to use (provider default when omitted)
+- `-p, --provider <provider>` - Choose `openai`, `baseten`, `anthropic`, or `google` (default: `openai`)
 
 #### Examples
 
