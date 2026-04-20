@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { reloadEnv } from "../../src/env";
-import { getMuxStreamOrigin } from "../../src/lib/mux-stream-url";
+import { getMuxStreamOrigin } from "../../src/lib/mux-url";
 import { buildTranscriptUrl } from "../../src/primitives/transcripts";
 
 describe("getMuxStreamOrigin", () => {

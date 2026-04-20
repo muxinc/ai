@@ -1,4 +1,4 @@
-import { getMuxThumbnailBaseUrl } from "@mux/ai/lib/mux-image-url";
+import { getMuxThumbnailBaseUrl } from "@mux/ai/lib/mux-url";
 import { signUrl } from "@mux/ai/lib/url-signing";
 import type { WorkflowCredentialsInput } from "@mux/ai/types";
 

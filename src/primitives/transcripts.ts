@@ -1,7 +1,7 @@
 import { isUndeterminedLanguageCode } from "@mux/ai/lib/language-codes";
 import { MuxAiError, wrapError } from "@mux/ai/lib/mux-ai-error";
 import { isAudioOnlyAsset } from "@mux/ai/lib/mux-assets";
-import { getMuxStreamOrigin } from "@mux/ai/lib/mux-stream-url";
+import { getMuxStreamOrigin } from "@mux/ai/lib/mux-url";
 import { signUrl } from "@mux/ai/lib/url-signing";
 import type { AssetTextTrack, MuxAsset, WorkflowCredentialsInput } from "@mux/ai/types";
 

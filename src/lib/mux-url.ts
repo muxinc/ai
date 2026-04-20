@@ -1,8 +1,9 @@
 import env from "@mux/ai/env";
 
 const DEFAULT_MUX_IMAGE_ORIGIN = "https://image.mux.com";
+const DEFAULT_MUX_STREAM_ORIGIN = "https://stream.mux.com";
 
-function normalizeMuxImageOrigin(value: string): string {
+function normalizeOrigin(value: string, envVarName: string): string {
   const trimmed = value.trim();
   const candidate = trimmed.includes("://") ? trimmed : `https://${trimmed}`;
 
@@ -11,8 +12,8 @@ function normalizeMuxImageOrigin(value: string): string {
     parsed = new URL(candidate);
   } catch {
     throw new Error(
-      "Invalid MUX_IMAGE_URL_OVERRIDE. Provide a hostname like " +
-      `"image.example.mux.com" (or a URL origin such as "https://image.example.mux.com").`,
+      `Invalid ${envVarName}. Provide a hostname (e.g. "image.example.mux.com") ` +
+      `or a URL origin (e.g. "https://image.example.mux.com").`,
     );
   }
 
@@ -24,8 +25,8 @@ function normalizeMuxImageOrigin(value: string): string {
     (parsed.pathname && parsed.pathname !== "/")
   ) {
     throw new Error(
-      "Invalid MUX_IMAGE_URL_OVERRIDE. Only a hostname/origin is allowed " +
-      "(no credentials, query params, hash fragments, or path).",
+      `Invalid ${envVarName}. Only a hostname/origin is allowed ` +
+      `(no credentials, query params, hash fragments, or path).`,
     );
   }
 
@@ -38,7 +39,16 @@ export function getMuxImageOrigin(): string {
     return DEFAULT_MUX_IMAGE_ORIGIN;
   }
 
-  return normalizeMuxImageOrigin(override);
+  return normalizeOrigin(override, "MUX_IMAGE_URL_OVERRIDE");
+}
+
+export function getMuxStreamOrigin(): string {
+  const override = env.MUX_STREAM_URL_OVERRIDE;
+  if (!override) {
+    return DEFAULT_MUX_STREAM_ORIGIN;
+  }
+
+  return normalizeOrigin(override, "MUX_STREAM_URL_OVERRIDE");
 }
 
 export function getMuxImageBaseUrl(playbackId: string, assetType: "storyboard" | "thumbnail"): string {

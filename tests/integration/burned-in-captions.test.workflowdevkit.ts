@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { start } from "workflow/api";
 
-import { getMuxImageOrigin } from "../../src/lib/mux-image-url";
+import { getMuxImageOrigin } from "../../src/lib/mux-url";
 import type { SupportedProvider } from "../../src/lib/providers";
 import { hasBurnedInCaptions } from "../../src/workflows";
 import { muxTestAssets } from "../helpers/mux-test-assets";

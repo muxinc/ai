@@ -8,7 +8,7 @@ import {
   getPlaybackIdForAsset,
   isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
-import { getMuxThumbnailBaseUrl } from "@mux/ai/lib/mux-image-url";
+import { getMuxThumbnailBaseUrl } from "@mux/ai/lib/mux-url";
 import { createPromptBuilder } from "@mux/ai/lib/prompt-builder";
 import {
   METADATA_BOUNDARY_WARNING,

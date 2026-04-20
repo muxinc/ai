@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { reloadEnv } from "../../src/env";
-import { getMuxImageOrigin } from "../../src/lib/mux-image-url";
+import { getMuxImageOrigin } from "../../src/lib/mux-url";
 import { getThumbnailUrls } from "../../src/primitives/thumbnails";
 
 describe("getThumbnailUrls", () => {

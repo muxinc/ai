@@ -2,7 +2,7 @@ import Mux from "@mux/mux-node";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { env, reloadEnv } from "../../src/env";
-import { getMuxImageOrigin, getMuxStoryboardBaseUrl, getMuxThumbnailBaseUrl } from "../../src/lib/mux-image-url";
+import { getMuxImageOrigin, getMuxStoryboardBaseUrl, getMuxThumbnailBaseUrl } from "../../src/lib/mux-url";
 import type { SigningContext } from "../../src/lib/url-signing";
 import { getMuxSigningContextFromEnv, signPlaybackId, signUrl } from "../../src/lib/url-signing";
 import { buildTranscriptUrl, getStoryboardUrl, getThumbnailUrls } from "../../src/primitives";

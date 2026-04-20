@@ -4,7 +4,7 @@ import { getLanguageCodePair, toISO639_1, toISO639_3 } from "@mux/ai/lib/languag
 import type { LanguageCodePair, SupportedISO639_1 } from "@mux/ai/lib/language-codes";
 import { MuxAiError, wrapError } from "@mux/ai/lib/mux-ai-error";
 import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
-import { getMuxStreamOrigin } from "@mux/ai/lib/mux-stream-url";
+import { getMuxStreamOrigin } from "@mux/ai/lib/mux-url";
 import {
   createPresignedGetUrlWithStorageAdapter,
   putObjectWithStorageAdapter,
