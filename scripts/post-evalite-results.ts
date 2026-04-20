@@ -894,6 +894,10 @@ function resolveInsightsModel(options: GenerateInsightsOptions = {}): ResolvedMo
 
   // If a specific provider is requested, use it (will fail if credentials missing)
   if (preferredProvider) {
+    if (preferredProvider === "baseten") {
+      throw new Error("Baseten is not yet supported for Evalite insights generation.");
+    }
+
     const modelId = preferredModel ?? getDefaultLanguageModel(preferredProvider);
     switch (preferredProvider) {
       case "openai":
@@ -901,8 +905,6 @@ function resolveInsightsModel(options: GenerateInsightsOptions = {}): ResolvedMo
           throw new Error("OPENAI_API_KEY is required when using --provider openai");
         }
         return { model: openai(modelId), provider: "openai", modelId };
-      case "baseten":
-        throw new Error("Baseten is not yet supported for Evalite insights generation.");
       case "anthropic":
         if (!env.ANTHROPIC_API_KEY) {
           throw new Error("ANTHROPIC_API_KEY is required when using --provider anthropic");
