@@ -47,7 +47,10 @@ export function getMuxImageOrigin(): string {
 }
 
 export function getMuxStreamOrigin(): string {
-  const override = env.MUX_STREAM_URL_OVERRIDE || DEFAULT_MUX_STREAM_ORIGIN;
+  const override = env.MUX_STREAM_URL_OVERRIDE;
+  if (!override) {
+    return DEFAULT_MUX_STREAM_ORIGIN;
+  }
 
   return normalizeOrigin(override, "MUX_STREAM_URL_OVERRIDE");
 }
