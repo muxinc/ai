@@ -4,6 +4,7 @@ import { getLanguageCodePair, toISO639_1, toISO639_3 } from "@mux/ai/lib/languag
 import type { LanguageCodePair, SupportedISO639_1 } from "@mux/ai/lib/language-codes";
 import { MuxAiError, wrapError } from "@mux/ai/lib/mux-ai-error";
 import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
+import { getMuxStreamOrigin } from "@mux/ai/lib/mux-url";
 import {
   createPresignedGetUrlWithStorageAdapter,
   putObjectWithStorageAdapter,
@@ -454,7 +455,7 @@ export async function translateAudio(
   }
 
   // Build audio URL (signed if needed)
-  let audioUrl = `https://stream.mux.com/${playbackId}/audio.m4a`;
+  let audioUrl = `${getMuxStreamOrigin()}/${playbackId}/audio.m4a`;
   if (policy === "signed") {
     audioUrl = await signUrl(audioUrl, playbackId, "video", undefined, credentials);
   }

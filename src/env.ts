@@ -39,6 +39,10 @@ const EnvSchema = z.object({
     "Override for Mux image base URL (defaults to https://image.mux.com).",
     "Mux image URL override",
   ),
+  MUX_STREAM_URL_OVERRIDE: optionalString(
+    "Override for Mux stream base URL (defaults to https://stream.mux.com).",
+    "Mux stream URL override",
+  ),
 
   // Test-only helpers (used by this repo's integration tests)
   MUX_TEST_ASSET_ID: optionalString("Mux asset ID used by integration tests.", "Mux test asset id"),

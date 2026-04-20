@@ -1,6 +1,7 @@
 import { isUndeterminedLanguageCode } from "@mux/ai/lib/language-codes";
 import { MuxAiError, wrapError } from "@mux/ai/lib/mux-ai-error";
 import { isAudioOnlyAsset } from "@mux/ai/lib/mux-assets";
+import { getMuxStreamOrigin } from "@mux/ai/lib/mux-url";
 import { signUrl } from "@mux/ai/lib/url-signing";
 import type { AssetTextTrack, MuxAsset, WorkflowCredentialsInput } from "@mux/ai/types";
 
@@ -503,7 +504,7 @@ export async function buildTranscriptUrl(
   credentials?: WorkflowCredentialsInput,
 ): Promise<string> {
   "use step";
-  const baseUrl = `https://stream.mux.com/${playbackId}/text/${trackId}.vtt`;
+  const baseUrl = `${getMuxStreamOrigin()}/${playbackId}/text/${trackId}.vtt`;
 
   if (shouldSign) {
     return signUrl(baseUrl, playbackId, "video", undefined, credentials);

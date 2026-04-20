@@ -8,7 +8,7 @@ import {
   getVideoTrackMaxFrameRateFromAsset,
   isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
-import { getMuxThumbnailBaseUrl } from "@mux/ai/lib/mux-image-url";
+import { getMuxThumbnailBaseUrl } from "@mux/ai/lib/mux-url";
 import { withRetry } from "@mux/ai/lib/retry";
 import { planSamplingTimestamps } from "@mux/ai/lib/sampling-plan";
 import { signUrl } from "@mux/ai/lib/url-signing";
