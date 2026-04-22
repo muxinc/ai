@@ -219,6 +219,24 @@ function capCueTextLength(value: string): string {
 }
 
 /**
+ * Header regex for the three VTT metadata block types.
+ *
+ * Per the WebVTT file-parsing algorithm (W3C webvtt1 §5.1), a NOTE /
+ * STYLE / REGION block header is the literal token followed by **either**
+ * U+0020 SPACE, U+0009 TAB, or a line terminator. We match any whitespace
+ * character or end-of-string so the tab variant does not silently slip
+ * through — conformant players treat `NOTE\tpayload` as a comment and
+ * hide it from viewers, and the stripper must therefore recognise it too
+ * or an attacker gains a viewer/model asymmetry: invisible to viewers,
+ * visible to the LLM.
+ *
+ * The negative side — `NOTEBOOK`, `STYLESHEET`, `REGIONAL` — is correctly
+ * excluded because the character after the token is a non-whitespace
+ * alphabetic, which fails both `\s` and `$`.
+ */
+const VTT_METADATA_HEADER_PATTERN = /^(?:NOTE|STYLE|REGION)(?:\s|$)/;
+
+/**
  * Strip VTT metadata blocks that are never rendered by players but can
  * still carry text through to an LLM when the raw VTT is used in a prompt:
  *
@@ -235,6 +253,12 @@ function capCueTextLength(value: string): string {
  * model sees for legitimate cue content.
  *
  * Cue identifiers, timing lines, and cue payload text are preserved.
+ * In particular: a cue whose first payload line happens to start with
+ * `NOTE `/`STYLE `/`REGION ` (plausible in legitimate captions — e.g.
+ * `"NOTE THAT..."`, `"STYLE GUIDE"`, `"NOTE how the villain plots..."`)
+ * is NOT treated as a metadata block. The scanner tracks cue-payload
+ * state: metadata headers are only recognised between cues (i.e. when
+ * the previous non-blank line was not a timing line).
  *
  * Example input:
  *
@@ -249,12 +273,18 @@ function capCueTextLength(value: string): string {
  *     00:00:01.000 --> 00:00:04.000
  *     Legitimate caption text
  *
+ *     00:00:05.000 --> 00:00:08.000
+ *     NOTE THAT the hero wins
+ *
  * Returns:
  *
  *     WEBVTT
  *
  *     00:00:01.000 --> 00:00:04.000
  *     Legitimate caption text
+ *
+ *     00:00:05.000 --> 00:00:08.000
+ *     NOTE THAT the hero wins
  */
 export function stripVttMetadataBlocks(vttContent: string): string {
   if (!vttContent)
@@ -263,6 +293,11 @@ export function stripVttMetadataBlocks(vttContent: string): string {
   const lines = normalised.split("\n");
   const kept: string[] = [];
   let inMetadataBlock = false;
+  // Tracks whether we're inside a cue's payload (i.e. after a timing
+  // line, before the next blank). Metadata headers are only recognised
+  // OUTSIDE cue payload — inside a cue, `NOTE`/`STYLE`/`REGION` lines
+  // are ordinary caption text and must be preserved verbatim.
+  let inCuePayload = false;
 
   for (const line of lines) {
     const trimmed = line.trim();
@@ -277,16 +312,31 @@ export function stripVttMetadataBlocks(vttContent: string): string {
       continue;
     }
 
-    // Headers for the three VTT metadata block types. Match on the start
-    // of a trimmed line to tolerate surrounding whitespace.
-    if (
-      trimmed === "NOTE" ||
-      trimmed.startsWith("NOTE ") ||
-      trimmed === "STYLE" ||
-      trimmed.startsWith("STYLE ") ||
-      trimmed === "REGION" ||
-      trimmed.startsWith("REGION ")
-    ) {
+    if (inCuePayload) {
+      // A blank line closes the cue. Any other line is cue payload text
+      // and MUST be kept — even if it begins with "NOTE "/"STYLE "/etc.
+      // (a legitimate caption like "NOTE THAT..." would otherwise be
+      // destroyed as a false-positive metadata block).
+      if (trimmed === "") {
+        inCuePayload = false;
+      }
+      kept.push(line);
+      continue;
+    }
+
+    // A timing line opens a cue payload block. Keep it and flip the
+    // flag so subsequent non-blank lines are treated as cue text.
+    if (trimmed.includes("-->")) {
+      inCuePayload = true;
+      kept.push(line);
+      continue;
+    }
+
+    // Between cues: check for a NOTE / STYLE / REGION header. The regex
+    // accepts both SPACE and TAB separators, and a bare token at
+    // end-of-line, per the WebVTT spec. A line like `NOTEBOOK` does
+    // NOT match because the character after the token is alphabetic.
+    if (VTT_METADATA_HEADER_PATTERN.test(trimmed)) {
       inMetadataBlock = true;
       continue;
     }
