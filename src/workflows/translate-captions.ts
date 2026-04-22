@@ -19,7 +19,7 @@ import {
 import { createTextTrackOnMux, fetchVttFromMux } from "@mux/ai/lib/mux-tracks";
 import {
   detectLeakReason,
-
+  detectUnexpectedKeysFromRawText,
   scrubFreeTextField,
 } from "@mux/ai/lib/output-safety";
 import type { LeakReason, SafetyReport } from "@mux/ai/lib/output-safety";
@@ -156,7 +156,16 @@ export interface TranslationChunkingOptions {
  */
 export const translationSchema = z.object({
   translation: z.string(),
-}).strict();
+});
+
+/**
+ * Top-level keys of {@link translationSchema}. Used at the call site
+ * to detect schema-smuggling attempts (zod.strip() removes them
+ * silently; we record them in the safety report instead).
+ */
+const TRANSLATION_SCHEMA_KEYS = ["translation"] as const;
+/** Top-level keys of the cue-chunked translation envelope. */
+const CUE_TRANSLATIONS_SCHEMA_KEYS = ["translations"] as const;
 
 /** Inferred shape returned by `translationSchema`. */
 export type TranslationPayload = z.infer<typeof translationSchema>;
@@ -432,10 +441,10 @@ function buildTranslationChunkRequests(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Result of a translate step that also carries an aggregate safety
- * counter. The counter is a plain number (not a rich SafetyReport) so
- * it survives `"use step"` serialisation boundaries — the top-level
- * workflow reconstitutes a {@link SafetyReport} from the total.
+ * Result of a translate step that also carries aggregate safety
+ * counters. Counters are plain numbers (not a rich SafetyReport) so
+ * they survive `"use step"` serialisation boundaries — the top-level
+ * workflow reconstitutes a {@link SafetyReport} from the totals.
  */
 interface TranslateStepResult {
   translatedVtt: string;
@@ -444,6 +453,12 @@ interface TranslateStepResult {
   scrubbedCueCount: number;
   /** Leak reason most recently observed, if any. */
   scrubbedReason: LeakReason;
+  /**
+   * Number of unexpected top-level keys the model emitted across the
+   * envelopes seen in this step. zod.strip() has already removed them;
+   * the count surfaces the smuggling attempt in the safety report.
+   */
+  unexpectedKeyCount: number;
 }
 
 async function translateVttWithAI({
@@ -501,10 +516,23 @@ async function translateVttWithAI({
     console.warn(`[@mux/ai] Suppressed suspected prompt leak in translate-captions (whole VTT) (reason: ${leakReason}).`);
   }
 
+  // Schema-smuggling detection. response.output was already stripped
+  // by zod; we re-parse response.text to see what the model emitted.
+  const unexpectedKeys = detectUnexpectedKeysFromRawText(
+    response.text,
+    TRANSLATION_SCHEMA_KEYS,
+  );
+  if (unexpectedKeys.length > 0) {
+    console.warn(
+      `[@mux/ai] Model emitted unexpected keys in translate-captions (whole VTT) (stripped): ${unexpectedKeys.join(", ")}.`,
+    );
+  }
+
   return {
     translatedVtt: safeTranslated,
     scrubbedCueCount: leakReason !== null ? 1 : 0,
     scrubbedReason: leakReason,
+    unexpectedKeyCount: unexpectedKeys.length,
     usage: {
       inputTokens: response.usage.inputTokens,
       outputTokens: response.usage.outputTokens,
@@ -529,12 +557,13 @@ async function translateCueChunkWithAI({
   provider: SupportedProvider;
   modelId: string;
   credentials?: WorkflowCredentialsInput;
-}): Promise<{ translations: string[]; usage: TokenUsage }> {
+}): Promise<{ translations: string[]; usage: TokenUsage; unexpectedKeyCount: number }> {
   "use step";
 
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
-  // `.strict()` rejects any extra keys the model might emit alongside
-  // `translations` — closes a smuggling channel for prompt extraction.
+  // Uses zod's default .strip(). Extras from the model are stripped
+  // silently; the call site re-parses response.text and records them
+  // as `unexpected_key` in the safety report.
   //
   // Tuning notes on `.max(2000)` per translated cue:
   // - Legitimate cues are usually well under 500 chars even for long
@@ -547,7 +576,7 @@ async function translateCueChunkWithAI({
   //   that expand meaningfully; tuning should track the input cap.
   const schema = z.object({
     translations: z.array(z.string().min(1).max(2000)).length(cues.length),
-  }).strict();
+  });
   const cuePayload = cues.map((cue, index) => ({
     index,
     startTime: cue.startTime,
@@ -570,6 +599,18 @@ async function translateCueChunkWithAI({
     ],
   });
 
+  // Schema-smuggling detection for the cue envelope. Any extras on the
+  // root envelope were stripped by zod; log + bubble count to aggregate.
+  const unexpectedKeys = detectUnexpectedKeysFromRawText(
+    response.text,
+    CUE_TRANSLATIONS_SCHEMA_KEYS,
+  );
+  if (unexpectedKeys.length > 0) {
+    console.warn(
+      `[@mux/ai] Model emitted unexpected keys in cue translation (stripped): ${unexpectedKeys.join(", ")}.`,
+    );
+  }
+
   return {
     translations: response.output.translations,
     usage: {
@@ -579,6 +620,7 @@ async function translateCueChunkWithAI({
       reasoningTokens: response.usage.reasoningTokens,
       cachedInputTokens: response.usage.cachedInputTokens,
     },
+    unexpectedKeyCount: unexpectedKeys.length,
   };
 }
 
@@ -661,6 +703,7 @@ async function translateChunkWithFallback({
       usage: result.usage,
       scrubbedCueCount,
       scrubbedReason,
+      unexpectedKeyCount: result.unexpectedKeyCount,
     };
   } catch (error) {
     if (!shouldSplitChunkTranslationError(error) || chunk.cueCount <= 1) {
@@ -692,6 +735,7 @@ async function translateChunkWithFallback({
       usage: aggregateTokenUsage([leftResult.usage, rightResult.usage]),
       scrubbedCueCount: leftResult.scrubbedCueCount + rightResult.scrubbedCueCount,
       scrubbedReason: leftResult.scrubbedReason ?? rightResult.scrubbedReason,
+      unexpectedKeyCount: leftResult.unexpectedKeyCount + rightResult.unexpectedKeyCount,
     };
   }
 }
@@ -734,6 +778,7 @@ async function translateCaptionTrack({
   const usageByChunk: TokenUsage[] = [];
   let totalScrubbedCueCount = 0;
   let observedScrubReason: LeakReason = null;
+  let totalUnexpectedKeyCount = 0;
 
   for (let index = 0; index < chunkPlan.chunks.length; index += resolvedChunking.maxConcurrentTranslations) {
     const batch = chunkPlan.chunks.slice(index, index + resolvedChunking.maxConcurrentTranslations);
@@ -755,6 +800,7 @@ async function translateCaptionTrack({
     for (const result of batchResults) {
       totalScrubbedCueCount += result.scrubbedCueCount;
       observedScrubReason = observedScrubReason ?? result.scrubbedReason;
+      totalUnexpectedKeyCount += result.unexpectedKeyCount;
     }
   }
 
@@ -763,6 +809,7 @@ async function translateCaptionTrack({
     usage: aggregateTokenUsage(usageByChunk),
     scrubbedCueCount: totalScrubbedCueCount,
     scrubbedReason: observedScrubReason,
+    unexpectedKeyCount: totalUnexpectedKeyCount,
   };
 }
 
@@ -907,12 +954,13 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   // Translate VTT content using configured provider via ai-sdk
   let translatedVtt: string;
   let usage: TokenUsage | undefined;
-  // Aggregate scrub signal produced by the cue-level detectors inside
+  // Aggregate safety signals produced by detectors inside
   // `translateCaptionTrack`. We rebuild a {@link SafetyReport} here at
   // the top level because the intermediate step functions can only
   // return JSON-serialisable data across `"use step"` boundaries.
   let scrubbedCueCount = 0;
   let scrubbedReason: LeakReason = null;
+  let unexpectedKeyCount = 0;
 
   try {
     const result = await translateCaptionTrack({
@@ -929,26 +977,33 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     usage = result.usage;
     scrubbedCueCount = result.scrubbedCueCount;
     scrubbedReason = result.scrubbedReason;
+    unexpectedKeyCount = result.unexpectedKeyCount;
   } catch (error) {
     wrapError(error, `Failed to translate VTT with ${modelConfig.provider}`);
   }
 
-  // Synthesise a SafetyReport from the aggregate counter. Individual cue
-  // identifiers are intentionally not preserved across step boundaries —
-  // operators get a count and the most recent leak reason, which is
-  // enough to alert on; per-cue forensics would need to be reconstructed
-  // from the console.warn trail.
-  const safety: SafetyReport = scrubbedCueCount > 0 ?
-      {
-        leaksDetected: true,
-        scrubbedFields: [
-          {
-            field: `translated_cues (${scrubbedCueCount} total)`,
-            reason: (scrubbedReason ?? "canary") as Exclude<LeakReason, null>,
-          },
-        ],
-      } :
-      { leaksDetected: false, scrubbedFields: [] };
+  // Synthesise a SafetyReport from the aggregate counters. Individual
+  // cue identifiers are intentionally not preserved across step
+  // boundaries — operators get counts and the most recent leak reason,
+  // which is enough to alert on; per-cue forensics would need to be
+  // reconstructed from the console.warn trail.
+  const scrubbedFields: SafetyReport["scrubbedFields"] = [];
+  if (scrubbedCueCount > 0) {
+    scrubbedFields.push({
+      field: `translated_cues (${scrubbedCueCount} total)`,
+      reason: (scrubbedReason ?? "canary") as Exclude<LeakReason, null>,
+    });
+  }
+  if (unexpectedKeyCount > 0) {
+    scrubbedFields.push({
+      field: `translation_envelope (${unexpectedKeyCount} unexpected key(s))`,
+      reason: "unexpected_key",
+    });
+  }
+  const safety: SafetyReport = {
+    leaksDetected: scrubbedFields.length > 0,
+    scrubbedFields,
+  };
 
   const usageWithMetadata = usage ?
       {

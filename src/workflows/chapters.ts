@@ -9,7 +9,7 @@ import {
   getPlaybackIdForAsset,
   isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
-import { createSafetyReporter } from "@mux/ai/lib/output-safety";
+import { createSafetyReporter, detectUnexpectedKeysFromRawText } from "@mux/ai/lib/output-safety";
 import type { SafetyReport } from "@mux/ai/lib/output-safety";
 import type { PromptOverrides, PromptSection } from "@mux/ai/lib/prompt-builder";
 import { createLanguageSection, createPromptBuilder } from "@mux/ai/lib/prompt-builder";
@@ -35,10 +35,12 @@ import type { MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "@mux/ai
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * `.strict()` on both schemas so the model cannot smuggle extra keys
- * alongside the declared fields — a common smuggling shape for
- * prompt-extraction attacks. See the matching note on
- * `burnedInCaptionsSchema` for the full rationale.
+ * Uses zod's default `.strip()` on both schemas so extra keys the model
+ * emits are silently stripped rather than failing the workflow. The
+ * smuggling-channel concern (a coerced model emitting prompt fragments
+ * under an unexpected key) is surfaced by the call site's
+ * `detectUnexpectedKeysFromRawText` pass, which records each extra as
+ * an `unexpected_key` entry in the workflow's safety report.
  *
  * `.max(300)` on `title` caps the exfiltration channel.
  *
@@ -52,13 +54,25 @@ import type { MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "@mux/ai
 export const chapterSchema = z.object({
   startTime: z.number(),
   title: z.string().max(300),
-}).strict();
+});
 
 export type Chapter = z.infer<typeof chapterSchema>;
 
 export const chaptersSchema = z.object({
   chapters: z.array(chapterSchema),
-}).strict();
+});
+
+/**
+ * Top-level keys of the chapters envelope. Used at the call site to
+ * detect schema-smuggling attempts that zod.strip() would otherwise hide.
+ */
+const CHAPTERS_SCHEMA_KEYS = ["chapters"] as const;
+/**
+ * Top-level keys of each chapter object. Checked per-element because
+ * chapters is an array-of-objects, and each element may carry smuggled
+ * keys independently.
+ */
+const CHAPTER_SCHEMA_KEYS = ["startTime", "title"] as const;
 
 export type ChaptersType = z.infer<typeof chaptersSchema>;
 
@@ -151,7 +165,14 @@ async function generateChaptersWithAI({
   userPrompt: string;
   systemPrompt: string;
   credentials?: WorkflowCredentialsInput;
-}): Promise<{ chapters: ChaptersType; usage: TokenUsage }> {
+}): Promise<{
+  chapters: ChaptersType;
+  usage: TokenUsage;
+  /** Unexpected keys on the root envelope (alongside `chapters`). */
+  unexpectedRootKeys: string[];
+  /** Unexpected keys on each chapter object, aligned by index. */
+  unexpectedChapterKeys: string[][];
+}> {
   "use step";
 
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
@@ -173,6 +194,28 @@ async function generateChaptersWithAI({
     }),
   );
 
+  // Detect schema-smuggling. response.output has already been stripped;
+  // re-parse response.text to see what the model actually emitted.
+  const unexpectedRootKeys = detectUnexpectedKeysFromRawText(
+    response.text,
+    CHAPTERS_SCHEMA_KEYS,
+  );
+  const unexpectedChapterKeys: string[][] = [];
+  try {
+    const rawEnvelope = JSON.parse(response.text ?? "{}");
+    const rawChapters = Array.isArray(rawEnvelope?.chapters) ? rawEnvelope.chapters : [];
+    for (const rawChapter of rawChapters) {
+      unexpectedChapterKeys.push(
+        detectUnexpectedKeysFromRawText(
+          JSON.stringify(rawChapter),
+          CHAPTER_SCHEMA_KEYS,
+        ),
+      );
+    }
+  } catch {
+    // Non-JSON raw text; skip per-chapter detection silently.
+  }
+
   return {
     chapters: response.output,
     usage: {
@@ -182,6 +225,8 @@ async function generateChaptersWithAI({
       reasoningTokens: response.usage.reasoningTokens,
       cachedInputTokens: response.usage.cachedInputTokens,
     },
+    unexpectedRootKeys,
+    unexpectedChapterKeys,
   };
 }
 
@@ -406,7 +451,7 @@ export async function generateChapters(
   });
 
   // Generate chapters using AI SDK
-  let chaptersData: { chapters: ChaptersType; usage: TokenUsage } | null = null;
+  let chaptersData: Awaited<ReturnType<typeof generateChaptersWithAI>> | null = null;
 
   try {
     const systemPrompt = isAudioOnly ?
@@ -445,6 +490,25 @@ export async function generateChapters(
   // kept with an empty title (empty titles would create useless markers
   // on a player timeline).
   const safety = createSafetyReporter();
+
+  // Record schema-smuggling signals from the step before scrubbing
+  // titles, so the safety report reflects both sources of concern.
+  for (const key of chaptersData.unexpectedRootKeys) {
+    safety.record(`chapters_envelope.${key}`, "unexpected_key");
+  }
+  chaptersData.unexpectedChapterKeys.forEach((extras, idx) => {
+    for (const key of extras) {
+      safety.record(`chapters[${idx}].${key}`, "unexpected_key");
+    }
+  });
+  const totalUnexpected = chaptersData.unexpectedRootKeys.length +
+    chaptersData.unexpectedChapterKeys.reduce((sum, e) => sum + e.length, 0);
+  if (totalUnexpected > 0) {
+    console.warn(
+      `[@mux/ai] Model emitted ${totalUnexpected} unexpected key(s) in chapters output (stripped).`,
+    );
+  }
+
   const scrubbedChapters = validChapters.filter((chapter, idx) => {
     const scrub = safety.scrubDetailed(chapter.title, `chapters[${idx}].title`);
     return !scrub.leaked;

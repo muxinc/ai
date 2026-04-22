@@ -8,7 +8,7 @@ import {
   getPlaybackIdForAsset,
 } from "@mux/ai/lib/mux-assets";
 import { createTextTrackOnMux, fetchVttFromMux } from "@mux/ai/lib/mux-tracks";
-import { createSafetyReporter } from "@mux/ai/lib/output-safety";
+import { createSafetyReporter, detectUnexpectedKeysFromRawText } from "@mux/ai/lib/output-safety";
 import type { SafetyReport } from "@mux/ai/lib/output-safety";
 import { renderSection } from "@mux/ai/lib/prompt-builder";
 import {
@@ -127,9 +127,10 @@ export interface EditCaptionsResult {
 /**
  * Schema used when requesting profanity detection from a language model.
  *
- * `.strict()` so a model can't smuggle extra keys alongside the
- * `profanity` array — see the matching note on `burnedInCaptionsSchema`
- * for the full rationale.
+ * Uses zod's default `.strip()` mode. Extra keys emitted by the model
+ * are silently dropped at parse time; the call site re-parses
+ * `response.text` and records each extra as an `unexpected_key` entry
+ * in the workflow's safety report.
  *
  * `.max(100)` on each array entry caps how much content can be smuggled
  * through a single "word" slot.
@@ -147,7 +148,10 @@ export const profanityDetectionSchema = z.object({
     "Unique profane words or short phrases exactly as they appear in the transcript text. " +
     "Include each distinct form only once (e.g., if 'fuck' and 'fucking' both appear, list both).",
   ),
-}).strict();
+});
+
+/** Top-level keys of {@link profanityDetectionSchema}. */
+const PROFANITY_SCHEMA_KEYS = ["profanity"] as const;
 
 /** Inferred shape returned by `profanityDetectionSchema`. */
 export type ProfanityDetectionPayload = z.infer<typeof profanityDetectionSchema>;
@@ -351,7 +355,7 @@ async function identifyProfanityWithAI({
   provider: SupportedProvider;
   modelId: string;
   credentials?: WorkflowCredentialsInput;
-}): Promise<{ profanity: string[]; usage: TokenUsage }> {
+}): Promise<{ profanity: string[]; usage: TokenUsage; unexpectedKeys: string[] }> {
   "use step";
 
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
@@ -383,6 +387,12 @@ async function identifyProfanityWithAI({
     ],
   });
 
+  // Detect schema-smuggling (an extra key alongside `profanity`).
+  const unexpectedKeys = detectUnexpectedKeysFromRawText(
+    response.text,
+    PROFANITY_SCHEMA_KEYS,
+  );
+
   return {
     profanity: response.output.profanity,
     usage: {
@@ -392,6 +402,7 @@ async function identifyProfanityWithAI({
       reasoningTokens: response.usage.reasoningTokens,
       cachedInputTokens: response.usage.cachedInputTokens,
     },
+    unexpectedKeys,
   };
 }
 
@@ -581,6 +592,17 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
       });
       detectedProfanity = result.profanity;
       usage = result.usage;
+      // Record schema-smuggling signals from the step. zod.strip() has
+      // already removed extras from the parsed output; the safety report
+      // surfaces what was stripped.
+      if (result.unexpectedKeys.length > 0) {
+        console.warn(
+          `[@mux/ai] Model emitted unexpected keys in profanity detection (stripped): ${result.unexpectedKeys.join(", ")}.`,
+        );
+        for (const key of result.unexpectedKeys) {
+          safety.record(`profanity_detection.${key}`, "unexpected_key");
+        }
+      }
     } catch (error) {
       wrapError(error, `Failed to detect profanity with ${modelConfig.provider}`);
     }

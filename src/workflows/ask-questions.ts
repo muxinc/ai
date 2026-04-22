@@ -6,7 +6,7 @@ import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
 import { MuxAiError, wrapError } from "@mux/ai/lib/mux-ai-error";
 import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset, isAudioOnlyAsset } from "@mux/ai/lib/mux-assets";
-import { createSafetyReporter } from "@mux/ai/lib/output-safety";
+import { createSafetyReporter, detectUnexpectedKeysFromRawText } from "@mux/ai/lib/output-safety";
 import type { SafetyReport } from "@mux/ai/lib/output-safety";
 import { createTranscriptSection, renderSection } from "@mux/ai/lib/prompt-builder";
 import {
@@ -118,14 +118,16 @@ export interface AskQuestionsResult {
 /**
  * Zod schema for a single answer (matches the public QuestionAnswer interface).
  *
- * `.strict()` rejects extra keys the model might emit alongside the
- * declared fields — a common smuggling shape for prompt-extraction
- * attacks. Schemas that extend this one via `.extend()` inherit the
- * strict mode.
+ * Uses zod's default `.strip()` mode (rather than `.strict()`) so that
+ * an extra key emitted by the model does not fail the whole workflow —
+ * it is silently stripped during parse. The smuggling-channel concern
+ * (a coerced model emitting a prompt fragment under an unexpected key)
+ * is handled out-of-band: the call site re-parses `response.text`,
+ * runs {@link detectUnexpectedKeysFromRawText}, and records each extra
+ * as an `unexpected_key` entry in the workflow's safety report.
  *
  * The `.max(1000)` cap on `reasoning` is a mechanical limit on how much
- * content can be exfiltrated through this channel. A parse failure
- * surfaces through `wrapError` as a validation error.
+ * content can be exfiltrated through this channel.
  *
  * Tuning notes:
  * - `REASONING_FIELD_SCOPE` asks the model to keep reasoning to 1–3
@@ -142,7 +144,20 @@ export const questionAnswerSchema = z.object({
   confidence: z.number(),
   reasoning: z.string().max(1000),
   skipped: z.boolean(),
-}).strict();
+});
+
+/**
+ * Top-level keys of the per-answer schema. Kept in sync manually — used
+ * by the call site's `detectUnexpectedKeysFromRawText` pass to surface
+ * schema-smuggling attempts that zod's strip() would otherwise hide.
+ */
+const QUESTION_ANSWER_SCHEMA_KEYS = [
+  "question",
+  "answer",
+  "confidence",
+  "reasoning",
+  "skipped",
+] as const;
 
 export type QuestionAnswerType = z.infer<typeof questionAnswerSchema>;
 
@@ -163,8 +178,11 @@ function createAskQuestionsSchema(allowedAnswers: [string, ...string[]]) {
         answer: answerSchema,
       }),
     ),
-  }).strict();
+  });
 }
+
+/** Top-level keys of the full {@link createAskQuestionsSchema} output. */
+const ASK_QUESTIONS_SCHEMA_KEYS = ["answers"] as const;
 
 type AskQuestionsSchema = ReturnType<typeof createAskQuestionsSchema>;
 export type AskQuestionsType = z.infer<AskQuestionsSchema>;
@@ -431,6 +449,16 @@ function buildUserPrompt({
 interface AnalysisResponse {
   result: AskQuestionsType;
   usage: TokenUsage;
+  /**
+   * Unexpected top-level keys the model emitted on the root envelope
+   * (i.e. alongside `answers`). Computed in the step from the raw text.
+   */
+  unexpectedRootKeys: string[];
+  /**
+   * Unexpected keys the model emitted on each per-answer object,
+   * one array per answer. Aligned by index with `result.answers`.
+   */
+  unexpectedAnswerKeys: string[][];
 }
 
 async function fetchImageAsBase64(
@@ -493,6 +521,33 @@ async function analyzeQuestions({
 
   const parsed = responseSchema.parse(response.output);
 
+  // Detect schema-smuggling attempts. `response.output` has already
+  // been through zod.strip(), so any extras are gone from it — we
+  // re-parse `response.text` to see what the model actually emitted.
+  // Extras on the root envelope and on each per-answer object are
+  // tracked separately so the safety report can pinpoint the shape of
+  // the smuggling attempt. JSON.parse is wrapped inside the helper
+  // because providers sometimes wrap output in markdown fences.
+  const unexpectedRootKeys = detectUnexpectedKeysFromRawText(
+    response.text,
+    ASK_QUESTIONS_SCHEMA_KEYS,
+  );
+  const unexpectedAnswerKeys: string[][] = [];
+  try {
+    const rawEnvelope = JSON.parse(response.text ?? "{}");
+    const rawAnswers = Array.isArray(rawEnvelope?.answers) ? rawEnvelope.answers : [];
+    for (const rawAnswer of rawAnswers) {
+      unexpectedAnswerKeys.push(
+        detectUnexpectedKeysFromRawText(
+          JSON.stringify(rawAnswer),
+          QUESTION_ANSWER_SCHEMA_KEYS,
+        ),
+      );
+    }
+  } catch {
+    // Raw text not valid JSON — skip per-answer detection silently.
+  }
+
   return {
     result: parsed,
     usage: {
@@ -502,6 +557,8 @@ async function analyzeQuestions({
       reasoningTokens: response.usage.reasoningTokens,
       cachedInputTokens: response.usage.cachedInputTokens,
     },
+    unexpectedRootKeys,
+    unexpectedAnswerKeys,
   };
 }
 
@@ -764,6 +821,27 @@ export async function askQuestions(
   // input in `normalizedQuestions[idx].question`, there is no reason to
   // trust the model's echo.
   const safety = createSafetyReporter();
+
+  // Record schema-smuggling signals from the step. zod.strip() has
+  // already removed the extras from the parsed output; the safety
+  // report captures what was stripped so operators can see the
+  // smuggling attempt.
+  for (const key of analysisResponse.unexpectedRootKeys) {
+    safety.record(`ask_questions.${key}`, "unexpected_key");
+  }
+  analysisResponse.unexpectedAnswerKeys.forEach((extras, idx) => {
+    for (const key of extras) {
+      safety.record(`answers[${idx}].${key}`, "unexpected_key");
+    }
+  });
+  const totalUnexpected = analysisResponse.unexpectedRootKeys.length +
+    analysisResponse.unexpectedAnswerKeys.reduce((sum, e) => sum + e.length, 0);
+  if (totalUnexpected > 0) {
+    console.warn(
+      `[@mux/ai] Model emitted ${totalUnexpected} unexpected key(s) in ask_questions output (stripped).`,
+    );
+  }
+
   const answers: QuestionAnswer[] = analysisResponse.result.answers.map((raw, idx) => {
     const scrub = safety.scrubDetailed(raw.reasoning, `reasoning[${idx}]`);
     const isSkipped = raw.skipped || raw.answer === SKIP_SENTINEL || scrub.leaked;

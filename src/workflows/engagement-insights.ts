@@ -9,7 +9,7 @@ import {
   isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
 import { getMuxThumbnailBaseUrl } from "@mux/ai/lib/mux-url";
-import { createSafetyReporter } from "@mux/ai/lib/output-safety";
+import { createSafetyReporter, detectUnexpectedKeysFromRawText } from "@mux/ai/lib/output-safety";
 import type { SafetyReport } from "@mux/ai/lib/output-safety";
 import { createPromptBuilder } from "@mux/ai/lib/prompt-builder";
 import {
@@ -152,19 +152,33 @@ const aiMomentInsightSchema = z.object({
   timestamp: z.string(),
   engagementScore: z.number(),
   insight: z.string().max(1000),
-}).strict();
+});
 
 /** Zod schema for overall insight returned by the AI. */
 const aiOverallInsightSchema = z.object({
   summary: z.string().max(2000),
   trends: z.array(z.string().max(500)),
-}).strict();
+});
 
 /** Combined schema for AI response */
 const engagementInsightsSchema = z.object({
   momentInsights: z.array(aiMomentInsightSchema),
   overallInsight: aiOverallInsightSchema,
-}).strict();
+});
+
+// Schema key lists for `detectUnexpectedKeysFromRawText`. Kept in sync
+// manually with each zod object. Surface schema-smuggling attempts that
+// zod.strip() would otherwise hide.
+const ENGAGEMENT_INSIGHTS_ROOT_KEYS = ["momentInsights", "overallInsight"] as const;
+const AI_MOMENT_INSIGHT_KEYS = [
+  "hotspotIndex",
+  "startMs",
+  "endMs",
+  "timestamp",
+  "engagementScore",
+  "insight",
+] as const;
+const AI_OVERALL_INSIGHT_KEYS = ["summary", "trends"] as const;
 
 type AIEngagementInsightsResult = z.infer<typeof engagementInsightsSchema>;
 
@@ -526,7 +540,16 @@ async function generateInsightsWithAI(
   userPrompt: string,
   imageUrls: string[],
   credentials?: WorkflowCredentialsInput,
-): Promise<{ result: AIEngagementInsightsResult; usage: TokenUsage }> {
+): Promise<{
+  result: AIEngagementInsightsResult;
+  usage: TokenUsage;
+  /** Unexpected top-level keys alongside momentInsights/overallInsight. */
+  unexpectedRootKeys: string[];
+  /** Unexpected keys on each momentInsight, aligned by index. */
+  unexpectedMomentKeys: string[][];
+  /** Unexpected keys on the overallInsight object. */
+  unexpectedOverallKeys: string[];
+}> {
   "use step";
 
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
@@ -556,6 +579,36 @@ async function generateInsightsWithAI(
     throw new Error("AI returned empty or unparseable response");
   }
 
+  // Detect schema-smuggling at each nested level. zod.strip() has
+  // already removed the extras from response.output, so we re-parse
+  // response.text to see what the model actually emitted.
+  const unexpectedRootKeys = detectUnexpectedKeysFromRawText(
+    response.text,
+    ENGAGEMENT_INSIGHTS_ROOT_KEYS,
+  );
+  const unexpectedMomentKeys: string[][] = [];
+  let unexpectedOverallKeys: string[] = [];
+  try {
+    const rawEnvelope = JSON.parse(response.text ?? "{}");
+    const rawMoments = Array.isArray(rawEnvelope?.momentInsights) ?
+      rawEnvelope.momentInsights :
+        [];
+    for (const rawMoment of rawMoments) {
+      unexpectedMomentKeys.push(
+        detectUnexpectedKeysFromRawText(
+          JSON.stringify(rawMoment),
+          AI_MOMENT_INSIGHT_KEYS,
+        ),
+      );
+    }
+    unexpectedOverallKeys = detectUnexpectedKeysFromRawText(
+      JSON.stringify(rawEnvelope?.overallInsight ?? {}),
+      AI_OVERALL_INSIGHT_KEYS,
+    );
+  } catch {
+    // Non-JSON raw text; skip nested detection silently.
+  }
+
   return {
     result: response.output,
     usage: {
@@ -565,6 +618,9 @@ async function generateInsightsWithAI(
       reasoningTokens: response.usage.reasoningTokens,
       cachedInputTokens: response.usage.cachedInputTokens,
     },
+    unexpectedRootKeys,
+    unexpectedMomentKeys,
+    unexpectedOverallKeys,
   };
 }
 
@@ -768,7 +824,7 @@ export async function generateEngagementInsights(
   );
 
   // Step 5: Generate insights with AI
-  const { result: aiInsights, usage } = await generateInsightsWithAI(
+  const aiStepResult = await generateInsightsWithAI(
     modelConfig.provider,
     modelConfig.modelId,
     systemPrompt,
@@ -776,6 +832,7 @@ export async function generateEngagementInsights(
     imageUrls,
     credentials,
   );
+  const { result: aiInsights, usage } = aiStepResult;
 
   if (!aiInsights.momentInsights || aiInsights.momentInsights.length === 0) {
     throw new MuxAiError(`Failed to generate insights for asset ${assetId}.`);
@@ -788,6 +845,29 @@ export async function generateEngagementInsights(
   // see everything that tripped in one place via the returned `safety`
   // field.
   const safety = createSafetyReporter();
+
+  // Record schema-smuggling signals. zod.strip() has already removed the
+  // extras from the parsed output; the safety report surfaces what was
+  // stripped at each nesting level.
+  for (const key of aiStepResult.unexpectedRootKeys) {
+    safety.record(`engagement_insights.${key}`, "unexpected_key");
+  }
+  aiStepResult.unexpectedMomentKeys.forEach((extras, idx) => {
+    for (const key of extras) {
+      safety.record(`momentInsights[${idx}].${key}`, "unexpected_key");
+    }
+  });
+  for (const key of aiStepResult.unexpectedOverallKeys) {
+    safety.record(`overallInsight.${key}`, "unexpected_key");
+  }
+  const totalUnexpected = aiStepResult.unexpectedRootKeys.length +
+    aiStepResult.unexpectedMomentKeys.reduce((sum, e) => sum + e.length, 0) +
+    aiStepResult.unexpectedOverallKeys.length;
+  if (totalUnexpected > 0) {
+    console.warn(
+      `[@mux/ai] Model emitted ${totalUnexpected} unexpected key(s) in engagement_insights output (stripped).`,
+    );
+  }
   const momentInsights: MomentInsight[] = [];
 
   for (const aiMoment of aiInsights.momentInsights) {

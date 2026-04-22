@@ -175,8 +175,27 @@ function normaliseForDetection(text: string): string {
 const BASE64_RUN_PATTERN = /[\w+/=-]{80,}/;
 const HEX_RUN_PATTERN = /[0-9a-f]{40,}/i;
 
-/** Which detector fired on a leak, or `null` when the text is clean. */
-export type LeakReason = "canary" | "prompt_tag" | "encoded_blob" | null;
+/**
+ * Which detector fired on a leak, or `null` when the text is clean.
+ *
+ * - `canary` — the system-prompt canary token appeared in the output.
+ *   Near-zero false-positive rate; treat as a confirmed leak.
+ * - `prompt_tag` — an XML-like tag taken from our prompt structure
+ *   appeared in the output. Low false-positive rate.
+ * - `encoded_blob` — a long run of base64- or hex-shaped characters
+ *   appeared in a field expected to hold prose. Heuristic; some false
+ *   positives on hashes or tokens in tech-content transcripts.
+ * - `unexpected_key` — the model emitted a JSON field not declared in
+ *   the schema (see {@link detectUnexpectedKeys}). Stripped silently
+ *   by zod's default `.strip()` mode; this signal surfaces the
+ *   smuggling attempt rather than letting it go unseen.
+ */
+export type LeakReason =
+  | "canary" |
+  "prompt_tag" |
+  "encoded_blob" |
+  "unexpected_key" |
+  null;
 
 /**
  * Returns which detector fires on `text`, or `null` if none do.
@@ -326,8 +345,87 @@ export interface SafetyReporter {
    * automatically.
    */
   scrubDetailed: (text: string | null | undefined, field: string) => ScrubResult;
+  /**
+   * Inspect a pre-parse object for keys that are not declared in the
+   * consuming zod schema, log + record each as `unexpected_key`, and
+   * return them so the caller can take additional action if desired.
+   *
+   * This complements zod's default `.strip()` behaviour: `.strip()`
+   * silently drops the extras on parse (which is what we want — no
+   * hard failures), while this helper surfaces the smuggling attempt
+   * so it does not go unseen.
+   *
+   * @param raw           the pre-parse model output
+   * @param expectedKeys  the keys declared by the receiving schema
+   * @param context       a short label used in the warning and report
+   *                      (e.g. "summary_metadata" or "chapters[3]")
+   * @returns             the list of keys present in `raw` but not in
+   *                      `expectedKeys`
+   */
+  recordUnexpectedKeys: (
+    raw: unknown,
+    expectedKeys: readonly string[],
+    context: string,
+  ) => string[];
+  /**
+   * Record a pre-computed safety signal. Used when the detection
+   * happens inside a `"use step"` boundary and the step returns the
+   * finding as a serialisable value for the workflow to aggregate.
+   *
+   * The caller is responsible for logging if desired — this method
+   * only updates the aggregate report.
+   */
+  record: (field: string, reason: Exclude<LeakReason, null>) => void;
   /** Snapshot the current aggregate report. */
   report: () => SafetyReport;
+}
+
+/**
+ * Detect top-level keys in a model-emitted object that are not declared
+ * in the expected-key list. The check is deliberately shallow — nested
+ * arrays-of-objects (chapters, momentInsights, etc.) should call this
+ * once per element.
+ *
+ * Zod's default `.strip()` mode silently drops the extras during parse;
+ * this helper does the detection the strip otherwise hides. It is
+ * exported separately so call sites can detect without necessarily
+ * going through a {@link SafetyReporter} (e.g. in tests).
+ */
+export function detectUnexpectedKeys(
+  raw: unknown,
+  expectedKeys: readonly string[],
+): string[] {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return [];
+  }
+  const expected = new Set(expectedKeys);
+  return Object.keys(raw as Record<string, unknown>).filter(k => !expected.has(k));
+}
+
+/**
+ * Parse `rawText` as JSON and compare its top-level keys against
+ * `expectedKeys`.
+ *
+ * Returns an empty array when the text is not valid JSON (so a model
+ * that wraps its output in markdown fences or trailing whitespace does
+ * not produce spurious safety signals). Intended for use inside step
+ * functions that receive the model's raw text output but run inside
+ * a `"use step"` boundary that can't ship a {@link SafetyReporter}
+ * across — pass the returned array back as a serialisable value for
+ * the workflow to aggregate.
+ */
+export function detectUnexpectedKeysFromRawText(
+  rawText: string | undefined,
+  expectedKeys: readonly string[],
+): string[] {
+  if (!rawText)
+    return [];
+  try {
+    const parsed: unknown = JSON.parse(rawText);
+    return detectUnexpectedKeys(parsed, expectedKeys);
+  } catch {
+    return [];
+  }
 }
 
 export function createSafetyReporter(): SafetyReporter {
@@ -341,9 +439,35 @@ export function createSafetyReporter(): SafetyReporter {
     return result;
   };
 
+  const recordUnexpectedKeys = (
+    raw: unknown,
+    expectedKeys: readonly string[],
+    context: string,
+  ): string[] => {
+    const extras = detectUnexpectedKeys(raw, expectedKeys);
+    if (extras.length > 0) {
+      console.warn(
+        `[@mux/ai] Model emitted unexpected keys in ${context} (stripped): ${extras.join(", ")}.`,
+      );
+      for (const key of extras) {
+        scrubbedFields.push({
+          field: `${context}.${key}`,
+          reason: "unexpected_key",
+        });
+      }
+    }
+    return extras;
+  };
+
+  const record = (field: string, reason: Exclude<LeakReason, null>): void => {
+    scrubbedFields.push({ field, reason });
+  };
+
   return {
     scrubDetailed,
     scrub: (text, field) => scrubDetailed(text, field).text,
+    recordUnexpectedKeys,
+    record,
     report: () => ({
       leaksDetected: scrubbedFields.length > 0,
       // Return a copy so the report captured at return time is not

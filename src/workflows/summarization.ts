@@ -11,7 +11,7 @@ import {
   getPlaybackIdForAsset,
   isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
-import { createSafetyReporter } from "@mux/ai/lib/output-safety";
+import { createSafetyReporter, detectUnexpectedKeysFromRawText } from "@mux/ai/lib/output-safety";
 import type { SafetyReport } from "@mux/ai/lib/output-safety";
 import type {
   PromptOverrides,
@@ -88,7 +88,14 @@ export const summarySchema = z.object({
   keywords: z.array(z.string().max(200)),
   title: z.string().max(500),
   description: z.string().max(10000),
-}).strict();
+});
+
+/**
+ * Top-level keys declared by {@link summarySchema}. Used by the workflow
+ * to detect schema-smuggling attempts (extra keys emitted by the model
+ * that zod.strip() would otherwise silently drop).
+ */
+const SUMMARY_SCHEMA_KEYS = ["keywords", "title", "description"] as const;
 
 export type SummaryType = z.infer<typeof summarySchema>;
 
@@ -113,7 +120,7 @@ function buildSummarySchema(descriptionLength: number) {
     keywords: z.array(z.string().max(200)),
     title: z.string().max(500),
     description: z.string().max(descriptionMaxChars),
-  }).strict();
+  });
 }
 
 /** Structured return payload for `getSummaryAndTags`. */
@@ -525,6 +532,8 @@ function buildUserPrompt({
 interface AnalysisResponse {
   result: SummaryType;
   usage: TokenUsage;
+  /** Unexpected top-level keys the model emitted (stripped by zod). */
+  unexpectedKeys: string[];
 }
 
 async function analyzeStoryboard(
@@ -568,6 +577,13 @@ async function analyzeStoryboard(
 
   const parsed = schema.parse(response.output);
 
+  // Detect schema-smuggling. response.output has already been stripped;
+  // re-parse response.text to see what the model actually emitted.
+  const unexpectedKeys = detectUnexpectedKeysFromRawText(
+    response.text,
+    SUMMARY_SCHEMA_KEYS,
+  );
+
   return {
     result: parsed,
     usage: {
@@ -577,6 +593,7 @@ async function analyzeStoryboard(
       reasoningTokens: response.usage.reasoningTokens,
       cachedInputTokens: response.usage.cachedInputTokens,
     },
+    unexpectedKeys,
   };
 }
 
@@ -617,6 +634,13 @@ async function analyzeAudioOnly(
 
   const parsed = schema.parse(response.output);
 
+  // Detect schema-smuggling. response.output has already been stripped;
+  // re-parse response.text to see what the model actually emitted.
+  const unexpectedKeys = detectUnexpectedKeysFromRawText(
+    response.text,
+    SUMMARY_SCHEMA_KEYS,
+  );
+
   return {
     result: parsed,
     usage: {
@@ -626,6 +650,7 @@ async function analyzeAudioOnly(
       reasoningTokens: response.usage.reasoningTokens,
       cachedInputTokens: response.usage.cachedInputTokens,
     },
+    unexpectedKeys,
   };
 }
 
@@ -831,6 +856,19 @@ export async function getSummaryAndTags(
   // Suppressed title/description are returned as empty strings rather than
   // thrown so callers can detect via the `safety` report and fall back.
   const safety = createSafetyReporter();
+
+  // Record schema-smuggling signals from the step. zod.strip() has
+  // already removed the extras from the parsed output; the safety
+  // report surfaces what was stripped so operators can see the attempt.
+  if (analysisResponse.unexpectedKeys.length > 0) {
+    console.warn(
+      `[@mux/ai] Model emitted unexpected keys in summary_metadata (stripped): ${analysisResponse.unexpectedKeys.join(", ")}.`,
+    );
+    for (const key of analysisResponse.unexpectedKeys) {
+      safety.record(`summary_metadata.${key}`, "unexpected_key");
+    }
+  }
+
   const scrubbedTitle = safety.scrub(analysisResponse.result.title, "title");
   const scrubbedDescription = safety.scrub(analysisResponse.result.description, "description");
   const scrubbedKeywords = (analysisResponse.result.keywords ?? [])
