@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import type { TokenUsage } from "../../src/types";
 import {
   aggregateTokenUsage,
+  normalizeTranslatedVtt,
   shouldSplitChunkTranslationError,
 } from "../../src/workflows/translate-captions";
 
@@ -155,5 +156,66 @@ describe("shouldSplitChunkTranslationError", () => {
     });
 
     expect(shouldSplitChunkTranslationError(error)).toBe(true);
+  });
+});
+
+describe("normalizeTranslatedVtt", () => {
+  const body = "1\n00:00:01.000 --> 00:00:02.000\nHello\n";
+
+  it("preserves an already-valid VTT's header and body", () => {
+    // Trailing whitespace may be trimmed; the important invariant is
+    // that the "WEBVTT" header is intact and the cue body is preserved.
+    const input = `WEBVTT\n\n${body}`;
+    const result = normalizeTranslatedVtt(input);
+    expect(result.startsWith("WEBVTT\n\n")).toBe(true);
+    expect(result).toContain("00:00:01.000 --> 00:00:02.000");
+    expect(result).toContain("Hello");
+  });
+
+  it("prepends WEBVTT when the header is missing entirely", () => {
+    const result = normalizeTranslatedVtt(body);
+    expect(result.startsWith("WEBVTT\n\n")).toBe(true);
+    expect(result).toContain("Hello");
+  });
+
+  it("uppercases a lowercased webvtt header", () => {
+    const result = normalizeTranslatedVtt(`webvtt\n\n${body}`);
+    expect(result.startsWith("WEBVTT\n\n")).toBe(true);
+  });
+
+  it("uppercases a mixed-case Webvtt header", () => {
+    const result = normalizeTranslatedVtt(`Webvtt\n\n${body}`);
+    expect(result.startsWith("WEBVTT\n\n")).toBe(true);
+  });
+
+  it("strips a surrounding markdown fence without a language hint", () => {
+    const result = normalizeTranslatedVtt(`\`\`\`\nWEBVTT\n\n${body}\`\`\``);
+    expect(result.startsWith("WEBVTT")).toBe(true);
+    expect(result).not.toContain("```");
+  });
+
+  it("strips a surrounding markdown fence with a vtt hint", () => {
+    const result = normalizeTranslatedVtt(`\`\`\`vtt\nWEBVTT\n\n${body}\`\`\``);
+    expect(result.startsWith("WEBVTT")).toBe(true);
+    expect(result).not.toContain("```");
+  });
+
+  it("strips a surrounding <code> wrapper and uppercases the header", () => {
+    // This is the shape of the observed Anthropic failure: output
+    // wrapped in <code> tags with a lowercase "webvtt" prefix.
+    const result = normalizeTranslatedVtt(`<code>webvtt\n\n${body}</code>`);
+    expect(result.startsWith("WEBVTT\n\n")).toBe(true);
+    expect(result).not.toContain("<code>");
+    expect(result).not.toContain("</code>");
+  });
+
+  it("strips a surrounding <pre> wrapper", () => {
+    const result = normalizeTranslatedVtt(`<pre>WEBVTT\n\n${body}</pre>`);
+    expect(result.startsWith("WEBVTT")).toBe(true);
+    expect(result).not.toContain("<pre>");
+  });
+
+  it("returns an empty string unchanged", () => {
+    expect(normalizeTranslatedVtt("")).toBe("");
   });
 });

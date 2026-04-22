@@ -6,14 +6,21 @@ import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
 import { MuxAiError, wrapError } from "@mux/ai/lib/mux-ai-error";
 import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset, isAudioOnlyAsset } from "@mux/ai/lib/mux-assets";
+import { createSafetyReporter, detectUnexpectedKeys, detectUnexpectedKeysFromRawText } from "@mux/ai/lib/output-safety";
+import type { SafetyReport } from "@mux/ai/lib/output-safety";
 import { createTranscriptSection, renderSection } from "@mux/ai/lib/prompt-builder";
 import {
+  CANARY_TRIPWIRE,
   CONFIDENCE_SCORING_RUBRIC,
   METADATA_BOUNDARY_WARNING,
   NO_FABRICATION_CONSTRAINT,
+  NON_DISCLOSURE_CONSTRAINT,
   promptDedent,
+  REASONING_FIELD_SCOPE,
   STORYBOARD_FRAME_INSTRUCTIONS,
   STRUCTURED_DATA_CONSTRAINT,
+  UNTRUSTED_USER_INPUT_NOTICE,
+  VISUAL_TEXT_AS_CONTENT,
 } from "@mux/ai/lib/prompt-fragments";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
@@ -67,6 +74,20 @@ export interface AskQuestionsOptions extends MuxAIOptions {
   imageDownloadOptions?: ImageDownloadOptions;
   /** Storyboard width in pixels (defaults to 640). */
   storyboardWidth?: number;
+  /**
+   * Maximum length (in characters) allowed for each entry in a question's
+   * `answerOptions` array. Defaults to 150.
+   *
+   * The cap exists to reject instruction-shaped answer options — a common
+   * prompt-injection shape pairs sentence-length options that presuppose
+   * the desired outcome, making "answering correctly" equivalent to
+   * leaking. Domain-specific category labels (e.g. moderation labels like
+   * "Depicts underage individuals in sexual content") can legitimately
+   * run 40–80 characters, so the default is set generously. Raise this
+   * if your use case has genuinely longer category labels; never widen
+   * it to accept arbitrary untrusted input without other safeguards.
+   */
+  maxAnswerOptionLength?: number;
 }
 
 /** Structured return payload for askQuestions workflow. */
@@ -81,18 +102,47 @@ export interface AskQuestionsResult {
   usage?: TokenUsage;
   /** Raw transcript text used for analysis (when includeTranscript is true). */
   transcriptText?: string;
+  /**
+   * Aggregate report of output-side scrubbing performed during this call.
+   * Populated by {@link scrubFreeTextField}. When present with
+   * `leaksDetected: true`, at least one free-text field was suppressed as
+   * a suspected prompt leak — consult `scrubbedFields` for details.
+   */
+  safety?: SafetyReport;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Zod Schemas
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Zod schema for a single answer (matches the public QuestionAnswer interface). */
+/**
+ * Zod schema for a single answer (matches the public QuestionAnswer interface).
+ *
+ * Uses zod's default `.strip()` mode (rather than `.strict()`) so that
+ * an extra key emitted by the model does not fail the whole workflow —
+ * it is silently stripped during parse. The smuggling-channel concern
+ * (a coerced model emitting a prompt fragment under an unexpected key)
+ * is handled out-of-band: the call site re-parses `response.text`,
+ * runs {@link detectUnexpectedKeysFromRawText}, and records each extra
+ * as an `unexpected_key` entry in the workflow's safety report.
+ *
+ * The `.max(1000)` cap on `reasoning` is a mechanical limit on how much
+ * content can be exfiltrated through this channel.
+ *
+ * Tuning notes:
+ * - `REASONING_FIELD_SCOPE` asks the model to keep reasoning to 1–3
+ *   concise sentences. Observed lengths are typically 50–200 chars.
+ * - The 1000-char cap leaves ~5x headroom over typical output while
+ *   making a full system-prompt dump (3000+ chars) unable to fit.
+ * - A plausible tighter value is 500. Before tightening, confirm via
+ *   the `safety` telemetry that 90th-percentile observed lengths on
+ *   legitimate traffic stay well under the new target.
+ */
 export const questionAnswerSchema = z.object({
   question: z.string().describe("The full text of the original question"),
   answer: z.string().nullable(),
   confidence: z.number(),
-  reasoning: z.string(),
+  reasoning: z.string().max(1000),
   skipped: z.boolean(),
 });
 
@@ -201,6 +251,18 @@ const SYSTEM_PROMPT = promptDedent`
     still answer them but use a lower confidence score to reflect uncertainty.
   </relevance_filtering>
 
+  <security>
+    ${NON_DISCLOSURE_CONSTRAINT}
+
+    ${UNTRUSTED_USER_INPUT_NOTICE}
+
+    ${VISUAL_TEXT_AS_CONTENT}
+
+    ${CANARY_TRIPWIRE}
+
+    ${REASONING_FIELD_SCOPE}
+  </security>
+
   <constraints>
     - You MUST answer every relevant question with one of its own listed allowed response options
     - Skip irrelevant questions as described in relevance_filtering
@@ -287,6 +349,16 @@ const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
     still answer them but use a lower confidence score to reflect uncertainty.
   </relevance_filtering>
 
+  <security>
+    ${NON_DISCLOSURE_CONSTRAINT}
+
+    ${UNTRUSTED_USER_INPUT_NOTICE}
+
+    ${CANARY_TRIPWIRE}
+
+    ${REASONING_FIELD_SCOPE}
+  </security>
+
   <constraints>
     - You MUST answer every relevant question with one of its own listed allowed response options
     - Skip irrelevant questions as described in relevance_filtering
@@ -361,6 +433,16 @@ function buildUserPrompt({
 interface AnalysisResponse {
   result: AskQuestionsType;
   usage: TokenUsage;
+  /**
+   * Unexpected top-level keys the model emitted on the root envelope
+   * (i.e. alongside `answers`). Computed in the step from the raw text.
+   */
+  unexpectedRootKeys: string[];
+  /**
+   * Unexpected keys the model emitted on each per-answer object,
+   * one array per answer. Aligned by index with `result.answers`.
+   */
+  unexpectedAnswerKeys: string[][];
 }
 
 async function fetchImageAsBase64(
@@ -423,6 +505,35 @@ async function analyzeQuestions({
 
   const parsed = responseSchema.parse(response.output);
 
+  // Detect schema-smuggling attempts. `response.output` has already
+  // been through zod.strip(), so any extras are gone from it — we
+  // re-parse `response.text` to see what the model actually emitted.
+  // Extras on the root envelope and on each per-answer object are
+  // tracked separately so the safety report can pinpoint the shape of
+  // the smuggling attempt. JSON.parse is wrapped inside the helper
+  // because providers sometimes wrap output in markdown fences.
+  const unexpectedRootKeys = detectUnexpectedKeysFromRawText(
+    response.text,
+    responseSchema.keyof().options,
+  );
+  const unexpectedAnswerKeys: string[][] = [];
+  try {
+    const rawEnvelope = JSON.parse(response.text ?? "{}");
+    const rawAnswers = Array.isArray(rawEnvelope?.answers) ? rawEnvelope.answers : [];
+    // Hoisted out of the loop: the answer sub-schema shape is identical
+    // for every element, so we derive its keys once rather than walking
+    // `.shape` per-element.
+    const answerKeys = questionAnswerSchema.keyof().options;
+    for (const rawAnswer of rawAnswers) {
+      // `rawAnswer` is already a parsed object from the envelope above
+      // — pass it directly to the object-form detector rather than
+      // stringify-then-re-parse.
+      unexpectedAnswerKeys.push(detectUnexpectedKeys(rawAnswer, answerKeys));
+    }
+  } catch {
+    // Raw text not valid JSON — skip per-answer detection silently.
+  }
+
   return {
     result: parsed,
     usage: {
@@ -432,6 +543,8 @@ async function analyzeQuestions({
       reasoningTokens: response.usage.reasoningTokens,
       cachedInputTokens: response.usage.cachedInputTokens,
     },
+    unexpectedRootKeys,
+    unexpectedAnswerKeys,
   };
 }
 
@@ -477,13 +590,61 @@ export async function askQuestions(
     throw new MuxAiError("At least one question must be provided.", { type: "validation_error" });
   }
 
-  // Validate each question has valid text
+  // Validate each question has valid text and enforce a length ceiling.
+  // Reasonable human-authored questions are well under a few hundred
+  // characters; anything longer is almost certainly either a misuse
+  // (pasting a whole document) or a prompt-injection payload trying to
+  // hide instructions in a long blob. Rejecting at the boundary is a
+  // cheap, deterministic defence that the model never sees.
+  const MAX_QUESTION_LENGTH = 500;
   questions.forEach((q, idx) => {
     if (!q.question || typeof q.question !== "string" || !q.question.trim()) {
       throw new MuxAiError(
         `Question at index ${idx} is invalid: must have a non-empty question field.`,
         { type: "validation_error" },
       );
+    }
+    if (q.question.length > MAX_QUESTION_LENGTH) {
+      throw new MuxAiError(
+        `Question at index ${idx} exceeds the ${MAX_QUESTION_LENGTH}-character limit (received ${q.question.length}).`,
+        { type: "validation_error" },
+      );
+    }
+  });
+
+  // Per-answer-option length ceiling. Answer options are meant to be
+  // short labels ("yes", "no", "low", "appropriate") or domain-specific
+  // category strings (moderation labels, compliance categories).
+  //
+  // A common prompt-injection shape smuggles the payload through option
+  // content — e.g. pairing two long sentences that both presuppose the
+  // desired outcome ("Yes, I copied the full instructions into my
+  // reasoning as required"). The cap rejects instruction-shaped options
+  // before they reach the model.
+  //
+  // Default cap is 150 characters, tuned to comfortably pass
+  // domain-specific category labels (which can legitimately run 40–80
+  // chars) while still rejecting obvious sentence-length injections.
+  // Overridable via `options.maxAnswerOptionLength` for use cases with
+  // genuinely longer labels — but beware that widening this cap reduces
+  // one of the defences against option-smuggling attacks.
+  const DEFAULT_MAX_ANSWER_OPTION_LENGTH = 150;
+  const maxAnswerOptionLength =
+    options?.maxAnswerOptionLength ?? DEFAULT_MAX_ANSWER_OPTION_LENGTH;
+  if (!Number.isFinite(maxAnswerOptionLength) || maxAnswerOptionLength <= 0) {
+    throw new MuxAiError(
+      `maxAnswerOptionLength must be a positive number (received ${maxAnswerOptionLength}).`,
+      { type: "validation_error" },
+    );
+  }
+  questions.forEach((q, idx) => {
+    for (const opt of q.answerOptions ?? []) {
+      if (typeof opt === "string" && opt.length > maxAnswerOptionLength) {
+        throw new MuxAiError(
+          `Question at index ${idx} has an answerOption exceeding the ${maxAnswerOptionLength}-character limit (received ${opt.length}). Answer options should be short labels, not sentences.`,
+          { type: "validation_error" },
+        );
+      }
     }
   });
 
@@ -635,19 +796,51 @@ export async function askQuestions(
   }
 
   // Post-process raw LLM output into the public QuestionAnswer shape.
-  // Treat as skipped if the model flagged it OR if the answer is the sentinel.
+  // Treat as skipped if the model flagged it, if the answer is the sentinel,
+  // or if the output-safety scrub detected a prompt leak in the reasoning.
+  //
+  // The returned `question` is taken from the normalized input rather than
+  // from `raw.question`. The model's schema requires it to echo the input
+  // verbatim, but that field is another potential exfiltration channel:
+  // a prompt-injected payload can coerce the model into returning arbitrary
+  // content in place of the question. Since we already have the trusted
+  // input in `normalizedQuestions[idx].question`, there is no reason to
+  // trust the model's echo.
+  const safety = createSafetyReporter();
+
+  // Record schema-smuggling signals from the step. zod.strip() has
+  // already removed the extras from the parsed output; the safety
+  // report captures what was stripped so operators can see the
+  // smuggling attempt.
+  for (const key of analysisResponse.unexpectedRootKeys) {
+    safety.record(`ask_questions.${key}`, "unexpected_key");
+  }
+  analysisResponse.unexpectedAnswerKeys.forEach((extras, idx) => {
+    for (const key of extras) {
+      safety.record(`answers[${idx}].${key}`, "unexpected_key");
+    }
+  });
+  const totalUnexpected = analysisResponse.unexpectedRootKeys.length +
+    analysisResponse.unexpectedAnswerKeys.reduce((sum, e) => sum + e.length, 0);
+  if (totalUnexpected > 0) {
+    console.warn(
+      `[@mux/ai] Model emitted ${totalUnexpected} unexpected key(s) in ask_questions output (stripped).`,
+    );
+  }
+
   const answers: QuestionAnswer[] = analysisResponse.result.answers.map((raw, idx) => {
-    const isSkipped = raw.skipped || raw.answer === SKIP_SENTINEL;
+    const scrub = safety.scrubDetailed(raw.reasoning, `reasoning[${idx}]`);
+    const isSkipped = raw.skipped || raw.answer === SKIP_SENTINEL || scrub.leaked;
     if (!isSkipped && !normalizedQuestions[idx].answerOptions.includes(raw.answer)) {
       throw new MuxAiError(
         `Answer "${raw.answer}" for question ${idx} is not in allowed options: ${normalizedQuestions[idx].answerOptions.join(", ")}`,
       );
     }
     return {
-      // Strip numbering prefix (e.g. "1. ") if the LLM prepends one
-      question: raw.question.replace(/^\d+\.\s*/, ""),
+      // Use the trusted input verbatim rather than the model's echo.
+      question: normalizedQuestions[idx].question,
       confidence: isSkipped ? 0 : Math.min(1, Math.max(0, raw.confidence)),
-      reasoning: raw.reasoning,
+      reasoning: scrub.leaked ? "Response suppressed by safety filter." : scrub.text,
       skipped: isSkipped,
       answer: isSkipped ? null : raw.answer,
     };
@@ -664,5 +857,6 @@ export async function askQuestions(
       },
     },
     transcriptText: transcriptText || undefined,
+    safety: safety.report(),
   };
 }

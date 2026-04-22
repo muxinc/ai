@@ -43,6 +43,24 @@ const EnvSchema = z.object({
     "Override for Mux stream base URL (defaults to https://stream.mux.com).",
     "Mux stream URL override",
   ),
+  // The canary is substring-matched against every LLM output via
+  // `detectLeakReason` ("canary" reason). A too-short override (e.g. a
+  // 3-letter test value like "mux" or "the") would match legitimate
+  // prose and cascade into false-positive leak reports across every
+  // workflow. Enforce a minimum length at startup so misconfiguration
+  // fails loudly rather than silently poisoning every request.
+  MUX_AI_PROMPT_CANARY: z.preprocess(
+    value => typeof value === "string" && value.trim().length === 0 ? undefined : value,
+    z.string()
+      .trim()
+      .min(
+        16,
+        "MUX_AI_PROMPT_CANARY must be at least 16 characters. The canary is substring-matched against every LLM output; short values produce false-positive leak alerts on legitimate content.",
+      )
+      .optional(),
+  ).describe(
+    "Override for the system-prompt canary tripwire token. Defaults to a static value; set to a per-deployment secret (>= 16 characters, high entropy recommended) to distinguish leaks between environments or to rotate without a library release.",
+  ),
 
   // Test-only helpers (used by this repo's integration tests)
   MUX_TEST_ASSET_ID: optionalString("Mux asset ID used by integration tests.", "Mux test asset id"),

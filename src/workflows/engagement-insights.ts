@@ -9,12 +9,19 @@ import {
   isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
 import { getMuxThumbnailBaseUrl } from "@mux/ai/lib/mux-url";
+import { createSafetyReporter, detectUnexpectedKeys, detectUnexpectedKeysFromRawText } from "@mux/ai/lib/output-safety";
+import type { SafetyReport } from "@mux/ai/lib/output-safety";
 import { createPromptBuilder } from "@mux/ai/lib/prompt-builder";
 import {
+  CANARY_TRIPWIRE,
   METADATA_BOUNDARY_WARNING,
   NO_FABRICATION_CONSTRAINT,
+  NON_DISCLOSURE_CONSTRAINT,
   promptDedent,
+  REASONING_FIELD_SCOPE,
   STRUCTURED_DATA_CONSTRAINT,
+  UNTRUSTED_USER_INPUT_NOTICE,
+  VISUAL_TEXT_AS_CONTENT,
 } from "@mux/ai/lib/prompt-fragments";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
@@ -98,11 +105,47 @@ export interface EngagementInsightsResult {
   overallInsight: OverallInsight;
   /** Token usage from the AI provider (for efficiency/cost analysis). */
   usage?: TokenUsage;
+  /**
+   * Aggregate report of output-side scrubbing performed during this call.
+   * When `leaksDetected` is `true`, at least one `insight`, the overall
+   * `summary`, or an entry of `trends` was suppressed as a suspected
+   * prompt leak. Suppressed insights and the summary are replaced with
+   * a neutral placeholder; suppressed trends are dropped.
+   */
+  safety?: SafetyReport;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Zod Schemas (given to AI)
 // ─────────────────────────────────────────────────────────────────────────────
+
+// Schemas use zod's default `.strip()` mode — extras the model emits
+// alongside the declared fields are silently dropped during parse so a
+// benign provider quirk does not fail the whole workflow. The
+// smuggling-channel concern (a coerced model emitting prompt fragments
+// under an unexpected key) is surfaced out-of-band: the parse site
+// re-parses `response.text` via `detectUnexpectedKeysFromRawText` and
+// records each extra as an `unexpected_key` entry in the workflow's
+// safety report.
+//
+// Length caps (`.max(...)`) on the free-text fields mechanically bound
+// exfiltration bandwidth. Values and tuning notes:
+//
+// - `insight` per moment (current: 1000 chars). Typical legitimate
+//   output is 1–3 sentences of evidence, ~400 chars. 1000 leaves
+//   ~2.5x headroom; could plausibly tighten to 500 once telemetry
+//   shows legitimate 90th-percentile lengths stay well under that.
+// - overall `summary` (current: 2000 chars). Typical legitimate output
+//   is a paragraph, ~600 chars, though a thorough summary may reach
+//   1000–1500 chars. 2000 has less headroom than other fields — take
+//   care before tightening.
+// - each `trends` entry (current: 500 chars). Typical ~200 chars. Could
+//   tighten to 300 comfortably.
+//
+// Tuning signal: a `safety.leaksDetected` hit with reason `canary` or
+// `prompt_tag` while the observed 90th-percentile length is far below
+// the cap is evidence the cap can be tightened without breaking real
+// outputs.
 
 /** Zod schema for a single moment insight returned by the AI. */
 const aiMomentInsightSchema = z.object({
@@ -111,13 +154,13 @@ const aiMomentInsightSchema = z.object({
   endMs: z.number(),
   timestamp: z.string(),
   engagementScore: z.number(),
-  insight: z.string(),
+  insight: z.string().max(1000),
 });
 
 /** Zod schema for overall insight returned by the AI. */
 const aiOverallInsightSchema = z.object({
-  summary: z.string(),
-  trends: z.array(z.string()),
+  summary: z.string().max(2000),
+  trends: z.array(z.string().max(500)),
 });
 
 /** Combined schema for AI response */
@@ -157,6 +200,18 @@ const SYSTEM_PROMPT = promptDedent`
 
     Base your insights on OBSERVABLE EVIDENCE from visuals and transcript.
   </task>
+
+  <security>
+    ${NON_DISCLOSURE_CONSTRAINT}
+
+    ${UNTRUSTED_USER_INPUT_NOTICE}
+
+    ${VISUAL_TEXT_AS_CONTENT}
+
+    ${CANARY_TRIPWIRE}
+
+    ${REASONING_FIELD_SCOPE}
+  </security>
 
   <constraints>
     - Only describe what you can see in images or read in transcripts
@@ -199,6 +254,16 @@ const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
 
     Base your insights on OBSERVABLE EVIDENCE from the transcript.
   </task>
+
+  <security>
+    ${NON_DISCLOSURE_CONSTRAINT}
+
+    ${UNTRUSTED_USER_INPUT_NOTICE}
+
+    ${CANARY_TRIPWIRE}
+
+    ${REASONING_FIELD_SCOPE}
+  </security>
 
   <constraints>
     - Only describe what you can read in the transcript
@@ -268,11 +333,17 @@ function buildUserPrompt(
       const startTimestamp = secondsToTimestamp(h.startMs / 1000);
       const endTimestamp = secondsToTimestamp(h.endMs / 1000);
 
+      // Serialise the transcript through JSON.stringify so any embedded
+      // double-quotes, backslashes, or newlines are properly escaped. A
+      // previous formulation used bare `"${transcript}"`, which a
+      // transcript containing `"` could break out of — the outer
+      // <engagement_hotspots> XML escape kept the tag structure intact
+      // but the inner field boundaries were ambiguous to the model.
       return dedent`
         Hotspot ${idx} (hotspotIndex: ${idx}):
         - Time Range: ${startTimestamp} - ${endTimestamp}
         - Engagement Score: ${h.score.toFixed(2)} (0=low, 1=high)
-        - Transcript: "${transcript}"
+        - Transcript: ${JSON.stringify(transcript)}
       `;
     })
     .join("\n\n");
@@ -458,7 +529,16 @@ async function generateInsightsWithAI(
   userPrompt: string,
   imageUrls: string[],
   credentials?: WorkflowCredentialsInput,
-): Promise<{ result: AIEngagementInsightsResult; usage: TokenUsage }> {
+): Promise<{
+  result: AIEngagementInsightsResult;
+  usage: TokenUsage;
+  /** Unexpected top-level keys alongside momentInsights/overallInsight. */
+  unexpectedRootKeys: string[];
+  /** Unexpected keys on each momentInsight, aligned by index. */
+  unexpectedMomentKeys: string[][];
+  /** Unexpected keys on the overallInsight object. */
+  unexpectedOverallKeys: string[];
+}> {
   "use step";
 
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
@@ -488,6 +568,35 @@ async function generateInsightsWithAI(
     throw new Error("AI returned empty or unparseable response");
   }
 
+  // Detect schema-smuggling at each nested level. zod.strip() has
+  // already removed the extras from response.output, so we re-parse
+  // response.text to see what the model actually emitted.
+  const unexpectedRootKeys = detectUnexpectedKeysFromRawText(
+    response.text,
+    engagementInsightsSchema.keyof().options,
+  );
+  const unexpectedMomentKeys: string[][] = [];
+  let unexpectedOverallKeys: string[] = [];
+  try {
+    const rawEnvelope = JSON.parse(response.text ?? "{}");
+    const rawMoments = Array.isArray(rawEnvelope?.momentInsights) ?
+      rawEnvelope.momentInsights :
+        [];
+    // Hoisted out of the loop; the per-moment shape is identical.
+    const momentKeys = aiMomentInsightSchema.keyof().options;
+    for (const rawMoment of rawMoments) {
+      // `rawMoment` is already parsed; skip the stringify + re-parse
+      // roundtrip via the object-form detector.
+      unexpectedMomentKeys.push(detectUnexpectedKeys(rawMoment, momentKeys));
+    }
+    unexpectedOverallKeys = detectUnexpectedKeys(
+      rawEnvelope?.overallInsight ?? {},
+      aiOverallInsightSchema.keyof().options,
+    );
+  } catch {
+    // Non-JSON raw text; skip nested detection silently.
+  }
+
   return {
     result: response.output,
     usage: {
@@ -497,6 +606,9 @@ async function generateInsightsWithAI(
       reasoningTokens: response.usage.reasoningTokens,
       cachedInputTokens: response.usage.cachedInputTokens,
     },
+    unexpectedRootKeys,
+    unexpectedMomentKeys,
+    unexpectedOverallKeys,
   };
 }
 
@@ -700,7 +812,7 @@ export async function generateEngagementInsights(
   );
 
   // Step 5: Generate insights with AI
-  const { result: aiInsights, usage } = await generateInsightsWithAI(
+  const aiStepResult = await generateInsightsWithAI(
     modelConfig.provider,
     modelConfig.modelId,
     systemPrompt,
@@ -708,12 +820,42 @@ export async function generateEngagementInsights(
     imageUrls,
     credentials,
   );
+  const { result: aiInsights, usage } = aiStepResult;
 
   if (!aiInsights.momentInsights || aiInsights.momentInsights.length === 0) {
     throw new MuxAiError(`Failed to generate insights for asset ${assetId}.`);
   }
 
-  // Step 6: Transform — re-associate AI output with hotspots by hotspotIndex
+  // Step 6: Transform — re-associate AI output with hotspots by hotspotIndex.
+  // Scrub free-text fields (insight, summary, trends) to suppress any
+  // system-prompt leakage that slipped past the instruction-level defences.
+  // A single SafetyReporter collects every suppression so the caller can
+  // see everything that tripped in one place via the returned `safety`
+  // field.
+  const safety = createSafetyReporter();
+
+  // Record schema-smuggling signals. zod.strip() has already removed the
+  // extras from the parsed output; the safety report surfaces what was
+  // stripped at each nesting level.
+  for (const key of aiStepResult.unexpectedRootKeys) {
+    safety.record(`engagement_insights.${key}`, "unexpected_key");
+  }
+  aiStepResult.unexpectedMomentKeys.forEach((extras, idx) => {
+    for (const key of extras) {
+      safety.record(`momentInsights[${idx}].${key}`, "unexpected_key");
+    }
+  });
+  for (const key of aiStepResult.unexpectedOverallKeys) {
+    safety.record(`overallInsight.${key}`, "unexpected_key");
+  }
+  const totalUnexpected = aiStepResult.unexpectedRootKeys.length +
+    aiStepResult.unexpectedMomentKeys.reduce((sum, e) => sum + e.length, 0) +
+    aiStepResult.unexpectedOverallKeys.length;
+  if (totalUnexpected > 0) {
+    console.warn(
+      `[@mux/ai] Model emitted ${totalUnexpected} unexpected key(s) in engagement_insights output (stripped).`,
+    );
+  }
   const momentInsights: MomentInsight[] = [];
 
   for (const aiMoment of aiInsights.momentInsights) {
@@ -727,12 +869,13 @@ export async function generateEngagementInsights(
 
     // Use ground-truth data from hotspots array, not AI-generated values
     const hotspot = hotspots[idx];
+    const insightScrub = safety.scrubDetailed(aiMoment.insight, `momentInsights[${idx}].insight`);
     momentInsights.push({
       startMs: hotspot.startMs,
       endMs: hotspot.endMs,
       timestamp: secondsToTimestamp(hotspot.startMs / 1000),
       engagementScore: hotspot.score,
-      insight: aiMoment.insight,
+      insight: insightScrub.leaked ? "Insight suppressed by safety filter." : insightScrub.text,
     });
   }
 
@@ -741,6 +884,12 @@ export async function generateEngagementInsights(
       `Failed to generate valid insights for asset ${assetId}.`,
     );
   }
+
+  const summaryScrub = safety.scrubDetailed(aiInsights.overallInsight.summary, "overallInsight.summary");
+  const scrubbedTrends = aiInsights.overallInsight.trends
+    .map((t, i) => safety.scrubDetailed(t, `overallInsight.trends[${i}]`))
+    .filter(result => !result.leaked)
+    .map(result => result.text);
 
   const usageWithMetadata: TokenUsage = {
     ...usage,
@@ -754,9 +903,10 @@ export async function generateEngagementInsights(
     assetId,
     momentInsights,
     overallInsight: {
-      summary: aiInsights.overallInsight.summary,
-      trends: aiInsights.overallInsight.trends,
+      summary: summaryScrub.leaked ? "Summary suppressed by safety filter." : summaryScrub.text,
+      trends: scrubbedTrends,
     },
     usage: usageWithMetadata,
+    safety: safety.report(),
   };
 }

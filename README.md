@@ -229,6 +229,7 @@ import { workflows, primitives } from "@mux/ai";
 | [Audio-Only Workflows](./docs/AUDIO-ONLY.md) | Working with audio-only assets (no video track) |
 | [Evaluations](./docs/EVALS.md) | AI eval testing with the 3 E's framework — [public dashboard](https://evaluating-mux-ai.vercel.app/) |
 | [Examples](./docs/EXAMPLES.md) | Running the example scripts from the repository |
+| [Security](./docs/SECURITY.md) | Prompt-injection threat model, trust boundaries for workflow options, and the `safety` field on results |
 
 ### Additional Resources
 

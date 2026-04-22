@@ -1,3 +1,5 @@
+import { detectLeakReason } from "@mux/ai/lib/output-safety";
+
 export type MuxAiErrorType = "validation_error" | "processing_error" | "timeout_error";
 
 /**
@@ -44,11 +46,38 @@ export class MuxAiError extends Error {
  *
  * Use this in catch blocks that re-throw so a customer-safe error from a
  * callee isn't accidentally converted into an internal error.
+ *
+ * The upstream `detail` is scrubbed for **high-confidence** signs of a
+ * system-prompt leak before being folded into the thrown message.
+ * Rationale: the AI SDK and some providers include the offending model
+ * output in their error messages (e.g. "Failed to parse structured
+ * output: { reasoning: '<role>…' }"). If an injection payload caused
+ * the parse failure, the raw output would otherwise bypass the
+ * free-text scrubber and reach the caller through the error channel.
+ *
+ * Only the `canary` and `prompt_tag` detectors trigger suppression
+ * here — they have very low false-positive rates. The `encoded_blob`
+ * heuristic is intentionally NOT applied to error messages: legitimate
+ * upstream errors from infrastructure (S3 errors containing ETags,
+ * git errors containing SHAs, AWS request IDs, content hashes) can
+ * match the encoded-blob shape without being a prompt leak. Suppressing
+ * those would erase useful debugging information with no security
+ * benefit, because an attacker exfiltrating through a shaped blob would
+ * trigger the much stronger field-level scrubber on the preceding
+ * model output.
  */
 export function wrapError(error: unknown, message: string): never {
   if (error instanceof MuxAiError) {
     throw error;
   }
-  const detail = error instanceof Error ? error.message : "Unknown error";
+  const rawDetail = error instanceof Error ? error.message : "Unknown error";
+  const leakReason = detectLeakReason(rawDetail);
+  const shouldSuppress = leakReason === "canary" || leakReason === "prompt_tag";
+  const detail = shouldSuppress ?
+    "Upstream error details suppressed by safety filter" :
+    rawDetail;
+  if (shouldSuppress) {
+    console.warn(`[@mux/ai] Suppressed suspected prompt leak in wrapped error (context: ${message}, reason: ${leakReason}).`);
+  }
   throw new Error(`${message}: ${detail}`);
 }

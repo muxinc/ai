@@ -5,13 +5,19 @@ import { z } from "zod";
 import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
 import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
+import { createSafetyReporter, detectUnexpectedKeysFromRawText } from "@mux/ai/lib/output-safety";
+import type { SafetyReport } from "@mux/ai/lib/output-safety";
 import type { PromptOverrides } from "@mux/ai/lib/prompt-builder";
 import { createPromptBuilder } from "@mux/ai/lib/prompt-builder";
 import {
+  CANARY_TRIPWIRE,
   METADATA_BOUNDARY_WARNING,
+  NON_DISCLOSURE_CONSTRAINT,
   promptDedent,
   STORYBOARD_FRAME_INSTRUCTIONS,
   STRUCTURED_DATA_CONSTRAINT,
+  UNTRUSTED_USER_INPUT_NOTICE,
+  VISUAL_TEXT_AS_CONTENT,
 } from "@mux/ai/lib/prompt-fragments";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
@@ -36,6 +42,15 @@ export interface BurnedInCaptionsResult {
   storyboardUrl: string;
   /** Token usage from the AI provider (for efficiency/cost analysis). */
   usage?: TokenUsage;
+  /**
+   * Aggregate report of output-side safety signals detected during this
+   * call. The workflow's free-text surface is limited to
+   * `detectedLanguage`, so most entries here will be `unexpected_key`
+   * records — the model emitting a field not declared in
+   * `burnedInCaptionsSchema` (which is then silently stripped by
+   * zod.strip() but surfaced here as a smuggling signal).
+   */
+  safety?: SafetyReport;
 }
 
 /**
@@ -81,11 +96,31 @@ export interface BurnedInCaptionsOptions extends MuxAIOptions {
   promptOverrides?: BurnedInCaptionsPromptOverrides;
 }
 
-/** Schema used to validate burned-in captions analysis responses. */
+/**
+ * Schema used to validate burned-in captions analysis responses.
+ *
+ * Uses zod's default `.strip()` mode rather than `.strict()`: extra keys
+ * the model emits are silently dropped during parse so a provider
+ * quirk doesn't fail the whole workflow. The smuggling-channel concern
+ * (a coerced model emitting e.g. `{ ..., system_prompt_verbatim: "..." }`)
+ * is addressed out-of-band by the `detectUnexpectedKeys` call at the
+ * parse site — which logs the extras and records them in the workflow's
+ * safety report as `unexpected_key` leaks.
+ *
+ * `.max(100)` on `detectedLanguage` caps the one free-text field.
+ *
+ * Tuning notes:
+ * - Real language names are short ("English", "Mandarin Chinese",
+ *   "Brazilian Portuguese"), typically 5–30 chars.
+ * - 100 chars leaves ~3x headroom while preventing a multi-hundred-
+ *   character dump.
+ * - Could plausibly tighten to 60 once telemetry shows legitimate
+ *   outputs consistently well under that.
+ */
 export const burnedInCaptionsSchema = z.object({
   hasBurnedInCaptions: z.boolean(),
   confidence: z.number(),
-  detectedLanguage: z.string().nullable(),
+  detectedLanguage: z.string().max(100).nullable(),
 });
 
 /** Inferred shape returned from the burned-in captions schema. */
@@ -127,6 +162,16 @@ const SYSTEM_PROMPT = promptDedent`
     - Identify language of detected caption text
     - Assess confidence in caption detection
   </capabilities>
+
+  <security>
+    ${NON_DISCLOSURE_CONSTRAINT}
+
+    ${UNTRUSTED_USER_INPUT_NOTICE}
+
+    ${VISUAL_TEXT_AS_CONTENT}
+
+    ${CANARY_TRIPWIRE}
+  </security>
 
   <constraints>
     - Only classify as burned-in captions when evidence is clear across multiple frames
@@ -192,6 +237,14 @@ const DEFAULT_PROVIDER = "openai";
 interface AnalysisResponse {
   result: BurnedInCaptionsAnalysis;
   usage: TokenUsage;
+  /**
+   * Keys emitted by the model that are not declared in
+   * `burnedInCaptionsSchema`. Computed inside the step function by
+   * re-parsing `response.text` (since `response.output` has already
+   * been through zod's strip()) so the signal survives the step
+   * boundary as plain serialisable data.
+   */
+  unexpectedKeys: string[];
 }
 
 async function fetchImageAsBase64(
@@ -242,6 +295,18 @@ async function analyzeStoryboard({
     ],
   });
 
+  // Detect schema-smuggling attempts. `response.output` has already
+  // been through zod.strip(), so any extras the model emitted are gone
+  // from it — we re-parse `response.text` (the raw JSON the model
+  // produced) to see what was actually there. JSON.parse is wrapped in
+  // try/catch because providers sometimes wrap output in markdown
+  // fences or whitespace that makes the raw string not valid JSON even
+  // when `response.output` parsed successfully.
+  const unexpectedKeys = detectUnexpectedKeysFromRawText(
+    response.text,
+    burnedInCaptionsSchema.keyof().options,
+  );
+
   return {
     result: {
       ...response.output,
@@ -254,6 +319,7 @@ async function analyzeStoryboard({
       reasoningTokens: response.usage.reasoningTokens,
       cachedInputTokens: response.usage.cachedInputTokens,
     },
+    unexpectedKeys,
   };
 }
 
@@ -312,6 +378,20 @@ export async function hasBurnedInCaptions(
     throw new Error("No analysis result received from AI provider");
   }
 
+  // Aggregate any schema-smuggling signals from the step into the
+  // workflow's safety report. A model emitting an unexpected key is
+  // recorded but not treated as a fatal error — zod has already
+  // stripped the extras from `analysisResponse.result`.
+  const safety = createSafetyReporter();
+  if (analysisResponse.unexpectedKeys.length > 0) {
+    console.warn(
+      `[@mux/ai] Model emitted unexpected keys in burned_in_captions analysis (stripped): ${analysisResponse.unexpectedKeys.join(", ")}.`,
+    );
+    for (const key of analysisResponse.unexpectedKeys) {
+      safety.record(`burned_in_captions.${key}`, "unexpected_key");
+    }
+  }
+
   return {
     assetId,
     hasBurnedInCaptions: analysisResponse.result.hasBurnedInCaptions ?? false,
@@ -324,5 +404,6 @@ export async function hasBurnedInCaptions(
         assetDurationSeconds,
       },
     },
+    safety: safety.report(),
   };
 }

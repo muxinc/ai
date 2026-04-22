@@ -43,6 +43,31 @@ const result = await getSummaryAndTags(assetId, {
 | `generateChapters` | `task`, `titleGuidelines`, `chapterGuidelines` |
 | `hasBurnedInCaptions` | `task`, `positiveIndicators`, `negativeIndicators`, `confidenceGuidelines` |
 
+## ⚠️ `promptOverrides` is a trust boundary
+
+**Never plumb untrusted input into `promptOverrides`.** Override content
+is inserted into the system / user prompt with the same authority as the
+library's own instructions. An end-user who can author an override can
+effectively author the system prompt — which means they can disable the
+prompt-injection defences the library applies in the default sections.
+
+Safe uses of `promptOverrides`:
+
+- A developer hard-codes or config-drives the override at build time for
+  their use case (SEO metadata, podcast titles, etc.).
+- An internal admin UI where overrides are authored by trusted staff.
+
+Unsafe uses:
+
+- Concatenating an end-user's text into an override value.
+- Exposing `promptOverrides` in a public API surface.
+- Accepting overrides from a webhook, form field, or any other channel
+  outside the operator's control.
+
+See [`docs/SECURITY.md`](./SECURITY.md) for the full threat model and
+the complete list of options that are / are not safe to populate from
+untrusted input.
+
 ## Presets: Common Override Patterns
 
 Here are ready-to-use override sets for common use cases. Copy and adapt these as starting points.

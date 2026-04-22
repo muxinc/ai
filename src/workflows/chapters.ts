@@ -9,8 +9,15 @@ import {
   getPlaybackIdForAsset,
   isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
+import { createSafetyReporter, detectUnexpectedKeys, detectUnexpectedKeysFromRawText } from "@mux/ai/lib/output-safety";
+import type { SafetyReport } from "@mux/ai/lib/output-safety";
 import type { PromptOverrides, PromptSection } from "@mux/ai/lib/prompt-builder";
 import { createLanguageSection, createPromptBuilder } from "@mux/ai/lib/prompt-builder";
+import {
+  CANARY_TRIPWIRE,
+  NON_DISCLOSURE_CONSTRAINT,
+  UNTRUSTED_USER_INPUT_NOTICE,
+} from "@mux/ai/lib/prompt-fragments";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
 import { withRetry } from "@mux/ai/lib/retry";
@@ -27,9 +34,26 @@ import type { MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "@mux/ai
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Uses zod's default `.strip()` on both schemas so extra keys the model
+ * emits are silently stripped rather than failing the workflow. The
+ * smuggling-channel concern (a coerced model emitting prompt fragments
+ * under an unexpected key) is surfaced by the call site's
+ * `detectUnexpectedKeysFromRawText` pass, which records each extra as
+ * an `unexpected_key` entry in the workflow's safety report.
+ *
+ * `.max(300)` on `title` caps the exfiltration channel.
+ *
+ * Tuning notes:
+ * - Chapter titles are short labels ("Introduction", "Main Topic
+ *   Discussion") and typically run 10–50 characters.
+ * - 300 chars leaves generous headroom (~6x typical). Could plausibly
+ *   tighten to 150 once telemetry shows no legitimate output
+ *   approaches that length.
+ */
 export const chapterSchema = z.object({
   startTime: z.number(),
-  title: z.string(),
+  title: z.string().max(300),
 });
 
 export type Chapter = z.infer<typeof chapterSchema>;
@@ -47,6 +71,14 @@ export interface ChaptersResult {
   chapters: Chapter[];
   /** Token usage from the AI provider (for efficiency/cost analysis). */
   usage?: TokenUsage;
+  /**
+   * Aggregate report of output-side scrubbing performed during this call.
+   * When `leaksDetected` is `true`, at least one chapter title was
+   * suppressed. Suppressed chapters are dropped from the returned
+   * `chapters` array so playback timelines are not decorated with blank
+   * titles; consult `scrubbedFields` to know how many were removed.
+   */
+  safety?: SafetyReport;
 }
 
 /**
@@ -121,7 +153,14 @@ async function generateChaptersWithAI({
   userPrompt: string;
   systemPrompt: string;
   credentials?: WorkflowCredentialsInput;
-}): Promise<{ chapters: ChaptersType; usage: TokenUsage }> {
+}): Promise<{
+  chapters: ChaptersType;
+  usage: TokenUsage;
+  /** Unexpected keys on the root envelope (alongside `chapters`). */
+  unexpectedRootKeys: string[];
+  /** Unexpected keys on each chapter object, aligned by index. */
+  unexpectedChapterKeys: string[][];
+}> {
   "use step";
 
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
@@ -143,6 +182,28 @@ async function generateChaptersWithAI({
     }),
   );
 
+  // Detect schema-smuggling. response.output has already been stripped;
+  // re-parse response.text to see what the model actually emitted.
+  const unexpectedRootKeys = detectUnexpectedKeysFromRawText(
+    response.text,
+    chaptersSchema.keyof().options,
+  );
+  const unexpectedChapterKeys: string[][] = [];
+  try {
+    const rawEnvelope = JSON.parse(response.text ?? "{}");
+    const rawChapters = Array.isArray(rawEnvelope?.chapters) ? rawEnvelope.chapters : [];
+    // Hoisted out of the loop: the per-chapter shape is identical for
+    // every element, so we derive its keys once.
+    const chapterKeys = chapterSchema.keyof().options;
+    for (const rawChapter of rawChapters) {
+      // `rawChapter` is already parsed; skip the stringify + re-parse
+      // roundtrip via the object-form detector.
+      unexpectedChapterKeys.push(detectUnexpectedKeys(rawChapter, chapterKeys));
+    }
+  } catch {
+    // Non-JSON raw text; skip per-chapter detection silently.
+  }
+
   return {
     chapters: response.output,
     usage: {
@@ -152,6 +213,8 @@ async function generateChaptersWithAI({
       reasoningTokens: response.usage.reasoningTokens,
       cachedInputTokens: response.usage.cachedInputTokens,
     },
+    unexpectedRootKeys,
+    unexpectedChapterKeys,
   };
 }
 
@@ -163,7 +226,7 @@ async function generateChaptersWithAI({
  * Sections of the chaptering system prompt that can be overridden.
  * Use these to customize the AI's persona and constraints.
  */
-export type ChapterSystemPromptSections = "role" | "context" | "constraints" | "qualityGuidelines";
+export type ChapterSystemPromptSections = "role" | "context" | "security" | "constraints" | "qualityGuidelines";
 
 /**
  * Prompt builder for the chaptering system prompt.
@@ -181,6 +244,15 @@ const chapterSystemPromptBuilder = createPromptBuilder<ChapterSystemPromptSectio
         You receive a timestamped transcript with lines in the form "[12s] Caption text".
         Use those timestamps as anchors to determine chapter start times in seconds.`,
     },
+    security: {
+      tag: "security",
+      content: dedent`
+        ${NON_DISCLOSURE_CONSTRAINT}
+
+        ${UNTRUSTED_USER_INPUT_NOTICE}
+
+        ${CANARY_TRIPWIRE}`,
+    },
     constraints: {
       tag: "constraints",
       content: dedent`
@@ -197,7 +269,7 @@ const chapterSystemPromptBuilder = createPromptBuilder<ChapterSystemPromptSectio
         - Ensure the first chapter starts at 0 seconds`,
     },
   },
-  sectionOrder: ["role", "context", "constraints", "qualityGuidelines"],
+  sectionOrder: ["role", "context", "security", "constraints", "qualityGuidelines"],
 });
 
 /**
@@ -367,7 +439,7 @@ export async function generateChapters(
   });
 
   // Generate chapters using AI SDK
-  let chaptersData: { chapters: ChaptersType; usage: TokenUsage } | null = null;
+  let chaptersData: Awaited<ReturnType<typeof generateChaptersWithAI>> | null = null;
 
   try {
     const systemPrompt = isAudioOnly ?
@@ -398,9 +470,61 @@ export async function generateChapters(
     throw new MuxAiError(`Failed to generate valid chapters for asset ${assetId}.`);
   }
 
+  // Scrub chapter titles for signs of a system-prompt leak. Titles are
+  // free-text model output and are a viable exfiltration channel — a
+  // handful of "chapters" whose titles each hold a fragment of the system
+  // prompt could reassemble into a full leak on the consumer's side.
+  // Chapters whose titles fail the scrub are dropped entirely rather than
+  // kept with an empty title (empty titles would create useless markers
+  // on a player timeline).
+  const safety = createSafetyReporter();
+
+  // Record schema-smuggling signals from the step before scrubbing
+  // titles, so the safety report reflects both sources of concern.
+  //
+  // Important distinction on the field names: the `chaptersData`
+  // arrays are indexed by RAW model-output position (pre-filter,
+  // pre-sort), while `validChapters` below is indexed by the
+  // filtered-and-sorted-by-startTime position — they are two
+  // different coordinate systems. An entry `chapters[2].title`
+  // from the title scrub and an entry `chapters[2].foo` from the
+  // unexpected-key detection could refer to completely different
+  // chapters if the model emitted them out of order. Use a
+  // `chapters_raw[idx]` field-name prefix for the raw-order entries
+  // so operators reading the safety report can't conflate the two.
+  for (const key of chaptersData.unexpectedRootKeys) {
+    safety.record(`chapters_envelope.${key}`, "unexpected_key");
+  }
+  chaptersData.unexpectedChapterKeys.forEach((extras, idx) => {
+    for (const key of extras) {
+      safety.record(`chapters_raw[${idx}].${key}`, "unexpected_key");
+    }
+  });
+  const totalUnexpected = chaptersData.unexpectedRootKeys.length +
+    chaptersData.unexpectedChapterKeys.reduce((sum, e) => sum + e.length, 0);
+  if (totalUnexpected > 0) {
+    console.warn(
+      `[@mux/ai] Model emitted ${totalUnexpected} unexpected key(s) in chapters output (stripped).`,
+    );
+  }
+
+  // Title scrub uses `validChapters` indices — i.e. the position in
+  // the final sorted-and-filtered output the caller receives. These
+  // indices match the `chapters` array in the returned result, so
+  // operators can correlate safety entries with chapters in the
+  // output directly.
+  const scrubbedChapters = validChapters.filter((chapter, idx) => {
+    const scrub = safety.scrubDetailed(chapter.title, `chapters[${idx}].title`);
+    return !scrub.leaked;
+  });
+
+  if (scrubbedChapters.length === 0) {
+    throw new MuxAiError(`Failed to generate valid chapters for asset ${assetId}.`);
+  }
+
   // Ensure first chapter starts at 0
-  if (validChapters[0].startTime !== 0) {
-    validChapters[0].startTime = 0;
+  if (scrubbedChapters[0].startTime !== 0) {
+    scrubbedChapters[0].startTime = 0;
   }
 
   const usageWithMetadata: TokenUsage = {
@@ -414,7 +538,8 @@ export async function generateChapters(
   return {
     assetId,
     languageCode: languageCode ?? getReliableLanguageCode(transcriptResult.track) ?? "en",
-    chapters: validChapters,
+    chapters: scrubbedChapters,
     usage: usageWithMetadata,
+    safety: safety.report(),
   };
 }

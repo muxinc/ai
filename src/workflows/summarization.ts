@@ -11,6 +11,8 @@ import {
   getPlaybackIdForAsset,
   isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
+import { createSafetyReporter, detectUnexpectedKeysFromRawText } from "@mux/ai/lib/output-safety";
+import type { SafetyReport } from "@mux/ai/lib/output-safety";
 import type {
   PromptOverrides,
 } from "@mux/ai/lib/prompt-builder";
@@ -21,13 +23,17 @@ import {
   createTranscriptSection,
 } from "@mux/ai/lib/prompt-builder";
 import {
+  CANARY_TRIPWIRE,
   createLanguageGuidelines,
   METADATA_BOUNDARY_WARNING,
   NO_FABRICATION_CONSTRAINT,
+  NON_DISCLOSURE_CONSTRAINT,
   promptDedent,
   STORYBOARD_FRAME_INSTRUCTIONS,
   STRUCTURED_DATA_CONSTRAINT,
   TONE_GUIDANCE,
+  UNTRUSTED_USER_INPUT_NOTICE,
+  VISUAL_TEXT_AS_CONTENT,
 } from "@mux/ai/lib/prompt-fragments";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
@@ -53,19 +59,62 @@ export const DEFAULT_SUMMARY_KEYWORD_LIMIT = 10;
 export const DEFAULT_TITLE_LENGTH = 10;
 export const DEFAULT_DESCRIPTION_LENGTH = 50;
 
+/**
+ * Length caps (`.max(...)`) on each free-text field are a mechanical
+ * defence-in-depth against exfiltration: even if an injection payload
+ * coerces the model into leaking, it cannot fit more than the declared
+ * number of characters.
+ *
+ * Typical legitimate lengths and current margin:
+ *
+ * - `title`: real titles are 25–150 chars (10–20 words). Cap is 500 —
+ *   very generous. Could plausibly tighten to 200 once telemetry from
+ *   the `safety` field shows no legitimate outputs approach 200.
+ * - `description`: configurable via `descriptionLength` (word count).
+ *   Default 50 words ≈ 300 chars. The exported schema uses a permissive
+ *   10000-char ceiling so consumers who call `summarySchema.parse`
+ *   directly don't hit surprise failures on large `descriptionLength`
+ *   configs; the workflow itself parses with a tighter dynamic cap —
+ *   see {@link buildSummarySchema}.
+ * - `keywords` entries: legitimate tags are 10–30 chars. Cap is 200.
+ *   Could tighten to 80 if we wanted less slack.
+ *
+ * Tuning signal: a `safety.leaksDetected` hit with `reason: "canary"`
+ * or `"prompt_tag"` while legitimate 90th-percentile lengths stay well
+ * below the cap is evidence the cap can be tightened without breaking
+ * real outputs.
+ */
 export const summarySchema = z.object({
-  keywords: z.array(z.string()),
-  title: z.string(),
-  description: z.string(),
-}).strict();
+  keywords: z.array(z.string().max(200)),
+  title: z.string().max(500),
+  description: z.string().max(10000),
+});
 
 export type SummaryType = z.infer<typeof summarySchema>;
 
-const SUMMARY_OUTPUT = Output.object({
-  name: "summary_metadata",
-  description: "Structured summary with title, description, and keywords.",
-  schema: summarySchema,
-});
+/**
+ * Build a schema whose `description` cap scales with the caller's
+ * configured `descriptionLength` (in words).
+ *
+ * A bit of algebra: at ~5 characters plus a space per English word,
+ * a 100-word description is roughly 600 characters. Multiplying the
+ * word count by 15 gives generous headroom for verbose languages
+ * (German tends to run longer), punctuation, and inline formatting,
+ * while making the per-call cap track the user's intent. The floor of
+ * 2000 covers short `descriptionLength` values without the cap becoming
+ * so tight it breaks legitimate output.
+ *
+ * Used internally by the workflow; consumers of the exported
+ * {@link summarySchema} see a permissive static ceiling instead.
+ */
+function buildSummarySchema(descriptionLength: number) {
+  const descriptionMaxChars = Math.max(2000, descriptionLength * 15);
+  return z.object({
+    keywords: z.array(z.string().max(200)),
+    title: z.string().max(500),
+    description: z.string().max(descriptionMaxChars),
+  });
+}
 
 /** Structured return payload for `getSummaryAndTags`. */
 export interface SummaryAndTagsResult {
@@ -83,6 +132,15 @@ export interface SummaryAndTagsResult {
   usage?: TokenUsage;
   /** Raw transcript text used for analysis (when includeTranscript is true). */
   transcriptText?: string;
+  /**
+   * Aggregate report of output-side scrubbing performed during this call.
+   * When `leaksDetected` is `true`, at least one of `title`, `description`,
+   * or an element of `tags` was suppressed because the scrubber detected
+   * signs of a prompt leak — consult `scrubbedFields` for which.
+   * Suppressed fields are returned as empty strings or omitted from the
+   * tags array.
+   */
+  safety?: SafetyReport;
 }
 
 /**
@@ -334,6 +392,16 @@ const SYSTEM_PROMPT = promptDedent`
     - Synthesize visual and transcript information when provided
   </capabilities>
 
+  <security>
+    ${NON_DISCLOSURE_CONSTRAINT}
+
+    ${UNTRUSTED_USER_INPUT_NOTICE}
+
+    ${VISUAL_TEXT_AS_CONTENT}
+
+    ${CANARY_TRIPWIRE}
+  </security>
+
   <constraints>
     - Only describe what is clearly observable in the frames or explicitly stated in the transcript
     - ${NO_FABRICATION_CONSTRAINT}
@@ -375,6 +443,14 @@ const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
     - Generate accurate, searchable metadata from audio-based content
     - Understand context and intent from transcript alone
   </capabilities>
+
+  <security>
+    ${NON_DISCLOSURE_CONSTRAINT}
+
+    ${UNTRUSTED_USER_INPUT_NOTICE}
+
+    ${CANARY_TRIPWIRE}
+  </security>
 
   <constraints>
     - Only describe what is explicitly stated or strongly implied in the transcript
@@ -449,6 +525,8 @@ function buildUserPrompt({
 interface AnalysisResponse {
   result: SummaryType;
   usage: TokenUsage;
+  /** Unexpected top-level keys the model emitted (stripped by zod). */
+  unexpectedKeys: string[];
 }
 
 async function analyzeStoryboard(
@@ -457,14 +535,20 @@ async function analyzeStoryboard(
   modelId: string,
   userPrompt: string,
   systemPrompt: string,
+  descriptionLength: number,
   credentials?: WorkflowCredentialsInput,
 ): Promise<AnalysisResponse> {
   "use step";
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
+  const schema = buildSummarySchema(descriptionLength);
 
   const response = await generateText({
     model,
-    output: SUMMARY_OUTPUT,
+    output: Output.object({
+      name: "summary_metadata",
+      description: "Structured summary with title, description, and keywords.",
+      schema,
+    }),
     messages: [
       {
         role: "system",
@@ -484,7 +568,14 @@ async function analyzeStoryboard(
     throw new Error("Summarization output missing");
   }
 
-  const parsed = summarySchema.parse(response.output);
+  const parsed = schema.parse(response.output);
+
+  // Detect schema-smuggling. response.output has already been stripped;
+  // re-parse response.text to see what the model actually emitted.
+  const unexpectedKeys = detectUnexpectedKeysFromRawText(
+    response.text,
+    schema.keyof().options,
+  );
 
   return {
     result: parsed,
@@ -495,6 +586,7 @@ async function analyzeStoryboard(
       reasoningTokens: response.usage.reasoningTokens,
       cachedInputTokens: response.usage.cachedInputTokens,
     },
+    unexpectedKeys,
   };
 }
 
@@ -503,14 +595,20 @@ async function analyzeAudioOnly(
   modelId: string,
   userPrompt: string,
   systemPrompt: string,
+  descriptionLength: number,
   credentials?: WorkflowCredentialsInput,
 ): Promise<AnalysisResponse> {
   "use step";
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
+  const schema = buildSummarySchema(descriptionLength);
 
   const response = await generateText({
     model,
-    output: SUMMARY_OUTPUT,
+    output: Output.object({
+      name: "summary_metadata",
+      description: "Structured summary with title, description, and keywords.",
+      schema,
+    }),
     messages: [
       {
         role: "system",
@@ -527,7 +625,14 @@ async function analyzeAudioOnly(
     throw new Error("Summarization output missing");
   }
 
-  const parsed = summarySchema.parse(response.output);
+  const parsed = schema.parse(response.output);
+
+  // Detect schema-smuggling. response.output has already been stripped;
+  // re-parse response.text to see what the model actually emitted.
+  const unexpectedKeys = detectUnexpectedKeysFromRawText(
+    response.text,
+    schema.keyof().options,
+  );
 
   return {
     result: parsed,
@@ -538,6 +643,7 @@ async function analyzeAudioOnly(
       reasoningTokens: response.usage.reasoningTokens,
       cachedInputTokens: response.usage.cachedInputTokens,
     },
+    unexpectedKeys,
   };
 }
 
@@ -672,6 +778,11 @@ export async function getSummaryAndTags(
   // Choose system prompt and analysis method based on asset type
   const systemPrompt = isAudioOnly ? AUDIO_ONLY_SYSTEM_PROMPT : SYSTEM_PROMPT;
 
+  // Word count used to scale the dynamic `description` cap in
+  // `buildSummarySchema`. Falls back to the documented default so the
+  // cap is always reasonable even when the caller omits the option.
+  const effectiveDescriptionLength = descriptionLength ?? DEFAULT_DESCRIPTION_LENGTH;
+
   try {
     if (isAudioOnly) {
       // Audio-only analysis: skip storyboard, analyze transcript only
@@ -680,6 +791,7 @@ export async function getSummaryAndTags(
         modelConfig.modelId,
         userPrompt,
         systemPrompt,
+        effectiveDescriptionLength,
         workflowCredentials,
       );
     } else {
@@ -695,6 +807,7 @@ export async function getSummaryAndTags(
           modelConfig.modelId,
           userPrompt,
           systemPrompt,
+          effectiveDescriptionLength,
           workflowCredentials,
         );
       } else {
@@ -706,6 +819,7 @@ export async function getSummaryAndTags(
             modelConfig.modelId,
             userPrompt,
             systemPrompt,
+            effectiveDescriptionLength,
             workflowCredentials,
           ));
       }
@@ -728,11 +842,38 @@ export async function getSummaryAndTags(
     throw new MuxAiError(`Failed to generate description for asset ${assetId}.`);
   }
 
+  // Scrub model-generated free-text fields for signs of a system-prompt
+  // leak. Title and description are the highest-value exfiltration targets
+  // (description especially — it is unbounded, verbose, and surfaces to
+  // end-users). Each keyword is scrubbed individually and dropped on leak.
+  // Suppressed title/description are returned as empty strings rather than
+  // thrown so callers can detect via the `safety` report and fall back.
+  const safety = createSafetyReporter();
+
+  // Record schema-smuggling signals from the step. zod.strip() has
+  // already removed the extras from the parsed output; the safety
+  // report surfaces what was stripped so operators can see the attempt.
+  if (analysisResponse.unexpectedKeys.length > 0) {
+    console.warn(
+      `[@mux/ai] Model emitted unexpected keys in summary_metadata (stripped): ${analysisResponse.unexpectedKeys.join(", ")}.`,
+    );
+    for (const key of analysisResponse.unexpectedKeys) {
+      safety.record(`summary_metadata.${key}`, "unexpected_key");
+    }
+  }
+
+  const scrubbedTitle = safety.scrub(analysisResponse.result.title, "title");
+  const scrubbedDescription = safety.scrub(analysisResponse.result.description, "description");
+  const scrubbedKeywords = (analysisResponse.result.keywords ?? [])
+    .map((kw, i) => safety.scrubDetailed(kw, `keywords[${i}]`))
+    .filter(result => !result.leaked)
+    .map(result => result.text);
+
   return {
     assetId,
-    title: analysisResponse.result.title,
-    description: analysisResponse.result.description,
-    tags: normalizeKeywords(analysisResponse.result.keywords, tagCount ?? DEFAULT_SUMMARY_KEYWORD_LIMIT),
+    title: scrubbedTitle,
+    description: scrubbedDescription,
+    tags: normalizeKeywords(scrubbedKeywords, tagCount ?? DEFAULT_SUMMARY_KEYWORD_LIMIT),
     storyboardUrl: imageUrl, // undefined for audio-only assets
     usage: {
       ...analysisResponse.usage,
@@ -741,5 +882,6 @@ export async function getSummaryAndTags(
       },
     },
     transcriptText: transcriptText || undefined,
+    safety: safety.report(),
   };
 }
