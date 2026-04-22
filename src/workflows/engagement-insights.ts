@@ -13,8 +13,11 @@ import { createPromptBuilder } from "@mux/ai/lib/prompt-builder";
 import {
   METADATA_BOUNDARY_WARNING,
   NO_FABRICATION_CONSTRAINT,
+  NON_DISCLOSURE_CONSTRAINT,
   promptDedent,
+  REASONING_FIELD_SCOPE,
   STRUCTURED_DATA_CONSTRAINT,
+  UNTRUSTED_USER_INPUT_NOTICE,
 } from "@mux/ai/lib/prompt-fragments";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
@@ -158,6 +161,14 @@ const SYSTEM_PROMPT = promptDedent`
     Base your insights on OBSERVABLE EVIDENCE from visuals and transcript.
   </task>
 
+  <security>
+    ${NON_DISCLOSURE_CONSTRAINT}
+
+    ${UNTRUSTED_USER_INPUT_NOTICE}
+
+    ${REASONING_FIELD_SCOPE}
+  </security>
+
   <constraints>
     - Only describe what you can see in images or read in transcripts
     - ${NO_FABRICATION_CONSTRAINT}
@@ -199,6 +210,14 @@ const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
 
     Base your insights on OBSERVABLE EVIDENCE from the transcript.
   </task>
+
+  <security>
+    ${NON_DISCLOSURE_CONSTRAINT}
+
+    ${UNTRUSTED_USER_INPUT_NOTICE}
+
+    ${REASONING_FIELD_SCOPE}
+  </security>
 
   <constraints>
     - Only describe what you can read in the transcript

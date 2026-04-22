@@ -11,6 +11,10 @@ import {
 } from "@mux/ai/lib/mux-assets";
 import type { PromptOverrides, PromptSection } from "@mux/ai/lib/prompt-builder";
 import { createLanguageSection, createPromptBuilder } from "@mux/ai/lib/prompt-builder";
+import {
+  NON_DISCLOSURE_CONSTRAINT,
+  UNTRUSTED_USER_INPUT_NOTICE,
+} from "@mux/ai/lib/prompt-fragments";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
 import { withRetry } from "@mux/ai/lib/retry";
@@ -163,7 +167,7 @@ async function generateChaptersWithAI({
  * Sections of the chaptering system prompt that can be overridden.
  * Use these to customize the AI's persona and constraints.
  */
-export type ChapterSystemPromptSections = "role" | "context" | "constraints" | "qualityGuidelines";
+export type ChapterSystemPromptSections = "role" | "context" | "security" | "constraints" | "qualityGuidelines";
 
 /**
  * Prompt builder for the chaptering system prompt.
@@ -181,6 +185,13 @@ const chapterSystemPromptBuilder = createPromptBuilder<ChapterSystemPromptSectio
         You receive a timestamped transcript with lines in the form "[12s] Caption text".
         Use those timestamps as anchors to determine chapter start times in seconds.`,
     },
+    security: {
+      tag: "security",
+      content: dedent`
+        ${NON_DISCLOSURE_CONSTRAINT}
+
+        ${UNTRUSTED_USER_INPUT_NOTICE}`,
+    },
     constraints: {
       tag: "constraints",
       content: dedent`
@@ -197,7 +208,7 @@ const chapterSystemPromptBuilder = createPromptBuilder<ChapterSystemPromptSectio
         - Ensure the first chapter starts at 0 seconds`,
     },
   },
-  sectionOrder: ["role", "context", "constraints", "qualityGuidelines"],
+  sectionOrder: ["role", "context", "security", "constraints", "qualityGuidelines"],
 });
 
 /**

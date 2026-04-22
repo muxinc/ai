@@ -9,9 +9,11 @@ import type { PromptOverrides } from "@mux/ai/lib/prompt-builder";
 import { createPromptBuilder } from "@mux/ai/lib/prompt-builder";
 import {
   METADATA_BOUNDARY_WARNING,
+  NON_DISCLOSURE_CONSTRAINT,
   promptDedent,
   STORYBOARD_FRAME_INSTRUCTIONS,
   STRUCTURED_DATA_CONSTRAINT,
+  UNTRUSTED_USER_INPUT_NOTICE,
 } from "@mux/ai/lib/prompt-fragments";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
@@ -127,6 +129,12 @@ const SYSTEM_PROMPT = promptDedent`
     - Identify language of detected caption text
     - Assess confidence in caption detection
   </capabilities>
+
+  <security>
+    ${NON_DISCLOSURE_CONSTRAINT}
+
+    ${UNTRUSTED_USER_INPUT_NOTICE}
+  </security>
 
   <constraints>
     - Only classify as burned-in captions when evidence is clear across multiple frames

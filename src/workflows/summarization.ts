@@ -24,10 +24,12 @@ import {
   createLanguageGuidelines,
   METADATA_BOUNDARY_WARNING,
   NO_FABRICATION_CONSTRAINT,
+  NON_DISCLOSURE_CONSTRAINT,
   promptDedent,
   STORYBOARD_FRAME_INSTRUCTIONS,
   STRUCTURED_DATA_CONSTRAINT,
   TONE_GUIDANCE,
+  UNTRUSTED_USER_INPUT_NOTICE,
 } from "@mux/ai/lib/prompt-fragments";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
@@ -334,6 +336,12 @@ const SYSTEM_PROMPT = promptDedent`
     - Synthesize visual and transcript information when provided
   </capabilities>
 
+  <security>
+    ${NON_DISCLOSURE_CONSTRAINT}
+
+    ${UNTRUSTED_USER_INPUT_NOTICE}
+  </security>
+
   <constraints>
     - Only describe what is clearly observable in the frames or explicitly stated in the transcript
     - ${NO_FABRICATION_CONSTRAINT}
@@ -375,6 +383,12 @@ const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
     - Generate accurate, searchable metadata from audio-based content
     - Understand context and intent from transcript alone
   </capabilities>
+
+  <security>
+    ${NON_DISCLOSURE_CONSTRAINT}
+
+    ${UNTRUSTED_USER_INPUT_NOTICE}
+  </security>
 
   <constraints>
     - Only describe what is explicitly stated or strongly implied in the transcript
