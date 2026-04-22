@@ -188,6 +188,37 @@ export function sanitizeUntrustedText(value: string): string {
 }
 
 /**
+ * Upper bound on individual cue text length before we consider the cue
+ * adversarial and truncate it.
+ *
+ * Legitimate captions are short — a long monologue cue rarely exceeds
+ * 500 characters, and most captioning standards recommend well under
+ * that for readability. We set the cap at 2000 to give comfortable
+ * headroom for edge cases (stage directions, speaker identification,
+ * multi-line blocks) while making "hide a multi-kilobyte injection
+ * payload inside a single cue" mechanically infeasible.
+ */
+export const MAX_CUE_TEXT_CHARS = 2000;
+
+/**
+ * Truncate a single cue's text to {@link MAX_CUE_TEXT_CHARS} when it
+ * exceeds the cap.
+ *
+ * A cue longer than the cap is treated as adversarial rather than
+ * preserved verbatim: in legitimate content a 2000-character "cue"
+ * does not exist. Truncation is lossy by design — the tail is replaced
+ * with a short marker (" […truncated]") so the resulting string still
+ * round-trips safely through VTT and makes the truncation visible to
+ * any downstream consumer.
+ */
+function capCueTextLength(value: string): string {
+  if (value.length <= MAX_CUE_TEXT_CHARS)
+    return value;
+  const marker = " […truncated]";
+  return `${value.slice(0, MAX_CUE_TEXT_CHARS - marker.length)}${marker}`;
+}
+
+/**
  * Strip VTT metadata blocks that are never rendered by players but can
  * still carry text through to an LLM when the raw VTT is used in a prompt:
  *
@@ -367,7 +398,11 @@ export function extractTextFromVTT(vttContent: string): string {
     if (line.startsWith("STYLE") || line.startsWith("REGION"))
       continue;
 
-    const cleanLine = line.replace(/<[^>]*>/g, "").trim();
+    // Length-cap per line: a single VTT line over the cap is always
+    // adversarial (legitimate caption lines are short) and we don't
+    // want an attacker's long line surviving into the joined prompt
+    // text below.
+    const cleanLine = capCueTextLength(line.replace(/<[^>]*>/g, "").trim());
 
     if (cleanLine) {
       textLines.push(cleanLine);
@@ -436,7 +471,7 @@ export function extractTimestampedTranscript(vttContent: string): string {
       }
 
       if (j < lines.length) {
-        const text = lines[j].trim().replace(/<[^>]*>/g, "");
+        const text = capCueTextLength(lines[j].trim().replace(/<[^>]*>/g, ""));
         if (text) {
           segments.push({ time: timeInSeconds, text });
         }
@@ -517,8 +552,10 @@ export function parseVTTCues(vttContent: string): VTTCue[] {
           endTime,
           // Sanitize at the cue boundary so every downstream consumer
           // (engagement-insights, translate-captions chunked path, etc.)
-          // receives text free of invisible / bidi obfuscation.
-          text: sanitizeUntrustedText(textLines.join(" ")),
+          // receives text free of invisible / bidi obfuscation. Length-
+          // cap the result so an adversarially oversized cue cannot
+          // smuggle a large injection payload into the prompt.
+          text: capCueTextLength(sanitizeUntrustedText(textLines.join(" "))),
         });
       }
 
