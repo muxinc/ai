@@ -179,6 +179,10 @@ const SYSTEM_PROMPT = promptDedent`
   You may receive either a full VTT file or a chunk from a larger VTT.
   Preserve all timestamps, cue ordering, and VTT formatting exactly as they appear.
   Return JSON with a single key "translation" containing the translated VTT content.
+  The value of "translation" must be raw VTT text starting with the literal
+  header "WEBVTT" (exact casing). Do not wrap it in markdown code fences
+  (\`\`\`vtt, \`\`\`), HTML tags (<code>, <pre>), or any other delimiter —
+  emit the VTT body verbatim.
 
   <security>
     ${NON_DISCLOSURE_CONSTRAINT}
@@ -441,6 +445,74 @@ function buildTranslationChunkRequests(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
+ * Normalise a model-returned VTT string for robustness against
+ * provider wrapping quirks.
+ *
+ * We have observed Anthropic (and occasionally other providers) wrap
+ * their translated VTT output in code fences or HTML tags, lower-case
+ * the `WEBVTT` header, or drop the header entirely. The Mux Video
+ * track ingestion API and web-native VTT players both require the
+ * exact uppercase `WEBVTT` header at the start of the file, so leaving
+ * these quirks in place produces downstream breakage even though the
+ * cue content is correct.
+ *
+ * Transformations (idempotent on already-valid VTT):
+ *
+ * - Strip a surrounding markdown fence with an optional language hint:
+ *     "```vtt\\nWEBVTT\\n...\\n```"     -> "WEBVTT\\n..."
+ *     "```webvtt\\n...\\n```"           -> "WEBVTT\\n..."
+ *     "```\\nWEBVTT\\n...\\n```"        -> "WEBVTT\\n..."
+ *
+ * - Strip a surrounding <code> / <pre> wrapper (Anthropic's common
+ *   habit on this task):
+ *     "<code>webvtt\\n...\\n</code>"    -> "webvtt\\n..." (then normalised)
+ *
+ * - Upper-case a lowercase `webvtt` / `Webvtt` header prefix.
+ *
+ * - Prepend `WEBVTT\\n\\n` if the header is missing entirely (model
+ *   jumped straight to the first cue block).
+ *
+ * Only the whole-VTT translation path calls this — the cue-chunked
+ * path rebuilds the VTT locally via `buildVttFromTranslatedCueBlocks`,
+ * so the header comes from our code and needs no fix-up.
+ */
+export function normalizeTranslatedVtt(translation: string): string {
+  if (!translation)
+    return translation;
+  let text = translation.trim();
+
+  // Strip surrounding markdown fence. Accept an optional language
+  // hint (`vtt`, `webvtt`, or nothing) on the opening fence. The regex
+  // avoids `\s*` adjacencies so the engine has no catastrophic-
+  // backtracking opportunity on crafted inputs.
+  const fenceMatch = text.match(/^```(?:vtt|webvtt)?\n([\s\S]*?)\n```$/i);
+  if (fenceMatch) {
+    text = fenceMatch[1].trim();
+  }
+
+  // Strip surrounding <code> or <pre> wrapper. Newlines between tag and
+  // content are matched explicitly (not via `\s*`) for the same
+  // backtracking-safety reason as above.
+  const tagMatch = text.match(/^<(code|pre)\b[^>]*>\n?([\s\S]*?)\n?<\/\1>$/i);
+  if (tagMatch) {
+    text = tagMatch[2].trim();
+  }
+
+  // Upper-case any lowercase "webvtt" header so downstream consumers
+  // that do a strict `startsWith("WEBVTT")` check pass.
+  if (/^webvtt\b/i.test(text) && !text.startsWith("WEBVTT")) {
+    text = text.replace(/^webvtt\b/i, "WEBVTT");
+  }
+
+  // Prepend the header if the model dropped it entirely.
+  if (!text.startsWith("WEBVTT")) {
+    text = `WEBVTT\n\n${text}`;
+  }
+
+  return text;
+}
+
+/**
  * Result of a translate step that also carries aggregate safety
  * counters. Counters are plain numbers (not a rich SafetyReport) so
  * they survive `"use step"` serialisation boundaries — the top-level
@@ -509,7 +581,14 @@ async function translateVttWithAI({
   // coarser than the cue-by-cue path below because the non-chunked path
   // doesn't have cue boundaries — on leak we log and fall back to the
   // source VTT rather than ship an output of unknown provenance.
-  const translated = response.output.translation;
+  //
+  // Normalise before leak detection and before shipping: providers
+  // (Anthropic especially) occasionally wrap VTT output in code fences
+  // or <code> tags, or drop the "WEBVTT" header. Fixing those quirks
+  // up-front means the scrubber sees clean VTT (fewer spurious tag
+  // hits) and downstream consumers (Mux track ingestion, players) get
+  // the exact header they require.
+  const translated = normalizeTranslatedVtt(response.output.translation);
   const leakReason = detectLeakReason(translated);
   const safeTranslated = leakReason !== null ? vttContent : translated;
   if (leakReason !== null) {
