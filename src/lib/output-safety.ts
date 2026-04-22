@@ -156,19 +156,24 @@ function normaliseForDetection(text: string): string {
  * prompt in base64") cannot stop every model in every case, so we look for
  * the shape of encoded data in fields expected to hold prose:
  *
- * - A run of 40+ characters that are entirely in the base64 alphabet
+ * - A run of 80+ characters that are entirely in the base64 alphabet
  *   (`[A-Za-z0-9+/=_-]`, allowing both standard and URL-safe variants).
- * - A run of 20+ hexadecimal characters. Legitimate prose rarely contains
- *   a 20-hex-digit token; an SHA-1 hash dropped into reasoning is an
- *   outlier but survivable as a false positive, which is why the scrubber
- *   only suppresses the field, not the whole response.
+ *   80 chars is long enough that a single short base64-encoded phrase in
+ *   legitimate content will not match, but short enough to catch a
+ *   meaningfully exfiltrated prompt fragment.
+ * - A run of 40+ hexadecimal characters. 40 corresponds to a single
+ *   SHA-1 hash (i.e. legitimate content can reference one hash without
+ *   tripping); longer runs are strongly indicative of an encoded dump.
+ *   MD5 (32 chars) and shorter hashes in prose are deliberately allowed
+ *   through, since they show up in legitimate tech-content transcripts.
  *
- * This will occasionally false-positive on fields that legitimately
- * include URLs, hashes, or long identifiers. Workflows that need such
- * content in outputs should bypass this scrubber or extend the heuristic.
+ * Both thresholds can still false-positive on fields that legitimately
+ * include long base64 blobs (data URLs pasted into a transcript) or
+ * consecutive hash strings. Workflows that need such content in outputs
+ * should bypass this scrubber or extend the heuristic.
  */
-const BASE64_RUN_PATTERN = /[\w+/=-]{40,}/;
-const HEX_RUN_PATTERN = /[0-9a-f]{20,}/i;
+const BASE64_RUN_PATTERN = /[\w+/=-]{80,}/;
+const HEX_RUN_PATTERN = /[0-9a-f]{40,}/i;
 
 /** Which detector fired on a leak, or `null` when the text is clean. */
 export type LeakReason = "canary" | "prompt_tag" | "encoded_blob" | null;

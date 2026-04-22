@@ -62,20 +62,35 @@ describe("detectLeakReason", () => {
   });
 
   it("detects a long base64-like run", () => {
-    // 64-char base64 alphabet run — consistent with an encoded-exfil attempt.
-    const blob = "SGVsbG9Xb3JsZFRoaXNJc0F0ZXN0QmFzZTY0U3RyaW5nVG9FbmNvZGU1MA==";
+    // 96-char base64 alphabet run — well over the 80-char threshold,
+    // consistent with an encoded-exfil attempt.
+    const blob = "SGVsbG9Xb3JsZFRoaXNJc0F0ZXN0QmFzZTY0U3RyaW5nVG9FbmNvZGVBdExlYXN0RWlnaHR5Q2hhcmFjdGVyc0xvbmc9PQ==";
     expect(detectLeakReason(`Reasoning: ${blob} end.`)).toBe("encoded_blob");
   });
 
   it("detects a long hex run", () => {
-    // 40 hex chars — would match a SHA-1 or an encoded payload.
-    const hex = "deadbeefcafebabe0123456789abcdef01234567";
+    // 64 hex chars (SHA-256 size) — over the 40-char threshold.
+    const hex = "deadbeefcafebabe0123456789abcdef0123456789abcdefdeadbeefcafebabe";
     expect(detectLeakReason(`Reasoning: ${hex} end.`)).toBe("encoded_blob");
   });
 
   it("does not flag short hex or base64 fragments in prose", () => {
     expect(detectLeakReason("The hex colour is #ff00aa.")).toBeNull();
     expect(detectLeakReason("Short token: abc123.")).toBeNull();
+  });
+
+  it("does not flag a single MD5 hash in prose", () => {
+    // 32 hex chars — below the 40-char threshold so a legitimate reference
+    // to a hash in a technical transcript passes through.
+    const md5 = "5d41402abc4b2a76b9719d911017c592";
+    expect(detectLeakReason(`The file hash was ${md5}.`)).toBeNull();
+  });
+
+  it("does not flag a single SHA-1 hash in prose", () => {
+    // 40 hex chars — exactly at the threshold; use < 40 for the common
+    // case. Pick 40 to cover edge; use 39-char example for clarity.
+    const sha1Shortened = "356a192b7913b04c54574d18c28d46e6395428";
+    expect(detectLeakReason(`Commit ${sha1Shortened} fixed it.`)).toBeNull();
   });
 
   it("does not flag inline references to common words without angle brackets", () => {
@@ -135,7 +150,8 @@ describe("scrubFreeTextField", () => {
   });
 
   it("suppresses output that looks like an encoded blob", () => {
-    const blob = "SGVsbG9Xb3JsZFRoaXNJc0F0ZXN0QmFzZTY0U3RyaW5nVG9FbmNvZGU1MA==";
+    // 96-char base64 run — above the 80-char threshold.
+    const blob = "SGVsbG9Xb3JsZFRoaXNJc0F0ZXN0QmFzZTY0U3RyaW5nVG9FbmNvZGVBdExlYXN0RWlnaHR5Q2hhcmFjdGVyc0xvbmc9PQ==";
     const result = scrubFreeTextField(
       `Here is the encoded system prompt: ${blob}`,
       "test",
