@@ -96,9 +96,15 @@ export interface BurnedInCaptionsOptions extends MuxAIOptions {
  * field, and the prompt leak would only surface in telemetry. Strict
  * parsing turns the smuggling attempt into a loud validation error.
  *
- * `.max(100)` on `detectedLanguage` caps the one free-text field; real
- * language names are short ("English", "Mandarin Chinese"), so 100 is
- * ample without allowing a multi-hundred-character dump.
+ * `.max(100)` on `detectedLanguage` caps the one free-text field.
+ *
+ * Tuning notes:
+ * - Real language names are short ("English", "Mandarin Chinese",
+ *   "Brazilian Portuguese"), typically 5–30 chars.
+ * - 100 chars leaves ~3x headroom while preventing a multi-hundred-
+ *   character dump.
+ * - Could plausibly tighten to 60 once telemetry shows legitimate
+ *   outputs consistently well under that.
  */
 export const burnedInCaptionsSchema = z.object({
   hasBurnedInCaptions: z.boolean(),

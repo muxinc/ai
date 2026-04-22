@@ -110,11 +110,17 @@ export interface AskQuestionsResult {
  * strict mode.
  *
  * The `.max(1000)` cap on `reasoning` is a mechanical limit on how much
- * content can be exfiltrated through this channel. `REASONING_FIELD_SCOPE`
- * asks the model to keep reasoning to 1–3 concise sentences (typically
- * under 500 characters); 1000 gives comfortable headroom while making a
- * full system-prompt dump (3000+ characters) impossible to fit. A parse
- * failure here is surfaced through `wrapError` as a validation error.
+ * content can be exfiltrated through this channel. A parse failure
+ * surfaces through `wrapError` as a validation error.
+ *
+ * Tuning notes:
+ * - `REASONING_FIELD_SCOPE` asks the model to keep reasoning to 1–3
+ *   concise sentences. Observed lengths are typically 50–200 chars.
+ * - The 1000-char cap leaves ~5x headroom over typical output while
+ *   making a full system-prompt dump (3000+ chars) unable to fit.
+ * - A plausible tighter value is 500. Before tightening, confirm via
+ *   the `safety` telemetry that 90th-percentile observed lengths on
+ *   legitimate traffic stay well under the new target.
  */
 export const questionAnswerSchema = z.object({
   question: z.string().describe("The full text of the original question"),

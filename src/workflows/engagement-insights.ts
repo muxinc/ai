@@ -125,13 +125,24 @@ export interface EngagementInsightsResult {
 // key name. Without strict mode, zod silently drops extra keys and the
 // smuggling attempt only shows up (if at all) in telemetry.
 //
-// Length caps (`.max(...)`) on the free-text fields are mechanical limits
-// on how much content can be exfiltrated through each channel. Values
-// are tuned to pass legitimate analytical prose while making a full
-// system-prompt dump (3000+ chars) impossible to fit:
-// - `insight` per moment: 1–3 sentences of evidence, ~400 chars typical.
-// - overall `summary`: a paragraph, ~600 chars typical.
-// - each `trends` entry: one short observation, ~200 chars typical.
+// Length caps (`.max(...)`) on the free-text fields mechanically bound
+// exfiltration bandwidth. Values and tuning notes:
+//
+// - `insight` per moment (current: 1000 chars). Typical legitimate
+//   output is 1–3 sentences of evidence, ~400 chars. 1000 leaves
+//   ~2.5x headroom; could plausibly tighten to 500 once telemetry
+//   shows legitimate 90th-percentile lengths stay well under that.
+// - overall `summary` (current: 2000 chars). Typical legitimate output
+//   is a paragraph, ~600 chars, though a thorough summary may reach
+//   1000–1500 chars. 2000 has less headroom than other fields — take
+//   care before tightening.
+// - each `trends` entry (current: 500 chars). Typical ~200 chars. Could
+//   tighten to 300 comfortably.
+//
+// Tuning signal: a `safety.leaksDetected` hit with reason `canary` or
+// `prompt_tag` while the observed 90th-percentile length is far below
+// the cap is evidence the cap can be tightened without breaking real
+// outputs.
 
 /** Zod schema for a single moment insight returned by the AI. */
 const aiMomentInsightSchema = z.object({

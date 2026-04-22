@@ -65,26 +65,56 @@ export const DEFAULT_DESCRIPTION_LENGTH = 50;
  * coerces the model into leaking, it cannot fit more than the declared
  * number of characters.
  *
- * - `title`: 500 chars. Real titles are 10–20 words (~50–150 chars).
- * - `description`: 5000 chars. Users can configure `descriptionLength`
- *   up to several hundred words; 5000 comfortably covers a 1000-word
- *   description while rejecting obvious dumps.
- * - `keywords` entries: 200 chars each. Legitimate tags are short
- *   phrases.
+ * Typical legitimate lengths and current margin:
+ *
+ * - `title`: real titles are 25–150 chars (10–20 words). Cap is 500 —
+ *   very generous. Could plausibly tighten to 200 once telemetry from
+ *   the `safety` field shows no legitimate outputs approach 200.
+ * - `description`: configurable via `descriptionLength` (word count).
+ *   Default 50 words ≈ 300 chars. The exported schema uses a permissive
+ *   10000-char ceiling so consumers who call `summarySchema.parse`
+ *   directly don't hit surprise failures on large `descriptionLength`
+ *   configs; the workflow itself parses with a tighter dynamic cap —
+ *   see {@link buildSummarySchema}.
+ * - `keywords` entries: legitimate tags are 10–30 chars. Cap is 200.
+ *   Could tighten to 80 if we wanted less slack.
+ *
+ * Tuning signal: a `safety.leaksDetected` hit with `reason: "canary"`
+ * or `"prompt_tag"` while legitimate 90th-percentile lengths stay well
+ * below the cap is evidence the cap can be tightened without breaking
+ * real outputs.
  */
 export const summarySchema = z.object({
   keywords: z.array(z.string().max(200)),
   title: z.string().max(500),
-  description: z.string().max(5000),
+  description: z.string().max(10000),
 }).strict();
 
 export type SummaryType = z.infer<typeof summarySchema>;
 
-const SUMMARY_OUTPUT = Output.object({
-  name: "summary_metadata",
-  description: "Structured summary with title, description, and keywords.",
-  schema: summarySchema,
-});
+/**
+ * Build a schema whose `description` cap scales with the caller's
+ * configured `descriptionLength` (in words).
+ *
+ * A bit of algebra: at ~5 characters plus a space per English word,
+ * a 100-word description is roughly 600 characters. Multiplying the
+ * word count by 15 gives generous headroom for verbose languages
+ * (German tends to run longer), punctuation, and inline formatting,
+ * while making the per-call cap track the user's intent. The floor of
+ * 2000 covers short `descriptionLength` values without the cap becoming
+ * so tight it breaks legitimate output.
+ *
+ * Used internally by the workflow; consumers of the exported
+ * {@link summarySchema} see a permissive static ceiling instead.
+ */
+function buildSummarySchema(descriptionLength: number) {
+  const descriptionMaxChars = Math.max(2000, descriptionLength * 15);
+  return z.object({
+    keywords: z.array(z.string().max(200)),
+    title: z.string().max(500),
+    description: z.string().max(descriptionMaxChars),
+  }).strict();
+}
 
 /** Structured return payload for `getSummaryAndTags`. */
 export interface SummaryAndTagsResult {
@@ -503,14 +533,20 @@ async function analyzeStoryboard(
   modelId: string,
   userPrompt: string,
   systemPrompt: string,
+  descriptionLength: number,
   credentials?: WorkflowCredentialsInput,
 ): Promise<AnalysisResponse> {
   "use step";
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
+  const schema = buildSummarySchema(descriptionLength);
 
   const response = await generateText({
     model,
-    output: SUMMARY_OUTPUT,
+    output: Output.object({
+      name: "summary_metadata",
+      description: "Structured summary with title, description, and keywords.",
+      schema,
+    }),
     messages: [
       {
         role: "system",
@@ -530,7 +566,7 @@ async function analyzeStoryboard(
     throw new Error("Summarization output missing");
   }
 
-  const parsed = summarySchema.parse(response.output);
+  const parsed = schema.parse(response.output);
 
   return {
     result: parsed,
@@ -549,14 +585,20 @@ async function analyzeAudioOnly(
   modelId: string,
   userPrompt: string,
   systemPrompt: string,
+  descriptionLength: number,
   credentials?: WorkflowCredentialsInput,
 ): Promise<AnalysisResponse> {
   "use step";
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
+  const schema = buildSummarySchema(descriptionLength);
 
   const response = await generateText({
     model,
-    output: SUMMARY_OUTPUT,
+    output: Output.object({
+      name: "summary_metadata",
+      description: "Structured summary with title, description, and keywords.",
+      schema,
+    }),
     messages: [
       {
         role: "system",
@@ -573,7 +615,7 @@ async function analyzeAudioOnly(
     throw new Error("Summarization output missing");
   }
 
-  const parsed = summarySchema.parse(response.output);
+  const parsed = schema.parse(response.output);
 
   return {
     result: parsed,
@@ -718,6 +760,11 @@ export async function getSummaryAndTags(
   // Choose system prompt and analysis method based on asset type
   const systemPrompt = isAudioOnly ? AUDIO_ONLY_SYSTEM_PROMPT : SYSTEM_PROMPT;
 
+  // Word count used to scale the dynamic `description` cap in
+  // `buildSummarySchema`. Falls back to the documented default so the
+  // cap is always reasonable even when the caller omits the option.
+  const effectiveDescriptionLength = descriptionLength ?? DEFAULT_DESCRIPTION_LENGTH;
+
   try {
     if (isAudioOnly) {
       // Audio-only analysis: skip storyboard, analyze transcript only
@@ -726,6 +773,7 @@ export async function getSummaryAndTags(
         modelConfig.modelId,
         userPrompt,
         systemPrompt,
+        effectiveDescriptionLength,
         workflowCredentials,
       );
     } else {
@@ -741,6 +789,7 @@ export async function getSummaryAndTags(
           modelConfig.modelId,
           userPrompt,
           systemPrompt,
+          effectiveDescriptionLength,
           workflowCredentials,
         );
       } else {
@@ -752,6 +801,7 @@ export async function getSummaryAndTags(
             modelConfig.modelId,
             userPrompt,
             systemPrompt,
+            effectiveDescriptionLength,
             workflowCredentials,
           ));
       }

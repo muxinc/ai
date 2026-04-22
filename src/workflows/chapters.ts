@@ -40,9 +40,14 @@ import type { MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "@mux/ai
  * prompt-extraction attacks. See the matching note on
  * `burnedInCaptionsSchema` for the full rationale.
  *
- * `.max(300)` on `title` caps the exfiltration channel: chapter titles
- * are short labels (typically under 50 chars), 300 leaves comfortable
- * headroom while making a full system-prompt dump unviable.
+ * `.max(300)` on `title` caps the exfiltration channel.
+ *
+ * Tuning notes:
+ * - Chapter titles are short labels ("Introduction", "Main Topic
+ *   Discussion") and typically run 10–50 characters.
+ * - 300 chars leaves generous headroom (~6x typical). Could plausibly
+ *   tighten to 150 once telemetry shows no legitimate output
+ *   approaches that length.
  */
 export const chapterSchema = z.object({
   startTime: z.number(),

@@ -131,10 +131,16 @@ export interface EditCaptionsResult {
  * `profanity` array — see the matching note on `burnedInCaptionsSchema`
  * for the full rationale.
  *
- * `.max(100)` on each array entry: profane words and short phrases are
- * small (rarely more than 30 chars). The cap makes it impossible for a
- * coerced model to smuggle multi-hundred-character prompt fragments
- * through what looks like a list of single-word profanity.
+ * `.max(100)` on each array entry caps how much content can be smuggled
+ * through a single "word" slot.
+ *
+ * Tuning notes:
+ * - Legitimate profane words and short phrases are typically 4–20
+ *   chars, rarely more than 30.
+ * - 100 chars leaves ~3x headroom while preventing multi-hundred-char
+ *   prompt fragments from hiding in a single entry.
+ * - Could plausibly tighten to 50 once telemetry shows no legitimate
+ *   detection approaches that length.
  */
 export const profanityDetectionSchema = z.object({
   profanity: z.array(z.string().max(100)).describe(
