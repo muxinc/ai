@@ -1,3 +1,5 @@
+import { detectSystemPromptLeak } from "@mux/ai/lib/output-safety";
+
 export type MuxAiErrorType = "validation_error" | "processing_error" | "timeout_error";
 
 /**
@@ -44,11 +46,28 @@ export class MuxAiError extends Error {
  *
  * Use this in catch blocks that re-throw so a customer-safe error from a
  * callee isn't accidentally converted into an internal error.
+ *
+ * The upstream `detail` is scrubbed for signs of a system-prompt leak
+ * before being folded into the thrown message. Rationale: the AI SDK and
+ * some providers include the offending model output in their error
+ * messages (e.g. "Failed to parse structured output: { reasoning: '<role>…' }").
+ * If an injection payload caused the parse failure, the raw output would
+ * otherwise bypass the free-text scrubber and reach the caller through
+ * the error channel. When a leak is detected in the detail, we substitute
+ * a generic "Upstream error details suppressed by safety filter" so the
+ * caller still sees the outer context message (which we author) and a
+ * one-line signal that the library intervened.
  */
 export function wrapError(error: unknown, message: string): never {
   if (error instanceof MuxAiError) {
     throw error;
   }
-  const detail = error instanceof Error ? error.message : "Unknown error";
+  const rawDetail = error instanceof Error ? error.message : "Unknown error";
+  const detail = detectSystemPromptLeak(rawDetail) ?
+    "Upstream error details suppressed by safety filter" :
+    rawDetail;
+  if (detail !== rawDetail) {
+    console.warn(`[@mux/ai] Suppressed suspected prompt leak in wrapped error (context: ${message}).`);
+  }
   throw new Error(`${message}: ${detail}`);
 }
