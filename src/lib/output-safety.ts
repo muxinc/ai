@@ -209,6 +209,46 @@ export type LeakReason =
   null;
 
 /**
+ * Canary in its normalised form, pre-computed at module load.
+ *
+ * Model output is normalised with `normaliseForDetection` before matching
+ * (NFKC + strip invisibles). For that comparison to be symmetric, the
+ * canary we compare against must be normalised the same way — otherwise
+ * an operator who configures `MUX_AI_PROMPT_CANARY` with any characters
+ * affected by NFKC (fullwidth ASCII, soft hyphens, ligatures) or any
+ * invisible code points would see the output get folded to ASCII while
+ * the canary constant stays in its original form, and `.includes` would
+ * silently fail to match.
+ *
+ * For the default ASCII-only canary this is a no-op — normalised and
+ * raw are identical. The pre-normalisation matters only for operator
+ * overrides. Added side benefit: an attacker who tries to exfiltrate
+ * the canary by emitting it in fullwidth form (a classic evasion
+ * dodge) is now caught too, since the fullwidth output normalises back
+ * to the canary's form.
+ */
+const NORMALISED_SYSTEM_PROMPT_CANARY = normaliseForDetection(SYSTEM_PROMPT_CANARY);
+
+// Guard against a pathological configuration: `MUX_AI_PROMPT_CANARY`
+// is validated at env-parse time to be >= 16 *raw* characters, but a
+// 16-character string made of pure zero-width / soft-hyphen / bidi-
+// control code points would normalise to an empty string. A zero-length
+// canary would make every `.includes("")` call trivially true, flagging
+// every model output as `reason: "canary"` — the worst possible signal
+// for alerting. Fail loudly at module init if normalisation strips the
+// canary below usability.
+if (NORMALISED_SYSTEM_PROMPT_CANARY.length < 16) {
+  throw new Error(
+    "MUX_AI_PROMPT_CANARY normalises to fewer than 16 characters after " +
+    "NFKC + invisibles strip. Canaries composed largely of fullwidth " +
+    "ASCII, invisible / bidi-control code points, or other characters " +
+    "that collapse under Unicode normalisation are not usable as " +
+    "tripwires — they would produce false-positive matches against " +
+    "legitimate model output. Use a high-entropy ASCII-leaning value.",
+  );
+}
+
+/**
  * Returns which detector fires on `text`, or `null` if none do.
  *
  * Exposed alongside {@link scrubFreeTextField} so workflows can decide
@@ -222,7 +262,12 @@ export function detectLeakReason(text: string | null | undefined): LeakReason {
   }
   const normalised = normaliseForDetection(text);
 
-  if (normalised.includes(SYSTEM_PROMPT_CANARY)) {
+  // Both sides of the comparison are normalised — see the note on
+  // NORMALISED_SYSTEM_PROMPT_CANARY above for why. For the default
+  // ASCII canary this is indistinguishable from comparing against the
+  // raw value; the pre-normalisation is what keeps operator overrides
+  // and fullwidth-evasion attacks correctly detected.
+  if (normalised.includes(NORMALISED_SYSTEM_PROMPT_CANARY)) {
     return "canary";
   }
   if (PROMPT_TAG_PATTERN.test(normalised)) {

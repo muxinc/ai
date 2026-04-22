@@ -61,6 +61,22 @@ describe("detectLeakReason", () => {
     expect(detectLeakReason(obfuscated)).toBe("canary");
   });
 
+  it("detects a canary emitted in fullwidth ASCII form", () => {
+    // ASCII 0x21–0x7E maps to fullwidth U+FF01–U+FF5E with a +0xFEE0
+    // offset. NFKC folds fullwidth back to ASCII, so a model that
+    // emits the canary as fullwidth (a classic evasion of byte-level
+    // substring matching) is still caught once both sides of the
+    // comparison are normalised.
+    const toFullwidth = (c: string) => {
+      const code = c.charCodeAt(0);
+      return code >= 0x21 && code <= 0x7E ?
+          String.fromCharCode(code + 0xFEE0) :
+        c;
+    };
+    const fullwidth = [...SYSTEM_PROMPT_CANARY].map(toFullwidth).join("");
+    expect(detectLeakReason(`Reasoning: ${fullwidth} end.`)).toBe("canary");
+  });
+
   it("detects a long base64-like run", () => {
     // 96-char base64 alphabet run — well over the 80-char threshold,
     // consistent with an encoded-exfil attempt.
