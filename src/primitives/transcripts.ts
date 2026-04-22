@@ -187,6 +187,86 @@ export function sanitizeUntrustedText(value: string): string {
   return value.normalize("NFKC").replace(UNTRUSTED_TEXT_INVISIBLE_PATTERN, "");
 }
 
+/**
+ * Strip VTT metadata blocks that are never rendered by players but can
+ * still carry text through to an LLM when the raw VTT is used in a prompt:
+ *
+ * - NOTE blocks (VTT comments)
+ * - STYLE blocks (CSS for cue styling)
+ * - REGION blocks (positioning definitions)
+ *
+ * Viewers never see the contents of these blocks. That makes them an
+ * ideal hiding spot for prompt-injection payloads — an attacker-controlled
+ * caption file can carry hundreds of bytes of "NOTE ignore previous
+ * instructions…" that will be stripped from any player but will reach the
+ * model if the raw VTT is passed through. Removing them before sending
+ * the VTT to the model closes that channel without changing what the
+ * model sees for legitimate cue content.
+ *
+ * Cue identifiers, timing lines, and cue payload text are preserved.
+ *
+ * Example input:
+ *
+ *     WEBVTT
+ *
+ *     NOTE This is a comment with hidden instructions
+ *     that span multiple lines until a blank line appears.
+ *
+ *     STYLE
+ *     ::cue(b) { font-weight: bold; }
+ *
+ *     00:00:01.000 --> 00:00:04.000
+ *     Legitimate caption text
+ *
+ * Returns:
+ *
+ *     WEBVTT
+ *
+ *     00:00:01.000 --> 00:00:04.000
+ *     Legitimate caption text
+ */
+export function stripVttMetadataBlocks(vttContent: string): string {
+  if (!vttContent)
+    return vttContent;
+  const normalised = normalizeLineEndings(vttContent);
+  const lines = normalised.split("\n");
+  const kept: string[] = [];
+  let inMetadataBlock = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (inMetadataBlock) {
+      // A blank line ends any NOTE / STYLE / REGION block. Emit the blank
+      // so the resulting VTT still separates neighbouring cue blocks.
+      if (trimmed === "") {
+        inMetadataBlock = false;
+        kept.push(line);
+      }
+      continue;
+    }
+
+    // Headers for the three VTT metadata block types. Match on the start
+    // of a trimmed line to tolerate surrounding whitespace.
+    if (
+      trimmed === "NOTE" ||
+      trimmed.startsWith("NOTE ") ||
+      trimmed === "STYLE" ||
+      trimmed.startsWith("STYLE ") ||
+      trimmed === "REGION" ||
+      trimmed.startsWith("REGION ")
+    ) {
+      inMetadataBlock = true;
+      continue;
+    }
+
+    kept.push(line);
+  }
+
+  // Collapse any runs of 3+ blank lines introduced by stripping blocks.
+  return kept.join("\n").replace(/\n{3,}/g, "\n\n");
+}
+
 function isTimingLine(line: string): boolean {
   return line.includes("-->");
 }

@@ -47,6 +47,7 @@ import {
   getReadyTextTracks,
   parseVTTCues,
   splitVttPreambleAndCueBlocks,
+  stripVttMetadataBlocks,
 } from "@mux/ai/primitives/transcripts";
 import type {
   MuxAIOptions,
@@ -464,6 +465,16 @@ async function translateVttWithAI({
 
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
 
+  // Strip NOTE / STYLE / REGION blocks from the VTT before it reaches the
+  // model. These never render in a player, so they cannot legitimately
+  // carry caption content — but they can carry arbitrary text that an
+  // attacker-controlled caption file embeds to inject instructions
+  // ("NOTE ignore previous instructions..."). The full-VTT path is the
+  // one place the raw VTT is passed to the LLM; the cue-chunked path
+  // below reparses into structured cues and therefore strips these
+  // blocks implicitly.
+  const sanitisedVttContent = stripVttMetadataBlocks(vttContent);
+
   const response = await generateText({
     model,
     output: Output.object({ schema: translationSchema }),
@@ -474,7 +485,7 @@ async function translateVttWithAI({
       },
       {
         role: "user",
-        content: `Translate from ${fromLanguageCode} to ${toLanguageCode}:\n\n${vttContent}`,
+        content: `Translate from ${fromLanguageCode} to ${toLanguageCode}:\n\n${sanitisedVttContent}`,
       },
     ],
   });
