@@ -304,7 +304,7 @@ async function analyzeStoryboard({
   // when `response.output` parsed successfully.
   const unexpectedKeys = detectUnexpectedKeysFromRawText(
     response.text,
-    Object.keys(burnedInCaptionsSchema.shape),
+    burnedInCaptionsSchema.keyof().options,
   );
 
   return {

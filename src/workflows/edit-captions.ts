@@ -387,7 +387,7 @@ async function identifyProfanityWithAI({
   // Detect schema-smuggling (an extra key alongside `profanity`).
   const unexpectedKeys = detectUnexpectedKeysFromRawText(
     response.text,
-    Object.keys(profanityDetectionSchema.shape),
+    profanityDetectionSchema.keyof().options,
   );
 
   return {

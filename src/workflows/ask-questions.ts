@@ -514,7 +514,7 @@ async function analyzeQuestions({
   // because providers sometimes wrap output in markdown fences.
   const unexpectedRootKeys = detectUnexpectedKeysFromRawText(
     response.text,
-    Object.keys(responseSchema.shape),
+    responseSchema.keyof().options,
   );
   const unexpectedAnswerKeys: string[][] = [];
   try {
@@ -523,7 +523,7 @@ async function analyzeQuestions({
     // Hoisted out of the loop: the answer sub-schema shape is identical
     // for every element, so we derive its keys once rather than walking
     // `.shape` per-element.
-    const answerKeys = Object.keys(questionAnswerSchema.shape);
+    const answerKeys = questionAnswerSchema.keyof().options;
     for (const rawAnswer of rawAnswers) {
       unexpectedAnswerKeys.push(
         detectUnexpectedKeysFromRawText(

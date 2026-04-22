@@ -594,7 +594,7 @@ async function translateVttWithAI({
   // by zod; we re-parse response.text to see what the model emitted.
   const unexpectedKeys = detectUnexpectedKeysFromRawText(
     response.text,
-    Object.keys(translationSchema.shape),
+    translationSchema.keyof().options,
   );
   if (unexpectedKeys.length > 0) {
     console.warn(
@@ -679,7 +679,7 @@ async function translateCueChunkWithAI({
   // same instance rather than hand-maintaining a parallel constant.
   const unexpectedKeys = detectUnexpectedKeysFromRawText(
     response.text,
-    Object.keys(schema.shape),
+    schema.keyof().options,
   );
   if (unexpectedKeys.length > 0) {
     console.warn(

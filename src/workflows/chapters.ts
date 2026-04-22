@@ -186,7 +186,7 @@ async function generateChaptersWithAI({
   // re-parse response.text to see what the model actually emitted.
   const unexpectedRootKeys = detectUnexpectedKeysFromRawText(
     response.text,
-    Object.keys(chaptersSchema.shape),
+    chaptersSchema.keyof().options,
   );
   const unexpectedChapterKeys: string[][] = [];
   try {
@@ -194,7 +194,7 @@ async function generateChaptersWithAI({
     const rawChapters = Array.isArray(rawEnvelope?.chapters) ? rawEnvelope.chapters : [];
     // Hoisted out of the loop: the per-chapter shape is identical for
     // every element, so we derive its keys once.
-    const chapterKeys = Object.keys(chapterSchema.shape);
+    const chapterKeys = chapterSchema.keyof().options;
     for (const rawChapter of rawChapters) {
       unexpectedChapterKeys.push(
         detectUnexpectedKeysFromRawText(

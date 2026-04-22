@@ -573,7 +573,7 @@ async function generateInsightsWithAI(
   // response.text to see what the model actually emitted.
   const unexpectedRootKeys = detectUnexpectedKeysFromRawText(
     response.text,
-    Object.keys(engagementInsightsSchema.shape),
+    engagementInsightsSchema.keyof().options,
   );
   const unexpectedMomentKeys: string[][] = [];
   let unexpectedOverallKeys: string[] = [];
@@ -583,7 +583,7 @@ async function generateInsightsWithAI(
       rawEnvelope.momentInsights :
         [];
     // Hoisted out of the loop; the per-moment shape is identical.
-    const momentKeys = Object.keys(aiMomentInsightSchema.shape);
+    const momentKeys = aiMomentInsightSchema.keyof().options;
     for (const rawMoment of rawMoments) {
       unexpectedMomentKeys.push(
         detectUnexpectedKeysFromRawText(
@@ -594,7 +594,7 @@ async function generateInsightsWithAI(
     }
     unexpectedOverallKeys = detectUnexpectedKeysFromRawText(
       JSON.stringify(rawEnvelope?.overallInsight ?? {}),
-      Object.keys(aiOverallInsightSchema.shape),
+      aiOverallInsightSchema.keyof().options,
     );
   } catch {
     // Non-JSON raw text; skip nested detection silently.

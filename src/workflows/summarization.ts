@@ -574,7 +574,7 @@ async function analyzeStoryboard(
   // re-parse response.text to see what the model actually emitted.
   const unexpectedKeys = detectUnexpectedKeysFromRawText(
     response.text,
-    Object.keys(schema.shape),
+    schema.keyof().options,
   );
 
   return {
@@ -631,7 +631,7 @@ async function analyzeAudioOnly(
   // re-parse response.text to see what the model actually emitted.
   const unexpectedKeys = detectUnexpectedKeysFromRawText(
     response.text,
-    Object.keys(schema.shape),
+    schema.keyof().options,
   );
 
   return {
