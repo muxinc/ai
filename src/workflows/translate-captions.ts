@@ -147,10 +147,15 @@ export interface TranslationChunkingOptions {
   maxCueTextTokensPerChunk?: number;
 }
 
-/** Schema used when requesting caption translation from a language model. */
+/**
+ * Schema used when requesting caption translation from a language model.
+ *
+ * `.strict()` rejects extra keys — see the matching note on
+ * `burnedInCaptionsSchema` for the smuggling-channel rationale.
+ */
 export const translationSchema = z.object({
   translation: z.string(),
-});
+}).strict();
 
 /** Inferred shape returned by `translationSchema`. */
 export type TranslationPayload = z.infer<typeof translationSchema>;
@@ -517,9 +522,11 @@ async function translateCueChunkWithAI({
   "use step";
 
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
+  // `.strict()` rejects any extra keys the model might emit alongside
+  // `translations` — closes a smuggling channel for prompt extraction.
   const schema = z.object({
     translations: z.array(z.string().min(1)).length(cues.length),
-  });
+  }).strict();
   const cuePayload = cues.map((cue, index) => ({
     index,
     startTime: cue.startTime,

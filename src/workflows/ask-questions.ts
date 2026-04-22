@@ -101,14 +101,21 @@ export interface AskQuestionsResult {
 // Zod Schemas
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Zod schema for a single answer (matches the public QuestionAnswer interface). */
+/**
+ * Zod schema for a single answer (matches the public QuestionAnswer interface).
+ *
+ * `.strict()` rejects extra keys the model might emit alongside the
+ * declared fields — a common smuggling shape for prompt-extraction
+ * attacks. Schemas that extend this one via `.extend()` inherit the
+ * strict mode.
+ */
 export const questionAnswerSchema = z.object({
   question: z.string().describe("The full text of the original question"),
   answer: z.string().nullable(),
   confidence: z.number(),
   reasoning: z.string(),
   skipped: z.boolean(),
-});
+}).strict();
 
 export type QuestionAnswerType = z.infer<typeof questionAnswerSchema>;
 
@@ -129,7 +136,7 @@ function createAskQuestionsSchema(allowedAnswers: [string, ...string[]]) {
         answer: answerSchema,
       }),
     ),
-  });
+  }).strict();
 }
 
 type AskQuestionsSchema = ReturnType<typeof createAskQuestionsSchema>;

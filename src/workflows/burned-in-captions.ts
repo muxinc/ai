@@ -85,12 +85,22 @@ export interface BurnedInCaptionsOptions extends MuxAIOptions {
   promptOverrides?: BurnedInCaptionsPromptOverrides;
 }
 
-/** Schema used to validate burned-in captions analysis responses. */
+/**
+ * Schema used to validate burned-in captions analysis responses.
+ *
+ * `.strict()` rejects any extra keys the model emits. Beyond the usual
+ * hygiene reason (we control the schema, the model shouldn't be making up
+ * fields) this closes a prompt-injection smuggling channel: without strict
+ * mode, a coerced model could emit e.g. `{ hasBurnedInCaptions: false,
+ * system_prompt_verbatim: "..." }`, zod would silently drop the extra
+ * field, and the prompt leak would only surface in telemetry. Strict
+ * parsing turns the smuggling attempt into a loud validation error.
+ */
 export const burnedInCaptionsSchema = z.object({
   hasBurnedInCaptions: z.boolean(),
   confidence: z.number(),
   detectedLanguage: z.string().nullable(),
-});
+}).strict();
 
 /** Inferred shape returned from the burned-in captions schema. */
 export type BurnedInCaptionsAnalysis = z.infer<typeof burnedInCaptionsSchema>;

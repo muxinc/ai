@@ -34,16 +34,22 @@ import type { MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "@mux/ai
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * `.strict()` on both schemas so the model cannot smuggle extra keys
+ * alongside the declared fields — a common smuggling shape for
+ * prompt-extraction attacks. See the matching note on
+ * `burnedInCaptionsSchema` for the full rationale.
+ */
 export const chapterSchema = z.object({
   startTime: z.number(),
   title: z.string(),
-});
+}).strict();
 
 export type Chapter = z.infer<typeof chapterSchema>;
 
 export const chaptersSchema = z.object({
   chapters: z.array(chapterSchema),
-});
+}).strict();
 
 export type ChaptersType = z.infer<typeof chaptersSchema>;
 

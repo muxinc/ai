@@ -124,13 +124,19 @@ export interface EditCaptionsResult {
   safety?: SafetyReport;
 }
 
-/** Schema used when requesting profanity detection from a language model. */
+/**
+ * Schema used when requesting profanity detection from a language model.
+ *
+ * `.strict()` so a model can't smuggle extra keys alongside the
+ * `profanity` array — see the matching note on `burnedInCaptionsSchema`
+ * for the full rationale.
+ */
 export const profanityDetectionSchema = z.object({
   profanity: z.array(z.string()).describe(
     "Unique profane words or short phrases exactly as they appear in the transcript text. " +
     "Include each distinct form only once (e.g., if 'fuck' and 'fucking' both appear, list both).",
   ),
-});
+}).strict();
 
 /** Inferred shape returned by `profanityDetectionSchema`. */
 export type ProfanityDetectionPayload = z.infer<typeof profanityDetectionSchema>;

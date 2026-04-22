@@ -119,6 +119,12 @@ export interface EngagementInsightsResult {
 // Zod Schemas (given to AI)
 // ─────────────────────────────────────────────────────────────────────────────
 
+// `.strict()` on each schema: rejects extra keys the model might emit
+// alongside the declared fields, which closes an exfiltration channel
+// where a coerced model smuggles prompt fragments into an unexpected
+// key name. Without strict mode, zod silently drops extra keys and the
+// smuggling attempt only shows up (if at all) in telemetry.
+
 /** Zod schema for a single moment insight returned by the AI. */
 const aiMomentInsightSchema = z.object({
   hotspotIndex: z.number(),
@@ -127,19 +133,19 @@ const aiMomentInsightSchema = z.object({
   timestamp: z.string(),
   engagementScore: z.number(),
   insight: z.string(),
-});
+}).strict();
 
 /** Zod schema for overall insight returned by the AI. */
 const aiOverallInsightSchema = z.object({
   summary: z.string(),
   trends: z.array(z.string()),
-});
+}).strict();
 
 /** Combined schema for AI response */
 const engagementInsightsSchema = z.object({
   momentInsights: z.array(aiMomentInsightSchema),
   overallInsight: aiOverallInsightSchema,
-});
+}).strict();
 
 type AIEngagementInsightsResult = z.infer<typeof engagementInsightsSchema>;
 
