@@ -106,11 +106,17 @@ const PROMPT_TAG_PATTERN = new RegExp(
  * - U+2066–2069 bidi isolates (can reorder display)
  * - U+202A–202E bidi overrides/embeddings
  * - U+FEFF      BOM / zero-width no-break space
+ *
+ * Exported so the transcript primitive (`sanitizeUntrustedText`) can
+ * use the same list on input as the output-side scrubber uses on
+ * output. Drifting copies would create an asymmetry where a code
+ * point is stripped on one side but not the other — enough to defeat
+ * the obfuscation defenses this list exists to enforce.
  */
 // Code points enumerated individually so the source file itself contains
 // no invisible characters (which would fail lint and be hard to audit).
 // Each value corresponds to one of the documented ranges above.
-const INVISIBLE_CODE_POINTS = [
+export const INVISIBLE_CODE_POINTS = [
   0x00AD, // soft hyphen
   0x200B, // zero-width space
   0x200C, // zero-width non-joiner
@@ -127,25 +133,47 @@ const INVISIBLE_CODE_POINTS = [
   0x202E, // RTL override
   0xFEFF, // BOM / zero-width no-break space
 ];
-const INVISIBLE_CHARACTERS_PATTERN = new RegExp(
+
+/** Compiled regex form of {@link INVISIBLE_CODE_POINTS}. */
+export const INVISIBLE_CHARACTERS_PATTERN = new RegExp(
   `[${INVISIBLE_CODE_POINTS.map(cp => `\\u${cp.toString(16).padStart(4, "0").toUpperCase()}`).join("")}]`,
   "g",
 );
 
 /**
- * Normalises `text` for leak detection.
+ * Normalise untrusted text by folding Unicode compatibility forms
+ * (NFKC) and stripping invisible / bidi-control code points.
  *
- * Applies Unicode NFKC (folds compatibility characters — e.g. the fullwidth
- * <role> clones U+FF1C/U+FF1E to ASCII <>, and many homoglyphs to their
- * canonical Latin form) and strips invisible characters. Case-folding is
- * left to the individual regex (`/i` flag) so casing differences do not
- * affect detection either.
+ * Single source of truth for the two places this transformation is
+ * needed:
  *
- * This is NOT a sanitiser — we never return the normalised text to the
- * caller. We only use it as the surface the detectors run against, so the
- * original content is preserved in the clean-case return path.
+ * - **Output side** (internal `detectLeakReason`): applied to every
+ *   model output before matching it against canary / tag / encoded-
+ *   blob detectors. Normalising here ensures an attacker-emitted
+ *   fullwidth `<role>` or a canary split with zero-width characters
+ *   still matches.
+ *
+ * - **Input side** (`sanitizeUntrustedText` in
+ *   `src/primitives/transcripts.ts`): applied to every transcript
+ *   cue before it reaches a prompt. Normalising here prevents
+ *   payloads hidden in homoglyphs or invisible splitters from being
+ *   invisible to human reviewers while still understandable to the
+ *   model.
+ *
+ * Using the same function on both sides keeps the hygiene symmetric —
+ * any character folded / stripped on one end is folded / stripped on
+ * the other. Example transformations:
+ *
+ * - Fullwidth angle brackets (U+FF1C / U+FF1E) around a word fold to
+ *   ASCII `<` / `>` under NFKC, so a "fullwidth-tag" wrapping still
+ *   trips the tag detector.
+ * - A zero-width space (U+200B) spliced into the middle of a word is
+ *   removed, collapsing "ig + ZWSP + nore" back to "ignore".
+ * - A leading right-to-left override (U+202E) is stripped, so a
+ *   filename that would render reversed in a terminal reads forward
+ *   for the model and for any downstream substring check.
  */
-function normaliseForDetection(text: string): string {
+export function normalizeUntrustedUnicode(text: string): string {
   return text.normalize("NFKC").replace(INVISIBLE_CHARACTERS_PATTERN, "");
 }
 
@@ -211,7 +239,7 @@ export type LeakReason =
 /**
  * Canary in its normalised form, pre-computed at module load.
  *
- * Model output is normalised with `normaliseForDetection` before matching
+ * Model output is normalised with `normalizeUntrustedUnicode` before matching
  * (NFKC + strip invisibles). For that comparison to be symmetric, the
  * canary we compare against must be normalised the same way — otherwise
  * an operator who configures `MUX_AI_PROMPT_CANARY` with any characters
@@ -227,7 +255,7 @@ export type LeakReason =
  * dodge) is now caught too, since the fullwidth output normalises back
  * to the canary's form.
  */
-const NORMALISED_SYSTEM_PROMPT_CANARY = normaliseForDetection(SYSTEM_PROMPT_CANARY);
+const NORMALISED_SYSTEM_PROMPT_CANARY = normalizeUntrustedUnicode(SYSTEM_PROMPT_CANARY);
 
 // Guard against a pathological configuration: `MUX_AI_PROMPT_CANARY`
 // is validated at env-parse time to be >= 16 *raw* characters, but a
@@ -260,7 +288,7 @@ export function detectLeakReason(text: string | null | undefined): LeakReason {
   if (!text) {
     return null;
   }
-  const normalised = normaliseForDetection(text);
+  const normalised = normalizeUntrustedUnicode(text);
 
   // Both sides of the comparison are normalised — see the note on
   // NORMALISED_SYSTEM_PROMPT_CANARY above for why. For the default

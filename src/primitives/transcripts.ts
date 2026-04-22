@@ -2,6 +2,7 @@ import { isUndeterminedLanguageCode } from "@mux/ai/lib/language-codes";
 import { MuxAiError, wrapError } from "@mux/ai/lib/mux-ai-error";
 import { isAudioOnlyAsset } from "@mux/ai/lib/mux-assets";
 import { getMuxStreamOrigin } from "@mux/ai/lib/mux-url";
+import { normalizeUntrustedUnicode } from "@mux/ai/lib/output-safety";
 import { signUrl } from "@mux/ai/lib/url-signing";
 import type { AssetTextTrack, MuxAsset, WorkflowCredentialsInput } from "@mux/ai/types";
 
@@ -115,76 +116,26 @@ function normalizeLineEndings(value: string): string {
 // carry obfuscated prompt-injection payloads. Apply this hygiene pass to any
 // transcript text before it is sent to an LLM or embedded in a prompt.
 //
-// What this addresses (and why):
-//
-// - Invisible characters (zero-width space, zero-width joiner, bidi
-//   controls, BOM, word joiner). Attackers use them to hide instructions
-//   from a human reviewing the transcript while the model still reads the
-//   intended content — e.g. a cue that reads "normal dialogue" in a viewer
-//   but contains "ignore previous instructions" once the zero-width
-//   splitters are removed.
-//
-// - Homoglyph / compatibility obfuscation. Unicode NFKC folds characters
-//   like fullwidth ASCII (U+FF1C ＜ → <), compatibility digits, and many
-//   homoglyph variants to their canonical forms, making downstream
-//   filters consistent. The same normalisation is used on the output side
-//   in `lib/output-safety.ts`, so input and output are evaluated against
-//   the same surface.
-//
-// This function is conservative: it never changes visible semantics for
-// legitimate content (standard ASCII, any non-obfuscated Unicode prose).
+// The actual normalisation — Unicode NFKC + invisible / bidi-control strip —
+// lives in `lib/output-safety.ts` as `normalizeUntrustedUnicode`, shared
+// with the output-side leak detector. Using the same function on both
+// ends keeps the hygiene symmetric: any code point stripped on input is
+// also stripped on output, preventing asymmetries that could become
+// obfuscation-bypass vectors. See the doc comment on
+// `normalizeUntrustedUnicode` for the full list of transformations and
+// attack classes addressed.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Invisible / near-invisible code points that attackers use to hide
- * content from human reviewers. Duplicated with the list in
- * `lib/output-safety.ts` — keep them in sync.
- */
-const UNTRUSTED_TEXT_INVISIBLE_CODE_POINTS = [
-  0x00AD, // soft hyphen
-  0x200B, // zero-width space
-  0x200C, // zero-width non-joiner
-  0x200D, // zero-width joiner
-  0x2060, // word joiner
-  0x2066, // LTR isolate
-  0x2067, // RTL isolate
-  0x2068, // first-strong isolate
-  0x2069, // pop directional isolate
-  0x202A, // LTR embedding
-  0x202B, // RTL embedding
-  0x202C, // pop directional formatting
-  0x202D, // LTR override
-  0x202E, // RTL override
-  0xFEFF, // BOM / zero-width no-break space
-];
-const UNTRUSTED_TEXT_INVISIBLE_PATTERN = new RegExp(
-  `[${UNTRUSTED_TEXT_INVISIBLE_CODE_POINTS.map(cp => `\\u${cp.toString(16).padStart(4, "0").toUpperCase()}`).join("")}]`,
-  "g",
-);
-
-/**
- * Normalise untrusted text before it reaches an LLM prompt.
- *
- * Applies Unicode NFKC (folds compatibility forms and many homoglyphs
- * to their canonical ASCII / Latin counterparts) and strips invisible /
- * bidi-control characters.
- *
- * Example transformations:
- * - Fullwidth angle brackets (U+FF1C / U+FF1E) around a word fold to
- *   ASCII `<` / `>` under NFKC, so a "fullwidth-tag" wrapping survives
- *   as if written with plain ASCII brackets.
- * - A zero-width space (U+200B) spliced into the middle of a word is
- *   removed, collapsing "ig + ZWSP + nore" back to "ignore".
- * - A leading right-to-left override (U+202E) is stripped, so a
- *   filename that would render reversed in a terminal reads forward
- *   for the model.
- *
- * Returns the hygienic text. Safe to apply to empty strings.
+ * Sanitise untrusted text (typically a VTT cue or joined transcript)
+ * before it is interpolated into a prompt. Thin wrapper around the
+ * shared {@link normalizeUntrustedUnicode} helper, with a null/empty
+ * guard for convenience.
  */
 export function sanitizeUntrustedText(value: string): string {
   if (!value)
     return value;
-  return value.normalize("NFKC").replace(UNTRUSTED_TEXT_INVISIBLE_PATTERN, "");
+  return normalizeUntrustedUnicode(value);
 }
 
 /**
