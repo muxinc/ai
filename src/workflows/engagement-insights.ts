@@ -20,6 +20,7 @@ import {
   REASONING_FIELD_SCOPE,
   STRUCTURED_DATA_CONSTRAINT,
   UNTRUSTED_USER_INPUT_NOTICE,
+  VISUAL_TEXT_AS_CONTENT,
 } from "@mux/ai/lib/prompt-fragments";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
@@ -167,6 +168,8 @@ const SYSTEM_PROMPT = promptDedent`
     ${NON_DISCLOSURE_CONSTRAINT}
 
     ${UNTRUSTED_USER_INPUT_NOTICE}
+
+    ${VISUAL_TEXT_AS_CONTENT}
 
     ${CANARY_TRIPWIRE}
 
