@@ -220,23 +220,12 @@ const HEX_RUN_PATTERN = /[0-9a-f]{65,}/i;
  *   the schema (see {@link detectUnexpectedKeys}). Stripped silently
  *   by zod's default `.strip()` mode; this signal surfaces the
  *   smuggling attempt rather than letting it go unseen.
- * - `unspecified` — defensive fallback used only when a scrub is
- *   known to have occurred but the specific detector that fired was
- *   not preserved across a `"use step"` serialisation boundary.
- *   Operators seeing this value should treat it as a suspected leak
- *   of indeterminate confidence — the content was suppressed, but we
- *   cannot attribute which detector caught it. Under the current
- *   scrubber contract this should not occur in practice; the variant
- *   exists so synthesised reports never fabricate a higher-confidence
- *   reason than was actually observed (e.g. claiming a canary hit
- *   when none was seen).
  */
 export type LeakReason =
   | "canary" |
   "prompt_tag" |
   "encoded_blob" |
   "unexpected_key" |
-  "unspecified" |
   null;
 
 /**

@@ -508,24 +508,62 @@ export function normalizeTranslatedVtt(translation: string): string {
 }
 
 /**
- * Result of a translate step that also carries aggregate safety
- * counters. Counters are plain numbers (not a rich SafetyReport) so
- * they survive `"use step"` serialisation boundaries — the top-level
- * workflow reconstitutes a {@link SafetyReport} from the totals.
+ * Per-reason counts of cues suppressed by the output-side scrubber.
+ *
+ * Tracked as a sparse record (reason -> count of cues where that
+ * detector fired) rather than a single "winning" reason so that
+ * aggregating across cues, across recursive chunk splits, and across
+ * concurrent batches never discards a higher-confidence signal. A plain
+ * JSON object survives `"use step"` serialisation boundaries, which is
+ * why we don't use a SafetyReport directly at this layer.
+ *
+ * Example: a chunk whose per-cue scrubs produce canary, canary,
+ * encoded_blob yields `{ canary: 2, encoded_blob: 1 }`. The top-level
+ * workflow emits one `SafetyReport.scrubbedFields` entry per reason
+ * so operators alerting on any specific reason (especially the
+ * high-confidence `canary`) see the signal whenever it was observed.
+ */
+type ScrubbedCueCounts = Partial<Record<Exclude<LeakReason, null>, number>>;
+
+/**
+ * Result of a translate step. Safety signals are plain numbers / records
+ * (not a rich SafetyReport) so they survive `"use step"` serialisation
+ * boundaries — the top-level workflow reconstitutes a {@link SafetyReport}
+ * from the totals.
  */
 interface TranslateStepResult {
   translatedVtt: string;
   usage: TokenUsage;
-  /** Number of cues whose translation was suppressed by the scrubber. */
-  scrubbedCueCount: number;
-  /** Leak reason most recently observed, if any. */
-  scrubbedReason: LeakReason;
+  /**
+   * Per-reason counts of cues whose translation was suppressed by the
+   * scrubber. See {@link ScrubbedCueCounts}. The overall cue-scrub
+   * count for a step is `Object.values(scrubbedCueCounts).reduce(sum)`.
+   */
+  scrubbedCueCounts: ScrubbedCueCounts;
   /**
    * Number of unexpected top-level keys the model emitted across the
    * envelopes seen in this step. zod.strip() has already removed them;
    * the count surfaces the smuggling attempt in the safety report.
    */
   unexpectedKeyCount: number;
+}
+
+/**
+ * Merge two {@link ScrubbedCueCounts} maps by summing counts per reason.
+ *
+ * Used when combining results from recursive chunk splits and from
+ * concurrent batches. Neither side is mutated — callers get a new
+ * object, consistent with the rest of the step-return contract.
+ */
+function mergeScrubbedCueCounts(
+  a: ScrubbedCueCounts,
+  b: ScrubbedCueCounts,
+): ScrubbedCueCounts {
+  const merged: ScrubbedCueCounts = { ...a };
+  for (const [reason, count] of Object.entries(b) as Array<[Exclude<LeakReason, null>, number]>) {
+    merged[reason] = (merged[reason] ?? 0) + count;
+  }
+  return merged;
 }
 
 async function translateVttWithAI({
@@ -602,10 +640,17 @@ async function translateVttWithAI({
     );
   }
 
+  // The whole-VTT path produces at most one leak event (the whole blob
+  // either trips a detector or it doesn't). Encode that as a single
+  // per-reason count of 1 so the aggregation layer handles it uniformly
+  // with the cue-chunked path.
+  const scrubbedCueCounts: ScrubbedCueCounts = leakReason !== null ?
+      { [leakReason]: 1 } :
+      {};
+
   return {
     translatedVtt: safeTranslated,
-    scrubbedCueCount: leakReason !== null ? 1 : 0,
-    scrubbedReason: leakReason,
+    scrubbedCueCounts,
     unexpectedKeyCount: unexpectedKeys.length,
     usage: {
       inputTokens: response.usage.inputTokens,
@@ -760,13 +805,20 @@ async function translateChunkWithFallback({
     // substitute the source cue text in place so the 1:1 cue contract
     // (and timeline alignment) is preserved; the operator still sees the
     // suppression in the workflow's `safety` report.
-    let scrubbedCueCount = 0;
-    let scrubbedReason: LeakReason = null;
+    //
+    // Every reason the scrubber surfaces (canary, prompt_tag,
+    // encoded_blob, etc.) is counted separately. A previous iteration
+    // collapsed these into a single "winning" reason at aggregate time,
+    // which could silently replace a high-confidence canary hit with a
+    // lower-confidence encoded_blob hit — operators alerting on canary
+    // would miss the signal. Counting per-reason here and summing at
+    // higher levels keeps every observed reason visible in the final
+    // SafetyReport.
+    const scrubbedCueCounts: ScrubbedCueCounts = {};
     const safeTranslations = result.translations.map((translated, idx) => {
       const scrub = scrubFreeTextField(translated, `translated_cue[${chunk.id}:${idx}]`);
-      if (scrub.leaked) {
-        scrubbedCueCount += 1;
-        scrubbedReason = scrub.reason ?? scrubbedReason;
+      if (scrub.leaked && scrub.reason !== null) {
+        scrubbedCueCounts[scrub.reason] = (scrubbedCueCounts[scrub.reason] ?? 0) + 1;
         // Fall back to the source cue text rather than an empty string
         // so downstream players still render something at this timestamp.
         return chunk.cues[idx].text;
@@ -777,8 +829,7 @@ async function translateChunkWithFallback({
     return {
       translatedVtt: buildVttFromTranslatedCueBlocks(chunk.cueBlocks, safeTranslations),
       usage: result.usage,
-      scrubbedCueCount,
-      scrubbedReason,
+      scrubbedCueCounts,
       unexpectedKeyCount: result.unexpectedKeyCount,
     };
   } catch (error) {
@@ -809,8 +860,10 @@ async function translateChunkWithFallback({
     return {
       translatedVtt: concatenateVttSegments([leftResult.translatedVtt, rightResult.translatedVtt]),
       usage: aggregateTokenUsage([leftResult.usage, rightResult.usage]),
-      scrubbedCueCount: leftResult.scrubbedCueCount + rightResult.scrubbedCueCount,
-      scrubbedReason: leftResult.scrubbedReason ?? rightResult.scrubbedReason,
+      scrubbedCueCounts: mergeScrubbedCueCounts(
+        leftResult.scrubbedCueCounts,
+        rightResult.scrubbedCueCounts,
+      ),
       unexpectedKeyCount: leftResult.unexpectedKeyCount + rightResult.unexpectedKeyCount,
     };
   }
@@ -852,8 +905,7 @@ async function translateCaptionTrack({
   const resolvedChunking = resolveTranslationChunkingOptions(chunking);
   const translatedSegments: string[] = [];
   const usageByChunk: TokenUsage[] = [];
-  let totalScrubbedCueCount = 0;
-  let observedScrubReason: LeakReason = null;
+  let totalScrubbedCueCounts: ScrubbedCueCounts = {};
   let totalUnexpectedKeyCount = 0;
 
   for (let index = 0; index < chunkPlan.chunks.length; index += resolvedChunking.maxConcurrentTranslations) {
@@ -874,8 +926,7 @@ async function translateCaptionTrack({
     translatedSegments.push(...batchResults.map(result => result.translatedVtt));
     usageByChunk.push(...batchResults.map(result => result.usage));
     for (const result of batchResults) {
-      totalScrubbedCueCount += result.scrubbedCueCount;
-      observedScrubReason = observedScrubReason ?? result.scrubbedReason;
+      totalScrubbedCueCounts = mergeScrubbedCueCounts(totalScrubbedCueCounts, result.scrubbedCueCounts);
       totalUnexpectedKeyCount += result.unexpectedKeyCount;
     }
   }
@@ -883,8 +934,7 @@ async function translateCaptionTrack({
   return {
     translatedVtt: concatenateVttSegments(translatedSegments, chunkPlan.preamble),
     usage: aggregateTokenUsage(usageByChunk),
-    scrubbedCueCount: totalScrubbedCueCount,
-    scrubbedReason: observedScrubReason,
+    scrubbedCueCounts: totalScrubbedCueCounts,
     unexpectedKeyCount: totalUnexpectedKeyCount,
   };
 }
@@ -1034,8 +1084,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   // `translateCaptionTrack`. We rebuild a {@link SafetyReport} here at
   // the top level because the intermediate step functions can only
   // return JSON-serialisable data across `"use step"` boundaries.
-  let scrubbedCueCount = 0;
-  let scrubbedReason: LeakReason = null;
+  let scrubbedCueCounts: ScrubbedCueCounts = {};
   let unexpectedKeyCount = 0;
 
   try {
@@ -1051,32 +1100,31 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     });
     translatedVtt = result.translatedVtt;
     usage = result.usage;
-    scrubbedCueCount = result.scrubbedCueCount;
-    scrubbedReason = result.scrubbedReason;
+    scrubbedCueCounts = result.scrubbedCueCounts;
     unexpectedKeyCount = result.unexpectedKeyCount;
   } catch (error) {
     wrapError(error, `Failed to translate VTT with ${modelConfig.provider}`);
   }
 
-  // Synthesise a SafetyReport from the aggregate counters. Individual
-  // cue identifiers are intentionally not preserved across step
-  // boundaries — operators get counts and the most recent leak reason,
-  // which is enough to alert on; per-cue forensics would need to be
-  // reconstructed from the console.warn trail.
+  // Synthesise a SafetyReport from the aggregate counts. We emit one
+  // `scrubbedFields` entry per observed reason (rather than collapsing
+  // to a single "winning" reason), so operators alerting on a specific
+  // signal — especially the near-zero-false-positive `canary` — see
+  // that signal whenever it occurred, even if a lower-confidence
+  // reason also fired in the same call. Counts within each entry tell
+  // operators how many cues tripped that particular detector.
   //
-  // The scrubber's contract guarantees that `leaked === true` implies
-  // `reason !== null`, so when `scrubbedCueCount > 0` we should
-  // ordinarily have a non-null `scrubbedReason`. If the invariant
-  // somehow breaks (future refactor, cross-boundary type erosion), we
-  // record "unspecified" rather than fabricating a higher-confidence
-  // reason — "canary" here would falsely suggest the canary tripwire
-  // actually fired, misleading operator alerts.
+  // Individual cue identifiers are intentionally not preserved across
+  // step boundaries; per-cue forensics are available in the console.warn
+  // trail that each scrub event emits.
   const scrubbedFields: SafetyReport["scrubbedFields"] = [];
-  if (scrubbedCueCount > 0) {
-    scrubbedFields.push({
-      field: `translated_cues (${scrubbedCueCount} total)`,
-      reason: scrubbedReason ?? "unspecified",
-    });
+  for (const [reason, count] of Object.entries(scrubbedCueCounts) as Array<[Exclude<LeakReason, null>, number]>) {
+    if (count > 0) {
+      scrubbedFields.push({
+        field: `translated_cues (${count} total)`,
+        reason,
+      });
+    }
   }
   if (unexpectedKeyCount > 0) {
     scrubbedFields.push({
