@@ -151,8 +151,12 @@ export interface TranslationChunkingOptions {
 /**
  * Schema used when requesting caption translation from a language model.
  *
- * `.strict()` rejects extra keys — see the matching note on
- * `burnedInCaptionsSchema` for the smuggling-channel rationale.
+ * Uses zod's default `.strip()` mode. Extras emitted by the model are
+ * silently dropped during parse so a benign provider quirk does not
+ * fail the workflow; the call site re-parses `response.text` via
+ * `detectUnexpectedKeysFromRawText` and records each extra as an
+ * `unexpected_key` entry in the safety report — see the matching note
+ * on `burnedInCaptionsSchema` for the full rationale.
  */
 export const translationSchema = z.object({
   translation: z.string(),

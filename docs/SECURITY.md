@@ -58,8 +58,13 @@ Concretely, the library is hardened against these attack classes:
   transcripts (social media clips, live-stream captions).
 - **Schema smuggling** — a coerced model emitting extra keys alongside
   the declared output (e.g. `{ ..., system_prompt_verbatim: "..." }`).
-  All output schemas use `zod.object(...).strict()` so extra keys raise
-  a validation error instead of being silently dropped.
+  Output schemas use zod's default `.strip()` mode so extras are
+  silently dropped from the parsed result. Each parse site re-parses
+  the raw response text, compares its keys against the declared schema,
+  and records any extras as `reason: "unexpected_key"` entries in
+  `safety.scrubbedFields` — so the smuggling attempt is observable
+  through the same `safety` telemetry as other leak signals, without
+  failing legitimate calls where a provider emits a benign extra.
 
 When the output scrubber fires, the workflow suppresses the affected
 field (empty string, dropped element, or source-text fallback depending
@@ -147,7 +152,9 @@ Options that are safe to populate from untrusted input:
 Partly trusted (validated at the library boundary):
 
 - `askQuestions` `questions[].question` — max 500 chars, non-empty.
-- `askQuestions` `questions[].answerOptions[]` — max 50 chars each.
+- `askQuestions` `questions[].answerOptions[]` — max 150 chars each by
+  default (overridable via the `maxAnswerOptionLength` option for
+  domain-specific category labels that legitimately run longer).
 
 If you expose any of the "partly trusted" options to end-users, your
 application boundary should still sanitise and rate-limit — the

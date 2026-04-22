@@ -119,11 +119,14 @@ export interface EngagementInsightsResult {
 // Zod Schemas (given to AI)
 // ─────────────────────────────────────────────────────────────────────────────
 
-// `.strict()` on each schema: rejects extra keys the model might emit
-// alongside the declared fields, which closes an exfiltration channel
-// where a coerced model smuggles prompt fragments into an unexpected
-// key name. Without strict mode, zod silently drops extra keys and the
-// smuggling attempt only shows up (if at all) in telemetry.
+// Schemas use zod's default `.strip()` mode — extras the model emits
+// alongside the declared fields are silently dropped during parse so a
+// benign provider quirk does not fail the whole workflow. The
+// smuggling-channel concern (a coerced model emitting prompt fragments
+// under an unexpected key) is surfaced out-of-band: the parse site
+// re-parses `response.text` via `detectUnexpectedKeysFromRawText` and
+// records each extra as an `unexpected_key` entry in the workflow's
+// safety report.
 //
 // Length caps (`.max(...)`) on the free-text fields mechanically bound
 // exfiltration bandwidth. Values and tuning notes:
