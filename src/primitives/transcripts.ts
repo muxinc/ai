@@ -108,6 +108,85 @@ function normalizeLineEndings(value: string): string {
   return value.replace(/\r\n/g, "\n");
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Untrusted-text hygiene
+//
+// Transcript content ultimately originates from user-uploaded media and can
+// carry obfuscated prompt-injection payloads. Apply this hygiene pass to any
+// transcript text before it is sent to an LLM or embedded in a prompt.
+//
+// What this addresses (and why):
+//
+// - Invisible characters (zero-width space, zero-width joiner, bidi
+//   controls, BOM, word joiner). Attackers use them to hide instructions
+//   from a human reviewing the transcript while the model still reads the
+//   intended content — e.g. a cue that reads "normal dialogue" in a viewer
+//   but contains "ignore previous instructions" once the zero-width
+//   splitters are removed.
+//
+// - Homoglyph / compatibility obfuscation. Unicode NFKC folds characters
+//   like fullwidth ASCII (U+FF1C ＜ → <), compatibility digits, and many
+//   homoglyph variants to their canonical forms, making downstream
+//   filters consistent. The same normalisation is used on the output side
+//   in `lib/output-safety.ts`, so input and output are evaluated against
+//   the same surface.
+//
+// This function is conservative: it never changes visible semantics for
+// legitimate content (standard ASCII, any non-obfuscated Unicode prose).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Invisible / near-invisible code points that attackers use to hide
+ * content from human reviewers. Duplicated with the list in
+ * `lib/output-safety.ts` — keep them in sync.
+ */
+const UNTRUSTED_TEXT_INVISIBLE_CODE_POINTS = [
+  0x00AD, // soft hyphen
+  0x200B, // zero-width space
+  0x200C, // zero-width non-joiner
+  0x200D, // zero-width joiner
+  0x2060, // word joiner
+  0x2066, // LTR isolate
+  0x2067, // RTL isolate
+  0x2068, // first-strong isolate
+  0x2069, // pop directional isolate
+  0x202A, // LTR embedding
+  0x202B, // RTL embedding
+  0x202C, // pop directional formatting
+  0x202D, // LTR override
+  0x202E, // RTL override
+  0xFEFF, // BOM / zero-width no-break space
+];
+const UNTRUSTED_TEXT_INVISIBLE_PATTERN = new RegExp(
+  `[${UNTRUSTED_TEXT_INVISIBLE_CODE_POINTS.map(cp => `\\u${cp.toString(16).padStart(4, "0").toUpperCase()}`).join("")}]`,
+  "g",
+);
+
+/**
+ * Normalise untrusted text before it reaches an LLM prompt.
+ *
+ * Applies Unicode NFKC (folds compatibility forms and many homoglyphs
+ * to their canonical ASCII / Latin counterparts) and strips invisible /
+ * bidi-control characters.
+ *
+ * Example transformations:
+ * - Fullwidth angle brackets (U+FF1C / U+FF1E) around a word fold to
+ *   ASCII `<` / `>` under NFKC, so a "fullwidth-tag" wrapping survives
+ *   as if written with plain ASCII brackets.
+ * - A zero-width space (U+200B) spliced into the middle of a word is
+ *   removed, collapsing "ig + ZWSP + nore" back to "ignore".
+ * - A leading right-to-left override (U+202E) is stripped, so a
+ *   filename that would render reversed in a terminal reads forward
+ *   for the model.
+ *
+ * Returns the hygienic text. Safe to apply to empty strings.
+ */
+export function sanitizeUntrustedText(value: string): string {
+  if (!value)
+    return value;
+  return value.normalize("NFKC").replace(UNTRUSTED_TEXT_INVISIBLE_PATTERN, "");
+}
+
 function isTimingLine(line: string): boolean {
   return line.includes("-->");
 }
@@ -215,7 +294,14 @@ export function extractTextFromVTT(vttContent: string): string {
     }
   }
 
-  return textLines.join(" ").replace(/\s+/g, " ").trim();
+  // Strip invisible / bidi-control characters and apply Unicode NFKC
+  // before returning: the result is about to be sent to an LLM as
+  // transcript content, so a homoglyph/zero-width payload hidden in
+  // cue text must not survive this boundary. See `sanitizeUntrustedText`
+  // for the full rationale.
+  return sanitizeUntrustedText(
+    textLines.join(" ").replace(/\s+/g, " ").trim(),
+  );
 }
 
 export function vttTimestampToSeconds(timestamp: string): number {
@@ -278,9 +364,13 @@ export function extractTimestampedTranscript(vttContent: string): string {
     }
   }
 
-  return segments
-    .map(segment => `[${Math.floor(segment.time)}s] ${segment.text}`)
-    .join("\n");
+  // Sanitize before returning — this text reaches the chapters workflow's
+  // user prompt, so obfuscation needs to be stripped on the way in.
+  return sanitizeUntrustedText(
+    segments
+      .map(segment => `[${Math.floor(segment.time)}s] ${segment.text}`)
+      .join("\n"),
+  );
 }
 
 /**
@@ -345,7 +435,10 @@ export function parseVTTCues(vttContent: string): VTTCue[] {
         cues.push({
           startTime,
           endTime,
-          text: textLines.join(" "),
+          // Sanitize at the cue boundary so every downstream consumer
+          // (engagement-insights, translate-captions chunked path, etc.)
+          // receives text free of invisible / bidi obfuscation.
+          text: sanitizeUntrustedText(textLines.join(" ")),
         });
       }
 
