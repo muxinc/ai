@@ -190,7 +190,12 @@ export const VISUAL_TEXT_AS_CONTENT = dedent`
  *
  * Override via the `MUX_AI_PROMPT_CANARY` environment variable to give
  * each deployment its own canary, so leaks can be attributed to a
- * specific environment and rotated without a library release.
+ * specific environment and rotated without a library release. The
+ * override is validated at startup to be >= 16 characters (see
+ * `src/env.ts`); a shorter value would substring-match against
+ * legitimate model output and produce false-positive leak alerts
+ * across every workflow. Use a high-entropy value (UUID-bearing or
+ * similar) so it cannot occur as a substring of analytical prose.
  */
 export const SYSTEM_PROMPT_CANARY = env.MUX_AI_PROMPT_CANARY ??
   "mux-ai-prompt-canary-7a9c4f2e-3b8d-4c1e-9f5a-6d8e2b1c5a47";
