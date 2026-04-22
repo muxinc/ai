@@ -162,15 +162,6 @@ export const translationSchema = z.object({
   translation: z.string(),
 });
 
-/**
- * Top-level keys of {@link translationSchema}. Used at the call site
- * to detect schema-smuggling attempts (zod.strip() removes them
- * silently; we record them in the safety report instead).
- */
-const TRANSLATION_SCHEMA_KEYS = ["translation"] as const;
-/** Top-level keys of the cue-chunked translation envelope. */
-const CUE_TRANSLATIONS_SCHEMA_KEYS = ["translations"] as const;
-
 /** Inferred shape returned by `translationSchema`. */
 export type TranslationPayload = z.infer<typeof translationSchema>;
 
@@ -603,7 +594,7 @@ async function translateVttWithAI({
   // by zod; we re-parse response.text to see what the model emitted.
   const unexpectedKeys = detectUnexpectedKeysFromRawText(
     response.text,
-    TRANSLATION_SCHEMA_KEYS,
+    Object.keys(translationSchema.shape),
   );
   if (unexpectedKeys.length > 0) {
     console.warn(
@@ -684,9 +675,11 @@ async function translateCueChunkWithAI({
 
   // Schema-smuggling detection for the cue envelope. Any extras on the
   // root envelope were stripped by zod; log + bubble count to aggregate.
+  // The schema is built per-call above, so derive its keys from the
+  // same instance rather than hand-maintaining a parallel constant.
   const unexpectedKeys = detectUnexpectedKeysFromRawText(
     response.text,
-    CUE_TRANSLATIONS_SCHEMA_KEYS,
+    Object.keys(schema.shape),
   );
   if (unexpectedKeys.length > 0) {
     console.warn(

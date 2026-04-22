@@ -62,18 +62,6 @@ export const chaptersSchema = z.object({
   chapters: z.array(chapterSchema),
 });
 
-/**
- * Top-level keys of the chapters envelope. Used at the call site to
- * detect schema-smuggling attempts that zod.strip() would otherwise hide.
- */
-const CHAPTERS_SCHEMA_KEYS = ["chapters"] as const;
-/**
- * Top-level keys of each chapter object. Checked per-element because
- * chapters is an array-of-objects, and each element may carry smuggled
- * keys independently.
- */
-const CHAPTER_SCHEMA_KEYS = ["startTime", "title"] as const;
-
 export type ChaptersType = z.infer<typeof chaptersSchema>;
 
 /** Structured return payload from `generateChapters`. */
@@ -198,17 +186,20 @@ async function generateChaptersWithAI({
   // re-parse response.text to see what the model actually emitted.
   const unexpectedRootKeys = detectUnexpectedKeysFromRawText(
     response.text,
-    CHAPTERS_SCHEMA_KEYS,
+    Object.keys(chaptersSchema.shape),
   );
   const unexpectedChapterKeys: string[][] = [];
   try {
     const rawEnvelope = JSON.parse(response.text ?? "{}");
     const rawChapters = Array.isArray(rawEnvelope?.chapters) ? rawEnvelope.chapters : [];
+    // Hoisted out of the loop: the per-chapter shape is identical for
+    // every element, so we derive its keys once.
+    const chapterKeys = Object.keys(chapterSchema.shape);
     for (const rawChapter of rawChapters) {
       unexpectedChapterKeys.push(
         detectUnexpectedKeysFromRawText(
           JSON.stringify(rawChapter),
-          CHAPTER_SCHEMA_KEYS,
+          chapterKeys,
         ),
       );
     }

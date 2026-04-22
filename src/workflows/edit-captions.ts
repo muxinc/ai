@@ -150,9 +150,6 @@ export const profanityDetectionSchema = z.object({
   ),
 });
 
-/** Top-level keys of {@link profanityDetectionSchema}. */
-const PROFANITY_SCHEMA_KEYS = ["profanity"] as const;
-
 /** Inferred shape returned by `profanityDetectionSchema`. */
 export type ProfanityDetectionPayload = z.infer<typeof profanityDetectionSchema>;
 
@@ -390,7 +387,7 @@ async function identifyProfanityWithAI({
   // Detect schema-smuggling (an extra key alongside `profanity`).
   const unexpectedKeys = detectUnexpectedKeysFromRawText(
     response.text,
-    PROFANITY_SCHEMA_KEYS,
+    Object.keys(profanityDetectionSchema.shape),
   );
 
   return {

@@ -169,20 +169,6 @@ const engagementInsightsSchema = z.object({
   overallInsight: aiOverallInsightSchema,
 });
 
-// Schema key lists for `detectUnexpectedKeysFromRawText`. Kept in sync
-// manually with each zod object. Surface schema-smuggling attempts that
-// zod.strip() would otherwise hide.
-const ENGAGEMENT_INSIGHTS_ROOT_KEYS = ["momentInsights", "overallInsight"] as const;
-const AI_MOMENT_INSIGHT_KEYS = [
-  "hotspotIndex",
-  "startMs",
-  "endMs",
-  "timestamp",
-  "engagementScore",
-  "insight",
-] as const;
-const AI_OVERALL_INSIGHT_KEYS = ["summary", "trends"] as const;
-
 type AIEngagementInsightsResult = z.infer<typeof engagementInsightsSchema>;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -587,7 +573,7 @@ async function generateInsightsWithAI(
   // response.text to see what the model actually emitted.
   const unexpectedRootKeys = detectUnexpectedKeysFromRawText(
     response.text,
-    ENGAGEMENT_INSIGHTS_ROOT_KEYS,
+    Object.keys(engagementInsightsSchema.shape),
   );
   const unexpectedMomentKeys: string[][] = [];
   let unexpectedOverallKeys: string[] = [];
@@ -596,17 +582,19 @@ async function generateInsightsWithAI(
     const rawMoments = Array.isArray(rawEnvelope?.momentInsights) ?
       rawEnvelope.momentInsights :
         [];
+    // Hoisted out of the loop; the per-moment shape is identical.
+    const momentKeys = Object.keys(aiMomentInsightSchema.shape);
     for (const rawMoment of rawMoments) {
       unexpectedMomentKeys.push(
         detectUnexpectedKeysFromRawText(
           JSON.stringify(rawMoment),
-          AI_MOMENT_INSIGHT_KEYS,
+          momentKeys,
         ),
       );
     }
     unexpectedOverallKeys = detectUnexpectedKeysFromRawText(
       JSON.stringify(rawEnvelope?.overallInsight ?? {}),
-      AI_OVERALL_INSIGHT_KEYS,
+      Object.keys(aiOverallInsightSchema.shape),
     );
   } catch {
     // Non-JSON raw text; skip nested detection silently.

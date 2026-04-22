@@ -123,18 +123,6 @@ export const burnedInCaptionsSchema = z.object({
   detectedLanguage: z.string().max(100).nullable(),
 });
 
-/**
- * Top-level keys declared by {@link burnedInCaptionsSchema}. Kept in
- * sync manually — used by the call site's `detectUnexpectedKeys` pass
- * to surface schema-smuggling attempts that zod would otherwise strip
- * silently.
- */
-const BURNED_IN_CAPTIONS_SCHEMA_KEYS = [
-  "hasBurnedInCaptions",
-  "confidence",
-  "detectedLanguage",
-] as const;
-
 /** Inferred shape returned from the burned-in captions schema. */
 export type BurnedInCaptionsAnalysis = z.infer<typeof burnedInCaptionsSchema>;
 
@@ -316,7 +304,7 @@ async function analyzeStoryboard({
   // when `response.output` parsed successfully.
   const unexpectedKeys = detectUnexpectedKeysFromRawText(
     response.text,
-    BURNED_IN_CAPTIONS_SCHEMA_KEYS,
+    Object.keys(burnedInCaptionsSchema.shape),
   );
 
   return {

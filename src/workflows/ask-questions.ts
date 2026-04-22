@@ -146,19 +146,6 @@ export const questionAnswerSchema = z.object({
   skipped: z.boolean(),
 });
 
-/**
- * Top-level keys of the per-answer schema. Kept in sync manually — used
- * by the call site's `detectUnexpectedKeysFromRawText` pass to surface
- * schema-smuggling attempts that zod's strip() would otherwise hide.
- */
-const QUESTION_ANSWER_SCHEMA_KEYS = [
-  "question",
-  "answer",
-  "confidence",
-  "reasoning",
-  "skipped",
-] as const;
-
 export type QuestionAnswerType = z.infer<typeof questionAnswerSchema>;
 
 /**
@@ -180,9 +167,6 @@ function createAskQuestionsSchema(allowedAnswers: [string, ...string[]]) {
     ),
   });
 }
-
-/** Top-level keys of the full {@link createAskQuestionsSchema} output. */
-const ASK_QUESTIONS_SCHEMA_KEYS = ["answers"] as const;
 
 type AskQuestionsSchema = ReturnType<typeof createAskQuestionsSchema>;
 export type AskQuestionsType = z.infer<AskQuestionsSchema>;
@@ -530,17 +514,21 @@ async function analyzeQuestions({
   // because providers sometimes wrap output in markdown fences.
   const unexpectedRootKeys = detectUnexpectedKeysFromRawText(
     response.text,
-    ASK_QUESTIONS_SCHEMA_KEYS,
+    Object.keys(responseSchema.shape),
   );
   const unexpectedAnswerKeys: string[][] = [];
   try {
     const rawEnvelope = JSON.parse(response.text ?? "{}");
     const rawAnswers = Array.isArray(rawEnvelope?.answers) ? rawEnvelope.answers : [];
+    // Hoisted out of the loop: the answer sub-schema shape is identical
+    // for every element, so we derive its keys once rather than walking
+    // `.shape` per-element.
+    const answerKeys = Object.keys(questionAnswerSchema.shape);
     for (const rawAnswer of rawAnswers) {
       unexpectedAnswerKeys.push(
         detectUnexpectedKeysFromRawText(
           JSON.stringify(rawAnswer),
-          QUESTION_ANSWER_SCHEMA_KEYS,
+          answerKeys,
         ),
       );
     }

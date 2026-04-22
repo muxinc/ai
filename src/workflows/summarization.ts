@@ -90,13 +90,6 @@ export const summarySchema = z.object({
   description: z.string().max(10000),
 });
 
-/**
- * Top-level keys declared by {@link summarySchema}. Used by the workflow
- * to detect schema-smuggling attempts (extra keys emitted by the model
- * that zod.strip() would otherwise silently drop).
- */
-const SUMMARY_SCHEMA_KEYS = ["keywords", "title", "description"] as const;
-
 export type SummaryType = z.infer<typeof summarySchema>;
 
 /**
@@ -581,7 +574,7 @@ async function analyzeStoryboard(
   // re-parse response.text to see what the model actually emitted.
   const unexpectedKeys = detectUnexpectedKeysFromRawText(
     response.text,
-    SUMMARY_SCHEMA_KEYS,
+    Object.keys(schema.shape),
   );
 
   return {
@@ -638,7 +631,7 @@ async function analyzeAudioOnly(
   // re-parse response.text to see what the model actually emitted.
   const unexpectedKeys = detectUnexpectedKeysFromRawText(
     response.text,
-    SUMMARY_SCHEMA_KEYS,
+    Object.keys(schema.shape),
   );
 
   return {
