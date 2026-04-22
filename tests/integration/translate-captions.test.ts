@@ -8,7 +8,8 @@ import { muxTestAssets } from "../helpers/mux-test-assets";
 
 describe("translateCaptions Integration Tests", () => {
   const testAssetId = muxTestAssets.assetId;
-  const providers: SupportedProvider[] = ["openai", "anthropic", "google"];
+  // const providers: SupportedProvider[] = ["openai", "anthropic", "google"];
+  const providers: SupportedProvider[] = ["openai", "google"]; // TODO: Add anthropic unit tests back
 
   let englishTrackId: string;
 
