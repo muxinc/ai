@@ -535,8 +535,13 @@ async function translateCueChunkWithAI({
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
   // `.strict()` rejects any extra keys the model might emit alongside
   // `translations` — closes a smuggling channel for prompt extraction.
+  //
+  // `.max(2000)` on each translated cue: VTT cues are usually well under
+  // 500 chars even for long monologues. 2000 gives generous headroom
+  // while bounding how much content a coerced model can pack into any
+  // single cue position.
   const schema = z.object({
-    translations: z.array(z.string().min(1)).length(cues.length),
+    translations: z.array(z.string().min(1).max(2000)).length(cues.length),
   }).strict();
   const cuePayload = cues.map((cue, index) => ({
     index,

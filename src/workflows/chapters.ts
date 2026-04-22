@@ -39,10 +39,14 @@ import type { MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "@mux/ai
  * alongside the declared fields — a common smuggling shape for
  * prompt-extraction attacks. See the matching note on
  * `burnedInCaptionsSchema` for the full rationale.
+ *
+ * `.max(300)` on `title` caps the exfiltration channel: chapter titles
+ * are short labels (typically under 50 chars), 300 leaves comfortable
+ * headroom while making a full system-prompt dump unviable.
  */
 export const chapterSchema = z.object({
   startTime: z.number(),
-  title: z.string(),
+  title: z.string().max(300),
 }).strict();
 
 export type Chapter = z.infer<typeof chapterSchema>;

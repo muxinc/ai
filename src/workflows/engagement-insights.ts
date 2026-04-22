@@ -124,6 +124,14 @@ export interface EngagementInsightsResult {
 // where a coerced model smuggles prompt fragments into an unexpected
 // key name. Without strict mode, zod silently drops extra keys and the
 // smuggling attempt only shows up (if at all) in telemetry.
+//
+// Length caps (`.max(...)`) on the free-text fields are mechanical limits
+// on how much content can be exfiltrated through each channel. Values
+// are tuned to pass legitimate analytical prose while making a full
+// system-prompt dump (3000+ chars) impossible to fit:
+// - `insight` per moment: 1–3 sentences of evidence, ~400 chars typical.
+// - overall `summary`: a paragraph, ~600 chars typical.
+// - each `trends` entry: one short observation, ~200 chars typical.
 
 /** Zod schema for a single moment insight returned by the AI. */
 const aiMomentInsightSchema = z.object({
@@ -132,13 +140,13 @@ const aiMomentInsightSchema = z.object({
   endMs: z.number(),
   timestamp: z.string(),
   engagementScore: z.number(),
-  insight: z.string(),
+  insight: z.string().max(1000),
 }).strict();
 
 /** Zod schema for overall insight returned by the AI. */
 const aiOverallInsightSchema = z.object({
-  summary: z.string(),
-  trends: z.array(z.string()),
+  summary: z.string().max(2000),
+  trends: z.array(z.string().max(500)),
 }).strict();
 
 /** Combined schema for AI response */

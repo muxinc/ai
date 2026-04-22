@@ -130,9 +130,14 @@ export interface EditCaptionsResult {
  * `.strict()` so a model can't smuggle extra keys alongside the
  * `profanity` array — see the matching note on `burnedInCaptionsSchema`
  * for the full rationale.
+ *
+ * `.max(100)` on each array entry: profane words and short phrases are
+ * small (rarely more than 30 chars). The cap makes it impossible for a
+ * coerced model to smuggle multi-hundred-character prompt fragments
+ * through what looks like a list of single-word profanity.
  */
 export const profanityDetectionSchema = z.object({
-  profanity: z.array(z.string()).describe(
+  profanity: z.array(z.string().max(100)).describe(
     "Unique profane words or short phrases exactly as they appear in the transcript text. " +
     "Include each distinct form only once (e.g., if 'fuck' and 'fucking' both appear, list both).",
   ),

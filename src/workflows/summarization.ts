@@ -59,10 +59,23 @@ export const DEFAULT_SUMMARY_KEYWORD_LIMIT = 10;
 export const DEFAULT_TITLE_LENGTH = 10;
 export const DEFAULT_DESCRIPTION_LENGTH = 50;
 
+/**
+ * Length caps (`.max(...)`) on each free-text field are a mechanical
+ * defence-in-depth against exfiltration: even if an injection payload
+ * coerces the model into leaking, it cannot fit more than the declared
+ * number of characters.
+ *
+ * - `title`: 500 chars. Real titles are 10–20 words (~50–150 chars).
+ * - `description`: 5000 chars. Users can configure `descriptionLength`
+ *   up to several hundred words; 5000 comfortably covers a 1000-word
+ *   description while rejecting obvious dumps.
+ * - `keywords` entries: 200 chars each. Legitimate tags are short
+ *   phrases.
+ */
 export const summarySchema = z.object({
-  keywords: z.array(z.string()),
-  title: z.string(),
-  description: z.string(),
+  keywords: z.array(z.string().max(200)),
+  title: z.string().max(500),
+  description: z.string().max(5000),
 }).strict();
 
 export type SummaryType = z.infer<typeof summarySchema>;
