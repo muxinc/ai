@@ -481,12 +481,23 @@ export async function generateChapters(
 
   // Record schema-smuggling signals from the step before scrubbing
   // titles, so the safety report reflects both sources of concern.
+  //
+  // Important distinction on the field names: the `chaptersData`
+  // arrays are indexed by RAW model-output position (pre-filter,
+  // pre-sort), while `validChapters` below is indexed by the
+  // filtered-and-sorted-by-startTime position — they are two
+  // different coordinate systems. An entry `chapters[2].title`
+  // from the title scrub and an entry `chapters[2].foo` from the
+  // unexpected-key detection could refer to completely different
+  // chapters if the model emitted them out of order. Use a
+  // `chapters_raw[idx]` field-name prefix for the raw-order entries
+  // so operators reading the safety report can't conflate the two.
   for (const key of chaptersData.unexpectedRootKeys) {
     safety.record(`chapters_envelope.${key}`, "unexpected_key");
   }
   chaptersData.unexpectedChapterKeys.forEach((extras, idx) => {
     for (const key of extras) {
-      safety.record(`chapters[${idx}].${key}`, "unexpected_key");
+      safety.record(`chapters_raw[${idx}].${key}`, "unexpected_key");
     }
   });
   const totalUnexpected = chaptersData.unexpectedRootKeys.length +
@@ -497,6 +508,11 @@ export async function generateChapters(
     );
   }
 
+  // Title scrub uses `validChapters` indices — i.e. the position in
+  // the final sorted-and-filtered output the caller receives. These
+  // indices match the `chapters` array in the returned result, so
+  // operators can correlate safety entries with chapters in the
+  // output directly.
   const scrubbedChapters = validChapters.filter((chapter, idx) => {
     const scrub = safety.scrubDetailed(chapter.title, `chapters[${idx}].title`);
     return !scrub.leaked;
