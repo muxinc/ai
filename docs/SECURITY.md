@@ -46,6 +46,16 @@ Concretely, the library is hardened against these attack classes:
 - **Invisible-character and homoglyph obfuscation in transcripts** —
   zero-width splitters, bidi controls, fullwidth look-alikes. The
   transcript primitives sanitise every cue before it reaches a prompt.
+
+  **Known side effect:** the sanitiser strips zero-width joiner
+  (U+200D), which is a real injection vector but is also used to
+  compose multi-codepoint emojis (family emojis, profession emojis,
+  skin-tone modifiers: 👨‍👩‍👧‍👦, 👩‍⚕️, 👋🏽). Transcripts that contain such
+  compound emojis are decomposed into their component code points
+  before being sent to the LLM (the ZWJ glue is removed; each
+  component emoji survives on its own). For most media content this
+  is invisible, but be aware if your assets include rich emoji
+  transcripts (social media clips, live-stream captions).
 - **Schema smuggling** — a coerced model emitting extra keys alongside
   the declared output (e.g. `{ ..., system_prompt_verbatim: "..." }`).
   All output schemas use `zod.object(...).strict()` so extra keys raise
