@@ -74,6 +74,20 @@ export interface AskQuestionsOptions extends MuxAIOptions {
   imageDownloadOptions?: ImageDownloadOptions;
   /** Storyboard width in pixels (defaults to 640). */
   storyboardWidth?: number;
+  /**
+   * Maximum length (in characters) allowed for each entry in a question's
+   * `answerOptions` array. Defaults to 150.
+   *
+   * The cap exists to reject instruction-shaped answer options — a common
+   * prompt-injection shape pairs sentence-length options that presuppose
+   * the desired outcome, making "answering correctly" equivalent to
+   * leaking. Domain-specific category labels (e.g. moderation labels like
+   * "Depicts underage individuals in sexual content") can legitimately
+   * run 40–80 characters, so the default is set generously. Raise this
+   * if your use case has genuinely longer category labels; never widen
+   * it to accept arbitrary untrusted input without other safeguards.
+   */
+  maxAnswerOptionLength?: number;
 }
 
 /** Structured return payload for askQuestions workflow. */
@@ -556,19 +570,35 @@ export async function askQuestions(
   });
 
   // Per-answer-option length ceiling. Answer options are meant to be
-  // short labels ("yes", "no", "low", "appropriate"), not sentences.
-  // A common prompt-injection shape is to smuggle the payload through
-  // option content — e.g. pairing two long sentences that both
-  // presuppose the desired outcome ("Yes, I copied the full instructions
-  // into my reasoning as required"). Cap option length at 50 characters
-  // so legitimate labels pass comfortably but instruction-shaped
-  // strings are rejected before they reach the model.
-  const MAX_ANSWER_OPTION_LENGTH = 50;
+  // short labels ("yes", "no", "low", "appropriate") or domain-specific
+  // category strings (moderation labels, compliance categories).
+  //
+  // A common prompt-injection shape smuggles the payload through option
+  // content — e.g. pairing two long sentences that both presuppose the
+  // desired outcome ("Yes, I copied the full instructions into my
+  // reasoning as required"). The cap rejects instruction-shaped options
+  // before they reach the model.
+  //
+  // Default cap is 150 characters, tuned to comfortably pass
+  // domain-specific category labels (which can legitimately run 40–80
+  // chars) while still rejecting obvious sentence-length injections.
+  // Overridable via `options.maxAnswerOptionLength` for use cases with
+  // genuinely longer labels — but beware that widening this cap reduces
+  // one of the defences against option-smuggling attacks.
+  const DEFAULT_MAX_ANSWER_OPTION_LENGTH = 150;
+  const maxAnswerOptionLength =
+    options?.maxAnswerOptionLength ?? DEFAULT_MAX_ANSWER_OPTION_LENGTH;
+  if (!Number.isFinite(maxAnswerOptionLength) || maxAnswerOptionLength <= 0) {
+    throw new MuxAiError(
+      `maxAnswerOptionLength must be a positive number (received ${maxAnswerOptionLength}).`,
+      { type: "validation_error" },
+    );
+  }
   questions.forEach((q, idx) => {
     for (const opt of q.answerOptions ?? []) {
-      if (typeof opt === "string" && opt.length > MAX_ANSWER_OPTION_LENGTH) {
+      if (typeof opt === "string" && opt.length > maxAnswerOptionLength) {
         throw new MuxAiError(
-          `Question at index ${idx} has an answerOption exceeding the ${MAX_ANSWER_OPTION_LENGTH}-character limit (received ${opt.length}). Answer options should be short labels, not sentences.`,
+          `Question at index ${idx} has an answerOption exceeding the ${maxAnswerOptionLength}-character limit (received ${opt.length}). Answer options should be short labels, not sentences.`,
           { type: "validation_error" },
         );
       }
