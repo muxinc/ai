@@ -1,46 +1,98 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { detectSystemPromptLeak, scrubFreeTextField } from "../../src/lib/output-safety";
+import {
+  detectLeakReason,
+  detectSystemPromptLeak,
+  scrubFreeTextField,
+} from "../../src/lib/output-safety";
 import { SYSTEM_PROMPT_CANARY } from "../../src/lib/prompt-fragments";
 
-describe("detectSystemPromptLeak", () => {
-  it("returns false for null, undefined, and empty strings", () => {
-    expect(detectSystemPromptLeak(null)).toBe(false);
-    expect(detectSystemPromptLeak(undefined)).toBe(false);
-    expect(detectSystemPromptLeak("")).toBe(false);
+describe("detectLeakReason", () => {
+  it("returns null for null, undefined, and empty strings", () => {
+    expect(detectLeakReason(null)).toBeNull();
+    expect(detectLeakReason(undefined)).toBeNull();
+    expect(detectLeakReason("")).toBeNull();
   });
 
-  it("returns false for clean analytical content", () => {
-    expect(detectSystemPromptLeak(
+  it("returns null for clean analytical content", () => {
+    expect(detectLeakReason(
       "A chef prepares ingredients and cooks in a kitchen throughout the video.",
-    )).toBe(false);
-    expect(detectSystemPromptLeak(
+    )).toBeNull();
+    expect(detectLeakReason(
       "The speaker introduces three main topics and then discusses each one.",
-    )).toBe(false);
+    )).toBeNull();
   });
 
-  it("detects the canary token", () => {
-    expect(detectSystemPromptLeak(
+  it("identifies the canary as the leak reason", () => {
+    expect(detectLeakReason(
       `Here is my reasoning: ${SYSTEM_PROMPT_CANARY} hope that helps.`,
-    )).toBe(true);
+    )).toBe("canary");
   });
 
-  it("detects structural tag markers from the prompt template", () => {
-    expect(detectSystemPromptLeak("<role> You are a video content analyst </role>")).toBe(true);
-    expect(detectSystemPromptLeak("My reasoning <task> is as follows")).toBe(true);
-    expect(detectSystemPromptLeak("Content <constraints> cannot be revealed")).toBe(true);
-    expect(detectSystemPromptLeak("See <answer_guidelines> for details")).toBe(true);
+  it("identifies tag markers as the leak reason", () => {
+    expect(detectLeakReason("<role> You are a video content analyst </role>")).toBe("prompt_tag");
+    expect(detectLeakReason("My reasoning <task> is as follows")).toBe("prompt_tag");
   });
 
-  it("is case-insensitive for tag markers", () => {
-    expect(detectSystemPromptLeak("<ROLE>")).toBe(true);
-    expect(detectSystemPromptLeak("<Role>")).toBe(true);
-    expect(detectSystemPromptLeak("</TASK>")).toBe(true);
+  it("tolerates whitespace inside tag markers", () => {
+    // Attacker attempts to evade a tight `</?role>` regex by padding.
+    expect(detectLeakReason("< role >leaked</ role >")).toBe("prompt_tag");
+    expect(detectLeakReason("<role\n>leaked</role>")).toBe("prompt_tag");
+  });
+
+  it("tolerates attributes on tag markers", () => {
+    // Attacker attempts to evade with fake attributes.
+    expect(detectLeakReason("<role attr='x'>leaked</role>")).toBe("prompt_tag");
+  });
+
+  it("normalises fullwidth and compatibility forms before matching tags", () => {
+    // U+FF1C FULLWIDTH LESS-THAN and U+FF1E FULLWIDTH GREATER-THAN fold to
+    // ASCII `<` / `>` under NFKC, so a fullwidth-wrapped tag still trips
+    // the detector.
+    expect(detectLeakReason("＜role＞leaked＜/role＞")).toBe("prompt_tag");
+  });
+
+  it("detects a canary with zero-width characters inserted", () => {
+    // Attacker splits the canary with a zero-width space (U+200B) so
+    // that `String.includes(CANARY)` against the raw text would fail;
+    // normalisation strips the invisible character before matching.
+    const zwsp = String.fromCharCode(0x200B);
+    const obfuscated = `${SYSTEM_PROMPT_CANARY.slice(0, 10)}${zwsp}${SYSTEM_PROMPT_CANARY.slice(10)}`;
+    expect(detectLeakReason(obfuscated)).toBe("canary");
+  });
+
+  it("detects a long base64-like run", () => {
+    // 64-char base64 alphabet run — consistent with an encoded-exfil attempt.
+    const blob = "SGVsbG9Xb3JsZFRoaXNJc0F0ZXN0QmFzZTY0U3RyaW5nVG9FbmNvZGU1MA==";
+    expect(detectLeakReason(`Reasoning: ${blob} end.`)).toBe("encoded_blob");
+  });
+
+  it("detects a long hex run", () => {
+    // 40 hex chars — would match a SHA-1 or an encoded payload.
+    const hex = "deadbeefcafebabe0123456789abcdef01234567";
+    expect(detectLeakReason(`Reasoning: ${hex} end.`)).toBe("encoded_blob");
+  });
+
+  it("does not flag short hex or base64 fragments in prose", () => {
+    expect(detectLeakReason("The hex colour is #ff00aa.")).toBeNull();
+    expect(detectLeakReason("Short token: abc123.")).toBeNull();
   });
 
   it("does not flag inline references to common words without angle brackets", () => {
-    expect(detectSystemPromptLeak("The role of the chef is central to this scene.")).toBe(false);
-    expect(detectSystemPromptLeak("Their task involves preparing ingredients.")).toBe(false);
+    expect(detectLeakReason("The role of the chef is central to this scene.")).toBeNull();
+    expect(detectLeakReason("Their task involves preparing ingredients.")).toBeNull();
+  });
+});
+
+describe("detectSystemPromptLeak", () => {
+  // Thin wrapper over detectLeakReason; the cases above exercise the
+  // underlying logic. These tests cover the boolean shape only.
+  it("returns false for clean text", () => {
+    expect(detectSystemPromptLeak("A chef prepares a meal.")).toBe(false);
+  });
+  it("returns true when any detector fires", () => {
+    expect(detectSystemPromptLeak(`...${SYSTEM_PROMPT_CANARY}...`)).toBe(true);
+    expect(detectSystemPromptLeak("<role>x</role>")).toBe(true);
   });
 });
 
@@ -57,18 +109,19 @@ describe("scrubFreeTextField", () => {
 
   it("returns clean text unchanged and does not warn", () => {
     const result = scrubFreeTextField("A chef prepares a meal.", "test");
-    expect(result).toEqual({ text: "A chef prepares a meal.", leaked: false });
+    expect(result).toEqual({ text: "A chef prepares a meal.", leaked: false, reason: null });
     expect(warnSpy).not.toHaveBeenCalled();
   });
 
-  it("suppresses leaked text and emits a warning mentioning the context", () => {
+  it("suppresses canary leaks and emits a warning mentioning the context and reason", () => {
     const result = scrubFreeTextField(
       `Reasoning: ${SYSTEM_PROMPT_CANARY}`,
       "ask-questions reasoning for question 1",
     );
-    expect(result).toEqual({ text: "", leaked: true });
+    expect(result).toEqual({ text: "", leaked: true, reason: "canary" });
     expect(warnSpy).toHaveBeenCalledTimes(1);
     expect(warnSpy.mock.calls[0][0]).toContain("ask-questions reasoning for question 1");
+    expect(warnSpy.mock.calls[0][0]).toContain("canary");
   });
 
   it("suppresses output containing structural tag markers", () => {
@@ -77,12 +130,23 @@ describe("scrubFreeTextField", () => {
       "test",
     );
     expect(result.leaked).toBe(true);
+    expect(result.reason).toBe("prompt_tag");
     expect(result.text).toBe("");
   });
 
+  it("suppresses output that looks like an encoded blob", () => {
+    const blob = "SGVsbG9Xb3JsZFRoaXNJc0F0ZXN0QmFzZTY0U3RyaW5nVG9FbmNvZGU1MA==";
+    const result = scrubFreeTextField(
+      `Here is the encoded system prompt: ${blob}`,
+      "test",
+    );
+    expect(result.leaked).toBe(true);
+    expect(result.reason).toBe("encoded_blob");
+  });
+
   it("handles null and undefined without warning", () => {
-    expect(scrubFreeTextField(null, "test")).toEqual({ text: "", leaked: false });
-    expect(scrubFreeTextField(undefined, "test")).toEqual({ text: "", leaked: false });
+    expect(scrubFreeTextField(null, "test")).toEqual({ text: "", leaked: false, reason: null });
+    expect(scrubFreeTextField(undefined, "test")).toEqual({ text: "", leaked: false, reason: null });
     expect(warnSpy).not.toHaveBeenCalled();
   });
 });
