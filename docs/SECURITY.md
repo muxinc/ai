@@ -181,6 +181,14 @@ Reason codes in order of signal strength:
 - `encoded_blob` — heuristic. A long run of base64- or hex-shaped
   characters in a field expected to contain prose. Occasional false
   positives on content that legitimately includes hashes or tokens.
+- `unexpected_key` — the model emitted a JSON field not declared in
+  the workflow's output schema. Silently stripped by zod before reaching
+  your code; surfaced here so smuggling attempts are observable.
+- `unspecified` — defensive fallback used only when a scrub occurred
+  but the specific detector that fired was not preserved across a
+  step-function boundary. Under the current scrubber contract this
+  should not occur in practice; if you see it, a content suppression
+  did happen but its confidence level cannot be attributed.
 
 ## Reporting a vulnerability
 

@@ -1066,11 +1066,19 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   // boundaries — operators get counts and the most recent leak reason,
   // which is enough to alert on; per-cue forensics would need to be
   // reconstructed from the console.warn trail.
+  //
+  // The scrubber's contract guarantees that `leaked === true` implies
+  // `reason !== null`, so when `scrubbedCueCount > 0` we should
+  // ordinarily have a non-null `scrubbedReason`. If the invariant
+  // somehow breaks (future refactor, cross-boundary type erosion), we
+  // record "unspecified" rather than fabricating a higher-confidence
+  // reason — "canary" here would falsely suggest the canary tripwire
+  // actually fired, misleading operator alerts.
   const scrubbedFields: SafetyReport["scrubbedFields"] = [];
   if (scrubbedCueCount > 0) {
     scrubbedFields.push({
       field: `translated_cues (${scrubbedCueCount} total)`,
-      reason: (scrubbedReason ?? "canary") as Exclude<LeakReason, null>,
+      reason: scrubbedReason ?? "unspecified",
     });
   }
   if (unexpectedKeyCount > 0) {
