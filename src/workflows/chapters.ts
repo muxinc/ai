@@ -9,6 +9,8 @@ import {
   getPlaybackIdForAsset,
   isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
+import { createSafetyReporter } from "@mux/ai/lib/output-safety";
+import type { SafetyReport } from "@mux/ai/lib/output-safety";
 import type { PromptOverrides, PromptSection } from "@mux/ai/lib/prompt-builder";
 import { createLanguageSection, createPromptBuilder } from "@mux/ai/lib/prompt-builder";
 import {
@@ -52,6 +54,14 @@ export interface ChaptersResult {
   chapters: Chapter[];
   /** Token usage from the AI provider (for efficiency/cost analysis). */
   usage?: TokenUsage;
+  /**
+   * Aggregate report of output-side scrubbing performed during this call.
+   * When `leaksDetected` is `true`, at least one chapter title was
+   * suppressed. Suppressed chapters are dropped from the returned
+   * `chapters` array so playback timelines are not decorated with blank
+   * titles; consult `scrubbedFields` to know how many were removed.
+   */
+  safety?: SafetyReport;
 }
 
 /**
@@ -412,9 +422,26 @@ export async function generateChapters(
     throw new MuxAiError(`Failed to generate valid chapters for asset ${assetId}.`);
   }
 
+  // Scrub chapter titles for signs of a system-prompt leak. Titles are
+  // free-text model output and are a viable exfiltration channel — a
+  // handful of "chapters" whose titles each hold a fragment of the system
+  // prompt could reassemble into a full leak on the consumer's side.
+  // Chapters whose titles fail the scrub are dropped entirely rather than
+  // kept with an empty title (empty titles would create useless markers
+  // on a player timeline).
+  const safety = createSafetyReporter();
+  const scrubbedChapters = validChapters.filter((chapter, idx) => {
+    const scrub = safety.scrubDetailed(chapter.title, `chapters[${idx}].title`);
+    return !scrub.leaked;
+  });
+
+  if (scrubbedChapters.length === 0) {
+    throw new MuxAiError(`Failed to generate valid chapters for asset ${assetId}.`);
+  }
+
   // Ensure first chapter starts at 0
-  if (validChapters[0].startTime !== 0) {
-    validChapters[0].startTime = 0;
+  if (scrubbedChapters[0].startTime !== 0) {
+    scrubbedChapters[0].startTime = 0;
   }
 
   const usageWithMetadata: TokenUsage = {
@@ -428,7 +455,8 @@ export async function generateChapters(
   return {
     assetId,
     languageCode: languageCode ?? getReliableLanguageCode(transcriptResult.track) ?? "en",
-    chapters: validChapters,
+    chapters: scrubbedChapters,
     usage: usageWithMetadata,
+    safety: safety.report(),
   };
 }

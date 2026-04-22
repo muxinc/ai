@@ -6,7 +6,8 @@ import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
 import { MuxAiError, wrapError } from "@mux/ai/lib/mux-ai-error";
 import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset, isAudioOnlyAsset } from "@mux/ai/lib/mux-assets";
-import { scrubFreeTextField } from "@mux/ai/lib/output-safety";
+import { createSafetyReporter } from "@mux/ai/lib/output-safety";
+import type { SafetyReport } from "@mux/ai/lib/output-safety";
 import { createTranscriptSection, renderSection } from "@mux/ai/lib/prompt-builder";
 import {
   CANARY_TRIPWIRE,
@@ -87,6 +88,13 @@ export interface AskQuestionsResult {
   usage?: TokenUsage;
   /** Raw transcript text used for analysis (when includeTranscript is true). */
   transcriptText?: string;
+  /**
+   * Aggregate report of output-side scrubbing performed during this call.
+   * Populated by {@link scrubFreeTextField}. When present with
+   * `leaksDetected: true`, at least one free-text field was suppressed as
+   * a suspected prompt leak — consult `scrubbedFields` for details.
+   */
+  safety?: SafetyReport;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -673,8 +681,9 @@ export async function askQuestions(
   // content in place of the question. Since we already have the trusted
   // input in `normalizedQuestions[idx].question`, there is no reason to
   // trust the model's echo.
+  const safety = createSafetyReporter();
   const answers: QuestionAnswer[] = analysisResponse.result.answers.map((raw, idx) => {
-    const scrub = scrubFreeTextField(raw.reasoning, `ask-questions reasoning for question ${idx + 1}`);
+    const scrub = safety.scrubDetailed(raw.reasoning, `reasoning[${idx}]`);
     const isSkipped = raw.skipped || raw.answer === SKIP_SENTINEL || scrub.leaked;
     if (!isSkipped && !normalizedQuestions[idx].answerOptions.includes(raw.answer)) {
       throw new MuxAiError(
@@ -702,5 +711,6 @@ export async function askQuestions(
       },
     },
     transcriptText: transcriptText || undefined,
+    safety: safety.report(),
   };
 }

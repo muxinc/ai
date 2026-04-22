@@ -18,6 +18,12 @@ import {
 } from "@mux/ai/lib/mux-assets";
 import { createTextTrackOnMux, fetchVttFromMux } from "@mux/ai/lib/mux-tracks";
 import {
+  detectLeakReason,
+
+  scrubFreeTextField,
+} from "@mux/ai/lib/output-safety";
+import type { LeakReason, SafetyReport } from "@mux/ai/lib/output-safety";
+import {
   CANARY_TRIPWIRE,
   NON_DISCLOSURE_CONSTRAINT,
   promptDedent,
@@ -77,6 +83,15 @@ export interface TranslationResult {
   presignedUrl?: string;
   /** Token usage from the AI provider (for efficiency/cost analysis). */
   usage?: TokenUsage;
+  /**
+   * Aggregate report of output-side scrubbing performed during this call.
+   * When `leaksDetected` is `true`, at least one translated cue was
+   * suppressed because the scrubber detected signs of a prompt leak; the
+   * cue's source text is substituted back in place so the 1:1 cue
+   * contract and timeline alignment are preserved. Consult
+   * `scrubbedFields` to know which cues were affected.
+   */
+  safety?: SafetyReport;
 }
 
 /** Configuration accepted by `translateCaptions`. */
@@ -410,6 +425,21 @@ function buildTranslationChunkRequests(
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Result of a translate step that also carries an aggregate safety
+ * counter. The counter is a plain number (not a rich SafetyReport) so
+ * it survives `"use step"` serialisation boundaries — the top-level
+ * workflow reconstitutes a {@link SafetyReport} from the total.
+ */
+interface TranslateStepResult {
+  translatedVtt: string;
+  usage: TokenUsage;
+  /** Number of cues whose translation was suppressed by the scrubber. */
+  scrubbedCueCount: number;
+  /** Leak reason most recently observed, if any. */
+  scrubbedReason: LeakReason;
+}
+
 async function translateVttWithAI({
   vttContent,
   fromLanguageCode,
@@ -424,7 +454,7 @@ async function translateVttWithAI({
   provider: SupportedProvider;
   modelId: string;
   credentials?: WorkflowCredentialsInput;
-}): Promise<{ translatedVtt: string; usage: TokenUsage }> {
+}): Promise<TranslateStepResult> {
   "use step";
 
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
@@ -444,8 +474,21 @@ async function translateVttWithAI({
     ],
   });
 
+  // Whole-VTT path: scan the entire translated blob for leaks. This is
+  // coarser than the cue-by-cue path below because the non-chunked path
+  // doesn't have cue boundaries — on leak we log and fall back to the
+  // source VTT rather than ship an output of unknown provenance.
+  const translated = response.output.translation;
+  const leakReason = detectLeakReason(translated);
+  const safeTranslated = leakReason !== null ? vttContent : translated;
+  if (leakReason !== null) {
+    console.warn(`[@mux/ai] Suppressed suspected prompt leak in translate-captions (whole VTT) (reason: ${leakReason}).`);
+  }
+
   return {
-    translatedVtt: response.output.translation,
+    translatedVtt: safeTranslated,
+    scrubbedCueCount: leakReason !== null ? 1 : 0,
+    scrubbedReason: leakReason,
     usage: {
       inputTokens: response.usage.inputTokens,
       outputTokens: response.usage.outputTokens,
@@ -545,7 +588,7 @@ async function translateChunkWithFallback({
   provider: SupportedProvider;
   modelId: string;
   credentials?: WorkflowCredentialsInput;
-}): Promise<{ translatedVtt: string; usage: TokenUsage }> {
+}): Promise<TranslateStepResult> {
   "use step";
 
   try {
@@ -564,9 +607,32 @@ async function translateChunkWithFallback({
       );
     }
 
+    // Scrub each translated cue for signs of a system-prompt leak. This
+    // channel is especially sensitive because the output is written to a
+    // new Mux text track and then served to viewers — a successful
+    // injection here persists beyond a single API call. On leak we
+    // substitute the source cue text in place so the 1:1 cue contract
+    // (and timeline alignment) is preserved; the operator still sees the
+    // suppression in the workflow's `safety` report.
+    let scrubbedCueCount = 0;
+    let scrubbedReason: LeakReason = null;
+    const safeTranslations = result.translations.map((translated, idx) => {
+      const scrub = scrubFreeTextField(translated, `translated_cue[${chunk.id}:${idx}]`);
+      if (scrub.leaked) {
+        scrubbedCueCount += 1;
+        scrubbedReason = scrub.reason ?? scrubbedReason;
+        // Fall back to the source cue text rather than an empty string
+        // so downstream players still render something at this timestamp.
+        return chunk.cues[idx].text;
+      }
+      return scrub.text;
+    });
+
     return {
-      translatedVtt: buildVttFromTranslatedCueBlocks(chunk.cueBlocks, result.translations),
+      translatedVtt: buildVttFromTranslatedCueBlocks(chunk.cueBlocks, safeTranslations),
       usage: result.usage,
+      scrubbedCueCount,
+      scrubbedReason,
     };
   } catch (error) {
     if (!shouldSplitChunkTranslationError(error) || chunk.cueCount <= 1) {
@@ -596,6 +662,8 @@ async function translateChunkWithFallback({
     return {
       translatedVtt: concatenateVttSegments([leftResult.translatedVtt, rightResult.translatedVtt]),
       usage: aggregateTokenUsage([leftResult.usage, rightResult.usage]),
+      scrubbedCueCount: leftResult.scrubbedCueCount + rightResult.scrubbedCueCount,
+      scrubbedReason: leftResult.scrubbedReason ?? rightResult.scrubbedReason,
     };
   }
 }
@@ -618,7 +686,7 @@ async function translateCaptionTrack({
   modelId: string;
   credentials?: WorkflowCredentialsInput;
   chunking?: TranslationChunkingOptions;
-}): Promise<{ translatedVtt: string; usage: TokenUsage }> {
+}): Promise<TranslateStepResult> {
   "use step";
 
   const chunkPlan = buildTranslationChunkRequests(vttContent, assetDurationSeconds, chunking);
@@ -636,6 +704,8 @@ async function translateCaptionTrack({
   const resolvedChunking = resolveTranslationChunkingOptions(chunking);
   const translatedSegments: string[] = [];
   const usageByChunk: TokenUsage[] = [];
+  let totalScrubbedCueCount = 0;
+  let observedScrubReason: LeakReason = null;
 
   for (let index = 0; index < chunkPlan.chunks.length; index += resolvedChunking.maxConcurrentTranslations) {
     const batch = chunkPlan.chunks.slice(index, index + resolvedChunking.maxConcurrentTranslations);
@@ -654,11 +724,17 @@ async function translateCaptionTrack({
 
     translatedSegments.push(...batchResults.map(result => result.translatedVtt));
     usageByChunk.push(...batchResults.map(result => result.usage));
+    for (const result of batchResults) {
+      totalScrubbedCueCount += result.scrubbedCueCount;
+      observedScrubReason = observedScrubReason ?? result.scrubbedReason;
+    }
   }
 
   return {
     translatedVtt: concatenateVttSegments(translatedSegments, chunkPlan.preamble),
     usage: aggregateTokenUsage(usageByChunk),
+    scrubbedCueCount: totalScrubbedCueCount,
+    scrubbedReason: observedScrubReason,
   };
 }
 
@@ -803,6 +879,12 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   // Translate VTT content using configured provider via ai-sdk
   let translatedVtt: string;
   let usage: TokenUsage | undefined;
+  // Aggregate scrub signal produced by the cue-level detectors inside
+  // `translateCaptionTrack`. We rebuild a {@link SafetyReport} here at
+  // the top level because the intermediate step functions can only
+  // return JSON-serialisable data across `"use step"` boundaries.
+  let scrubbedCueCount = 0;
+  let scrubbedReason: LeakReason = null;
 
   try {
     const result = await translateCaptionTrack({
@@ -817,9 +899,28 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     });
     translatedVtt = result.translatedVtt;
     usage = result.usage;
+    scrubbedCueCount = result.scrubbedCueCount;
+    scrubbedReason = result.scrubbedReason;
   } catch (error) {
     wrapError(error, `Failed to translate VTT with ${modelConfig.provider}`);
   }
+
+  // Synthesise a SafetyReport from the aggregate counter. Individual cue
+  // identifiers are intentionally not preserved across step boundaries —
+  // operators get a count and the most recent leak reason, which is
+  // enough to alert on; per-cue forensics would need to be reconstructed
+  // from the console.warn trail.
+  const safety: SafetyReport = scrubbedCueCount > 0 ?
+      {
+        leaksDetected: true,
+        scrubbedFields: [
+          {
+            field: `translated_cues (${scrubbedCueCount} total)`,
+            reason: (scrubbedReason ?? "canary") as Exclude<LeakReason, null>,
+          },
+        ],
+      } :
+      { leaksDetected: false, scrubbedFields: [] };
 
   const usageWithMetadata = usage ?
       {
@@ -886,5 +987,6 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     uploadedTrackId,
     presignedUrl,
     usage: usageWithMetadata,
+    safety,
   };
 }

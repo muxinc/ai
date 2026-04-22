@@ -256,3 +256,95 @@ export function scrubFreeTextField(
   }
   return { text, leaked: false, reason: null };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Aggregate safety reporting
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Per-field record of a detected leak. Collected across every scrub
+ * performed inside a single workflow invocation and returned to the
+ * caller in the workflow result's `safety` field.
+ */
+export interface ScrubbedFieldReport {
+  /**
+   * Identifier for the field that leaked. Format is workflow-specific
+   * (e.g. "reasoning[0]", "moment_insight[2]", "description"). Intended
+   * for debugging and observability; do not parse programmatically.
+   */
+  field: string;
+  /** Which detector fired — see {@link LeakReason}. */
+  reason: Exclude<LeakReason, null>;
+}
+
+/**
+ * Aggregate safety report returned from workflows that perform
+ * output-side scrubbing.
+ *
+ * Operators can use this to alert on suspected prompt-injection traffic
+ * without inspecting log warnings. Shape is stable across workflows so a
+ * single observer can consume it uniformly.
+ */
+export interface SafetyReport {
+  /** `true` when at least one field was suppressed by the scrubber. */
+  leaksDetected: boolean;
+  /**
+   * One entry per suppressed field. Empty (but present) when no leaks
+   * were detected. Iteration order matches the order scrubs ran, so
+   * callers can correlate entries with workflow structure if they wish.
+   */
+  scrubbedFields: ScrubbedFieldReport[];
+}
+
+/**
+ * Collector helper used inside a workflow to thread a {@link SafetyReport}
+ * through multiple scrub calls without each call site having to track
+ * state. Usage:
+ *
+ *     const safety = createSafetyReporter();
+ *     const cleanReasoning = safety.scrub(raw.reasoning, "reasoning[0]");
+ *     const cleanSummary   = safety.scrub(raw.summary, "summary");
+ *     return { ..., safety: safety.report() };
+ */
+export interface SafetyReporter {
+  /**
+   * Scrub `text`, record a report entry if it leaked, and return the
+   * resulting text. Mirrors {@link scrubFreeTextField} but returns the
+   * string directly for convenience at call sites that only care about
+   * the suppressed/clean text.
+   */
+  scrub: (text: string | null | undefined, field: string) => string;
+  /**
+   * Underlying scrub helper for call sites that need the full
+   * {@link ScrubResult} (e.g. to decide between "skip" and "substitute
+   * placeholder"). Recording into the aggregate report happens
+   * automatically.
+   */
+  scrubDetailed: (text: string | null | undefined, field: string) => ScrubResult;
+  /** Snapshot the current aggregate report. */
+  report: () => SafetyReport;
+}
+
+export function createSafetyReporter(): SafetyReporter {
+  const scrubbedFields: ScrubbedFieldReport[] = [];
+
+  const scrubDetailed = (text: string | null | undefined, field: string): ScrubResult => {
+    const result = scrubFreeTextField(text, field);
+    if (result.leaked && result.reason !== null) {
+      scrubbedFields.push({ field, reason: result.reason });
+    }
+    return result;
+  };
+
+  return {
+    scrubDetailed,
+    scrub: (text, field) => scrubDetailed(text, field).text,
+    report: () => ({
+      leaksDetected: scrubbedFields.length > 0,
+      // Return a copy so the report captured at return time is not
+      // mutated by any later scrubs (defensive — current callers snapshot
+      // at the end of the workflow, but this keeps the contract explicit).
+      scrubbedFields: [...scrubbedFields],
+    }),
+  };
+}

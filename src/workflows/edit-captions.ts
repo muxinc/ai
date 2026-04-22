@@ -8,6 +8,8 @@ import {
   getPlaybackIdForAsset,
 } from "@mux/ai/lib/mux-assets";
 import { createTextTrackOnMux, fetchVttFromMux } from "@mux/ai/lib/mux-tracks";
+import { createSafetyReporter } from "@mux/ai/lib/output-safety";
+import type { SafetyReport } from "@mux/ai/lib/output-safety";
 import {
   CANARY_TRIPWIRE,
   NON_DISCLOSURE_CONSTRAINT,
@@ -110,6 +112,15 @@ export interface EditCaptionsResult {
   uploadedTrackId?: string;
   presignedUrl?: string;
   usage?: TokenUsage;
+  /**
+   * Aggregate report of output-side scrubbing performed during this call.
+   * When `leaksDetected` is `true`, at least one entry returned by the
+   * profanity detector contained signs of a system-prompt leak (for
+   * example, a tag marker emitted in place of a profane word). Leaked
+   * entries are dropped before regex construction so they never drive
+   * transcript edits.
+   */
+  safety?: SafetyReport;
 }
 
 /** Schema used when requesting profanity detection from a language model. */
@@ -514,6 +525,7 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
 
   let editedVtt = vttContent;
   let totalReplacementCount = 0;
+  const safety = createSafetyReporter();
 
   // 1. LLM-powered profanity censorship first (analyses original text)
   let autoCensorResult: { replacements: ReplacementRecord[] } | undefined;
@@ -546,7 +558,18 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
       wrapError(error, `Failed to detect profanity with ${modelConfig.provider}`);
     }
 
-    const finalProfanity = applyOverrideLists(detectedProfanity, alwaysCensor, neverCensor);
+    // Scrub individual profanity entries. The blast radius of a leaked
+    // entry here is small — it becomes a word-boundary regex applied to
+    // cue text, so the model couldn't smuggle a script or URL into the
+    // VTT through this channel — but an attacker could still coerce the
+    // model into listing prompt fragments as "profanity", which would
+    // then redact those fragments from the output. Dropping leaked
+    // entries prevents that.
+    const scrubbedProfanity = detectedProfanity
+      .map((word, i) => safety.scrubDetailed(word, `profanity[${i}]`))
+      .filter(result => !result.leaked)
+      .map(result => result.text);
+    const finalProfanity = applyOverrideLists(scrubbedProfanity, alwaysCensor, neverCensor);
 
     const { censoredVtt, replacements: censorReplacements } = censorVttContent(editedVtt, finalProfanity, mode);
     editedVtt = censoredVtt;
@@ -632,5 +655,6 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
     uploadedTrackId,
     presignedUrl,
     usage: usageWithMetadata,
+    safety: safety.report(),
   };
 }

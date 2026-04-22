@@ -11,6 +11,8 @@ import {
   getPlaybackIdForAsset,
   isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
+import { createSafetyReporter } from "@mux/ai/lib/output-safety";
+import type { SafetyReport } from "@mux/ai/lib/output-safety";
 import type {
   PromptOverrides,
 } from "@mux/ai/lib/prompt-builder";
@@ -87,6 +89,15 @@ export interface SummaryAndTagsResult {
   usage?: TokenUsage;
   /** Raw transcript text used for analysis (when includeTranscript is true). */
   transcriptText?: string;
+  /**
+   * Aggregate report of output-side scrubbing performed during this call.
+   * When `leaksDetected` is `true`, at least one of `title`, `description`,
+   * or an element of `tags` was suppressed because the scrubber detected
+   * signs of a prompt leak — consult `scrubbedFields` for which.
+   * Suppressed fields are returned as empty strings or omitted from the
+   * tags array.
+   */
+  safety?: SafetyReport;
 }
 
 /**
@@ -750,11 +761,25 @@ export async function getSummaryAndTags(
     throw new MuxAiError(`Failed to generate description for asset ${assetId}.`);
   }
 
+  // Scrub model-generated free-text fields for signs of a system-prompt
+  // leak. Title and description are the highest-value exfiltration targets
+  // (description especially — it is unbounded, verbose, and surfaces to
+  // end-users). Each keyword is scrubbed individually and dropped on leak.
+  // Suppressed title/description are returned as empty strings rather than
+  // thrown so callers can detect via the `safety` report and fall back.
+  const safety = createSafetyReporter();
+  const scrubbedTitle = safety.scrub(analysisResponse.result.title, "title");
+  const scrubbedDescription = safety.scrub(analysisResponse.result.description, "description");
+  const scrubbedKeywords = (analysisResponse.result.keywords ?? [])
+    .map((kw, i) => safety.scrubDetailed(kw, `keywords[${i}]`))
+    .filter(result => !result.leaked)
+    .map(result => result.text);
+
   return {
     assetId,
-    title: analysisResponse.result.title,
-    description: analysisResponse.result.description,
-    tags: normalizeKeywords(analysisResponse.result.keywords, tagCount ?? DEFAULT_SUMMARY_KEYWORD_LIMIT),
+    title: scrubbedTitle,
+    description: scrubbedDescription,
+    tags: normalizeKeywords(scrubbedKeywords, tagCount ?? DEFAULT_SUMMARY_KEYWORD_LIMIT),
     storyboardUrl: imageUrl, // undefined for audio-only assets
     usage: {
       ...analysisResponse.usage,
@@ -763,5 +788,6 @@ export async function getSummaryAndTags(
       },
     },
     transcriptText: transcriptText || undefined,
+    safety: safety.report(),
   };
 }

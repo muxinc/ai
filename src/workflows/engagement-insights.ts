@@ -9,7 +9,8 @@ import {
   isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
 import { getMuxThumbnailBaseUrl } from "@mux/ai/lib/mux-url";
-import { scrubFreeTextField } from "@mux/ai/lib/output-safety";
+import { createSafetyReporter } from "@mux/ai/lib/output-safety";
+import type { SafetyReport } from "@mux/ai/lib/output-safety";
 import { createPromptBuilder } from "@mux/ai/lib/prompt-builder";
 import {
   CANARY_TRIPWIRE,
@@ -104,6 +105,14 @@ export interface EngagementInsightsResult {
   overallInsight: OverallInsight;
   /** Token usage from the AI provider (for efficiency/cost analysis). */
   usage?: TokenUsage;
+  /**
+   * Aggregate report of output-side scrubbing performed during this call.
+   * When `leaksDetected` is `true`, at least one `insight`, the overall
+   * `summary`, or an entry of `trends` was suppressed as a suspected
+   * prompt leak. Suppressed insights and the summary are replaced with
+   * a neutral placeholder; suppressed trends are dropped.
+   */
+  safety?: SafetyReport;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -742,8 +751,12 @@ export async function generateEngagementInsights(
   }
 
   // Step 6: Transform — re-associate AI output with hotspots by hotspotIndex.
-  // Scrub free-text fields to suppress any system-prompt leakage that slipped
-  // past the instruction-level defences.
+  // Scrub free-text fields (insight, summary, trends) to suppress any
+  // system-prompt leakage that slipped past the instruction-level defences.
+  // A single SafetyReporter collects every suppression so the caller can
+  // see everything that tripped in one place via the returned `safety`
+  // field.
+  const safety = createSafetyReporter();
   const momentInsights: MomentInsight[] = [];
 
   for (const aiMoment of aiInsights.momentInsights) {
@@ -757,7 +770,7 @@ export async function generateEngagementInsights(
 
     // Use ground-truth data from hotspots array, not AI-generated values
     const hotspot = hotspots[idx];
-    const insightScrub = scrubFreeTextField(aiMoment.insight, `engagement-insights moment ${idx}`);
+    const insightScrub = safety.scrubDetailed(aiMoment.insight, `momentInsights[${idx}].insight`);
     momentInsights.push({
       startMs: hotspot.startMs,
       endMs: hotspot.endMs,
@@ -773,9 +786,9 @@ export async function generateEngagementInsights(
     );
   }
 
-  const summaryScrub = scrubFreeTextField(aiInsights.overallInsight.summary, "engagement-insights summary");
+  const summaryScrub = safety.scrubDetailed(aiInsights.overallInsight.summary, "overallInsight.summary");
   const scrubbedTrends = aiInsights.overallInsight.trends
-    .map((t, i) => scrubFreeTextField(t, `engagement-insights trend ${i}`))
+    .map((t, i) => safety.scrubDetailed(t, `overallInsight.trends[${i}]`))
     .filter(result => !result.leaked)
     .map(result => result.text);
 
@@ -795,5 +808,6 @@ export async function generateEngagementInsights(
       trends: scrubbedTrends,
     },
     usage: usageWithMetadata,
+    safety: safety.report(),
   };
 }
