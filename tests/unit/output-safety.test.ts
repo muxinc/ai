@@ -85,8 +85,9 @@ describe("detectLeakReason", () => {
   });
 
   it("detects a long hex run", () => {
-    // 64 hex chars (SHA-256 size) — over the 40-char threshold.
-    const hex = "deadbeefcafebabe0123456789abcdef0123456789abcdefdeadbeefcafebabe";
+    // 80 hex chars — well over the 65-char threshold, consistent with
+    // two concatenated SHA-1 hashes or an encoded-dump fragment.
+    const hex = "deadbeefcafebabe0123456789abcdef01234567deadbeefcafebabe0123456789abcdef01234567";
     expect(detectLeakReason(`Reasoning: ${hex} end.`)).toBe("encoded_blob");
   });
 
@@ -95,18 +96,29 @@ describe("detectLeakReason", () => {
     expect(detectLeakReason("Short token: abc123.")).toBeNull();
   });
 
-  it("does not flag a single MD5 hash in prose", () => {
-    // 32 hex chars — below the 40-char threshold so a legitimate reference
-    // to a hash in a technical transcript passes through.
+  it("does not flag a single MD5 hash (32 hex chars) in prose", () => {
     const md5 = "5d41402abc4b2a76b9719d911017c592";
+    expect(md5.length).toBe(32);
     expect(detectLeakReason(`The file hash was ${md5}.`)).toBeNull();
   });
 
-  it("does not flag a single SHA-1 hash in prose", () => {
-    // 40 hex chars — exactly at the threshold; use < 40 for the common
-    // case. Pick 40 to cover edge; use 39-char example for clarity.
-    const sha1Shortened = "356a192b7913b04c54574d18c28d46e6395428";
-    expect(detectLeakReason(`Commit ${sha1Shortened} fixed it.`)).toBeNull();
+  it("does not flag a single SHA-1 hash (40 hex chars) in prose", () => {
+    // Real 40-char SHA-1. An earlier iteration used `{40,}` as the
+    // threshold and a 38-char placeholder in this test, which masked
+    // the fact that a real SHA-1 would trip. The threshold is now 65,
+    // so the full 40-char hash passes through.
+    const sha1 = "356a192b7913b04c54574d18c28d46e6395428ab";
+    expect(sha1.length).toBe(40);
+    expect(detectLeakReason(`Commit ${sha1} fixed it.`)).toBeNull();
+  });
+
+  it("does not flag a single SHA-256 hash (64 hex chars) in prose", () => {
+    // Git commit SHAs, content hashes, and security-content references
+    // frequently use SHA-256. A 64-char run must not trip the
+    // heuristic on its own.
+    const sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+    expect(sha256.length).toBe(64);
+    expect(detectLeakReason(`The manifest hash is ${sha256}.`)).toBeNull();
   });
 
   it("does not flag inline references to common words without angle brackets", () => {

@@ -189,11 +189,14 @@ export function normalizeUntrustedUnicode(text: string): string {
  *   80 chars is long enough that a single short base64-encoded phrase in
  *   legitimate content will not match, but short enough to catch a
  *   meaningfully exfiltrated prompt fragment.
- * - A run of 40+ hexadecimal characters. 40 corresponds to a single
- *   SHA-1 hash (i.e. legitimate content can reference one hash without
- *   tripping); longer runs are strongly indicative of an encoded dump.
- *   MD5 (32 chars) and shorter hashes in prose are deliberately allowed
- *   through, since they show up in legitimate tech-content transcripts.
+ * - A run of 65+ hexadecimal characters. Tuned so that single references
+ *   to any common hash length in legitimate tech content pass through:
+ *   MD5 (32), SHA-1 (40), SHA-256 (64) are all below the threshold. A
+ *   real hex-encoded exfil of a meaningful prompt fragment takes
+ *   hundreds of hex chars, so 65 still catches it comfortably while
+ *   eliminating single-hash false positives on transcripts of coding /
+ *   security content. Two consecutive hashes (≥ 80 hex) still trip,
+ *   as does any encoded dump.
  *
  * Both thresholds can still false-positive on fields that legitimately
  * include long base64 blobs (data URLs pasted into a transcript) or
@@ -201,7 +204,7 @@ export function normalizeUntrustedUnicode(text: string): string {
  * should bypass this scrubber or extend the heuristic.
  */
 const BASE64_RUN_PATTERN = /[\w+/=-]{80,}/;
-const HEX_RUN_PATTERN = /[0-9a-f]{40,}/i;
+const HEX_RUN_PATTERN = /[0-9a-f]{65,}/i;
 
 /**
  * Which detector fired on a leak, or `null` when the text is clean.
