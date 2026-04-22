@@ -305,11 +305,17 @@ function buildUserPrompt(
       const startTimestamp = secondsToTimestamp(h.startMs / 1000);
       const endTimestamp = secondsToTimestamp(h.endMs / 1000);
 
+      // Serialise the transcript through JSON.stringify so any embedded
+      // double-quotes, backslashes, or newlines are properly escaped. A
+      // previous formulation used bare `"${transcript}"`, which a
+      // transcript containing `"` could break out of — the outer
+      // <engagement_hotspots> XML escape kept the tag structure intact
+      // but the inner field boundaries were ambiguous to the model.
       return dedent`
         Hotspot ${idx} (hotspotIndex: ${idx}):
         - Time Range: ${startTimestamp} - ${endTimestamp}
         - Engagement Score: ${h.score.toFixed(2)} (0=low, 1=high)
-        - Transcript: "${transcript}"
+        - Transcript: ${JSON.stringify(transcript)}
       `;
     })
     .join("\n\n");

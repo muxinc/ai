@@ -10,6 +10,7 @@ import {
 import { createTextTrackOnMux, fetchVttFromMux } from "@mux/ai/lib/mux-tracks";
 import { createSafetyReporter } from "@mux/ai/lib/output-safety";
 import type { SafetyReport } from "@mux/ai/lib/output-safety";
+import { renderSection } from "@mux/ai/lib/prompt-builder";
 import {
   CANARY_TRIPWIRE,
   NON_DISCLOSURE_CONSTRAINT,
@@ -338,6 +339,17 @@ async function identifyProfanityWithAI({
 
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
 
+  // Route the transcript through `renderSection` so XML-escape is applied
+  // to `<`, `>`, and `&` in the cue text. A raw `` `<transcript>${plainText}</transcript>` ``
+  // lets an attacker who controls the captions inject `</transcript>`
+  // mid-cue and follow with forged instructions outside the trust
+  // boundary; the escape turns that payload into literal text the model
+  // reads as content.
+  const transcriptSection = renderSection({
+    tag: "transcript",
+    content: plainText,
+  });
+
   const response = await generateText({
     model,
     output: Output.object({ schema: profanityDetectionSchema }),
@@ -349,9 +361,7 @@ async function identifyProfanityWithAI({
       {
         role: "user",
         content:
-          "Identify all profane words and phrases in the following subtitle transcript. " +
-          "Return each unique profane word or phrase exactly as it appears in the text.\n\n" +
-          `<transcript>\n${plainText}\n</transcript>`,
+          `Identify all profane words and phrases in the following subtitle transcript. Return each unique profane word or phrase exactly as it appears in the text.\n\n${transcriptSection}`,
       },
     ],
   });
