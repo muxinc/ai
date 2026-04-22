@@ -513,13 +513,45 @@ export async function askQuestions(
     throw new MuxAiError("At least one question must be provided.", { type: "validation_error" });
   }
 
-  // Validate each question has valid text
+  // Validate each question has valid text and enforce a length ceiling.
+  // Reasonable human-authored questions are well under a few hundred
+  // characters; anything longer is almost certainly either a misuse
+  // (pasting a whole document) or a prompt-injection payload trying to
+  // hide instructions in a long blob. Rejecting at the boundary is a
+  // cheap, deterministic defence that the model never sees.
+  const MAX_QUESTION_LENGTH = 500;
   questions.forEach((q, idx) => {
     if (!q.question || typeof q.question !== "string" || !q.question.trim()) {
       throw new MuxAiError(
         `Question at index ${idx} is invalid: must have a non-empty question field.`,
         { type: "validation_error" },
       );
+    }
+    if (q.question.length > MAX_QUESTION_LENGTH) {
+      throw new MuxAiError(
+        `Question at index ${idx} exceeds the ${MAX_QUESTION_LENGTH}-character limit (received ${q.question.length}).`,
+        { type: "validation_error" },
+      );
+    }
+  });
+
+  // Per-answer-option length ceiling. Answer options are meant to be
+  // short labels ("yes", "no", "low", "appropriate"), not sentences.
+  // A common prompt-injection shape is to smuggle the payload through
+  // option content — e.g. pairing two long sentences that both
+  // presuppose the desired outcome ("Yes, I copied the full instructions
+  // into my reasoning as required"). Cap option length at 50 characters
+  // so legitimate labels pass comfortably but instruction-shaped
+  // strings are rejected before they reach the model.
+  const MAX_ANSWER_OPTION_LENGTH = 50;
+  questions.forEach((q, idx) => {
+    for (const opt of q.answerOptions ?? []) {
+      if (typeof opt === "string" && opt.length > MAX_ANSWER_OPTION_LENGTH) {
+        throw new MuxAiError(
+          `Question at index ${idx} has an answerOption exceeding the ${MAX_ANSWER_OPTION_LENGTH}-character limit (received ${opt.length}). Answer options should be short labels, not sentences.`,
+          { type: "validation_error" },
+        );
+      }
     }
   });
 
