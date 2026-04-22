@@ -9,7 +9,7 @@ import {
   getPlaybackIdForAsset,
   isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
-import { createSafetyReporter, detectUnexpectedKeysFromRawText } from "@mux/ai/lib/output-safety";
+import { createSafetyReporter, detectUnexpectedKeys, detectUnexpectedKeysFromRawText } from "@mux/ai/lib/output-safety";
 import type { SafetyReport } from "@mux/ai/lib/output-safety";
 import type { PromptOverrides, PromptSection } from "@mux/ai/lib/prompt-builder";
 import { createLanguageSection, createPromptBuilder } from "@mux/ai/lib/prompt-builder";
@@ -196,12 +196,9 @@ async function generateChaptersWithAI({
     // every element, so we derive its keys once.
     const chapterKeys = chapterSchema.keyof().options;
     for (const rawChapter of rawChapters) {
-      unexpectedChapterKeys.push(
-        detectUnexpectedKeysFromRawText(
-          JSON.stringify(rawChapter),
-          chapterKeys,
-        ),
-      );
+      // `rawChapter` is already parsed; skip the stringify + re-parse
+      // roundtrip via the object-form detector.
+      unexpectedChapterKeys.push(detectUnexpectedKeys(rawChapter, chapterKeys));
     }
   } catch {
     // Non-JSON raw text; skip per-chapter detection silently.

@@ -6,7 +6,7 @@ import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
 import { MuxAiError, wrapError } from "@mux/ai/lib/mux-ai-error";
 import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset, isAudioOnlyAsset } from "@mux/ai/lib/mux-assets";
-import { createSafetyReporter, detectUnexpectedKeysFromRawText } from "@mux/ai/lib/output-safety";
+import { createSafetyReporter, detectUnexpectedKeys, detectUnexpectedKeysFromRawText } from "@mux/ai/lib/output-safety";
 import type { SafetyReport } from "@mux/ai/lib/output-safety";
 import { createTranscriptSection, renderSection } from "@mux/ai/lib/prompt-builder";
 import {
@@ -525,12 +525,10 @@ async function analyzeQuestions({
     // `.shape` per-element.
     const answerKeys = questionAnswerSchema.keyof().options;
     for (const rawAnswer of rawAnswers) {
-      unexpectedAnswerKeys.push(
-        detectUnexpectedKeysFromRawText(
-          JSON.stringify(rawAnswer),
-          answerKeys,
-        ),
-      );
+      // `rawAnswer` is already a parsed object from the envelope above
+      // — pass it directly to the object-form detector rather than
+      // stringify-then-re-parse.
+      unexpectedAnswerKeys.push(detectUnexpectedKeys(rawAnswer, answerKeys));
     }
   } catch {
     // Raw text not valid JSON — skip per-answer detection silently.

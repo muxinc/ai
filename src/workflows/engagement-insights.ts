@@ -9,7 +9,7 @@ import {
   isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
 import { getMuxThumbnailBaseUrl } from "@mux/ai/lib/mux-url";
-import { createSafetyReporter, detectUnexpectedKeysFromRawText } from "@mux/ai/lib/output-safety";
+import { createSafetyReporter, detectUnexpectedKeys, detectUnexpectedKeysFromRawText } from "@mux/ai/lib/output-safety";
 import type { SafetyReport } from "@mux/ai/lib/output-safety";
 import { createPromptBuilder } from "@mux/ai/lib/prompt-builder";
 import {
@@ -585,15 +585,12 @@ async function generateInsightsWithAI(
     // Hoisted out of the loop; the per-moment shape is identical.
     const momentKeys = aiMomentInsightSchema.keyof().options;
     for (const rawMoment of rawMoments) {
-      unexpectedMomentKeys.push(
-        detectUnexpectedKeysFromRawText(
-          JSON.stringify(rawMoment),
-          momentKeys,
-        ),
-      );
+      // `rawMoment` is already parsed; skip the stringify + re-parse
+      // roundtrip via the object-form detector.
+      unexpectedMomentKeys.push(detectUnexpectedKeys(rawMoment, momentKeys));
     }
-    unexpectedOverallKeys = detectUnexpectedKeysFromRawText(
-      JSON.stringify(rawEnvelope?.overallInsight ?? {}),
+    unexpectedOverallKeys = detectUnexpectedKeys(
+      rawEnvelope?.overallInsight ?? {},
       aiOverallInsightSchema.keyof().options,
     );
   } catch {
