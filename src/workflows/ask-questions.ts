@@ -665,6 +665,14 @@ export async function askQuestions(
   // Post-process raw LLM output into the public QuestionAnswer shape.
   // Treat as skipped if the model flagged it, if the answer is the sentinel,
   // or if the output-safety scrub detected a prompt leak in the reasoning.
+  //
+  // The returned `question` is taken from the normalized input rather than
+  // from `raw.question`. The model's schema requires it to echo the input
+  // verbatim, but that field is another potential exfiltration channel:
+  // a prompt-injected payload can coerce the model into returning arbitrary
+  // content in place of the question. Since we already have the trusted
+  // input in `normalizedQuestions[idx].question`, there is no reason to
+  // trust the model's echo.
   const answers: QuestionAnswer[] = analysisResponse.result.answers.map((raw, idx) => {
     const scrub = scrubFreeTextField(raw.reasoning, `ask-questions reasoning for question ${idx + 1}`);
     const isSkipped = raw.skipped || raw.answer === SKIP_SENTINEL || scrub.leaked;
@@ -674,8 +682,8 @@ export async function askQuestions(
       );
     }
     return {
-      // Strip numbering prefix (e.g. "1. ") if the LLM prepends one
-      question: raw.question.replace(/^\d+\.\s*/, ""),
+      // Use the trusted input verbatim rather than the model's echo.
+      question: normalizedQuestions[idx].question,
       confidence: isSkipped ? 0 : Math.min(1, Math.max(0, raw.confidence)),
       reasoning: scrub.leaked ? "Response suppressed by safety filter." : scrub.text,
       skipped: isSkipped,
