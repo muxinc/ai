@@ -21,6 +21,7 @@ import {
   createTranscriptSection,
 } from "@mux/ai/lib/prompt-builder";
 import {
+  CANARY_TRIPWIRE,
   createLanguageGuidelines,
   METADATA_BOUNDARY_WARNING,
   NO_FABRICATION_CONSTRAINT,
@@ -340,6 +341,8 @@ const SYSTEM_PROMPT = promptDedent`
     ${NON_DISCLOSURE_CONSTRAINT}
 
     ${UNTRUSTED_USER_INPUT_NOTICE}
+
+    ${CANARY_TRIPWIRE}
   </security>
 
   <constraints>
@@ -388,6 +391,8 @@ const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
     ${NON_DISCLOSURE_CONSTRAINT}
 
     ${UNTRUSTED_USER_INPUT_NOTICE}
+
+    ${CANARY_TRIPWIRE}
   </security>
 
   <constraints>

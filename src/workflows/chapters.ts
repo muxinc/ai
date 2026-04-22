@@ -12,6 +12,7 @@ import {
 import type { PromptOverrides, PromptSection } from "@mux/ai/lib/prompt-builder";
 import { createLanguageSection, createPromptBuilder } from "@mux/ai/lib/prompt-builder";
 import {
+  CANARY_TRIPWIRE,
   NON_DISCLOSURE_CONSTRAINT,
   UNTRUSTED_USER_INPUT_NOTICE,
 } from "@mux/ai/lib/prompt-fragments";
@@ -190,7 +191,9 @@ const chapterSystemPromptBuilder = createPromptBuilder<ChapterSystemPromptSectio
       content: dedent`
         ${NON_DISCLOSURE_CONSTRAINT}
 
-        ${UNTRUSTED_USER_INPUT_NOTICE}`,
+        ${UNTRUSTED_USER_INPUT_NOTICE}
+
+        ${CANARY_TRIPWIRE}`,
     },
     constraints: {
       tag: "constraints",

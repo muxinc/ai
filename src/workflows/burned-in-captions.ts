@@ -8,6 +8,7 @@ import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "@mux/ai
 import type { PromptOverrides } from "@mux/ai/lib/prompt-builder";
 import { createPromptBuilder } from "@mux/ai/lib/prompt-builder";
 import {
+  CANARY_TRIPWIRE,
   METADATA_BOUNDARY_WARNING,
   NON_DISCLOSURE_CONSTRAINT,
   promptDedent,
@@ -134,6 +135,8 @@ const SYSTEM_PROMPT = promptDedent`
     ${NON_DISCLOSURE_CONSTRAINT}
 
     ${UNTRUSTED_USER_INPUT_NOTICE}
+
+    ${CANARY_TRIPWIRE}
   </security>
 
   <constraints>

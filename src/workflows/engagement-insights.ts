@@ -9,8 +9,10 @@ import {
   isAudioOnlyAsset,
 } from "@mux/ai/lib/mux-assets";
 import { getMuxThumbnailBaseUrl } from "@mux/ai/lib/mux-url";
+import { scrubFreeTextField } from "@mux/ai/lib/output-safety";
 import { createPromptBuilder } from "@mux/ai/lib/prompt-builder";
 import {
+  CANARY_TRIPWIRE,
   METADATA_BOUNDARY_WARNING,
   NO_FABRICATION_CONSTRAINT,
   NON_DISCLOSURE_CONSTRAINT,
@@ -166,6 +168,8 @@ const SYSTEM_PROMPT = promptDedent`
 
     ${UNTRUSTED_USER_INPUT_NOTICE}
 
+    ${CANARY_TRIPWIRE}
+
     ${REASONING_FIELD_SCOPE}
   </security>
 
@@ -215,6 +219,8 @@ const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
     ${NON_DISCLOSURE_CONSTRAINT}
 
     ${UNTRUSTED_USER_INPUT_NOTICE}
+
+    ${CANARY_TRIPWIRE}
 
     ${REASONING_FIELD_SCOPE}
   </security>
@@ -732,7 +738,9 @@ export async function generateEngagementInsights(
     throw new MuxAiError(`Failed to generate insights for asset ${assetId}.`);
   }
 
-  // Step 6: Transform — re-associate AI output with hotspots by hotspotIndex
+  // Step 6: Transform — re-associate AI output with hotspots by hotspotIndex.
+  // Scrub free-text fields to suppress any system-prompt leakage that slipped
+  // past the instruction-level defences.
   const momentInsights: MomentInsight[] = [];
 
   for (const aiMoment of aiInsights.momentInsights) {
@@ -746,12 +754,13 @@ export async function generateEngagementInsights(
 
     // Use ground-truth data from hotspots array, not AI-generated values
     const hotspot = hotspots[idx];
+    const insightScrub = scrubFreeTextField(aiMoment.insight, `engagement-insights moment ${idx}`);
     momentInsights.push({
       startMs: hotspot.startMs,
       endMs: hotspot.endMs,
       timestamp: secondsToTimestamp(hotspot.startMs / 1000),
       engagementScore: hotspot.score,
-      insight: aiMoment.insight,
+      insight: insightScrub.leaked ? "Insight suppressed by safety filter." : insightScrub.text,
     });
   }
 
@@ -760,6 +769,12 @@ export async function generateEngagementInsights(
       `Failed to generate valid insights for asset ${assetId}.`,
     );
   }
+
+  const summaryScrub = scrubFreeTextField(aiInsights.overallInsight.summary, "engagement-insights summary");
+  const scrubbedTrends = aiInsights.overallInsight.trends
+    .map((t, i) => scrubFreeTextField(t, `engagement-insights trend ${i}`))
+    .filter(result => !result.leaked)
+    .map(result => result.text);
 
   const usageWithMetadata: TokenUsage = {
     ...usage,
@@ -773,8 +788,8 @@ export async function generateEngagementInsights(
     assetId,
     momentInsights,
     overallInsight: {
-      summary: aiInsights.overallInsight.summary,
-      trends: aiInsights.overallInsight.trends,
+      summary: summaryScrub.leaked ? "Summary suppressed by safety filter." : summaryScrub.text,
+      trends: scrubbedTrends,
     },
     usage: usageWithMetadata,
   };

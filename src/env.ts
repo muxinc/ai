@@ -43,6 +43,10 @@ const EnvSchema = z.object({
     "Override for Mux stream base URL (defaults to https://stream.mux.com).",
     "Mux stream URL override",
   ),
+  MUX_AI_PROMPT_CANARY: optionalString(
+    "Override for the system-prompt canary tripwire token. Defaults to a static value; set to a per-deployment secret to distinguish leaks between environments or to rotate without a library release.",
+    "Prompt canary override",
+  ),
 
   // Test-only helpers (used by this repo's integration tests)
   MUX_TEST_ASSET_ID: optionalString("Mux asset ID used by integration tests.", "Mux test asset id"),

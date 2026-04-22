@@ -6,8 +6,10 @@ import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
 import { MuxAiError, wrapError } from "@mux/ai/lib/mux-ai-error";
 import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset, isAudioOnlyAsset } from "@mux/ai/lib/mux-assets";
+import { scrubFreeTextField } from "@mux/ai/lib/output-safety";
 import { createTranscriptSection, renderSection } from "@mux/ai/lib/prompt-builder";
 import {
+  CANARY_TRIPWIRE,
   CONFIDENCE_SCORING_RUBRIC,
   METADATA_BOUNDARY_WARNING,
   NO_FABRICATION_CONSTRAINT,
@@ -209,6 +211,8 @@ const SYSTEM_PROMPT = promptDedent`
 
     ${UNTRUSTED_USER_INPUT_NOTICE}
 
+    ${CANARY_TRIPWIRE}
+
     ${REASONING_FIELD_SCOPE}
   </security>
 
@@ -302,6 +306,8 @@ const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
     ${NON_DISCLOSURE_CONSTRAINT}
 
     ${UNTRUSTED_USER_INPUT_NOTICE}
+
+    ${CANARY_TRIPWIRE}
 
     ${REASONING_FIELD_SCOPE}
   </security>
@@ -654,9 +660,11 @@ export async function askQuestions(
   }
 
   // Post-process raw LLM output into the public QuestionAnswer shape.
-  // Treat as skipped if the model flagged it OR if the answer is the sentinel.
+  // Treat as skipped if the model flagged it, if the answer is the sentinel,
+  // or if the output-safety scrub detected a prompt leak in the reasoning.
   const answers: QuestionAnswer[] = analysisResponse.result.answers.map((raw, idx) => {
-    const isSkipped = raw.skipped || raw.answer === SKIP_SENTINEL;
+    const scrub = scrubFreeTextField(raw.reasoning, `ask-questions reasoning for question ${idx + 1}`);
+    const isSkipped = raw.skipped || raw.answer === SKIP_SENTINEL || scrub.leaked;
     if (!isSkipped && !normalizedQuestions[idx].answerOptions.includes(raw.answer)) {
       throw new MuxAiError(
         `Answer "${raw.answer}" for question ${idx} is not in allowed options: ${normalizedQuestions[idx].answerOptions.join(", ")}`,
@@ -666,7 +674,7 @@ export async function askQuestions(
       // Strip numbering prefix (e.g. "1. ") if the LLM prepends one
       question: raw.question.replace(/^\d+\.\s*/, ""),
       confidence: isSkipped ? 0 : Math.min(1, Math.max(0, raw.confidence)),
-      reasoning: raw.reasoning,
+      reasoning: scrub.leaked ? "Response suppressed by safety filter." : scrub.text,
       skipped: isSkipped,
       answer: isSkipped ? null : raw.answer,
     };
