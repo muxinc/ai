@@ -399,3 +399,145 @@ describe("translate-captions prompt A/B (Anthropic)", () => {
     // fire long before this; vitest's own timeout is a backstop.
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Concurrent-stress probe
+//
+// Evalite's failure shape on PR 181 and `pc/main-test` was "one request
+// hangs past the job's 10-minute timeout." The A/B suite above runs
+// sequentially and never reproduces it; Evalite fans out data cases in
+// parallel per eval file and does reproduce it at a ~10% rate.
+//
+// This test fires N identical Anthropic calls in parallel from a single
+// process using one API key. If per-org concurrency queueing is the
+// cause of the observed hangs, we should see it here as a bimodal
+// latency distribution — most calls complete in seconds, a few sit at
+// the 45s AbortController deadline.
+//
+// Every call uses the same system prompt (full-current, as-shipped) and
+// the same cue payload. Anything bimodal in the resulting timings is
+// attributable to concurrency contention, not to input variance.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const STRESS_CONCURRENCY = 20;
+
+interface StressCallOutcome {
+  index: number;
+  status: "fulfilled" | "rejected";
+  elapsedMs: number;
+  errorName?: string;
+  errorMessage?: string;
+}
+
+describe("translate-captions concurrent-stress (Anthropic)", () => {
+  const assetId = muxTestAssets.assetId;
+  let cues: Cue[];
+
+  beforeAll(async () => {
+    const { asset, playbackId, policy } = await getPlaybackIdForAsset(assetId);
+    const signingContext = await resolveMuxSigningContext(undefined);
+    if (policy === "signed" && !signingContext) {
+      throw new Error(
+        "Signed playback ID requires signing credentials (set MUX_SIGNING_KEY / MUX_PRIVATE_KEY).",
+      );
+    }
+    const tracks = getReadyTextTracks(asset);
+    const englishTrack = tracks.find(t => t.language_code === "en");
+    if (!englishTrack?.id) {
+      throw new Error("Test asset missing a ready English track");
+    }
+    const vttUrl = await buildTranscriptUrl(playbackId, englishTrack.id, policy === "signed");
+    const vttContent = await fetchVttFromMux(vttUrl);
+    cues = parseVTTCues(vttContent);
+    if (cues.length === 0) {
+      throw new Error("No cues parsed from test asset VTT");
+    }
+  });
+
+  it(`fires ${STRESS_CONCURRENCY} concurrent anthropic calls to probe queueing`, async () => {
+    const apiKey = env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      throw new Error("ANTHROPIC_API_KEY is not set");
+    }
+
+    // Identical request across all N calls: same system prompt
+    // (full-current as-shipped), same user prompt, same target language.
+    // Any variance in timing is attributable to concurrency contention.
+    const systemPrompt = PERMUTATIONS.find(p => p.name === "full-current (as-shipped)")!.prompt;
+    const schema = z.object({ translations: z.array(z.string()) });
+    const cuePayload = cues.map((cue, index) => ({
+      index,
+      startTime: cue.startTime,
+      endTime: cue.endTime,
+      text: cue.text,
+    }));
+    const userPrompt =
+      `Translate from en to fr.\nReturn exactly ${cues.length} translated cues in the same order as the input.\n\n${JSON.stringify(cuePayload, null, 2)}`;
+
+    logBanner(`[STRESS] firing ${STRESS_CONCURRENCY} concurrent calls`);
+    const waveStartedAt = performance.now();
+
+    const runOne = async (index: number): Promise<StressCallOutcome> => {
+      const tag = `stress-${String(index).padStart(2, "0")}`;
+      const anthropic = createAnthropic({
+        apiKey,
+        fetch: buildInstrumentedFetch(tag),
+      });
+      const model = anthropic("claude-sonnet-4-5");
+
+      const abortController = new AbortController();
+      const abortTimer = setTimeout(() => {
+        console.error(`[${tag}] aborting: 45s deadline exceeded`);
+        abortController.abort(new Error("harness-45s-deadline"));
+      }, 45_000);
+
+      const startedAt = performance.now();
+      try {
+        await generateText({
+          model,
+          output: Output.object({ schema }),
+          abortSignal: abortController.signal,
+          maxRetries: 0,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+        });
+        const elapsedMs = Math.round(performance.now() - startedAt);
+        console.warn(`[${tag}] OK in ${elapsedMs}ms`);
+        return { index, status: "fulfilled", elapsedMs };
+      } catch (err) {
+        const elapsedMs = Math.round(performance.now() - startedAt);
+        const errorName = err instanceof Error ? err.name : typeof err;
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        console.error(`[${tag}] FAILED after ${elapsedMs}ms (${errorName}): ${errorMessage}`);
+        return { index, status: "rejected", elapsedMs, errorName, errorMessage };
+      } finally {
+        clearTimeout(abortTimer);
+      }
+    };
+
+    const outcomes = await Promise.all(
+      Array.from({ length: STRESS_CONCURRENCY }, (_, i) => runOne(i)),
+    );
+    const waveElapsedMs = Math.round(performance.now() - waveStartedAt);
+
+    // ── Report ──────────────────────────────────────────────────────────
+    const succeeded = outcomes.filter(o => o.status === "fulfilled");
+    const latencies = outcomes.map(o => o.elapsedMs).sort((a, b) => a - b);
+    const pct = (p: number) => latencies[Math.min(latencies.length - 1, Math.floor(latencies.length * p))];
+
+    logBanner(`[STRESS] summary: ${succeeded.length}/${STRESS_CONCURRENCY} succeeded`);
+    console.warn(`wall-clock: ${waveElapsedMs}ms`);
+    console.warn(
+      `latency distribution (ms): min=${latencies[0]} p25=${pct(0.25)} p50=${pct(0.5)} p75=${pct(0.75)} p90=${pct(0.9)} max=${latencies.at(-1)}`,
+    );
+    console.warn(`per-call outcomes:\n${outcomes.map(o => `  [${String(o.index).padStart(2, "0")}] ${o.status.padEnd(9)} ${o.elapsedMs.toString().padStart(6)}ms${o.errorName ? ` (${o.errorName}: ${o.errorMessage})` : ""}`).join("\n")}`);
+
+    // This is a probe, not a correctness test. We want it to still pass
+    // in CI so the logs get surfaced; the interpretation of "did
+    // queueing happen" comes from reading the distribution above.
+    // Assert only that the infrastructure worked (≥ 1 succeeded).
+    expect(succeeded.length).toBeGreaterThanOrEqual(1);
+  }, 90_000);
+});
