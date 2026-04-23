@@ -579,7 +579,16 @@ const result = await editCaptions(assetId, trackId, {
 });
 ```
 
-Replacements use word-boundary matching and are case-sensitive.
+Replacements use word-boundary matching and are case-sensitive by default. Set `caseSensitive: false` on an individual entry to match regardless of case:
+
+```typescript
+const result = await editCaptions(assetId, trackId, {
+  replacements: [
+    { find: "Mucks", replace: "Mux" }, // case-sensitive (default)
+    { find: "gonna", replace: "going to", caseSensitive: false }, // matches "Gonna", "GONNA", etc.
+  ],
+});
+```
 
 ### Application Order
 
