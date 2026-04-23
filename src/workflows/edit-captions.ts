@@ -681,7 +681,7 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
           credentials,
         );
       } catch (error) {
-        console.warn(`Failed to add track to Mux asset: ${error instanceof Error ? error.message : "Unknown error"}`);
+        wrapError(error, "Failed to add edited track to Mux asset");
       }
 
       // Delete original track only if the replacement track was created
@@ -689,7 +689,7 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
         try {
           await deleteTrackOnMux(assetId, trackId, credentials);
         } catch (error) {
-          console.warn(`Failed to delete original track: ${error instanceof Error ? error.message : "Unknown error"}`);
+          wrapError(error, "Failed to delete original track");
         }
       }
     }
