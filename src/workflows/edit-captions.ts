@@ -51,6 +51,8 @@ export interface AutoCensorProfanityOptions {
 export interface CaptionReplacement {
   find: string;
   replace: string;
+  /** Match `find` with case-sensitivity. Defaults to `true`. */
+  caseSensitive?: boolean;
 }
 
 export interface ReplacementRecord {
@@ -307,9 +309,11 @@ export function applyOverrideLists(
 
 /**
  * Applies static find/replace pairs to cue text lines in raw VTT content
- * using word-boundary regex. Case-sensitive matching since static replacements
- * target specific known strings. Headers, timestamps, and cue identifiers are
- * untouched. Returns the edited VTT and the total number of replacements.
+ * using word-boundary regex. Defaults to case-sensitive matching since static
+ * replacements typically target specific known strings; each entry may opt
+ * into case-insensitive matching via `caseSensitive: false`. Headers,
+ * timestamps, and cue identifiers are untouched. Returns the edited VTT and
+ * the total number of replacements.
  */
 export function applyReplacements(
   rawVtt: string,
@@ -324,9 +328,10 @@ export function applyReplacements(
 
   const editedVtt = transformCueText(rawVtt, (line, cueStartTime) => {
     let result = line;
-    for (const { find, replace } of filtered) {
+    for (const { find, replace, caseSensitive } of filtered) {
       const escaped = find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const regex = new RegExp(`\\b${escaped}\\b`, "g");
+      const flags = caseSensitive === false ? "gi" : "g";
+      const regex = new RegExp(`\\b${escaped}\\b`, flags);
       result = result.replace(regex, (match) => {
         records.push({ cueStartTime, before: match, after: replace });
         return replace;

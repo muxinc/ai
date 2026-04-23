@@ -410,7 +410,7 @@ Edits a caption track using LLM-powered profanity censorship, static find/replac
     - `'mask'`: `shit` → `????` (question marks matching word length)
   - `alwaysCensor?: string[]` - Words to always censor regardless of LLM output
   - `neverCensor?: string[]` - Words to never censor even if the LLM flags them (takes precedence over `alwaysCensor`)
-- `replacements?: Array<{ find: string; replace: string }>` - Static find/replace pairs (optional, no LLM needed)
+- `replacements?: Array<{ find: string; replace: string; caseSensitive?: boolean }>` - Static find/replace pairs (optional, no LLM needed). Each entry matches case-sensitively by default; set `caseSensitive: false` to match regardless of case.
 - `uploadToMux?: boolean` - Whether to upload edited track to Mux (default: true)
 - `deleteOriginalTrack?: boolean` - Whether to delete the original track after uploading the edited one (default: true)
 - `s3Endpoint?: string` - S3-compatible storage endpoint

@@ -418,6 +418,54 @@ describe("applyReplacements", () => {
     expect(replacements).toHaveLength(0);
   });
 
+  it("is case-sensitive when caseSensitive is explicitly true", () => {
+    const { editedVtt, replacements } = applyReplacements(sampleVtt, [
+      { find: "mucks", replace: "Mux", caseSensitive: true },
+    ]);
+    expect(editedVtt).toContain("Mucks");
+    expect(replacements).toHaveLength(0);
+  });
+
+  it("matches case-insensitively when caseSensitive is false", () => {
+    const { editedVtt, replacements } = applyReplacements(sampleVtt, [
+      { find: "mucks", replace: "Mux", caseSensitive: false },
+    ]);
+    expect(editedVtt).toContain("Welcome to Mux streaming platform.");
+    expect(editedVtt).not.toContain("Mucks");
+    expect(replacements).toHaveLength(1);
+    expect(replacements[0].before).toBe("Mucks");
+    expect(replacements[0].after).toBe("Mux");
+  });
+
+  it("caseSensitive: false matches all case variants of the same word", () => {
+    const vtt = [
+      "WEBVTT",
+      "",
+      "00:00:01.000 --> 00:00:04.000",
+      "MUCKS Mucks mucks MuCkS!",
+    ].join("\n");
+    const { editedVtt, replacements } = applyReplacements(vtt, [
+      { find: "mucks", replace: "Mux", caseSensitive: false },
+    ]);
+    expect(editedVtt).toContain("Mux Mux Mux Mux!");
+    expect(replacements).toHaveLength(4);
+  });
+
+  it("applies caseSensitive per-entry independently", () => {
+    const vtt = [
+      "WEBVTT",
+      "",
+      "00:00:01.000 --> 00:00:04.000",
+      "Welcome to Mucks and mucks. We're Gonna go.",
+    ].join("\n");
+    const { editedVtt, replacements } = applyReplacements(vtt, [
+      { find: "Mucks", replace: "Mux" },
+      { find: "gonna", replace: "going to", caseSensitive: false },
+    ]);
+    expect(editedVtt).toContain("Welcome to Mux and mucks. We're going to go.");
+    expect(replacements).toHaveLength(2);
+  });
+
   it("respects word boundaries", () => {
     const vtt = [
       "WEBVTT",
