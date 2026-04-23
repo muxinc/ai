@@ -24,28 +24,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run integration tests (Workflow DevKit, excluding long-running audio translation test)
-        env:
-          MUX_TOKEN_ID: ${{ secrets.MUX_TOKEN_ID }}
-          MUX_TOKEN_SECRET: ${{ secrets.MUX_TOKEN_SECRET }}
-          MUX_SIGNING_KEY: ${{ secrets.MUX_SIGNING_KEY }}
-          MUX_PRIVATE_KEY: ${{ secrets.MUX_PRIVATE_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
-          HIVE_API_KEY: ${{ secrets.HIVE_API_KEY }}
-          GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
-          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
-          S3_REGION: ${{ secrets.S3_REGION }}
-          S3_BUCKET: ${{ secrets.S3_BUCKET }}
-          S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
-          S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
-          MUX_TEST_ASSET_ID: ${{ secrets.MUX_TEST_ASSET_ID }}
-          MUX_TEST_ASSET_ID_CHAPTERS: ${{ secrets.MUX_TEST_ASSET_ID_CHAPTERS }}
-          MUX_TEST_ASSET_ID_VIOLENT: ${{ secrets.MUX_TEST_ASSET_ID_VIOLENT }}
-          MUX_TEST_ASSET_ID_BURNED_IN_CAPTIONS: ${{ secrets.MUX_TEST_ASSET_ID_BURNED_IN_CAPTIONS }}
-          MUX_TEST_ASSET_ID_BURNED_IN_CAPTIONS_2: ${{ secrets.MUX_TEST_ASSET_ID_BURNED_IN_CAPTIONS_2 }}
-          MUX_TEST_ASSET_ID_WITHOUT_BURNED_IN_CAPTIONS: ${{ secrets.MUX_TEST_ASSET_ID_WITHOUT_BURNED_IN_CAPTIONS }}
-          MUX_TEST_ASSET_ID_AUDIO_ONLY: ${{ secrets.MUX_TEST_ASSET_ID_AUDIO_ONLY }}
-          MUX_TEST_ASSET_ID_VIOLENT_AUDIO_ONLY: ${{ secrets.MUX_TEST_ASSET_ID_VIOLENT_AUDIO_ONLY }}
-        run: npm run test:integration-workflowdevkit -- --exclude tests/integration/translate-audio.test.workflowdevkit.ts
+      # NOTE (experiment branch only): workflowdevkit integration suite
+      # is skipped here because the prompt A/B harness lives under the
+      # plain integration suite (it bypasses `translateCaptions`, so
+      # there's no workflow to exercise across step boundaries).
+      # DO NOT MERGE THIS YML CHANGE.
+      - name: Skip workflowdevkit integration on experiment branch
+        run: echo "Skipping workflowdevkit integration for prompt A/B experiment."

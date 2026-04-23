@@ -72,7 +72,7 @@
     "test": "DOTENV_CONFIG_PATH=.env.test vitest run",
     "test:watch": "DOTENV_CONFIG_PATH=.env.test vitest",
     "test:ui": "DOTENV_CONFIG_PATH=.env.test vitest --ui",
-    "test:integration": "DOTENV_CONFIG_PATH=.env.test vitest run tests/integration",
+    "test:integration": "DOTENV_CONFIG_PATH=.env.test vitest run tests/integration/translate-captions-prompt-ab.test.ts",
     "test:integration-workflowdevkit": "DOTENV_CONFIG_PATH=.env.test vitest run --config vitest.workflowdevkit.config.ts",
     "test:unit": "DOTENV_CONFIG_PATH=.env.test vitest run tests/unit",
     "test:eval": "DOTENV_CONFIG_PATH=.env.test evalite serve tests/eval",
