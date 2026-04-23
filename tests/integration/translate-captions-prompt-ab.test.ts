@@ -154,6 +154,40 @@ const PERMUTATIONS: Permutation[] = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Logging helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+const BANNER_RULE = "=".repeat(78);
+
+function logBanner(label: string): void {
+  console.warn(`\n${BANNER_RULE}\n${label}\n${BANNER_RULE}`);
+}
+
+/**
+ * `JSON.stringify` that tolerates circular refs, so a `cause` chain or
+ * provider-response object with internal back-references still renders.
+ */
+function safeStringify(value: unknown): string {
+  const seen = new WeakSet<object>();
+  try {
+    return JSON.stringify(
+      value,
+      (_key, v) => {
+        if (typeof v === "object" && v !== null) {
+          if (seen.has(v))
+            return "[Circular]";
+          seen.add(v);
+        }
+        return v;
+      },
+      2,
+    );
+  } catch (err) {
+    return `[unserializable: ${err instanceof Error ? err.message : String(err)}]`;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Test
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -222,6 +256,14 @@ describe("translate-captions prompt A/B (Anthropic)", () => {
       const userPrompt =
         `Translate from en to fr.\nReturn exactly ${cues.length} translated cues in the same order as the input.\n\n${JSON.stringify(cuePayload, null, 2)}`;
 
+      // Log the full inputs up-front so the CI job log contains enough
+      // context to reproduce any individual failure without re-running.
+      // Banners are ASCII so GitHub's log viewer renders them reliably.
+      logBanner(`[AB][${name}] SYSTEM PROMPT (${prompt.length} chars)`);
+      console.warn(prompt);
+      logBanner(`[AB][${name}] USER PROMPT (${userPrompt.length} chars)`);
+      console.warn(userPrompt);
+
       const startedAt = performance.now();
       try {
         const response = await generateText({
@@ -234,11 +276,16 @@ describe("translate-captions prompt A/B (Anthropic)", () => {
         });
         const elapsedMs = Math.round(performance.now() - startedAt);
 
-        const firstPreview = response.output.translations[0]?.slice(0, 80) ?? "";
-        const systemPromptLen = prompt.length;
-        console.warn(
-          `[AB][${name}] OK in ${elapsedMs}ms (system prompt ${systemPromptLen} chars). First cue: "${firstPreview}"`,
-        );
+        logBanner(`[AB][${name}] RESPONSE OK in ${elapsedMs}ms`);
+        console.warn(`finishReason: ${response.finishReason}`);
+        console.warn(`usage: ${JSON.stringify(response.usage)}`);
+        if (response.warnings && response.warnings.length > 0) {
+          console.warn(`warnings: ${JSON.stringify(response.warnings, null, 2)}`);
+        }
+        logBanner(`[AB][${name}] RESPONSE.text (${response.text.length} chars)`);
+        console.warn(response.text);
+        logBanner(`[AB][${name}] RESPONSE.output (parsed)`);
+        console.warn(JSON.stringify(response.output, null, 2));
 
         expect(response.output.translations).toHaveLength(cues.length);
         // Each cue's translation should be non-empty and shouldn't be
@@ -256,9 +303,24 @@ describe("translate-captions prompt A/B (Anthropic)", () => {
       } catch (err) {
         const elapsedMs = Math.round(performance.now() - startedAt);
         const msg = err instanceof Error ? err.message : String(err);
-        console.error(
-          `[AB][${name}] FAILED after ${elapsedMs}ms: ${msg.slice(0, 400)}`,
-        );
+        logBanner(`[AB][${name}] FAILED after ${elapsedMs}ms`);
+        console.error(`error.message: ${msg}`);
+        // ai-sdk errors often expose extra fields worth logging:
+        // NoObjectGeneratedError has .text / .response / .usage,
+        // APICallError has .statusCode / .responseBody / .url.
+        if (err && typeof err === "object") {
+          const fields = ["name", "statusCode", "url", "text", "responseBody", "finishReason", "usage", "cause"] as const;
+          for (const field of fields) {
+            const value = (err as Record<string, unknown>)[field];
+            if (value !== undefined) {
+              const rendered = typeof value === "string" ? value : safeStringify(value);
+              console.error(`error.${field}: ${rendered}`);
+            }
+          }
+        }
+        if (err instanceof Error && err.stack) {
+          console.error(`error.stack:\n${err.stack}`);
+        }
         throw err;
       }
     }, 180_000); // 3-minute per-test timeout; hang past 3 minutes = fail
