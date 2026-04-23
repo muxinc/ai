@@ -33,6 +33,9 @@ export interface ThumbnailModerationScore {
   time?: number;
   sexual: number;
   violence: number;
+  hate: number;
+  selfHarm: number;
+  drugs: number;
   error: boolean;
   errorMessage?: string;
 }
@@ -66,11 +69,17 @@ export interface ModerationResult {
   maxScores: {
     sexual: number;
     violence: number;
+    hate: number;
+    selfHarm: number;
+    drugs: number;
   };
   exceedsThreshold: boolean;
   thresholds: {
     sexual: number;
     violence: number;
+    hate: number;
+    selfHarm: number;
+    drugs: number;
   };
 }
 
@@ -99,10 +108,13 @@ export interface ModerationOptions extends MuxAIOptions {
    * If omitted, the first ready text track will be used.
    */
   languageCode?: string;
-  /** Override the default sexual/violence thresholds (0-1). */
+  /** Override the default thresholds (0-1). */
   thresholds?: {
     sexual?: number;
     violence?: number;
+    hate?: number;
+    selfHarm?: number;
+    drugs?: number;
   };
   /** Interval between storyboard thumbnails in seconds (defaults to 10). */
   thumbnailInterval?: number;
@@ -125,6 +137,9 @@ export interface ModerationOptions extends MuxAIOptions {
 const DEFAULT_THRESHOLDS = {
   sexual: 0.8,
   violence: 0.8,
+  hate: 0.8,
+  selfHarm: 0.8,
+  drugs: 0.8,
 };
 
 const DEFAULT_PROVIDER = "openai";
@@ -153,9 +168,24 @@ export const HIVE_VIOLENCE_CATEGORIES = [
   "hanging",
   "noose",
   "human_corpse",
-  "yes_emaciated_body",
+];
+
+export const HIVE_HATE_CATEGORIES = [
+  "yes_nazi",
+  "yes_terrorist",
+  "yes_kkk",
+  "yes_confederate",
+];
+
+export const HIVE_SELF_HARM_CATEGORIES = [
   "yes_self_harm",
-  "garm_death_injury_or_military_conflict",
+  "yes_emaciated_body",
+];
+
+export const HIVE_ILLICIT_CATEGORIES = [
+  "yes_pills",
+  "illicit_injectables",
+  "yes_marijuana",
 ];
 
 class OpenAIModerationRequestError extends Error {
@@ -319,6 +349,9 @@ async function moderateImageWithOpenAI(entry: {
       time: entry.time,
       sexual: categoryScores.sexual || 0,
       violence: categoryScores.violence || 0,
+      hate: categoryScores.hate || 0,
+      selfHarm: categoryScores["self-harm"] || 0,
+      drugs: categoryScores.illicit || 0,
       error: false,
     };
   } catch (error) {
@@ -328,6 +361,9 @@ async function moderateImageWithOpenAI(entry: {
       time: entry.time,
       sexual: 0,
       violence: 0,
+      hate: 0,
+      selfHarm: 0,
+      drugs: 0,
       error: true,
       errorMessage: error instanceof Error ? error.message : String(error),
     };
@@ -375,6 +411,9 @@ async function requestOpenAITextModeration(
       url,
       sexual: categoryScores.sexual || 0,
       violence: categoryScores.violence || 0,
+      hate: categoryScores.hate || 0,
+      selfHarm: categoryScores["self-harm"] || 0,
+      drugs: categoryScores.illicit || 0,
       error: false,
     };
   } catch (error) {
@@ -383,6 +422,9 @@ async function requestOpenAITextModeration(
       url,
       sexual: 0,
       violence: 0,
+      hate: 0,
+      selfHarm: 0,
+      drugs: 0,
       error: true,
       errorMessage: error instanceof Error ? error.message : String(error),
     };
@@ -418,7 +460,7 @@ async function requestOpenAITranscriptModeration(
   const chunks = chunkTextByUtf16CodeUnits(transcriptText, 10_000);
   if (!chunks.length) {
     return [
-      { url: "transcript:0", sexual: 0, violence: 0, error: true, errorMessage: "No transcript chunks to moderate" },
+      { url: "transcript:0", sexual: 0, violence: 0, hate: 0, selfHarm: 0, drugs: 0, error: true, errorMessage: "No transcript chunks to moderate" },
     ];
   }
   const targets = chunks.map((chunk, idx) => ({
@@ -517,12 +559,18 @@ async function moderateImageWithHive(entry: {
 
     const sexual = getHiveCategoryScores(classes, HIVE_SEXUAL_CATEGORIES);
     const violence = getHiveCategoryScores(classes, HIVE_VIOLENCE_CATEGORIES);
+    const hate = getHiveCategoryScores(classes, HIVE_HATE_CATEGORIES);
+    const selfHarm = getHiveCategoryScores(classes, HIVE_SELF_HARM_CATEGORIES);
+    const drugs = getHiveCategoryScores(classes, HIVE_ILLICIT_CATEGORIES);
 
     return {
       url: entry.url,
       time: entry.time,
       sexual,
       violence,
+      hate,
+      selfHarm,
+      drugs,
       error: false,
     };
   } catch (error) {
@@ -531,6 +579,9 @@ async function moderateImageWithHive(entry: {
       time: entry.time,
       sexual: 0,
       violence: 0,
+      hate: 0,
+      selfHarm: 0,
+      drugs: 0,
       error: true,
       errorMessage: error instanceof Error ? error.message : String(error),
     };
@@ -747,6 +798,9 @@ export async function getModerationScores(
   // Find highest scores across all thumbnails
   const maxSexual = Math.max(...successful.map(s => s.sexual));
   const maxViolence = Math.max(...successful.map(s => s.violence));
+  const maxHate = Math.max(...successful.map(s => s.hate));
+  const maxSelfHarm = Math.max(...successful.map(s => s.selfHarm));
+  const maxIllicit = Math.max(...successful.map(s => s.drugs));
 
   const finalThresholds = { ...DEFAULT_THRESHOLDS, ...thresholds };
   const requestedSampleCount = thumbnailScores.length;
@@ -780,8 +834,16 @@ export async function getModerationScores(
     maxScores: {
       sexual: maxSexual,
       violence: maxViolence,
+      hate: maxHate,
+      selfHarm: maxSelfHarm,
+      drugs: maxIllicit,
     },
-    exceedsThreshold: maxSexual > finalThresholds.sexual || maxViolence > finalThresholds.violence,
+    exceedsThreshold:
+      maxSexual > finalThresholds.sexual ||
+      maxViolence > finalThresholds.violence ||
+      maxHate > finalThresholds.hate ||
+      maxSelfHarm > finalThresholds.selfHarm ||
+      maxIllicit > finalThresholds.drugs,
     thresholds: finalThresholds,
   };
 }
