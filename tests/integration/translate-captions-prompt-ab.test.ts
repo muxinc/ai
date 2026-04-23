@@ -30,10 +30,12 @@
  * content varies between them.
  */
 
+import { createAnthropic } from "@ai-sdk/anthropic";
 import { generateText, Output } from "ai";
 import { beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 
+import { env } from "../../src/env";
 import { getPlaybackIdForAsset } from "../../src/lib/mux-assets";
 import { fetchVttFromMux } from "../../src/lib/mux-tracks";
 import {
@@ -42,7 +44,6 @@ import {
   promptDedent,
   UNTRUSTED_USER_INPUT_NOTICE,
 } from "../../src/lib/prompt-fragments";
-import { createLanguageModelFromConfig } from "../../src/lib/providers";
 import { resolveMuxSigningContext } from "../../src/lib/workflow-credentials";
 import { buildTranscriptUrl, getReadyTextTracks, parseVTTCues } from "../../src/primitives/transcripts";
 import { muxTestAssets } from "../helpers/mux-test-assets";
@@ -187,6 +188,51 @@ function safeStringify(value: unknown): string {
   }
 }
 
+/**
+ * Build a fetch wrapper that logs every HTTP request made by the
+ * provider — request start, response status + response headers, body-read
+ * milestones, and any failure mode (AbortError, network error, etc.).
+ *
+ * This is the core diagnostic for the "test hung for 3 minutes" failure
+ * mode we saw previously. Without it we can't distinguish "request never
+ * left the runner" from "Anthropic hung mid-stream" from "ai-sdk retried
+ * silently". With it we get Anthropic's `request-id` header and the
+ * `anthropic-ratelimit-*` values for every call, and we can correlate
+ * latency to specific transport events.
+ */
+function buildInstrumentedFetch(tag: string): typeof fetch {
+  return async (input, init) => {
+    const url = typeof input === "string" ?
+      input :
+      input instanceof URL ?
+        input.href :
+        input.url;
+    const method = init?.method ?? "GET";
+    const startedAt = performance.now();
+    console.warn(`[AB][${tag}] HTTP → ${method} ${url}`);
+    try {
+      const res = await fetch(input, init);
+      const elapsedMs = Math.round(performance.now() - startedAt);
+      const headers: Record<string, string> = {};
+      res.headers.forEach((value, key) => {
+        headers[key] = value;
+      });
+      console.warn(
+        `[AB][${tag}] HTTP ← ${res.status} in ${elapsedMs}ms headers=${JSON.stringify(headers)}`,
+      );
+      return res;
+    } catch (err) {
+      const elapsedMs = Math.round(performance.now() - startedAt);
+      const name = err instanceof Error ? err.name : typeof err;
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(
+        `[AB][${tag}] HTTP ✗ after ${elapsedMs}ms (${name}): ${message}`,
+      );
+      throw err;
+    }
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Test
 // ─────────────────────────────────────────────────────────────────────────────
@@ -237,7 +283,20 @@ describe("translate-captions prompt A/B (Anthropic)", () => {
 
   describe.each(PERMUTATIONS)("permutation: $name", ({ name, prompt }) => {
     it(`[${name}] anthropic en→fr single-chunk`, async () => {
-      const model = await createLanguageModelFromConfig("anthropic", "claude-sonnet-4-5");
+      // Build the provider inline with a per-test instrumented fetch so
+      // each permutation's HTTP lifecycle is logged under its own tag.
+      // We also disable ai-sdk's internal retry logic so that if a
+      // request hangs we see exactly one HTTP attempt, not multiple.
+      const apiKey = env.ANTHROPIC_API_KEY;
+      if (!apiKey) {
+        throw new Error("ANTHROPIC_API_KEY is not set");
+      }
+      const anthropic = createAnthropic({
+        apiKey,
+        fetch: buildInstrumentedFetch(name),
+      });
+      const model = anthropic("claude-sonnet-4-5");
+
       // Intentionally loose: Anthropic's structured-output API rejects
       // `minItems`/`maxItems` other than 0 or 1, so we can't encode the
       // exact cue count in the schema. Instead we assert length and
@@ -264,11 +323,22 @@ describe("translate-captions prompt A/B (Anthropic)", () => {
       logBanner(`[AB][${name}] USER PROMPT (${userPrompt.length} chars)`);
       console.warn(userPrompt);
 
+      // Explicit per-call deadline so a hung request produces an
+      // AbortError we can log, rather than vitest silently killing the
+      // test at its own timeout with no forensics.
+      const abortController = new AbortController();
+      const abortTimer = setTimeout(() => {
+        console.error(`[AB][${name}] aborting: 45s deadline exceeded`);
+        abortController.abort(new Error("harness-45s-deadline"));
+      }, 45_000);
+
       const startedAt = performance.now();
       try {
         const response = await generateText({
           model,
           output: Output.object({ schema }),
+          abortSignal: abortController.signal,
+          maxRetries: 0,
           messages: [
             { role: "system", content: prompt },
             { role: "user", content: userPrompt },
@@ -322,7 +392,10 @@ describe("translate-captions prompt A/B (Anthropic)", () => {
           console.error(`error.stack:\n${err.stack}`);
         }
         throw err;
+      } finally {
+        clearTimeout(abortTimer);
       }
-    }, 180_000); // 3-minute per-test timeout; hang past 3 minutes = fail
+    }, 90_000); // Belt-and-suspenders: the 45s AbortController above should
+    // fire long before this; vitest's own timeout is a backstop.
   });
 });
