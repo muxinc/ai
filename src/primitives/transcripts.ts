@@ -74,6 +74,11 @@ export function findCaptionTrack(asset: MuxAsset, languageCode?: string): AssetT
  */
 export const LOW_CONFIDENCE_THRESHOLD = 0.5;
 
+function getAutoLanguageConfidence(track: AssetTextTrack): number | undefined {
+  const value = (track as AssetTextTrack & { auto_language_confidence?: unknown }).auto_language_confidence;
+  return typeof value === "number" ? value : undefined;
+}
+
 /**
  * Extracts a trustworthy language code from a track, returning `undefined`
  * when the language metadata shouldn't be used as an LLM output language.
@@ -98,8 +103,8 @@ export function getReliableLanguageCode(
     return undefined;
   if (isUndeterminedLanguageCode(track.language_code))
     return undefined;
-  if (track.auto_language_confidence !== undefined &&
-    track.auto_language_confidence < confidenceThreshold) {
+  const autoLanguageConfidence = getAutoLanguageConfidence(track);
+  if (autoLanguageConfidence !== undefined && autoLanguageConfidence < confidenceThreshold) {
     return undefined;
   }
   return track.language_code;

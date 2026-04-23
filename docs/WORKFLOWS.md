@@ -198,7 +198,7 @@ const result = await askQuestions(assetId, [
 
 ```typescript
 const result = await askQuestions(assetId, questions, {
-  provider: "openai", // "openai", "anthropic", or "google" (default: "openai")
+  provider: "openai", // "openai", "baseten", "anthropic", or "google" (default: "openai")
   model: "gpt-5.1", // Override default model
   includeTranscript: true, // Include transcript (default: true)
   cleanTranscript: true, // Remove timestamps/markup (default: true)
@@ -278,7 +278,7 @@ console.log("Trends:", result.overallInsight.trends);
 
 ```typescript
 const result = await generateEngagementInsights(assetId, {
-  provider: "openai", // "openai", "anthropic", or "google"
+  provider: "openai", // "openai", "baseten", "anthropic", or "google"
   hotspotLimit: 5, // Moments per direction (1-10, default: 5). Up to 2x total.
   timeframe: "7:days", // "1:hour", "24:hours", "7:days", "30:days"
   skipShots: false, // Skip shots polling, use thumbnails (default: false)
@@ -685,6 +685,12 @@ const openaiResult = await getSummaryAndTags(assetId, {
   tone: "professional"
 });
 
+// Baseten analysis (default: BASETEN_MODEL)
+const basetenResult = await getSummaryAndTags(assetId, {
+  provider: "baseten",
+  tone: "professional"
+});
+
 // Anthropic analysis (default: claude-sonnet-4-5)
 const anthropicResult = await getSummaryAndTags(assetId, {
   provider: "anthropic",
@@ -699,6 +705,7 @@ const googleResult = await getSummaryAndTags(assetId, {
 
 // Compare results
 console.log("OpenAI:", openaiResult.title);
+console.log("Baseten:", basetenResult.title);
 console.log("Anthropic:", anthropicResult.title);
 console.log("Google:", googleResult.title);
 ```
@@ -711,6 +718,11 @@ import { generateChapters } from "@mux/ai/workflows";
 // OpenAI (default: gpt-5.1)
 const openaiChapters = await generateChapters(assetId, {
   provider: "openai"
+});
+
+// Baseten (default: BASETEN_MODEL)
+const basetenChapters = await generateChapters(assetId, {
+  provider: "baseten"
 });
 
 // Anthropic (default: claude-sonnet-4-5)

@@ -4,7 +4,7 @@ import { hasBurnedInCaptions } from "@mux/ai/workflows";
 
 import "../env";
 
-type Provider = "openai" | "anthropic" | "google";
+type Provider = "openai" | "baseten" | "anthropic" | "google";
 
 const program = new Command();
 
@@ -12,13 +12,13 @@ program
   .name("burned-in-captions")
   .description("Detect burned-in captions in a Mux video asset")
   .argument("<asset-id>", "Mux asset ID to analyze")
-  .option("-p, --provider <provider>", "AI provider (openai, anthropic, google)", "openai")
+  .option("-p, --provider <provider>", "AI provider (openai, baseten, anthropic, google)", "openai")
   .action(async (assetId: string, options: {
     provider: Provider;
   }) => {
     // Validate provider
-    if (!["openai", "anthropic", "google"].includes(options.provider)) {
-      console.error("❌ Unsupported provider. Choose from: openai, anthropic, google");
+    if (!["openai", "baseten", "anthropic", "google"].includes(options.provider)) {
+      console.error("❌ Unsupported provider. Choose from: openai, baseten, anthropic, google");
       process.exit(1);
     }
 

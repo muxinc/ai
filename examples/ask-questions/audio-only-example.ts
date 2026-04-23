@@ -5,10 +5,11 @@ import { askQuestions } from "@mux/ai/workflows";
 import env from "../env";
 import { parseQuestionArg } from "./parse-question";
 
-type Provider = "openai" | "anthropic" | "google";
+type Provider = "openai" | "baseten" | "anthropic" | "google";
 
 const DEFAULT_MODELS: Record<Provider, string> = {
   openai: "gpt-5.1",
+  baseten: process.env.BASETEN_MODEL || "your-baseten-model",
   anthropic: "claude-sonnet-4-5",
   google: "gemini-3.1-flash-lite-preview",
 };
@@ -30,7 +31,7 @@ program
     "append a pipe + comma-separated options for custom allowed answers, e.g. " +
     "\"What is the speaker's tone?|calm,excited,angry\"",
   )
-  .option("-p, --provider <provider>", "AI provider (openai, anthropic, google)", "openai")
+  .option("-p, --provider <provider>", "AI provider (openai, baseten, anthropic, google)", "openai")
   .option("-m, --model <model>", "Model name (overrides default for provider)")
   .action(async (assetId: string | undefined, questionArg: string | undefined, options: {
     provider: Provider;
@@ -46,8 +47,8 @@ program
       process.exit(1);
     }
 
-    if (!["openai", "anthropic", "google"].includes(options.provider)) {
-      console.error("Unsupported provider. Choose from: openai, anthropic, google");
+    if (!["openai", "baseten", "anthropic", "google"].includes(options.provider)) {
+      console.error("Unsupported provider. Choose from: openai, baseten, anthropic, google");
       process.exit(1);
     }
 

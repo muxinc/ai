@@ -87,6 +87,23 @@ const EnvSchema = z.object({
 
   // AI Providers
   OPENAI_API_KEY: optionalString("OpenAI API key for OpenAI-backed workflows.", "OpenAI API key"),
+  BASETEN_API_KEY: optionalString("Baseten API key for Baseten-backed workflows.", "Baseten API key"),
+  BASETEN_BASE_URL: optionalString(
+    "Base URL for Baseten language-model deployments (expects an OpenAI-compatible endpoint root such as .../sync/v1).",
+    "Baseten base URL",
+  ),
+  BASETEN_EMBEDDING_BASE_URL: optionalString(
+    "Base URL for Baseten embedding deployments. Falls back to BASETEN_BASE_URL when omitted.",
+    "Baseten embedding base URL",
+  ),
+  BASETEN_MODEL: optionalString(
+    "Default Baseten language model identifier used when provider='baseten' and no explicit model is passed.",
+    "Baseten model",
+  ),
+  BASETEN_EMBEDDING_MODEL: optionalString(
+    "Default Baseten embedding model identifier used when provider='baseten' and no explicit model is passed.",
+    "Baseten embedding model",
+  ),
   ANTHROPIC_API_KEY: optionalString("Anthropic API key for Claude-backed workflows.", "Anthropic API key"),
   GOOGLE_GENERATIVE_AI_API_KEY: optionalString("Google Generative AI API key for Gemini-backed workflows.", "Google Generative AI API key"),
 

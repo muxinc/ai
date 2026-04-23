@@ -5,7 +5,7 @@ import { generateChapters } from "@mux/ai/workflows";
 
 import "../env";
 
-type Provider = "openai" | "anthropic" | "google";
+type Provider = "openai" | "baseten" | "anthropic" | "google";
 
 const program = new Command();
 
@@ -14,7 +14,7 @@ program
   .description("Generate chapters for a Mux video asset")
   .argument("<asset-id>", "Mux asset ID to analyze")
   .option("-l, --language <code>", "Language code for transcription", "en")
-  .option("-p, --provider <provider>", "AI provider (openai, anthropic, google)", "openai")
+  .option("-p, --provider <provider>", "AI provider (openai, baseten, anthropic, google)", "openai")
   .option("--output-language <code>", "Output language as BCP 47 code (e.g. 'fr', 'ja') or 'auto'")
   .action(async (assetId: string, options: {
     language: string;
@@ -22,8 +22,8 @@ program
     outputLanguage?: string;
   }) => {
     // Validate provider
-    if (!["openai", "anthropic", "google"].includes(options.provider)) {
-      console.error("❌ Unsupported provider. Choose from: openai, anthropic, google");
+    if (!["openai", "baseten", "anthropic", "google"].includes(options.provider)) {
+      console.error("❌ Unsupported provider. Choose from: openai, baseten, anthropic, google");
       process.exit(1);
     }
 

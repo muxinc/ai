@@ -3,7 +3,7 @@
 [![npm version](https://badge.fury.io/js/@mux%2Fai.svg)](https://www.npmjs.com/package/@mux/ai)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-Easy to use, purpose-driven, cost effective, configurable **_workflow functions_** in a TypeScript SDK for building AI-powered video and audio workflows on the server, powered by [Mux](https://www.mux.com), with support for popular AI/LLM providers (OpenAI, Anthropic, Google).
+Easy to use, purpose-driven, cost effective, configurable **_workflow functions_** in a TypeScript SDK for building AI-powered video and audio workflows on the server, powered by [Mux](https://www.mux.com), with support for popular AI/LLM providers (OpenAI, Baseten, Anthropic, Google).
 
 - **Examples:** [`getSummaryAndTags`](#video-summarization), [`getModerationScores`](#content-moderation), [`hasBurnedInCaptions`](#burned-in-caption-detection), [`generateChapters`](#chapter-generation), [`generateEmbeddings`](#search-with-embeddings), [`generateEngagementInsights`](#engagement-insights), [`translateCaptions`](#caption-translation), [`editCaptions`](#caption-editing), [`translateAudio`](#audio-dubbing)
 - Workflows automatically ship with `"use workflow"` [compatability with Workflow DevKit](#compatability-with-workflow-devkit)
@@ -25,7 +25,12 @@ Add your credentials to a `.env` file (we support [dotenv](https://www.npmjs.com
 ```bash
 MUX_TOKEN_ID=your_mux_token_id
 MUX_TOKEN_SECRET=your_mux_token_secret
-OPENAI_API_KEY=your_openai_api_key          # or ANTHROPIC_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY
+OPENAI_API_KEY=your_openai_api_key          # or BASETEN_API_KEY, ANTHROPIC_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY
+BASETEN_API_KEY=your_baseten_api_key
+BASETEN_BASE_URL=https://model-123.api.baseten.co/environments/production/sync/v1
+BASETEN_MODEL=your-baseten-chat-model
+BASETEN_EMBEDDING_BASE_URL=https://model-456.api.baseten.co/environments/production/sync/v1   # optional
+BASETEN_EMBEDDING_MODEL=your-baseten-embedding-model                                           # optional
 ```
 
 You only need credentials for the AI provider you're using. See the [Credentials guide](./docs/CREDENTIALS.md) for full setup details including signed playback, S3 storage, and all supported providers.
@@ -54,7 +59,7 @@ console.log(result.tags);         // ["typescript", "tutorial", "programming"]
 
 - **Pre-built workflows for media AI tasks.** Common multi-step operations (transcript access, frame analysis, LLM calls, and structured parsing) are available as high-level functions.
 - **Support for video and audio assets.** The same workflows work with video and [audio-only assets](./docs/AUDIO-ONLY.md), including summarization, moderation, chaptering, and more.
-- **Provider-flexible API.** Choose OpenAI, Anthropic, or Google through workflow options while keeping the same workflow interface.
+- **Provider-flexible API.** Choose OpenAI, Baseten, Anthropic, or Google through workflow options while keeping the same workflow interface.
 - **Published evaluation coverage.** Workflows include [evals](./docs/EVALS.md) for quality, latency, and cost, with results [published publicly](https://evaluating-mux-ai.vercel.app/) on pushes to `main`.
 - **Sensible default models.** Defaults (`gpt-5.1`, `claude-sonnet-4-5`, `gemini-3-flash-preview`) are selected to balance output quality and runtime cost.
 - **Typed end-to-end.** Workflow inputs, options, and outputs are fully typed in TypeScript.
@@ -68,14 +73,14 @@ Workflows are high-level functions that handle complete media AI tasks end-to-en
 
 | Workflow | What it does | Providers | Audio-only |
 | --- | --- | --- | :---: |
-| [`getSummaryAndTags`](./docs/WORKFLOWS.md#video-summarization) | Generate titles, descriptions, and tags | OpenAI, Anthropic, Google | Yes |
+| [`getSummaryAndTags`](./docs/WORKFLOWS.md#video-summarization) | Generate titles, descriptions, and tags | OpenAI, Baseten, Anthropic, Google | Yes |
 | [`getModerationScores`](./docs/WORKFLOWS.md#content-moderation) | Detect inappropriate content | OpenAI, Hive | Yes |
-| [`hasBurnedInCaptions`](./docs/WORKFLOWS.md#burned-in-caption-detection) | Detect hardcoded subtitles in video frames | OpenAI, Anthropic, Google | — |
-| [`askQuestions`](./docs/WORKFLOWS.md#ask-questions) | Answer yes/no questions about asset content | OpenAI, Anthropic, Google | Yes |
-| [`generateChapters`](./docs/WORKFLOWS.md#chapter-generation) | Create chapter markers from transcripts | OpenAI, Anthropic, Google | Yes |
-| [`generateEmbeddings`](./docs/WORKFLOWS.md#embeddings) | Generate vector embeddings for semantic search | OpenAI, Google | Yes |
-| [`translateCaptions`](./docs/WORKFLOWS.md#caption-translation) | Translate captions into other languages | OpenAI, Anthropic, Google | Yes |
-| [`editCaptions`](./docs/WORKFLOWS.md#caption-editing) | Edit captions: censor profanity and/or apply static replacements | OpenAI, Anthropic, Google | Yes |
+| [`hasBurnedInCaptions`](./docs/WORKFLOWS.md#burned-in-caption-detection) | Detect hardcoded subtitles in video frames | OpenAI, Baseten, Anthropic, Google | — |
+| [`askQuestions`](./docs/WORKFLOWS.md#ask-questions) | Answer yes/no questions about asset content | OpenAI, Baseten, Anthropic, Google | Yes |
+| [`generateChapters`](./docs/WORKFLOWS.md#chapter-generation) | Create chapter markers from transcripts | OpenAI, Baseten, Anthropic, Google | Yes |
+| [`generateEmbeddings`](./docs/WORKFLOWS.md#embeddings) | Generate vector embeddings for semantic search | OpenAI, Baseten, Google | Yes |
+| [`translateCaptions`](./docs/WORKFLOWS.md#caption-translation) | Translate captions into other languages | OpenAI, Baseten, Anthropic, Google | Yes |
+| [`editCaptions`](./docs/WORKFLOWS.md#caption-editing) | Edit captions: censor profanity and/or apply static replacements | OpenAI, Baseten, Anthropic, Google | Yes |
 | [`translateAudio`](./docs/WORKFLOWS.md#audio-dubbing) | Create AI-dubbed audio tracks | ElevenLabs | Yes |
 
 See the [Workflows guide](./docs/WORKFLOWS.md) for detailed documentation, options, and examples for each workflow. See the [API Reference](./docs/API.md) for complete parameter and return type details.

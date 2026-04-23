@@ -4,30 +4,34 @@ import { createOpenAI } from "@ai-sdk/openai";
 
 import type { Env } from "@mux/ai/env";
 import env from "@mux/ai/env";
-import { resolveProviderApiKey } from "@mux/ai/lib/workflow-credentials";
+import { resolveProviderApiKey, resolveWorkflowCredentials } from "@mux/ai/lib/workflow-credentials";
 import type { MuxAIOptions, WorkflowCredentialsInput } from "@mux/ai/types";
 
 import type { EmbeddingModel, LanguageModel } from "ai";
 
-export type SupportedProvider = "openai" | "anthropic" | "google";
-export type SupportedEmbeddingProvider = "openai" | "google";
+export type SupportedProvider = "openai" | "baseten" | "anthropic" | "google";
+export type SupportedEmbeddingProvider = "openai" | "baseten" | "google";
 
 // Model ID unions inferred from ai-sdk provider call signatures
 type OpenAIModelId = Parameters<ReturnType<typeof createOpenAI>["chat"]>[0];
+type BasetenModelId = string;
 type AnthropicModelId = Parameters<ReturnType<typeof createAnthropic>["chat"]>[0];
 type GoogleModelId = Parameters<ReturnType<typeof createGoogleGenerativeAI>["chat"]>[0];
 
 type OpenAIEmbeddingModelId = Parameters<ReturnType<typeof createOpenAI>["embedding"]>[0];
+type BasetenEmbeddingModelId = string;
 type GoogleEmbeddingModelId = Parameters<ReturnType<typeof createGoogleGenerativeAI>["textEmbeddingModel"]>[0];
 
 export interface ModelIdByProvider {
   openai: OpenAIModelId;
+  baseten: BasetenModelId;
   anthropic: AnthropicModelId;
   google: GoogleModelId;
 }
 
 export interface EmbeddingModelIdByProvider {
   openai: OpenAIEmbeddingModelId;
+  baseten: BasetenEmbeddingModelId;
   google: GoogleEmbeddingModelId;
 }
 
@@ -42,23 +46,69 @@ export interface ResolvedModel<P extends SupportedProvider = SupportedProvider> 
   model: LanguageModel;
 }
 
-export const DEFAULT_LANGUAGE_MODELS: { [K in SupportedProvider]: ModelIdByProvider[K] } = {
+export const DEFAULT_LANGUAGE_MODELS: {
+  [K in Exclude<SupportedProvider, "baseten">]: ModelIdByProvider[K];
+} = {
   openai: "gpt-5.1",
   anthropic: "claude-sonnet-4-5",
   google: "gemini-3-flash-preview",
 };
 
-const DEFAULT_EMBEDDING_MODELS: { [K in SupportedEmbeddingProvider]: EmbeddingModelIdByProvider[K] } = {
+const DEFAULT_EMBEDDING_MODELS: {
+  [K in Exclude<SupportedEmbeddingProvider, "baseten">]: EmbeddingModelIdByProvider[K];
+} = {
   openai: "text-embedding-3-small",
   google: "gemini-embedding-001",
 };
+
+function resolveBasetenLanguageModelId(model?: string): BasetenModelId {
+  const resolved = model ?? env.BASETEN_MODEL;
+  if (!resolved) {
+    throw new Error(
+      "Baseten model is required. Pass `model` when provider is \"baseten\" or set BASETEN_MODEL.",
+    );
+  }
+  return resolved;
+}
+
+function resolveBasetenEmbeddingModelId(model?: string): BasetenEmbeddingModelId {
+  const resolved = model ?? env.BASETEN_EMBEDDING_MODEL ?? env.BASETEN_MODEL;
+  if (!resolved) {
+    throw new Error(
+      "Baseten embedding model is required. Pass `model` when provider is \"baseten\" or set BASETEN_EMBEDDING_MODEL.",
+    );
+  }
+  return resolved;
+}
+
+export function getDefaultLanguageModel<P extends SupportedProvider = SupportedProvider>(
+  provider: P,
+): ModelIdByProvider[P] {
+  if (provider === "baseten") {
+    return resolveBasetenLanguageModelId() as ModelIdByProvider[P];
+  }
+
+  return DEFAULT_LANGUAGE_MODELS[provider as Exclude<SupportedProvider, "baseten">] as ModelIdByProvider[P];
+}
+
+export function getDefaultEmbeddingModel<P extends SupportedEmbeddingProvider = SupportedEmbeddingProvider>(
+  provider: P,
+): EmbeddingModelIdByProvider[P] {
+  if (provider === "baseten") {
+    return resolveBasetenEmbeddingModelId() as EmbeddingModelIdByProvider[P];
+  }
+
+  return DEFAULT_EMBEDDING_MODELS[provider as Exclude<SupportedEmbeddingProvider, "baseten">] as EmbeddingModelIdByProvider[P];
+}
 
 /**
  * All language models available per provider.
  * Includes the default model plus any additional models for evaluation and selection.
  * New models are additive — existing defaults are unchanged.
  */
-export const LANGUAGE_MODELS: { [K in SupportedProvider]: ModelIdByProvider[K][] } = {
+export const LANGUAGE_MODELS: {
+  [K in Exclude<SupportedProvider, "baseten">]: ModelIdByProvider[K][];
+} = {
   openai: ["gpt-5.1", "gpt-5-mini"],
   anthropic: ["claude-sonnet-4-5"],
   google: ["gemini-3-flash-preview", "gemini-3.1-flash-lite-preview", "gemini-2.5-flash"],
@@ -151,8 +201,8 @@ export function resetLanguageModelDeprecationWarningsForTests(): void {
  * A (provider, modelId) pair used for evaluation iteration.
  */
 export interface EvalModelConfig {
-  provider: SupportedProvider;
-  modelId: ModelIdByProvider[SupportedProvider];
+  provider: Exclude<SupportedProvider, "baseten">;
+  modelId: ModelIdByProvider[Exclude<SupportedProvider, "baseten">];
 }
 
 export type EvalModelSelection = "default" | "all";
@@ -163,16 +213,22 @@ export interface ResolveEvalModelConfigsOptions {
 }
 
 function getDefaultEvalModelConfigs(): EvalModelConfig[] {
-  return (Object.entries(DEFAULT_LANGUAGE_MODELS) as [SupportedProvider, ModelIdByProvider[SupportedProvider]][])
+  return (Object.entries(DEFAULT_LANGUAGE_MODELS) as [
+    Exclude<SupportedProvider, "baseten">,
+    ModelIdByProvider[Exclude<SupportedProvider, "baseten">],
+  ][])
     .map(([provider, modelId]) => ({ provider, modelId }));
 }
 
 function getAllEvalModelConfigs(): EvalModelConfig[] {
-  return (Object.entries(LANGUAGE_MODELS) as [SupportedProvider, ModelIdByProvider[SupportedProvider][]][])
+  return (Object.entries(LANGUAGE_MODELS) as [
+    Exclude<SupportedProvider, "baseten">,
+    ModelIdByProvider[Exclude<SupportedProvider, "baseten">][],
+  ][])
     .flatMap(([provider, models]) => models.map(modelId => ({ provider, modelId })));
 }
 
-function isSupportedProvider(value: string): value is SupportedProvider {
+function isSupportedProvider(value: string): value is Exclude<SupportedProvider, "baseten"> {
   return value === "openai" || value === "anthropic" || value === "google";
 }
 
@@ -205,7 +261,7 @@ function parseEvalModelPair(value: string): EvalModelConfig {
 
   return {
     provider,
-    modelId: modelId as ModelIdByProvider[SupportedProvider],
+    modelId: modelId as ModelIdByProvider[Exclude<SupportedProvider, "baseten">],
   };
 }
 
@@ -274,7 +330,7 @@ export function resolveLanguageModelConfig<P extends SupportedProvider = Support
   options: ModelRequestOptions<P> = {},
 ): { provider: P; modelId: ModelIdByProvider[P] } {
   const provider = options.provider || ("openai" as P);
-  const modelId = (options.model || DEFAULT_LANGUAGE_MODELS[provider]) as ModelIdByProvider[P];
+  const modelId = (options.model ?? getDefaultLanguageModel(provider)) as ModelIdByProvider[P];
   maybeWarnOrThrowForDeprecatedLanguageModel(provider, modelId);
 
   return { provider, modelId };
@@ -284,7 +340,7 @@ export function resolveEmbeddingModelConfig<P extends SupportedEmbeddingProvider
   options: MuxAIOptions & { provider?: P; model?: EmbeddingModelIdByProvider[P] } = {},
 ): { provider: P; modelId: EmbeddingModelIdByProvider[P] } {
   const provider = options.provider || ("openai" as P);
-  const modelId = (options.model || DEFAULT_EMBEDDING_MODELS[provider]) as EmbeddingModelIdByProvider[P];
+  const modelId = (options.model ?? getDefaultEmbeddingModel(provider)) as EmbeddingModelIdByProvider[P];
 
   return { provider, modelId };
 }
@@ -432,6 +488,10 @@ export function calculateCost(
   outputTokens: number,
   cachedInputTokens: number = 0,
 ): number {
+  if (provider === "baseten") {
+    return 0;
+  }
+
   const defaultModelId = DEFAULT_LANGUAGE_MODELS[provider];
   return calculateModelCost(defaultModelId, inputTokens, outputTokens, cachedInputTokens);
 }
@@ -441,6 +501,56 @@ function requireEnv(value: string | undefined, name: string): string {
     throw new Error(`Missing ${name}. Set ${name} in your environment or pass it in options.`);
   }
   return value;
+}
+
+function normalizeOpenAICompatibleBaseUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  return trimmed
+    .replace(/\/(chat\/completions|responses|embeddings)\/?$/, "")
+    .replace(/\/$/, "");
+}
+
+async function resolveBasetenBaseUrl(
+  credentials?: WorkflowCredentialsInput,
+  kind: "language" | "embedding" = "language",
+): Promise<string> {
+  const resolved = await resolveWorkflowCredentials(credentials);
+  const record = resolved as Record<string, unknown>;
+  const basetenBaseUrl = typeof record.basetenBaseUrl === "string" ? record.basetenBaseUrl : undefined;
+  const basetenEmbeddingBaseUrl = typeof record.basetenEmbeddingBaseUrl === "string" ? record.basetenEmbeddingBaseUrl : undefined;
+  const candidates = kind === "embedding" ?
+      [basetenEmbeddingBaseUrl, env.BASETEN_EMBEDDING_BASE_URL, basetenBaseUrl, env.BASETEN_BASE_URL] :
+      [basetenBaseUrl, env.BASETEN_BASE_URL];
+  const normalized = normalizeOpenAICompatibleBaseUrl(candidates.find(Boolean) ?? "");
+
+  if (!normalized) {
+    const envVar = kind === "embedding" ? "BASETEN_EMBEDDING_BASE_URL" : "BASETEN_BASE_URL";
+    throw new Error(
+      `Baseten ${kind} base URL is required. Set ${envVar}${kind === "embedding" ? " (or BASETEN_BASE_URL)" : ""} or provide ${kind === "embedding" ? "basetenEmbeddingBaseUrl" : "basetenBaseUrl"} in credentials.`,
+    );
+  }
+
+  return normalized;
+}
+
+function resolveBasetenBaseUrlFromEnv(kind: "language" | "embedding" = "language"): string {
+  const candidates = kind === "embedding" ?
+      [env.BASETEN_EMBEDDING_BASE_URL, env.BASETEN_BASE_URL] :
+      [env.BASETEN_BASE_URL];
+  const normalized = normalizeOpenAICompatibleBaseUrl(candidates.find(Boolean) ?? "");
+
+  if (!normalized) {
+    const envVar = kind === "embedding" ? "BASETEN_EMBEDDING_BASE_URL" : "BASETEN_BASE_URL";
+    throw new Error(
+      `Baseten ${kind} base URL is required. Set ${envVar}${kind === "embedding" ? " (or BASETEN_BASE_URL)" : ""}.`,
+    );
+  }
+
+  return normalized;
 }
 
 /**
@@ -460,6 +570,12 @@ export async function createLanguageModelFromConfig<P extends SupportedProvider 
       const apiKey = await resolveProviderApiKey("openai", credentials);
       const openai = createOpenAI({ apiKey });
       return openai(modelId);
+    }
+    case "baseten": {
+      const apiKey = await resolveProviderApiKey("baseten", credentials);
+      const baseURL = await resolveBasetenBaseUrl(credentials, "language");
+      const baseten = createOpenAI({ apiKey, baseURL });
+      return baseten.chat(modelId);
     }
     case "anthropic": {
       const apiKey = await resolveProviderApiKey("anthropic", credentials);
@@ -496,6 +612,12 @@ export async function createEmbeddingModelFromConfig<
       const openai = createOpenAI({ apiKey });
       return openai.embedding(modelId);
     }
+    case "baseten": {
+      const apiKey = await resolveProviderApiKey("baseten", credentials);
+      const baseURL = await resolveBasetenBaseUrl(credentials, "embedding");
+      const baseten = createOpenAI({ apiKey, baseURL });
+      return baseten.embedding(modelId);
+    }
     case "google": {
       const apiKey = await resolveProviderApiKey("google", credentials);
       const google = createGoogleGenerativeAI({ apiKey });
@@ -514,9 +636,7 @@ export async function createEmbeddingModelFromConfig<
 export function resolveLanguageModel<P extends SupportedProvider = SupportedProvider>(
   options: ModelRequestOptions<P> = {},
 ): ResolvedModel<P> {
-  const provider = options.provider || ("openai" as P);
-  const modelId = (options.model || DEFAULT_LANGUAGE_MODELS[provider]) as ModelIdByProvider[P];
-  maybeWarnOrThrowForDeprecatedLanguageModel(provider, modelId);
+  const { provider, modelId } = resolveLanguageModelConfig(options);
 
   switch (provider) {
     case "openai": {
@@ -530,6 +650,21 @@ export function resolveLanguageModel<P extends SupportedProvider = SupportedProv
         provider,
         modelId,
         model: openai(modelId),
+      };
+    }
+    case "baseten": {
+      const apiKey = env.BASETEN_API_KEY;
+      requireEnv(apiKey, "BASETEN_API_KEY");
+      const baseURL = resolveBasetenBaseUrlFromEnv("language");
+      const baseten = createOpenAI({
+        apiKey,
+        baseURL,
+      });
+
+      return {
+        provider,
+        modelId,
+        model: baseten.chat(modelId),
       };
     }
     case "anthropic": {
@@ -571,8 +706,7 @@ export function resolveLanguageModel<P extends SupportedProvider = SupportedProv
 export function resolveEmbeddingModel<P extends SupportedEmbeddingProvider = "openai">(
   options: MuxAIOptions & { provider?: P; model?: EmbeddingModelIdByProvider[P] } = {},
 ): { provider: P; modelId: EmbeddingModelIdByProvider[P]; model: EmbeddingModel } {
-  const provider = options.provider || ("openai" as P);
-  const modelId = (options.model || DEFAULT_EMBEDDING_MODELS[provider]) as EmbeddingModelIdByProvider[P];
+  const { provider, modelId } = resolveEmbeddingModelConfig(options);
 
   switch (provider) {
     case "openai": {
@@ -586,6 +720,21 @@ export function resolveEmbeddingModel<P extends SupportedEmbeddingProvider = "op
         provider,
         modelId,
         model: openai.embedding(modelId),
+      };
+    }
+    case "baseten": {
+      const apiKey = env.BASETEN_API_KEY;
+      requireEnv(apiKey, "BASETEN_API_KEY");
+      const baseURL = resolveBasetenBaseUrlFromEnv("embedding");
+      const baseten = createOpenAI({
+        apiKey,
+        baseURL,
+      });
+
+      return {
+        provider,
+        modelId,
+        model: baseten.embedding(modelId),
       };
     }
     case "google": {
