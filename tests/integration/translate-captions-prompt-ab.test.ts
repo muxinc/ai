@@ -202,10 +202,16 @@ describe("translate-captions prompt A/B (Anthropic)", () => {
   });
 
   describe.each(PERMUTATIONS)("permutation: $name", ({ name, prompt }) => {
-    it(`anthropic en→French (fr), 14-cue single-chunk payload`, async () => {
+    it(`[${name}] anthropic en→fr single-chunk`, async () => {
       const model = await createLanguageModelFromConfig("anthropic", "claude-sonnet-4-5");
+      // Intentionally loose: Anthropic's structured-output API rejects
+      // `minItems`/`maxItems` other than 0 or 1, so we can't encode the
+      // exact cue count in the schema. Instead we assert length and
+      // non-empty strings in JS after the model replies. Keeping the
+      // schema loose also guarantees schema validation itself is not
+      // the variable across permutations.
       const schema = z.object({
-        translations: z.array(z.string().min(1)).length(cues.length),
+        translations: z.array(z.string()),
       });
       const cuePayload = cues.map((cue, index) => ({
         index,
