@@ -62,7 +62,7 @@ npm run basic abc123 "What is the production quality?|amateur,semi-pro,professio
 npm run basic abc123 "Are there people visible in this video?" --no-transcript
 
 # Use a specific model
-npm run basic abc123 "Is this video shot outdoors?" --model gpt-4o
+npm run basic abc123 "Is this video shot outdoors?" --model gpt-5-mini
 ```
 
 ### Multiple Questions Example

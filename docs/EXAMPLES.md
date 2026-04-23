@@ -172,7 +172,7 @@ npm run basic <your-asset-id> "Does this show cooking?" --provider google
 npm run basic <your-asset-id> "Does this video show text?" --no-transcript
 
 # Custom model
-npm run basic <your-asset-id> "Is this a tutorial?" --model gpt-4o
+npm run basic <your-asset-id> "Is this a tutorial?" --model gpt-5-mini
 ```
 
 **Use Cases:**

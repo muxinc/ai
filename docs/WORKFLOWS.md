@@ -734,13 +734,13 @@ import { getSummaryAndTags } from "@mux/ai/workflows";
 // Use a more powerful model
 const result = await getSummaryAndTags(assetId, {
   provider: "openai",
-  model: "gpt-4o" // Instead of default gpt-5.1
+  model: "gpt-5.4" // Instead of default gpt-5.1
 });
 
 // Use a faster/cheaper model
 const fastResult = await getSummaryAndTags(assetId, {
   provider: "google",
-  model: "gemini-1.5-flash-8b" // Smallest/fastest Gemini
+  model: "gemini-3.1-flash-lite-preview" // Smallest/fastest Gemini
 });
 ```
 
