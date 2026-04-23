@@ -1,53 +1,197 @@
 # translate-captions Anthropic flakiness investigation
 
-Writeup of an investigation into intermittent Anthropic failures on the
-translate-captions workflow that appeared during PR 181's iteration. The
-investigation happened on branch `experiment/test-root-cause-anthropic-translate-captions`
-(PR 184) and is captured here so the conclusions don't vanish with the branch.
+Writeup of an investigation into intermittent Anthropic failures that
+drew attention on the translate-captions workflow during PR 181's
+iteration. The investigation happened on branch
+`experiment/test-root-cause-anthropic-translate-captions` (PR 184) and
+is captured here so the conclusions don't vanish with the branch.
+
+> Scope note: what looked like one failure pattern is actually
+> multiple distinct failure modes that co-occurred during PR 181 and
+> got conflated in memory. The "Failure shape taxonomy" section below
+> breaks them apart before the theory discussion, so read that first
+> if you're coming in cold.
 
 ## TL;DR
 
-The translate-captions flakiness is **not caused by PR 181** and **not
-caused by prompt content or size on a per-call basis**. The failures
-correlate almost perfectly with **US business hours (18:00–22:59 UTC)**
-and are best explained by **peak-hour contention on a shared Anthropic
-concurrency budget** — the same API key services CI, Claude Code
-sessions, production workflows, and other interactive org usage, so
-during business hours CI jobs compete with the rest of the org for
-concurrent request slots. Requests that lose that race queue on
-Anthropic's side and, for some tails, queue past the CI test timeout.
+"translate-captions flakiness during PR 181" turned out to be **two
+distinct failure modes that were conflated** because they co-occurred
+during PR 181's iteration:
 
-## Current theory
+1. **Missing / wrapped `WEBVTT` header — content-driven and
+   PR-181-specific, then fixed within PR 181.** PR 181 added a
+   `<security>` XML block to the translate-captions system prompts.
+   That block primed Claude to emit its translated VTT without the
+   `WEBVTT` header (or wrapped in `<code>…</code>`), which failed an
+   `expect(result.translatedVtt).toContain("WEBVTT")` assertion in
+   `Integration Tests (Workflow DevKit)`. The fix — commit `a8c9346`
+   adding `normalizeTranslatedVtt` — landed inside PR 181 before
+   merge, and is why this mode doesn't reproduce now.
+2. **Timeouts / "No output generated" — provider-side, not
+   PR-181-caused.** Long-running eval tests time out (10 min) when a
+   provider call hangs or returns an unparseable response. These
+   failures correlate with **US business hours (18:00–22:59 UTC)**
+   and with **workflows whose calls generate the most output tokens**
+   (both translation evals lead the distribution). The best
+   explanation is peak-hour contention on a shared provider
+   concurrency budget — the org's API key services CI, Claude Code,
+   production workflows, and interactive dev use, so during business
+   hours CI jobs compete for request slots. Long-output calls hold a
+   slot longer, so they accumulate tail-queue wait faster than short-
+   output calls, and some queue past the CI test timeout. This mode
+   also happens on branches that pre-date PR 181 and on an empty-
+   commit control branch (`pc/main-test`).
 
-Anthropic enforces a per-organization concurrent-request cap separate
-from the per-minute rate limits visible in response headers. Exceeding
-the rate limit returns 429; exceeding the concurrency cap can result in
-a request sitting in a server-side queue (no 429) waiting for a slot.
-During US business hours, Mux's aggregate Anthropic usage — CI + Claude
-Code + production workflows + any developer tooling — comes close to or
-crosses that cap. Individual requests that land at the queue head are
-served promptly; tail requests can wait long enough to trip a CI test
-timeout (10 min for Evalite, varies for integration).
+Neither mode is caused by the PR 181 prompt *content* (the security
+language itself) on an inference-correctness basis — the A/B harness
+showed no bias between permutations off-peak. Mode 1 was a specific
+output-shape quirk triggered by the XML tag structure and squashed by
+an output normalizer; mode 2 is upstream.
 
-The translate-captions eval surfaces this more readily than other
-workflows because it fans out (3 target languages × 3 providers = 9
-evalite cases per run) and runs all of them in parallel within a single
-`evalite(...)` call. More in-flight Anthropic requests on the org's
-shared budget per test run → higher tail-latency exposure.
+## Failure shape taxonomy
+
+Pulling the actual error signatures from every failing Evalite / Workflow
+DevKit run in the last 100 CI invocations yields this distribution:
+
+| Shape                                     | Count | Where seen                                                                                                                                |
+|-------------------------------------------|-------|-------------------------------------------------------------------------------------------------------------------------------------------|
+| `Test timed out in 600000ms` (10 min)     | 2     | PR 181 `translate-captions.eval.ts`; `pc/main-test` `translate-captions.eval.ts`                                                          |
+| Google `"No output generated"`            | 3     | main `summarization-translation.eval.ts`; main `summarization.eval.ts`; feat/mux-ai-error `summarization-translation.eval.ts`             |
+| Anthropic `"No object generated: response did not match schema"` | 1 | wf/0.18.0 `summarization-translation.eval.ts` |
+| OpenAI `AI_APICallError: could not parse JSON` | 1 | vb/ask-questions-audio-only-support `chapters.eval.ts` |
+| `AssertionError: expected … to contain 'WEBVTT'` | 1 | PR 181 `Integration Tests (Workflow DevKit)` |
+
+The "translate-captions flakiness" story was actually at least **three
+different mechanisms**:
+
+- **Timeouts** hit translate-captions eval twice (both peak-hour).
+  Best fit: peak-hour provider-concurrency contention.
+- **Google "No output generated"** is a non-Anthropic, non-translate-
+  captions pattern with its own causes (Gemini quirks or provider-side
+  empty responses) and isn't covered by anything specific to this
+  investigation. Mentioned here so future readers don't re-conflate.
+- **Missing `WEBVTT` header** is the one PR 181 *did* cause — but the
+  fix landed inside PR 181, so it's gone now.
+
+Everything in the "Current theory" section below applies to the
+**timeout mode** specifically. The missing-WEBVTT mode has its own
+mechanism, documented separately below it.
+
+## Current theory (for the timeout mode)
+
+Providers (most notably Anthropic here, but the same logic applies to
+any shared-concurrency backend) enforce a per-organization concurrent-
+request cap separate from the per-minute rate limits visible in
+response headers. Exceeding the rate limit returns 429; exceeding the
+concurrency cap can result in a request sitting in a server-side queue
+(no 429) waiting for a slot. During US business hours, Mux's aggregate
+Anthropic usage — CI + Claude Code + production workflows + any
+developer tooling — comes close to the org's cap. Individual requests
+that land at the queue head are served promptly; tail requests can
+wait long enough to trip a CI test timeout (10 min for Evalite, varies
+for integration).
+
+### Why translation workflows are the most exposed
+
+Residence time on an Anthropic inference slot is dominated by **output
+token generation** — tokens are emitted serially, one at a time. Input
+token processing contributes less (inputs are batched) and prompt
+content contributes effectively nothing. So per-workflow exposure to
+tail-queueing scales with typical output length.
+
+| Workflow                        | Typical output shape                              |
+|---------------------------------|---------------------------------------------------|
+| moderation                      | A handful of scores (very short)                  |
+| ask-questions                   | Short answers per question                        |
+| burned-in-captions              | Boolean + short reasoning                         |
+| chapters                        | List of chapter entries (moderate)                |
+| summarization                   | One paragraph (moderate)                          |
+| **summarization-translation**   | **Paragraph + its translation (longer)**          |
+| **translate-captions**          | **Full per-cue translated text (longest)**        |
+
+Under Little's Law with a fixed concurrency cap, long-output calls
+both occupy a slot longer *per call* (raising any given call's chance
+of sitting in the queue) and contribute to slower drain of the queue
+for everyone *during* the call. Short-output calls pop in and out of a
+slot before the queue has time to grow around them; long-output
+translation calls sit in a slot long enough to notice when the pool
+is nearly full. Same org-wide pressure, much more exposure for
+translation-shaped work.
+
+This also explains a detail we initially misread — that the failures
+were "translate-captions-specific." They're not. They're concentrated
+on the two translation evals, which happen to be the two workflows
+with the longest average output. Because PR 181 was touching
+translate-captions, the `translate-captions.eval.ts` failures got
+attention; the `summarization-translation.eval.ts` failures on `main`
+and on earlier feature branches didn't.
 
 ### How prompt size may contribute (second-order)
 
 PR 181 added a `<security>` XML block (~2500 chars, ~600 input tokens)
-to the translate-captions system prompts. That increase is small per
-call (a few hundred ms of additional input-processing time at most),
-but under Little's Law the equilibrium queue depth for a fixed
-concurrency cap scales with per-call residence time. A uniformly longer
-inference time across all org-wide Anthropic traffic lowers effective
-throughput against a fixed slot count, pushing a workload that was
-previously *just under* the cap closer to *at* the cap, and making tail
-queueing more visible. This is a plausible aggravator, not the root
-cause — the same time-of-day clustering of failures exists on branches
-that pre-date PR 181.
+to the translate-captions system prompts. Input tokens contribute less
+to residence time than output tokens, but they do lengthen each call
+(~100–300ms at Anthropic-side input-processing rates). Uniformly
+applied across every call, that shifts the queue equilibrium slightly
+toward "full": a workload that was previously *just under* the cap
+with some tail headroom moves closer to *at* the cap, and the tails
+grow. This is a plausible aggravator, not a root cause — the same
+time-of-day clustering of failures exists on branches that pre-date
+PR 181, and the A/B harness with and without the security block in
+off-peak conditions shows no first-order latency difference.
+
+## The missing-WEBVTT mode (separate mechanism, PR 181 specific)
+
+One `Integration Tests (Workflow DevKit)` run on PR 181 (SHA
+`5cd660fc8`, 2026-04-22T18:05:34Z) failed with:
+
+```
+AssertionError: expected '1\n00:00:01.050 --> 00:00:01.850\nAïe…' to contain 'WEBVTT'
+```
+
+The model returned a correct French translation but emitted cues
+without the `WEBVTT` header. This is not a timeout or a concurrency
+symptom — it's a response-shape regression. Root cause:
+
+- The test asset's VTT produces `cueBlocks.length (14) !== cues.length (13)`
+  (a known-harmless quirk). `buildTranslationChunkRequests` logs
+  "`Falling back to full-VTT caption translation because cue block
+  count (14) does not match parsed cue count (13).`" and returns
+  `null`, routing the test through the whole-VTT path (`SYSTEM_PROMPT`)
+  rather than the chunked path.
+- The whole-VTT path expects the model to emit a full VTT string with
+  the `WEBVTT` header intact. PR 181 added a `<security>` XML block
+  to `SYSTEM_PROMPT`. The XML-structured system prompt primed Claude
+  to emit its output in a similar "structured" shape — dropping the
+  plain-text `WEBVTT` header, and in other observed instances wrapping
+  the whole body in `<code>…</code>` or a markdown fence.
+- At SHA `5cd660fc8` the code just returned the model output verbatim.
+  Git archaeology: `normalizeTranslatedVtt` does not exist in
+  `src/workflows/translate-captions.ts` at that commit
+  (`git cat-file -p 7ef0265b14 | grep normalizeTranslatedVtt` → empty).
+- Commit `a8c9346` *later in the same PR* added
+  `normalizeTranslatedVtt`, which strips code-fence / `<code>` /
+  `<pre>` wrappers, uppercases a lowercase header, and prepends
+  `WEBVTT\n\n` if absent. With the normalizer in place, the same
+  model output shape passes the assertion.
+
+So for this one failure mode:
+
+- **Cause:** PR 181's `<security>` XML block in `SYSTEM_PROMPT`.
+- **Fix:** PR 181's own `normalizeTranslatedVtt` (commit `a8c9346`).
+- **Observable only during PR 181 iteration**, between the two
+  commits. Not on main before PR 181 (no XML block), not on main
+  after PR 181 (normalizer in place).
+- **Path-specific** to the whole-VTT code path. The chunked path
+  returns a structured JSON object (`{translations: [...]}`) which
+  doesn't need a `WEBVTT` header, so it's unaffected by this quirk.
+  The test asset happens to hit the whole-VTT path because of the
+  cue-block-count divergence.
+
+This is the PR-181-specific "translate-captions looked broken" signal.
+It is a real regression that PR 181 introduced *and* fixed within the
+same branch; readers looking for "what on earth was happening on PR 181"
+should point here first.
 
 ## Evidence
 
@@ -62,6 +206,25 @@ that pre-date PR 181.
 
 All 9 observed failures across 100 runs fall inside the 5-hour US
 business-day window. Zero failures before 18:00 UTC across 49 runs.
+
+### Failure-by-file distribution (non-cascade, last 100 Evalite runs)
+
+Two `ja/baseten-provider` runs had 8 eval files each failing together
+(a branch-specific infra cascade, unrelated to this investigation).
+Excluding those, the 7 remaining failures are:
+
+| Eval file                              | Failures | Branches                                        |
+|----------------------------------------|----------|-------------------------------------------------|
+| `summarization-translation.eval.ts`    | **3**    | main, feat/mux-ai-error, wf/0.18.0              |
+| `translate-captions.eval.ts`           | **2**    | pc/more-advanced-protection, pc/main-test       |
+| `summarization.eval.ts`                | 1        | main                                            |
+| `chapters.eval.ts`                     | 1        | vb/ask-questions-audio-only-support             |
+
+The two top-failing files are both translation workflows, and the
+gap from 3→2→1→1 suggests a real per-workflow skew rather than
+noise. This contradicts the initial framing of "translate-captions
+specifically" and supports the residence-time argument in the theory
+section.
 
 ### `pc/main-test` reproduced the failure on unmodified main
 
@@ -143,11 +306,31 @@ headers.
   matter independently of our own concurrency level.
 - **Call-count amplification is the sole explanation for Evalite vs
   integration failure skew.** Partially true — Evalite does fan out
-  more — but the strongest predictor is time-of-day, not call count.
-- **PR 181 introduced the bug.** Falsified by `pc/main-test` and by
-  the time-of-day clustering extending back to earlier branches
-  (2026-04-08, 2026-04-10, 2026-04-20 all had evalite failures in the
-  same UTC window, none related to PR 181).
+  more — but the strongest predictors are time-of-day and per-call
+  residence time, not raw call count.
+- **Failures are specific to translate-captions.** Not quite —
+  `summarization-translation.eval.ts` fails more often than
+  `translate-captions.eval.ts` across all branches. The cluster (for
+  the timeout mode) is "long-output-token workflows," not "the
+  translate-captions code path." translate-captions stood out earlier
+  because PR 181 was editing it *and* PR 181 did introduce a
+  translate-captions-specific content regression (missing WEBVTT) at
+  the same time — the two got conflated.
+- **All failures were timeouts.** No — the actual distribution is
+  mixed: 2 timeouts, 3 Google "No output generated", 1 Anthropic
+  schema-mismatch, 1 OpenAI JSON parse error, 1 missing-WEBVTT
+  AssertionError. The taxonomy is documented in a dedicated section
+  above; different modes have different causes.
+- **PR 181 introduced all of the flakiness.** Partially correct:
+  PR 181 *did* introduce the missing-WEBVTT mode (via the `<security>`
+  XML block shifting Claude's output shape) and *did* fix it within
+  the same PR (`normalizeTranslatedVtt` in commit `a8c9346`). PR 181
+  did *not* introduce the timeout mode — `pc/main-test` reproduced
+  it on unmodified main, and the time-of-day clustering extends back
+  to earlier branches (2026-04-08, 2026-04-10, 2026-04-20 all had
+  Evalite failures in the same UTC window, none related to PR 181).
+  Nor did PR 181 introduce the Google "No output" or OpenAI JSON-parse
+  modes (different providers, different branches).
 
 ## What we still can't rule out
 
@@ -166,10 +349,13 @@ headers.
 
 ## Recommendations
 
-- **Harden the production `translateCaptions` chunk path** with a
-  bounded per-call timeout and a retry-on-timeout. Users hitting the
-  same upstream stall should see a second-chance outcome rather than
-  a hung workflow. Independent of any root-cause confirmation.
+For the timeout mode:
+
+- **Harden the production `translateCaptions` path (both chunked and
+  whole-VTT)** with a bounded per-call timeout and a retry-on-timeout.
+  Users hitting the same upstream stall should see a second-chance
+  outcome rather than a hung workflow. Independent of any root-cause
+  confirmation.
 - **Evaluate a dedicated CI Anthropic API key** (or workspace) with
   its own concurrency budget, so CI runs don't compete with
   interactive / production org usage for slots. This both confirms
@@ -177,6 +363,26 @@ headers.
 - **If further confirmation is wanted**, schedule a cron CI run of
   the N=20 stress probe at ~21:00 UTC. Cheap (~$0.20/run in
   credits) and directly tests the peak-hour hypothesis.
+
+For the missing-WEBVTT mode:
+
+- **Already fixed** by `normalizeTranslatedVtt` (PR 181 commit
+  `a8c9346`). The fix is in main. No action needed unless the
+  normalizer is ever refactored away — in which case the failing
+  assertion resurfaces.
+- **Consider adding a unit test** that asserts `normalizeTranslatedVtt`
+  handles the exact observed payload (`1\n00:00:01.050 --> …`)
+  without the header. Prevents regression if the normalizer's
+  "prepend WEBVTT when missing" branch is ever removed.
+
+For the Google / OpenAI modes:
+
+- Out of scope for this investigation, but flagged so they don't get
+  re-attributed to this file or to translate-captions when they
+  recur.
+
+General:
+
 - **Tear down the experiment branch** once findings are captured.
   The instrumented harness (`tests/integration/translate-captions-prompt-ab.test.ts`)
   and the narrowed CI configuration are not meant to ship.
