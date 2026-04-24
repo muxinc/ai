@@ -563,7 +563,17 @@ interface AnalyzeQuestionsInput {
   modelId: string;
   userPrompt: string;
   systemPrompt: string;
-  responseSchema: AskQuestionsSchema;
+  /**
+   * Non-null = constrained-enum mode (enum built from these values plus
+   * SKIP_SENTINEL). Null = free-form mode (length-capped string schema).
+   *
+   * The response schema itself is built inside the step rather than
+   * passed as an argument — step arguments get serialized by the workflow
+   * runtime for suspend/resume, and a Zod schema has functions on it
+   * that can't be JSON-serialized.
+   */
+  allowedAnswers: [string, ...string[]] | null;
+  maxFreeFormAnswerLength: number;
   imageDataUrl?: string;
   credentials?: WorkflowCredentialsInput;
 }
@@ -573,12 +583,18 @@ async function analyzeQuestions({
   modelId,
   userPrompt,
   systemPrompt,
-  responseSchema,
+  allowedAnswers,
+  maxFreeFormAnswerLength,
   imageDataUrl,
   credentials,
 }: AnalyzeQuestionsInput): Promise<AnalysisResponse> {
   "use step";
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
+
+  const answerSchema: z.ZodType<string> = allowedAnswers === null ?
+      z.string().min(1).max(maxFreeFormAnswerLength) :
+      z.enum([...allowedAnswers, SKIP_SENTINEL]);
+  const responseSchema = createAskQuestionsSchema(answerSchema);
 
   const response = await generateText({
     model,
@@ -811,20 +827,20 @@ export async function askQuestions(
   // answers today). When no question is free-form, the existing
   // enum-backed schema is used so providers with structured-output
   // support reject-and-retry invalid values at the provider layer.
-  let answerSchema: z.ZodType<string>;
-  if (hasFreeForm) {
-    answerSchema = z.string().min(1).max(maxFreeFormAnswerLength);
-  } else {
-    const allowedAnswers = Array.from(
-      new Set(
-        normalizedQuestions.flatMap(q =>
-          q.freeFormReply === true ? [] : q.answerOptions,
+  //
+  // Only plain data crosses the step boundary — the Zod schema itself is
+  // built inside `analyzeQuestions`. Step arguments are serialized by
+  // the workflow runtime for suspend/resume, and a Zod schema object
+  // has functions on it that aren't JSON-serializable.
+  const allowedAnswersForStep: [string, ...string[]] | null = hasFreeForm ?
+    null :
+      (Array.from(
+        new Set(
+          normalizedQuestions.flatMap(q =>
+            q.freeFormReply === true ? [] : q.answerOptions,
+          ),
         ),
-      ),
-    ) as [string, ...string[]];
-    answerSchema = z.enum([...allowedAnswers, SKIP_SENTINEL]);
-  }
-  const responseSchema = createAskQuestionsSchema(answerSchema);
+      ) as [string, ...string[]]);
 
   const modelConfig = resolveLanguageModelConfig({
     ...options,
@@ -886,7 +902,8 @@ export async function askQuestions(
         modelId: modelConfig.modelId,
         userPrompt,
         systemPrompt,
-        responseSchema,
+        allowedAnswers: allowedAnswersForStep,
+        maxFreeFormAnswerLength,
         credentials,
       });
     } else {
@@ -906,7 +923,8 @@ export async function askQuestions(
           modelId: modelConfig.modelId,
           userPrompt,
           systemPrompt,
-          responseSchema,
+          allowedAnswers: allowedAnswersForStep,
+          maxFreeFormAnswerLength,
           imageDataUrl: base64Data,
           credentials,
         });
@@ -918,7 +936,8 @@ export async function askQuestions(
             modelId: modelConfig.modelId,
             userPrompt,
             systemPrompt,
-            responseSchema,
+            allowedAnswers: allowedAnswersForStep,
+            maxFreeFormAnswerLength,
             imageDataUrl: storyboardUrl,
             credentials,
           }),
