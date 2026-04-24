@@ -14,23 +14,39 @@ program
     "<questions...>",
     "Questions to ask (space-separated). Answer options default to yes/no. " +
     "To use custom allowed answers for a question, append a pipe followed by " +
-    "comma-separated options, e.g. \"What is the quality?|amateur,semi-pro,professional\"",
+    "comma-separated options, e.g. \"What is the quality?|amateur,semi-pro,professional\". " +
+    "Use \"|*\" (experimental) for a free-form prose reply.",
   )
   .option("-p, --provider <provider>", "AI provider: openai, anthropic, google (default: openai)")
   .option("-m, --model <model>", "Model name (default varies by provider)")
   .option("--no-transcript", "Exclude transcript from analysis")
+  .option(
+    "--free-form-max-length <n>",
+    "Maximum character length for free-form answers (default: 500). Only applies to questions using the |* sigil.",
+    (value) => {
+      const n = Number(value);
+      if (!Number.isFinite(n) || n <= 0) {
+        throw new Error(`--free-form-max-length must be a positive number (received ${value}).`);
+      }
+      return n;
+    },
+  )
   .action(async (assetId: string, questionArgs: string[], options: {
     provider?: string;
     model?: string;
     transcript: boolean;
+    freeFormMaxLength?: number;
   }) => {
     const questionObjects = questionArgs.map(parseQuestionArg);
+    const freeFormMaxLen = options.freeFormMaxLength ?? 500;
 
     console.log("Asset ID:", assetId);
     console.log(`Questions (${questionObjects.length}):`);
     questionObjects.forEach((q, idx) => {
-      const answers = (q.answerOptions ?? ["yes", "no"]).join(", ");
-      console.log(`  ${idx + 1}. ${q.question} [${answers}]`);
+      const format = q.freeFormReply ?
+        `free-form (max ${freeFormMaxLen} chars)` :
+        (q.answerOptions ?? ["yes", "no"]).join(", ");
+      console.log(`  ${idx + 1}. ${q.question} [${format}]`);
     });
     console.log(`Provider: ${options.provider || "openai (default)"}`);
     console.log(`Model: ${options.model || "default"}`);
@@ -43,13 +59,19 @@ program
         provider: options.provider as any,
         model: options.model,
         includeTranscript: options.transcript,
+        maxFreeFormAnswerLength: options.freeFormMaxLength,
       });
 
       console.log(`\n${"=".repeat(80)}\n`);
       console.log(`RESULTS (${result.answers.length} questions answered)\n`);
 
       result.answers.forEach((answer, idx) => {
-        const formattedAnswer = answer.answer?.toUpperCase() ?? "SKIPPED";
+        // Short constrained answers like "yes" / "glasses" read well uppercased;
+        // free-form prose does not — keep prose as-is.
+        const isFreeForm = questionObjects[idx].freeFormReply === true;
+        const formattedAnswer = answer.answer === null ?
+          "SKIPPED" :
+          (isFreeForm ? answer.answer : answer.answer.toUpperCase());
         console.log(`${idx + 1}. ❓ Question:`);
         console.log(`   ${answer.question}`);
         console.log(`\n   ✅ Answer: ${formattedAnswer}`);

@@ -14,21 +14,40 @@ program
     "<question>",
     "Question to ask. Answer options default to yes/no. To use custom allowed answers, " +
     "append a pipe followed by comma-separated options, e.g. " +
-    "\"What is the quality?|amateur,semi-pro,professional\"",
+    "\"What is the quality?|amateur,semi-pro,professional\". " +
+    "Use \"|*\" (experimental) for a free-form prose reply, e.g. " +
+    "\"Describe the subject.|*\"",
   )
   .option("-p, --provider <provider>", "AI provider: openai, anthropic, google (default: openai)")
   .option("-m, --model <model>", "Model name (default varies by provider)")
   .option("--no-transcript", "Exclude transcript from analysis")
+  .option(
+    "--free-form-max-length <n>",
+    "Maximum character length for free-form answers (default: 500). Only applies when the question uses the |* sigil.",
+    (value) => {
+      const n = Number(value);
+      if (!Number.isFinite(n) || n <= 0) {
+        throw new Error(`--free-form-max-length must be a positive number (received ${value}).`);
+      }
+      return n;
+    },
+  )
   .action(async (assetId: string, questionArg: string, options: {
     provider?: string;
     model?: string;
     transcript: boolean;
+    freeFormMaxLength?: number;
   }) => {
     const parsedQuestion = parseQuestionArg(questionArg);
 
     console.log("Asset ID:", assetId);
     console.log("Question:", parsedQuestion.question);
-    console.log(`Allowed answers: ${(parsedQuestion.answerOptions ?? ["yes", "no"]).join(", ")}`);
+    if (parsedQuestion.freeFormReply) {
+      const maxLen = options.freeFormMaxLength ?? 500;
+      console.log(`Answer format: free-form text (max ${maxLen} chars, experimental)`);
+    } else {
+      console.log(`Allowed answers: ${(parsedQuestion.answerOptions ?? ["yes", "no"]).join(", ")}`);
+    }
     console.log(`Provider: ${options.provider || "openai (default)"}`);
     console.log(`Model: ${options.model || "default"}`);
     console.log(`Include Transcript: ${options.transcript}\n`);
@@ -40,6 +59,7 @@ program
         provider: options.provider as any,
         model: options.model,
         includeTranscript: options.transcript,
+        maxFreeFormAnswerLength: options.freeFormMaxLength,
       });
 
       const answer = result.answers[0];

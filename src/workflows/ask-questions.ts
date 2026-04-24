@@ -40,6 +40,24 @@ export interface Question {
   question: string;
   /** Allowed answers for this question (defaults to ["yes", "no"]). */
   answerOptions?: string[];
+  /**
+   * EXPERIMENTAL: When true, the model replies with free-form text for
+   * this question instead of selecting from `answerOptions`. Answers are
+   * length-capped via {@link AskQuestionsOptions.maxFreeFormAnswerLength}
+   * (default 500 characters), still subject to the output-safety
+   * scrubber, and the model can still skip irrelevant questions via the
+   * normal skip mechanism.
+   *
+   * When set, `answerOptions` is ignored for this question.
+   *
+   * The constrained-enum mode is the safer default: restricting answers
+   * to a fixed set prevents arbitrary prose in model output, which is a
+   * potential prompt-leak exfiltration channel. Use free-form only when
+   * your use case genuinely needs open-ended answers (e.g. describing a
+   * scene, extracting quoted text) and treat the resulting answer as
+   * untrusted model output.
+   */
+  freeFormReply?: boolean;
 }
 
 /** A single answer to a question. */
@@ -88,6 +106,18 @@ export interface AskQuestionsOptions extends MuxAIOptions {
    * it to accept arbitrary untrusted input without other safeguards.
    */
   maxAnswerOptionLength?: number;
+  /**
+   * EXPERIMENTAL: Maximum character length for free-form answers when a
+   * question sets `freeFormReply: true`. Defaults to 500.
+   *
+   * Free-form answers bypass the enum schema, so this cap is the primary
+   * mechanical limit on how much content the model can emit per answer.
+   * Keep it low to hold answers tight and bound any potential
+   * exfiltration channel; raise only if your use case genuinely needs
+   * longer prose. Answers still pass through the output-safety scrubber
+   * regardless of this value.
+   */
+  maxFreeFormAnswerLength?: number;
 }
 
 /** Structured return payload for askQuestions workflow. */
@@ -156,9 +186,20 @@ export type QuestionAnswerType = z.infer<typeof questionAnswerSchema>;
  */
 const SKIP_SENTINEL = "__SKIPPED__";
 
-function createAskQuestionsSchema(allowedAnswers: [string, ...string[]]) {
-  const answerSchema = z.enum([...allowedAnswers, SKIP_SENTINEL]);
-
+/**
+ * Builds the response schema from a caller-supplied answer sub-schema.
+ *
+ * The answer sub-schema varies by mode:
+ *  - Constrained-only: `z.enum([...allAllowedAnswers, SKIP_SENTINEL])` so
+ *    providers with structured-output support reject-and-retry invalid
+ *    values at the provider layer.
+ *  - Any free-form question present: `z.string().min(1).max(maxLen)` —
+ *    the enum is dropped because it cannot express a mixed per-question
+ *    constraint across a uniform array. Per-question enum enforcement
+ *    then falls back to the post-processing validation in `askQuestions`,
+ *    which is the same path that already catches off-spec answers today.
+ */
+function createAskQuestionsSchema(answerSchema: z.ZodType<string>) {
   return z.object({
     answers: z.array(
       questionAnswerSchema.extend({
@@ -202,15 +243,16 @@ const SYSTEM_PROMPT = promptDedent`
   <task>
     For each question provided, you must:
     1. Analyze the storyboard frames and transcript (if provided)
-    2. Answer with ONLY the allowed response options listed for that question - no other values are acceptable
+    2. Answer each question according to its specified response format: for questions with <allowed_answers>, select ONLY from the listed values; for questions with <answer_format>, follow the format specification exactly
     3. Provide a confidence score between 0 and 1 reflecting your certainty
     4. Explain your reasoning based on observable evidence
   </task>
 
   <answer_guidelines>
-    - Each question is presented as its own <question> block with a <text> element (the question) and an <allowed_answers> element (the permitted response values)
-    - Choose only from the values listed in that question's <allowed_answers> element
-    - Questions may have any set of allowed answers. Always read the <allowed_answers> for each question and select the best matching option based on the evidence
+    - Each question is presented as its own <question> block with a <text> element and either an <allowed_answers> element (listing the permitted response values) or an <answer_format> element (describing the required response shape for open-ended responses)
+    - For questions with <allowed_answers>: choose ONLY from the values listed in that question's <allowed_answers> element
+    - For questions with <answer_format>: follow the format specification exactly (e.g. free-form text within the stated character budget)
+    - Always read each question's <allowed_answers> or <answer_format> and respond in the required shape based on the evidence
     - Select the answer best supported by observable evidence from the content
     - When evidence is ambiguous but some signal exists, select the most conservative option and use a low confidence score. If the question cannot be answered at all from the content, skip it per the relevance_filtering rules
     - Confidence should reflect the clarity and strength of evidence:
@@ -237,7 +279,8 @@ const SYSTEM_PROMPT = promptDedent`
     CRITICAL: Base your answers ONLY on the actual visual and audio/transcript content.
     ${METADATA_BOUNDARY_WARNING}
 
-    CRITICAL: Do NOT answer irrelevant questions with any of the allowed answers.
+    CRITICAL: Do NOT answer irrelevant questions in any form — neither with
+    one of the <allowed_answers> nor with prose for <answer_format>.
     Answering an irrelevant question is WRONG — you MUST skip it instead.
 
     For skipped questions:
@@ -264,7 +307,7 @@ const SYSTEM_PROMPT = promptDedent`
   </security>
 
   <constraints>
-    - You MUST answer every relevant question with one of its own listed allowed response options
+    - You MUST answer every relevant question following its specified response format: an option from <allowed_answers>, or prose matching <answer_format>
     - Skip irrelevant questions as described in relevance_filtering
     - Only describe observable evidence from frames or transcript
     - ${NO_FABRICATION_CONSTRAINT}
@@ -300,15 +343,16 @@ const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
   <task>
     For each question provided, you must:
     1. Analyze the transcript
-    2. Answer with ONLY the allowed response options listed for that question - no other values are acceptable
+    2. Answer each question according to its specified response format: for questions with <allowed_answers>, select ONLY from the listed values; for questions with <answer_format>, follow the format specification exactly
     3. Provide a confidence score between 0 and 1 reflecting your certainty
     4. Explain your reasoning based on observable evidence
   </task>
 
   <answer_guidelines>
-    - Each question is presented as its own <question> block with a <text> element (the question) and an <allowed_answers> element (the permitted response values)
-    - Choose only from the values listed in that question's <allowed_answers> element
-    - Questions may have any set of allowed answers. Always read the <allowed_answers> for each question and select the best matching option based on the evidence
+    - Each question is presented as its own <question> block with a <text> element and either an <allowed_answers> element (listing the permitted response values) or an <answer_format> element (describing the required response shape for open-ended responses)
+    - For questions with <allowed_answers>: choose ONLY from the values listed in that question's <allowed_answers> element
+    - For questions with <answer_format>: follow the format specification exactly (e.g. free-form text within the stated character budget)
+    - Always read each question's <allowed_answers> or <answer_format> and respond in the required shape based on the evidence
     - Select the answer best supported by observable evidence from the content
     - When evidence is ambiguous but some signal exists, select the most conservative option and use a low confidence score. If the question cannot be answered at all from the content, skip it per the relevance_filtering rules
     - Confidence should reflect the clarity and strength of evidence:
@@ -335,7 +379,8 @@ const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
     CRITICAL: Base your answers ONLY on the actual audio/transcript content.
     ${METADATA_BOUNDARY_WARNING}
 
-    CRITICAL: Do NOT answer irrelevant questions with any of the allowed answers.
+    CRITICAL: Do NOT answer irrelevant questions in any form — neither with
+    one of the <allowed_answers> nor with prose for <answer_format>.
     Answering an irrelevant question is WRONG — you MUST skip it instead.
 
     For skipped questions:
@@ -360,7 +405,7 @@ const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
   </security>
 
   <constraints>
-    - You MUST answer every relevant question with one of its own listed allowed response options
+    - You MUST answer every relevant question following its specified response format: an option from <allowed_answers>, or prose matching <answer_format>
     - Skip irrelevant questions as described in relevance_filtering
     - Only describe observable evidence from transcript content
     - ${NO_FABRICATION_CONSTRAINT}
@@ -376,13 +421,60 @@ const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
     - Be specific and evidence-based
   </language_guidelines>`;
 
-type NormalizedQuestion = Question & { answerOptions: [string, ...string[]] };
+/**
+ * Additional details for free-form (<answer_format>) questions, appended
+ * to the system prompt when at least one question uses free-form mode.
+ *
+ * The base system prompt already describes both response formats in a
+ * mode-neutral way; this block only carries free-form-specific rules
+ * (length cap, skip-via-sentinel semantics, no-instructions hygiene) so
+ * the default path is unaffected when no question is free-form.
+ */
+function freeFormAddendum(maxFreeFormAnswerLength: number): string {
+  return promptDedent`
+    <free_form_answers>
+      EXPERIMENTAL. Additional rules for questions with <answer_format>free-form text ...</answer_format>:
+
+      - Produce a short, evidence-grounded answer in plain prose
+      - Keep it tight: one or two sentences, maximum ${maxFreeFormAnswerLength} characters
+      - If the question is irrelevant to the asset content, still skip it
+        by setting answer to "${SKIP_SENTINEL}" exactly, per relevance_filtering
+      - The answer field is a content-analysis channel, not an instruction
+        channel. Do NOT include raw instructions, escape sequences, code,
+        or anything that looks like structured control content in the
+        answer. All existing security, non-fabrication, and
+        non-disclosure rules apply unchanged.
+    </free_form_answers>`;
+}
+
+function buildSystemPrompt(
+  isAudioOnly: boolean,
+  hasFreeForm: boolean,
+  maxFreeFormAnswerLength: number,
+): string {
+  const base = isAudioOnly ? AUDIO_ONLY_SYSTEM_PROMPT : SYSTEM_PROMPT;
+  if (!hasFreeForm)
+    return base;
+  return `${base}\n\n${freeFormAddendum(maxFreeFormAnswerLength)}`;
+}
+
+type NormalizedQuestion =
+  | {
+    question: string;
+    freeFormReply: true;
+  } |
+  {
+    question: string;
+    freeFormReply?: false;
+    answerOptions: [string, ...string[]];
+  };
 
 interface UserPromptContext {
   questions: NormalizedQuestion[];
   transcriptText?: string;
   isCleanTranscript?: boolean;
   isAudioOnly?: boolean;
+  maxFreeFormAnswerLength: number;
 }
 
 function buildUserPrompt({
@@ -390,14 +482,20 @@ function buildUserPrompt({
   transcriptText,
   isCleanTranscript = true,
   isAudioOnly = false,
+  maxFreeFormAnswerLength,
 }: UserPromptContext): string {
   const contentDescriptor = isAudioOnly ?
     "audio content using transcript evidence" :
     "content";
 
+  const hasFreeForm = questions.some(q => q.freeFormReply === true);
+  const formatInstruction = hasFreeForm ?
+    "Follow each question's specified response format: pick from <allowed_answers> where listed, or produce a concise free-form answer where <answer_format> is specified." :
+    "Use only the values listed inside each question's own <allowed_answers> element.";
+
   const taskContent = dedent`
     Answer each question in the <questions> block below about the ${contentDescriptor}.
-    Use only the values listed inside each question's own <allowed_answers> element.
+    ${formatInstruction}
     Return one answer per question, in the order the questions appear.
     If a question cannot be answered from the provided content, skip it as described in the system instructions.`;
   const taskSection = `<task>\n${taskContent}\n</task>`;
@@ -405,11 +503,16 @@ function buildUserPrompt({
   const questionBlocks = questions
     .map((q, idx) => {
       const textTag = renderSection({ tag: "text", content: q.question });
-      const answersTag = renderSection({
-        tag: "allowed_answers",
-        content: q.answerOptions.map(a => `"${a}"`).join(", "),
-      });
-      return `<question number="${idx + 1}">\n${textTag}\n${answersTag}\n</question>`;
+      const formatTag = q.freeFormReply === true ?
+          renderSection({
+            tag: "answer_format",
+            content: `free-form text, maximum ${maxFreeFormAnswerLength} characters`,
+          }) :
+          renderSection({
+            tag: "allowed_answers",
+            content: q.answerOptions.map(a => `"${a}"`).join(", "),
+          });
+      return `<question number="${idx + 1}">\n${textTag}\n${formatTag}\n</question>`;
     })
     .join("\n\n");
 
@@ -460,7 +563,17 @@ interface AnalyzeQuestionsInput {
   modelId: string;
   userPrompt: string;
   systemPrompt: string;
-  allowedAnswers: [string, ...string[]];
+  /**
+   * Non-null = constrained-enum mode (enum built from these values plus
+   * SKIP_SENTINEL). Null = free-form mode (length-capped string schema).
+   *
+   * The response schema itself is built inside the step rather than
+   * passed as an argument — step arguments get serialized by the workflow
+   * runtime for suspend/resume, and a Zod schema has functions on it
+   * that can't be JSON-serialized.
+   */
+  allowedAnswers: [string, ...string[]] | null;
+  maxFreeFormAnswerLength: number;
   imageDataUrl?: string;
   credentials?: WorkflowCredentialsInput;
 }
@@ -471,12 +584,17 @@ async function analyzeQuestions({
   userPrompt,
   systemPrompt,
   allowedAnswers,
+  maxFreeFormAnswerLength,
   imageDataUrl,
   credentials,
 }: AnalyzeQuestionsInput): Promise<AnalysisResponse> {
   "use step";
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
-  const responseSchema = createAskQuestionsSchema(allowedAnswers);
+
+  const answerSchema: z.ZodType<string> = allowedAnswers === null ?
+      z.string().min(1).max(maxFreeFormAnswerLength) :
+      z.enum([...allowedAnswers, SKIP_SENTINEL]);
+  const responseSchema = createAskQuestionsSchema(answerSchema);
 
   const response = await generateText({
     model,
@@ -638,6 +756,10 @@ export async function askQuestions(
     );
   }
   questions.forEach((q, idx) => {
+    // answerOptions is ignored for free-form questions, so its contents
+    // are not user-facing and the length cap does not apply.
+    if (q.freeFormReply)
+      return;
     for (const opt of q.answerOptions ?? []) {
       if (typeof opt === "string" && opt.length > maxAnswerOptionLength) {
         throw new MuxAiError(
@@ -647,6 +769,21 @@ export async function askQuestions(
       }
     }
   });
+
+  // EXPERIMENTAL free-form reply mode: validate the length cap early.
+  // Default of 500 characters keeps answers tight — one or two sentences
+  // — while bounding how much content the model can emit on the
+  // open-ended channel. See AskQuestionsOptions.maxFreeFormAnswerLength
+  // for the reasoning behind the default.
+  const DEFAULT_MAX_FREE_FORM_ANSWER_LENGTH = 500;
+  const maxFreeFormAnswerLength =
+    options?.maxFreeFormAnswerLength ?? DEFAULT_MAX_FREE_FORM_ANSWER_LENGTH;
+  if (!Number.isFinite(maxFreeFormAnswerLength) || maxFreeFormAnswerLength <= 0) {
+    throw new MuxAiError(
+      `maxFreeFormAnswerLength must be a positive number (received ${maxFreeFormAnswerLength}).`,
+      { type: "validation_error" },
+    );
+  }
 
   const {
     provider = "openai",
@@ -661,6 +798,9 @@ export async function askQuestions(
   } = options ?? {};
 
   const normalizedQuestions: NormalizedQuestion[] = questions.map((q, idx) => {
+    if (q.freeFormReply === true) {
+      return { question: q.question, freeFormReply: true };
+    }
     const options = Array.from(
       new Set(
         (q.answerOptions?.length ? q.answerOptions : ["yes", "no"])
@@ -674,12 +814,33 @@ export async function askQuestions(
         { type: "validation_error" },
       );
     }
-    return { ...q, answerOptions: options as [string, ...string[]] };
+    return { question: q.question, answerOptions: options as [string, ...string[]] };
   });
 
-  const allowedAnswers = Array.from(
-    new Set(normalizedQuestions.flatMap(q => q.answerOptions)),
-  ) as [string, ...string[]];
+  const hasFreeForm = normalizedQuestions.some(q => q.freeFormReply === true);
+
+  // When any question is free-form the answer sub-schema becomes a
+  // length-capped string: a uniform z.array shape cannot express a
+  // per-question enum constraint mixed with free text. Per-question
+  // enum enforcement for the still-constrained questions then falls to
+  // the post-processing check below (which already catches off-spec
+  // answers today). When no question is free-form, the existing
+  // enum-backed schema is used so providers with structured-output
+  // support reject-and-retry invalid values at the provider layer.
+  //
+  // Only plain data crosses the step boundary — the Zod schema itself is
+  // built inside `analyzeQuestions`. Step arguments are serialized by
+  // the workflow runtime for suspend/resume, and a Zod schema object
+  // has functions on it that aren't JSON-serializable.
+  const allowedAnswersForStep: [string, ...string[]] | null = hasFreeForm ?
+    null :
+      (Array.from(
+        new Set(
+          normalizedQuestions.flatMap(q =>
+            q.freeFormReply === true ? [] : q.answerOptions,
+          ),
+        ),
+      ) as [string, ...string[]]);
 
   const modelConfig = resolveLanguageModelConfig({
     ...options,
@@ -721,14 +882,15 @@ export async function askQuestions(
       undefined;
   const transcriptText = transcriptResult?.transcriptText ?? "";
 
-  // Build the user prompt with questions (each with their allowed answers) and optional transcript
+  // Build the user prompt with questions (each with their allowed answers or free-form format) and optional transcript
   const userPrompt = buildUserPrompt({
     questions: normalizedQuestions,
     transcriptText,
     isCleanTranscript: cleanTranscript,
     isAudioOnly,
+    maxFreeFormAnswerLength,
   });
-  const systemPrompt = isAudioOnly ? AUDIO_ONLY_SYSTEM_PROMPT : SYSTEM_PROMPT;
+  const systemPrompt = buildSystemPrompt(isAudioOnly, hasFreeForm, maxFreeFormAnswerLength);
 
   let analysisResponse: AnalysisResponse;
   let imageUrl: string | undefined;
@@ -740,7 +902,8 @@ export async function askQuestions(
         modelId: modelConfig.modelId,
         userPrompt,
         systemPrompt,
-        allowedAnswers,
+        allowedAnswers: allowedAnswersForStep,
+        maxFreeFormAnswerLength,
         credentials,
       });
     } else {
@@ -760,7 +923,8 @@ export async function askQuestions(
           modelId: modelConfig.modelId,
           userPrompt,
           systemPrompt,
-          allowedAnswers,
+          allowedAnswers: allowedAnswersForStep,
+          maxFreeFormAnswerLength,
           imageDataUrl: base64Data,
           credentials,
         });
@@ -772,7 +936,8 @@ export async function askQuestions(
             modelId: modelConfig.modelId,
             userPrompt,
             systemPrompt,
-            allowedAnswers,
+            allowedAnswers: allowedAnswersForStep,
+            maxFreeFormAnswerLength,
             imageDataUrl: storyboardUrl,
             credentials,
           }),
@@ -829,20 +994,53 @@ export async function askQuestions(
   }
 
   const answers: QuestionAnswer[] = analysisResponse.result.answers.map((raw, idx) => {
-    const scrub = safety.scrubDetailed(raw.reasoning, `reasoning[${idx}]`);
-    const isSkipped = raw.skipped || raw.answer === SKIP_SENTINEL || scrub.leaked;
-    if (!isSkipped && !normalizedQuestions[idx].answerOptions.includes(raw.answer)) {
+    const question = normalizedQuestions[idx];
+    const isFreeForm = question.freeFormReply === true;
+
+    const reasoningScrub = safety.scrubDetailed(raw.reasoning, `reasoning[${idx}]`);
+    const explicitSkip = raw.skipped || raw.answer === SKIP_SENTINEL;
+
+    // Free-form answers are a second free-text exfiltration channel, so
+    // they get the same scrubber treatment as `reasoning`. Any detected
+    // leak flips the answer into the skipped state and suppresses both
+    // the answer and reasoning — matching how reasoning-side leaks are
+    // already handled for constrained questions.
+    const answerScrub = isFreeForm && !explicitSkip ?
+        safety.scrubDetailed(raw.answer, `answer[${idx}]`) :
+      null;
+
+    const isSkipped = explicitSkip ||
+      reasoningScrub.leaked ||
+      (answerScrub?.leaked ?? false);
+
+    // Constrained questions: enforce the per-question enum here. The
+    // schema-level enum already rejects off-spec values on the
+    // constrained-only path; this check is the primary defence on the
+    // free-form-mixed path where the schema is permissive.
+    if (!isSkipped && !isFreeForm && !question.answerOptions.includes(raw.answer)) {
       throw new MuxAiError(
-        `Answer "${raw.answer}" for question ${idx} is not in allowed options: ${normalizedQuestions[idx].answerOptions.join(", ")}`,
+        `Answer "${raw.answer}" for question ${idx} is not in allowed options: ${question.answerOptions.join(", ")}`,
       );
     }
+
+    let finalAnswer: string | null;
+    if (isSkipped) {
+      finalAnswer = null;
+    } else if (isFreeForm) {
+      finalAnswer = answerScrub ? answerScrub.text : raw.answer;
+    } else {
+      finalAnswer = raw.answer;
+    }
+
+    const suppressed = reasoningScrub.leaked || (answerScrub?.leaked ?? false);
+
     return {
       // Use the trusted input verbatim rather than the model's echo.
-      question: normalizedQuestions[idx].question,
+      question: question.question,
       confidence: isSkipped ? 0 : Math.min(1, Math.max(0, raw.confidence)),
-      reasoning: scrub.leaked ? "Response suppressed by safety filter." : scrub.text,
+      reasoning: suppressed ? "Response suppressed by safety filter." : reasoningScrub.text,
       skipped: isSkipped,
-      answer: isSkipped ? null : raw.answer,
+      answer: finalAnswer,
     };
   });
 

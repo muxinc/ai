@@ -30,7 +30,12 @@ The pipe must be inside the quoted string so the shell doesn't treat it as a com
 "What is the production quality?|amateur,semi-pro,professional"
 "What is the sentiment?|positive,neutral,negative"
 "Does this contain cooking?"   # no pipe → answer options default to yes/no
+"Describe the primary subject.|*"   # EXPERIMENTAL: free-form prose reply
 ```
+
+> ⚠️ **Experimental:** the `|*` sigil enables free-form replies for that
+> question — see the [docs on `freeFormReply`](../../docs/WORKFLOWS.md#free-form-replies-experimental).
+> Tune the length cap with `--free-form-max-length <n>` (default 500).
 
 ### Basic Example
 
@@ -57,6 +62,12 @@ npm run basic abc123 "Does this video contain cooking?"
 
 # Custom allowed answers via pipe syntax
 npm run basic abc123 "What is the production quality?|amateur,semi-pro,professional"
+
+# EXPERIMENTAL: free-form prose reply via the |* sigil
+npm run basic abc123 "Describe the primary subject of this video.|*"
+
+# Tighter cap on free-form answer length (default 500)
+npm run basic abc123 "Describe the primary subject.|*" --free-form-max-length 200
 
 # Ask if people are visible, without using transcript
 npm run basic abc123 "Are there people visible in this video?" --no-transcript
