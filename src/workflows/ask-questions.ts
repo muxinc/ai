@@ -601,7 +601,8 @@ interface AnalyzeQuestionsInput {
 }
 
 // Free-form mode: permissive string schema; post-processing handles
-// per-question enum checks for any still-constrained questions.
+// per-question enum checks for any still-constrained questions and the
+// per-question free-form length cap.
 // Otherwise: enum of the union of every question's allowed answers.
 function buildResponseSchemaForQuestions(
   normalizedQuestions: NormalizedQuestion[],
@@ -609,9 +610,19 @@ function buildResponseSchemaForQuestions(
 ) {
   const hasFreeForm = normalizedQuestions.some(q => q.mode.kind === "freeForm");
   if (hasFreeForm) {
-    return createAskQuestionsSchema(
-      z.string().min(1).max(maxFreeFormAnswerLength),
+    // Schema cap must accept: SKIP_SENTINEL, any constrained option in a
+    // mixed batch, and free-form prose up to maxFreeFormAnswerLength. The
+    // free-form per-question cap is enforced in post-processing.
+    const longestConstrained = Math.max(
+      0,
+      ...normalizedQuestions.flatMap(allowedAnswersForQuestion).map(a => a.length),
     );
+    const schemaMax = Math.max(
+      maxFreeFormAnswerLength,
+      SKIP_SENTINEL.length,
+      longestConstrained,
+    );
+    return createAskQuestionsSchema(z.string().min(1).max(schemaMax));
   }
   const allowed = Array.from(
     new Set(normalizedQuestions.flatMap(allowedAnswersForQuestion)),
@@ -1001,9 +1012,24 @@ export async function askQuestions(
         safety.scrubDetailed(raw.answer, `answer[${idx}]`) :
       null;
 
+    // Per-question free-form length cap. The schema cap is widened to admit
+    // the skip sentinel and any constrained option in mixed batches, so the
+    // user's `maxFreeFormAnswerLength` is enforced here. Overlong answers
+    // are treated as skipped rather than failing the whole call.
+    const overLength = isFreeForm &&
+      !explicitSkip &&
+      !(answerScrub?.leaked ?? false) &&
+      (answerScrub?.text.length ?? 0) > maxFreeFormAnswerLength;
+    if (overLength) {
+      console.warn(
+        `[@mux/ai] Free-form answer at index ${idx} exceeded ${maxFreeFormAnswerLength}-char cap (${answerScrub!.text.length} chars); treating as skipped.`,
+      );
+    }
+
     const isSkipped = explicitSkip ||
       reasoningScrub.leaked ||
-      (answerScrub?.leaked ?? false);
+      (answerScrub?.leaked ?? false) ||
+      overLength;
 
     // Per-question enum check — primary defence on the free-form-mixed
     // path where the schema-level enum doesn't apply.
