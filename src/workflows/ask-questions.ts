@@ -41,7 +41,7 @@ export interface Question {
   /** Allowed answers for this question (defaults to ["yes", "no"]). */
   answerOptions?: string[];
   /**
-   * EXPERIMENTAL: When true, the model replies with free-form text for
+   * Experimental: When true, the model replies with free-form text for
    * this question instead of yes/no or `answerOptions`. Answers are
    * length-capped via {@link AskQuestionsOptions.maxFreeFormAnswerLength}
    * (default 500 characters), still subject to the output-safety
@@ -108,7 +108,7 @@ export interface AskQuestionsOptions extends MuxAIOptions {
    */
   maxAnswerOptionLength?: number;
   /**
-   * EXPERIMENTAL: Maximum character length for free-form answers when a
+   * Experimental: Maximum character length for free-form answers when a
    * question sets `freeFormReply: true`. Defaults to 500.
    *
    * Free-form answers bypass the enum schema, so this cap is the primary

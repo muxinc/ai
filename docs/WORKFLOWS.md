@@ -209,7 +209,7 @@ const result = await askQuestions(assetId, questions, {
 
 ### Free-form Replies (Experimental)
 
-> ⚠️ **Experimental — API may change.**
+> ⚠️ **Experimental**
 >
 > By default, answers are constrained to the values in `answerOptions` (or
 > `["yes", "no"]`). Setting `freeFormReply: true` on a question lets the
