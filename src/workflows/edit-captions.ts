@@ -6,6 +6,7 @@ import { MuxAiError, wrapError } from "@mux/ai/lib/mux-ai-error";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
+  toPlaybackAsset,
 } from "@mux/ai/lib/mux-assets";
 import { createTextTrackOnMux, fetchVttFromMux } from "@mux/ai/lib/mux-tracks";
 import { createSafetyReporter, detectUnexpectedKeysFromRawText } from "@mux/ai/lib/output-safety";
@@ -30,6 +31,7 @@ import {
 import { buildTranscriptUrl, extractTextFromVTT, getReadyTextTracks, vttTimestampToSeconds } from "@mux/ai/primitives/transcripts";
 import type {
   MuxAIOptions,
+  MuxAsset,
   StorageAdapter,
   TokenUsage,
   WorkflowCredentialsInput,
@@ -472,7 +474,7 @@ async function deleteTrackOnMux(
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function editCaptions<P extends SupportedProvider = SupportedProvider>(
-  assetId: string,
+  asset: string | MuxAsset,
   trackId: string,
   options: EditCaptionsOptions<P>,
 ): Promise<EditCaptionsResult> {
@@ -525,8 +527,11 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
     );
   }
 
+  const assetId = typeof asset === "string" ? asset : asset.id;
   // Fetch asset data and playback ID from Mux
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
+  const { asset: assetData, playbackId, policy } = typeof asset === "string" ?
+      await getPlaybackIdForAsset(asset, credentials) :
+      toPlaybackAsset(asset);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
 
   // Resolve signing context for signed playback IDs

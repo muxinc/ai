@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isAudioOnlyAsset } from "../../src/lib/mux-assets";
+import { isAudioOnlyAsset, toPlaybackAsset } from "../../src/lib/mux-assets";
 import type { MuxAsset } from "../../src/types";
 
 describe("isAudioOnlyAsset", () => {
@@ -91,5 +91,68 @@ describe("isAudioOnlyAsset", () => {
     };
 
     expect(isAudioOnlyAsset(audioTextAsset as MuxAsset)).toBe(true);
+  });
+});
+
+describe("toPlaybackAsset", () => {
+  it("returns playbackId and policy from a public playback ID", () => {
+    const asset: Partial<MuxAsset> = {
+      id: "asset-abc",
+      playback_ids: [{ id: "pub-123", policy: "public" }],
+    };
+
+    const result = toPlaybackAsset(asset as MuxAsset);
+
+    expect(result.asset).toBe(asset);
+    expect(result.playbackId).toBe("pub-123");
+    expect(result.policy).toBe("public");
+  });
+
+  it("falls back to signed playback ID when no public ID exists", () => {
+    const asset: Partial<MuxAsset> = {
+      id: "asset-abc",
+      playback_ids: [{ id: "sig-456", policy: "signed" }],
+    };
+
+    const result = toPlaybackAsset(asset as MuxAsset);
+
+    expect(result.playbackId).toBe("sig-456");
+    expect(result.policy).toBe("signed");
+  });
+
+  it("prefers public playback ID over signed when both exist", () => {
+    const asset: Partial<MuxAsset> = {
+      id: "asset-abc",
+      playback_ids: [
+        { id: "sig-456", policy: "signed" },
+        { id: "pub-123", policy: "public" },
+      ],
+    };
+
+    const result = toPlaybackAsset(asset as MuxAsset);
+
+    expect(result.playbackId).toBe("pub-123");
+    expect(result.policy).toBe("public");
+  });
+
+  it("throws when no public or signed playback ID exists", () => {
+    const asset: Partial<MuxAsset> = {
+      id: "asset-abc",
+      playback_ids: [],
+    };
+
+    expect(() => toPlaybackAsset(asset as MuxAsset)).toThrow(
+      "No public or signed playback ID found",
+    );
+  });
+
+  it("throws when playback_ids is undefined", () => {
+    const asset: Partial<MuxAsset> = {
+      id: "asset-abc",
+    };
+
+    expect(() => toPlaybackAsset(asset as MuxAsset)).toThrow(
+      "No public or signed playback ID found",
+    );
   });
 });

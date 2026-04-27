@@ -7,6 +7,7 @@ import {
   getVideoTrackDurationSecondsFromAsset,
   getVideoTrackMaxFrameRateFromAsset,
   isAudioOnlyAsset,
+  toPlaybackAsset,
 } from "@mux/ai/lib/mux-assets";
 import { getMuxThumbnailBaseUrl } from "@mux/ai/lib/mux-url";
 import { withRetry } from "@mux/ai/lib/retry";
@@ -18,6 +19,7 @@ import { fetchTranscriptForAsset } from "@mux/ai/primitives/transcripts";
 import type {
   ImageSubmissionMode,
   MuxAIOptions,
+  MuxAsset,
   TokenUsage,
   WorkflowCredentialsInput,
 } from "@mux/ai/types";
@@ -607,7 +609,7 @@ async function getThumbnailUrlsFromTimestamps(
  * - provider 'hive' uses Hive's moderation API for thumbnails only (requires HIVE_API_KEY)
  */
 export async function getModerationScores(
-  assetId: string,
+  asset: string | MuxAsset,
   options: ModerationOptions = {},
 ): Promise<ModerationResult> {
   "use workflow";
@@ -625,18 +627,21 @@ export async function getModerationScores(
     credentials: providedCredentials,
   } = options;
   const credentials = providedCredentials;
+  const assetId = typeof asset === "string" ? asset : asset.id;
   // Fetch asset data and playback ID from Mux via helper
-  const { asset, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
-  const videoTrackDurationSeconds = getVideoTrackDurationSecondsFromAsset(asset);
-  const videoTrackFps = getVideoTrackMaxFrameRateFromAsset(asset);
-  const assetDurationSeconds = getAssetDurationSecondsFromAsset(asset);
+  const { asset: resolvedAsset, playbackId, policy } = typeof asset === "string" ?
+      await getPlaybackIdForAsset(asset, credentials) :
+      toPlaybackAsset(asset);
+  const videoTrackDurationSeconds = getVideoTrackDurationSecondsFromAsset(resolvedAsset);
+  const videoTrackFps = getVideoTrackMaxFrameRateFromAsset(resolvedAsset);
+  const assetDurationSeconds = getAssetDurationSecondsFromAsset(resolvedAsset);
   // Use the shorter of video-track and asset duration so thumbnail timestamps never
   // exceed the renderable range reported by the Mux thumbnail service.
   const candidateDurations = [videoTrackDurationSeconds, assetDurationSeconds].filter(
     (d): d is number => d != null,
   );
   const duration = candidateDurations.length > 0 ? Math.min(...candidateDurations) : 0;
-  const isAudioOnly = isAudioOnlyAsset(asset);
+  const isAudioOnly = isAudioOnlyAsset(resolvedAsset);
 
   // Resolve signing context for signed playback IDs
   const signingContext = await resolveMuxSigningContext(credentials);
@@ -653,7 +658,7 @@ export async function getModerationScores(
 
   if (isAudioOnly) {
     mode = "transcript";
-    const transcriptResult = await fetchTranscriptForAsset(asset, playbackId, {
+    const transcriptResult = await fetchTranscriptForAsset(resolvedAsset, playbackId, {
       languageCode,
       cleanTranscript: true,
       shouldSign: policy === "signed",

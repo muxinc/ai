@@ -3,7 +3,7 @@ import { getApiKeyFromEnv } from "@mux/ai/lib/client-factory";
 import { getLanguageCodePair, toISO639_1, toISO639_3 } from "@mux/ai/lib/language-codes";
 import type { LanguageCodePair, SupportedISO639_1 } from "@mux/ai/lib/language-codes";
 import { MuxAiError, wrapError } from "@mux/ai/lib/mux-ai-error";
-import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
+import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset, toPlaybackAsset } from "@mux/ai/lib/mux-assets";
 import { getMuxStreamOrigin } from "@mux/ai/lib/mux-url";
 import {
   createPresignedGetUrlWithStorageAdapter,
@@ -13,6 +13,7 @@ import { signUrl } from "@mux/ai/lib/url-signing";
 import { resolveMuxClient } from "@mux/ai/lib/workflow-credentials";
 import type {
   MuxAIOptions,
+  MuxAsset,
   StorageAdapter,
   TokenUsage,
   WorkflowCredentialsInput,
@@ -392,7 +393,7 @@ async function createAudioTrackOnMux(
 }
 
 export async function translateAudio(
-  assetId: string,
+  asset: string | MuxAsset,
   toLanguageCode: string,
   options: AudioTranslationOptions = {},
 ): Promise<AudioTranslationResult> {
@@ -429,8 +430,11 @@ export async function translateAudio(
     throw new MuxAiError("Storage configuration is required for uploading. Provide s3Endpoint and s3Bucket. If no storageAdapter is supplied, also provide s3AccessKeyId and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.", { type: "validation_error" });
   }
 
+  const assetId = typeof asset === "string" ? asset : asset.id;
   // Fetch asset data and playback ID from Mux
-  const { asset: initialAsset, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
+  const { asset: initialAsset, playbackId, policy } = typeof asset === "string" ?
+      await getPlaybackIdForAsset(asset, credentials) :
+      toPlaybackAsset(asset);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(initialAsset);
 
   // Check for audio-only static rendition

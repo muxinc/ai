@@ -15,6 +15,7 @@ import { MuxAiError, wrapError } from "@mux/ai/lib/mux-ai-error";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
+  toPlaybackAsset,
 } from "@mux/ai/lib/mux-assets";
 import { createTextTrackOnMux, fetchVttFromMux } from "@mux/ai/lib/mux-tracks";
 import {
@@ -51,6 +52,7 @@ import {
 } from "@mux/ai/primitives/transcripts";
 import type {
   MuxAIOptions,
+  MuxAsset,
   StorageAdapter,
   TokenUsage,
   WorkflowCredentialsInput,
@@ -991,7 +993,7 @@ async function uploadVttToS3({
 }
 
 export async function translateCaptions<P extends SupportedProvider = SupportedProvider>(
-  assetId: string,
+  asset: string | MuxAsset,
   trackId: string,
   toLanguageCode: string,
   options: TranslationOptions<P>,
@@ -1031,8 +1033,11 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     throw new MuxAiError("Storage configuration is required for uploading. Provide s3Endpoint and s3Bucket. If no storageAdapter is supplied, also provide s3AccessKeyId and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.", { type: "validation_error" });
   }
 
+  const assetId = typeof asset === "string" ? asset : asset.id;
   // Fetch asset data and playback ID from Mux
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
+  const { asset: assetData, playbackId, policy } = typeof asset === "string" ?
+      await getPlaybackIdForAsset(asset, credentials) :
+      toPlaybackAsset(asset);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
 
   // Resolve signing context for signed playback IDs
