@@ -41,11 +41,22 @@ export interface Question {
   /** Allowed answers for this question (defaults to ["yes", "no"]). */
   answerOptions?: string[];
   /**
-   * Experimental: replies with free-form prose instead of yes/no or
-   * `answerOptions`. Length-capped via
-   * {@link AskQuestionsOptions.maxFreeFormAnswerLength} (default 500),
-   * still scrubbed for safety, still skippable. Mutually exclusive with
-   * `answerOptions`. Treat the answer as untrusted model output.
+   * Experimental: When true, the model replies with free-form text for
+   * this question instead of yes/no or `answerOptions`. Answers are
+   * length-capped via {@link AskQuestionsOptions.maxFreeFormAnswerLength}
+   * (default 500 characters), still subject to the output-safety
+   * scrubber, and the model can still skip irrelevant questions via the
+   * normal skip mechanism.
+   *
+   * Mutually exclusive with `answerOptions`: setting both throws a
+   * validation error. Default (neither set) remains yes/no.
+   *
+   * Free-form is the more permissive mode: enum-constrained answers
+   * prevent arbitrary prose in model output, which is a potential
+   * prompt-leak exfiltration channel. Use free-form only when your use
+   * case genuinely needs open-ended answers (e.g. describing a scene,
+   * extracting quoted text) and treat the resulting answer as untrusted
+   * model output.
    */
   freeFormReply?: boolean;
 }
@@ -83,15 +94,29 @@ export interface AskQuestionsOptions extends MuxAIOptions {
   /** Storyboard width in pixels (defaults to 640). */
   storyboardWidth?: number;
   /**
-   * Max length per `answerOptions` entry. Defaults to 150 — wide enough
-   * for domain-specific category labels, narrow enough to reject
-   * sentence-length injection payloads. Don't widen for untrusted input.
+   * Maximum length (in characters) allowed for each entry in a question's
+   * `answerOptions` array. Defaults to 150.
+   *
+   * The cap exists to reject instruction-shaped answer options — a common
+   * prompt-injection shape pairs sentence-length options that presuppose
+   * the desired outcome, making "answering correctly" equivalent to
+   * leaking. Domain-specific category labels (e.g. moderation labels like
+   * "Depicts underage individuals in sexual content") can legitimately
+   * run 40–80 characters, so the default is set generously. Raise this
+   * if your use case has genuinely longer category labels; never widen
+   * it to accept arbitrary untrusted input without other safeguards.
    */
   maxAnswerOptionLength?: number;
   /**
-   * Experimental: max character length for free-form answers when
-   * `freeFormReply: true`. Defaults to 500. Free-form bypasses the enum
-   * schema, so this cap is the primary limit on output length.
+   * Experimental: Maximum character length for free-form answers when a
+   * question sets `freeFormReply: true`. Defaults to 500.
+   *
+   * Free-form answers bypass the enum schema, so this cap is the primary
+   * mechanical limit on how much content the model can emit per answer.
+   * Keep it low to hold answers tight and bound any potential
+   * exfiltration channel; raise only if your use case genuinely needs
+   * longer prose. Answers still pass through the output-safety scrubber
+   * regardless of this value.
    */
   maxFreeFormAnswerLength?: number;
 }
@@ -109,8 +134,10 @@ export interface AskQuestionsResult {
   /** Raw transcript text used for analysis (when includeTranscript is true). */
   transcriptText?: string;
   /**
-   * Output-side scrubbing report. When `leaksDetected: true`, at least
-   * one free-text field was suppressed — see `scrubbedFields`.
+   * Aggregate report of output-side scrubbing performed during this call.
+   * Populated by {@link scrubFreeTextField}. When present with
+   * `leaksDetected: true`, at least one free-text field was suppressed as
+   * a suspected prompt leak — consult `scrubbedFields` for details.
    */
   safety?: SafetyReport;
 }
@@ -119,9 +146,29 @@ export interface AskQuestionsResult {
 // Zod Schemas
 // ─────────────────────────────────────────────────────────────────────────────
 
-// `.strip()` (default) silently drops unexpected keys; smuggling attempts
-// are caught out-of-band via detectUnexpectedKeysFromRawText. The 1000-char
-// cap on `reasoning` bounds the exfiltration channel.
+/**
+ * Zod schema for a single answer (matches the public QuestionAnswer interface).
+ *
+ * Uses zod's default `.strip()` mode (rather than `.strict()`) so that
+ * an extra key emitted by the model does not fail the whole workflow —
+ * it is silently stripped during parse. The smuggling-channel concern
+ * (a coerced model emitting a prompt fragment under an unexpected key)
+ * is handled out-of-band: the call site re-parses `response.text`,
+ * runs {@link detectUnexpectedKeysFromRawText}, and records each extra
+ * as an `unexpected_key` entry in the workflow's safety report.
+ *
+ * The `.max(1000)` cap on `reasoning` is a mechanical limit on how much
+ * content can be exfiltrated through this channel.
+ *
+ * Tuning notes:
+ * - `REASONING_FIELD_SCOPE` asks the model to keep reasoning to 1–3
+ *   concise sentences. Observed lengths are typically 50–200 chars.
+ * - The 1000-char cap leaves ~5x headroom over typical output while
+ *   making a full system-prompt dump (3000+ chars) unable to fit.
+ * - A plausible tighter value is 500. Before tightening, confirm via
+ *   the `safety` telemetry that 90th-percentile observed lengths on
+ *   legitimate traffic stay well under the new target.
+ */
 export const questionAnswerSchema = z.object({
   question: z.string().describe("The full text of the original question"),
   answer: z.string().nullable(),
@@ -132,10 +179,19 @@ export const questionAnswerSchema = z.object({
 
 export type QuestionAnswerType = z.infer<typeof questionAnswerSchema>;
 
-// Concrete enum value for the "no answer" case — OpenAI requires all
-// properties present, Google rejects empty enum values.
+/**
+ * Sentinel value used as the answer for skipped questions in the LLM schema.
+ * OpenAI structured outputs require all properties to be required, and Google
+ * rejects empty-string enum values, so we need a concrete string in the enum
+ * for the "no answer" case. Stripped to `undefined` in post-processing.
+ */
 const SKIP_SENTINEL = "__SKIPPED__";
 
+/**
+ * Wraps a caller-supplied answer sub-schema in the standard envelope.
+ * See {@link buildResponseSchemaForQuestions} for how the sub-schema is
+ * derived from the question set.
+ */
 function createAskQuestionsSchema(answerSchema: z.ZodType<string>) {
   return z.object({
     answers: z.array(
@@ -358,7 +414,15 @@ const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
     - Be specific and evidence-based
   </language_guidelines>`;
 
-// Appended to the system prompt only when free-form mode is in use.
+/**
+ * Additional details for free-form (<answer_format>) questions, appended
+ * to the system prompt when at least one question uses free-form mode.
+ *
+ * The base system prompt already describes both response formats in a
+ * mode-neutral way; this block only carries free-form-specific rules
+ * (length cap, skip-via-sentinel semantics, no-instructions hygiene) so
+ * the default path is unaffected when no question is free-form.
+ */
 function freeFormAddendum(maxFreeFormAnswerLength: number): string {
   return promptDedent`
     <free_form_answers>
@@ -387,6 +451,18 @@ function buildSystemPrompt(
   return `${base}\n\n${freeFormAddendum(maxFreeFormAnswerLength)}`;
 }
 
+/**
+ * Internal representation of a validated question. The `mode` discriminant
+ * captures the three response shapes the public API supports:
+ *
+ *   - `yesNo`: the default — caller didn't override anything.
+ *   - `options`: the caller passed `answerOptions` — a custom enum.
+ *   - `freeForm`: the caller set `freeFormReply: true`.
+ *
+ * Modeled as a discriminated union so all downstream branching is via
+ * `switch (q.mode.kind)`. Plain data — fully serialisable across the
+ * workflow runtime's step boundary.
+ */
 interface NormalizedQuestion {
   question: string;
   mode:
@@ -397,6 +473,7 @@ interface NormalizedQuestion {
 
 const YES_NO_ANSWERS: readonly string[] = ["yes", "no"];
 
+/** The full set of allowed answer values for a single question. */
 function allowedAnswersForQuestion(q: NormalizedQuestion): readonly string[] {
   switch (q.mode.kind) {
     case "yesNo":
@@ -408,6 +485,17 @@ function allowedAnswersForQuestion(q: NormalizedQuestion): readonly string[] {
   }
 }
 
+/**
+ * Validate a public-shape `Question` and normalise it into a
+ * mode-discriminated internal representation.
+ *
+ * Public API rules:
+ *  - Neither field set → yes/no (the default).
+ *  - `answerOptions` → custom enum.
+ *  - `freeFormReply: true` → free-form prose reply.
+ *  - Setting both is rejected (they're mutually exclusive overrides of
+ *    the yes/no default).
+ */
 function normalizeQuestion(q: Question, idx: number): NormalizedQuestion {
   const hasOptions = Array.isArray(q.answerOptions);
   const isFreeForm = q.freeFormReply === true;
@@ -526,9 +614,15 @@ function buildUserPrompt({
 interface AnalysisResponse {
   result: AskQuestionsType;
   usage: TokenUsage;
-  /** Unexpected keys on the root envelope, for safety reporting. */
+  /**
+   * Unexpected top-level keys the model emitted on the root envelope
+   * (i.e. alongside `answers`). Computed in the step from the raw text.
+   */
   unexpectedRootKeys: string[];
-  /** Unexpected keys per answer, aligned by index with `result.answers`. */
+  /**
+   * Unexpected keys the model emitted on each per-answer object,
+   * one array per answer. Aligned by index with `result.answers`.
+   */
   unexpectedAnswerKeys: string[][];
 }
 
@@ -553,9 +647,18 @@ interface AnalyzeQuestionsInput {
   credentials?: WorkflowCredentialsInput;
 }
 
-// Free-form mode: permissive string schema; post-processing handles
-// per-question enum checks for any still-constrained questions.
-// Otherwise: enum of the union of every question's allowed answers.
+/**
+ * Derive the response schema from the question set. Returns:
+ *
+ *  - When any question is free-form: a length-capped string sub-schema for
+ *    the `answer` field. A uniform z.array shape can't express a mixed
+ *    per-question enum constraint, so the still-constrained questions
+ *    fall back to the post-processing per-question check.
+ *  - Otherwise: an enum built from the union of every question's allowed
+ *    answers (yes/no for `default` mode, custom values for `options`
+ *    mode), plus SKIP_SENTINEL. Providers with structured-output support
+ *    reject-and-retry off-spec values at the provider layer.
+ */
 function buildResponseSchemaForQuestions(
   normalizedQuestions: NormalizedQuestion[],
   maxFreeFormAnswerLength: number,
@@ -617,8 +720,13 @@ async function analyzeQuestions({
 
   const parsed = responseSchema.parse(response.output);
 
-  // Re-parse `response.text` to detect smuggled keys: zod.strip() has
-  // already removed them from `response.output`.
+  // Detect schema-smuggling attempts. `response.output` has already
+  // been through zod.strip(), so any extras are gone from it — we
+  // re-parse `response.text` to see what the model actually emitted.
+  // Extras on the root envelope and on each per-answer object are
+  // tracked separately so the safety report can pinpoint the shape of
+  // the smuggling attempt. JSON.parse is wrapped inside the helper
+  // because providers sometimes wrap output in markdown fences.
   const unexpectedRootKeys = detectUnexpectedKeysFromRawText(
     response.text,
     responseSchema.keyof().options,
@@ -627,12 +735,18 @@ async function analyzeQuestions({
   try {
     const rawEnvelope = JSON.parse(response.text ?? "{}");
     const rawAnswers = Array.isArray(rawEnvelope?.answers) ? rawEnvelope.answers : [];
+    // Hoisted out of the loop: the answer sub-schema shape is identical
+    // for every element, so we derive its keys once rather than walking
+    // `.shape` per-element.
     const answerKeys = questionAnswerSchema.keyof().options;
     for (const rawAnswer of rawAnswers) {
+      // `rawAnswer` is already a parsed object from the envelope above
+      // — pass it directly to the object-form detector rather than
+      // stringify-then-re-parse.
       unexpectedAnswerKeys.push(detectUnexpectedKeys(rawAnswer, answerKeys));
     }
   } catch {
-    // Raw text not valid JSON — skip per-answer detection.
+    // Raw text not valid JSON — skip per-answer detection silently.
   }
 
   return {
@@ -650,17 +764,33 @@ async function analyzeQuestions({
 }
 
 /**
- * Answer questions about a Mux asset by analyzing storyboard frames and
- * transcript. For audio-only assets, analyses transcript only. All
- * questions are processed in a single LLM call. Defaults to yes/no unless
- * `answerOptions` or `freeFormReply` is set per question.
+ * Answer questions about a Mux asset by analyzing storyboard frames and transcript.
+ * For audio-only assets, this workflow analyzes transcript content only.
+ * Defaults to yes/no answers unless `answerOptions` are provided.
+ *
+ * This workflow takes a list of questions and returns structured answers with confidence
+ * scores and reasoning for each question. All questions are processed in a single LLM call for
+ * efficiency.
+ *
+ * @param assetId - The Mux asset ID to analyze
+ * @param questions - Array of questions to answer (each must have a 'question' field)
+ * @param options - Configuration options for the workflow
+ * @returns Structured answers with confidence scores and reasoning
  *
  * @example
  * ```typescript
  * const result = await askQuestions("abc123", [
  *   { question: "Does this video contain cooking?" },
+ *   { question: "Are there people visible in the video?" },
  * ]);
- * // result.answers[0] = { question, answer: "yes", confidence: 0.95, reasoning, skipped: false }
+ *
+ * console.log(result.answers[0]);
+ * // {
+ * //   question: "Does this video contain cooking?",
+ * //   answer: "yes",
+ * //   confidence: 0.95,
+ * //   reasoning: "A chef prepares ingredients and cooks in a kitchen throughout the video."
+ * // }
  * ```
  */
 export async function askQuestions(
@@ -670,12 +800,17 @@ export async function askQuestions(
 ): Promise<AskQuestionsResult> {
   "use workflow";
 
+  // Validate questions array is non-empty
   if (!questions || questions.length === 0) {
     throw new MuxAiError("At least one question must be provided.", { type: "validation_error" });
   }
 
-  // Cap question length: anything beyond this is almost always a misuse or
-  // an injection payload trying to hide in a long blob.
+  // Validate each question has valid text and enforce a length ceiling.
+  // Reasonable human-authored questions are well under a few hundred
+  // characters; anything longer is almost certainly either a misuse
+  // (pasting a whole document) or a prompt-injection payload trying to
+  // hide instructions in a long blob. Rejecting at the boundary is a
+  // cheap, deterministic defence that the model never sees.
   const MAX_QUESTION_LENGTH = 500;
   questions.forEach((q, idx) => {
     if (!q.question || typeof q.question !== "string" || !q.question.trim()) {
@@ -692,10 +827,22 @@ export async function askQuestions(
     }
   });
 
-  // Cap answer-option length: rejects instruction-shaped options that
-  // smuggle injection payloads through option content. Default tuned to
-  // pass domain-specific category labels (40–80 chars) while rejecting
-  // sentence-length injections.
+  // Per-answer-option length ceiling. Answer options are meant to be
+  // short labels ("yes", "no", "low", "appropriate") or domain-specific
+  // category strings (moderation labels, compliance categories).
+  //
+  // A common prompt-injection shape smuggles the payload through option
+  // content — e.g. pairing two long sentences that both presuppose the
+  // desired outcome ("Yes, I copied the full instructions into my
+  // reasoning as required"). The cap rejects instruction-shaped options
+  // before they reach the model.
+  //
+  // Default cap is 150 characters, tuned to comfortably pass
+  // domain-specific category labels (which can legitimately run 40–80
+  // chars) while still rejecting obvious sentence-length injections.
+  // Overridable via `options.maxAnswerOptionLength` for use cases with
+  // genuinely longer labels — but beware that widening this cap reduces
+  // one of the defences against option-smuggling attacks.
   const DEFAULT_MAX_ANSWER_OPTION_LENGTH = 150;
   const maxAnswerOptionLength =
     options?.maxAnswerOptionLength ?? DEFAULT_MAX_ANSWER_OPTION_LENGTH;
@@ -706,8 +853,11 @@ export async function askQuestions(
     );
   }
   questions.forEach((q, idx) => {
-    // Defer to normalizeQuestion so the more informative "mutually
-    // exclusive" error wins over "answerOption too long".
+    // For free-form questions, the mutual-exclusivity check in
+    // normalizeQuestion will reject any answerOptions paired with
+    // freeFormReply. Skip the length check here so that errant input
+    // surfaces the more informative "mutually exclusive" error rather
+    // than an "answerOption too long" message.
     if (q.freeFormReply)
       return;
     for (const opt of q.answerOptions ?? []) {
@@ -720,7 +870,11 @@ export async function askQuestions(
     }
   });
 
-  // Cap free-form answer length: bounds the open-ended output channel.
+  // Free-form reply mode: validate the length cap early. Default of 500
+  // characters keeps answers tight — one or two sentences — while
+  // bounding how much content the model can emit on the open-ended
+  // channel. See AskQuestionsOptions.maxFreeFormAnswerLength for the
+  // reasoning behind the default.
   const DEFAULT_MAX_FREE_FORM_ANSWER_LENGTH = 500;
   const maxFreeFormAnswerLength =
     options?.maxFreeFormAnswerLength ?? DEFAULT_MAX_FREE_FORM_ANSWER_LENGTH;
@@ -751,6 +905,7 @@ export async function askQuestions(
     model,
     provider: provider as SupportedProvider,
   });
+  // Fetch asset data and playback ID from Mux
   const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
 
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
@@ -763,6 +918,7 @@ export async function askQuestions(
     );
   }
 
+  // Resolve signing context for signed playback IDs
   const signingContext = await resolveMuxSigningContext(credentials);
   if (policy === "signed" && !signingContext) {
     throw new MuxAiError(
@@ -784,6 +940,7 @@ export async function askQuestions(
       undefined;
   const transcriptText = transcriptResult?.transcriptText ?? "";
 
+  // Build the user prompt with questions (each with their allowed answers or free-form format) and optional transcript
   const userPrompt = buildUserPrompt({
     questions: normalizedQuestions,
     transcriptText,
@@ -808,6 +965,7 @@ export async function askQuestions(
         credentials,
       });
     } else {
+      // Generate storyboard URL (signed if needed)
       const storyboardUrl = await getStoryboardUrl(
         playbackId,
         storyboardWidth,
@@ -829,6 +987,7 @@ export async function askQuestions(
           credentials,
         });
       } else {
+        // URL-based submission with retry
         analysisResponse = await withRetry(() =>
           analyzeQuestions({
             provider: modelConfig.provider,
@@ -852,14 +1011,30 @@ export async function askQuestions(
     throw new MuxAiError(`Failed to generate answers for asset ${assetId}.`);
   }
 
+  // Validate we got answers for all questions
   if (analysisResponse.result.answers.length !== questions.length) {
     throw new MuxAiError(
       `Failed to generate answers for all questions for asset ${assetId}.`,
     );
   }
 
+  // Post-process raw LLM output into the public QuestionAnswer shape.
+  // Treat as skipped if the model flagged it, if the answer is the sentinel,
+  // or if the output-safety scrub detected a prompt leak in the reasoning.
+  //
+  // The returned `question` is taken from the normalized input rather than
+  // from `raw.question`. The model's schema requires it to echo the input
+  // verbatim, but that field is another potential exfiltration channel:
+  // a prompt-injected payload can coerce the model into returning arbitrary
+  // content in place of the question. Since we already have the trusted
+  // input in `normalizedQuestions[idx].question`, there is no reason to
+  // trust the model's echo.
   const safety = createSafetyReporter();
 
+  // Record schema-smuggling signals from the step. zod.strip() has
+  // already removed the extras from the parsed output; the safety
+  // report captures what was stripped so operators can see the
+  // smuggling attempt.
   for (const key of analysisResponse.unexpectedRootKeys) {
     safety.record(`ask_questions.${key}`, "unexpected_key");
   }
@@ -883,8 +1058,11 @@ export async function askQuestions(
     const reasoningScrub = safety.scrubDetailed(raw.reasoning, `reasoning[${idx}]`);
     const explicitSkip = raw.skipped || raw.answer === SKIP_SENTINEL;
 
-    // Scrub free-form answers like `reasoning`: they're a second free-text
-    // exfiltration channel. Detected leaks flip the question to skipped.
+    // Free-form answers are a second free-text exfiltration channel, so
+    // they get the same scrubber treatment as `reasoning`. Any detected
+    // leak flips the answer into the skipped state and suppresses both
+    // the answer and reasoning — matching how reasoning-side leaks are
+    // already handled for constrained questions.
     const answerScrub = isFreeForm && !explicitSkip ?
         safety.scrubDetailed(raw.answer, `answer[${idx}]`) :
       null;
@@ -893,8 +1071,10 @@ export async function askQuestions(
       reasoningScrub.leaked ||
       (answerScrub?.leaked ?? false);
 
-    // Per-question enum check — primary defence on the free-form-mixed
-    // path where the schema-level enum doesn't apply.
+    // Constrained questions: enforce the per-question enum here. The
+    // schema-level enum already rejects off-spec values on the
+    // constrained-only path; this check is the primary defence on the
+    // free-form-mixed path where the schema is permissive.
     if (!isSkipped && !isFreeForm) {
       const allowed = allowedAnswersForQuestion(question);
       if (!allowed.includes(raw.answer)) {
