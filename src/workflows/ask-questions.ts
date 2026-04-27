@@ -41,22 +41,11 @@ export interface Question {
   /** Allowed answers for this question (defaults to ["yes", "no"]). */
   answerOptions?: string[];
   /**
-   * Experimental: When true, the model replies with free-form text for
-   * this question instead of yes/no or `answerOptions`. Answers are
-   * length-capped via {@link AskQuestionsOptions.maxFreeFormAnswerLength}
-   * (default 500 characters), still subject to the output-safety
-   * scrubber, and the model can still skip irrelevant questions via the
-   * normal skip mechanism.
-   *
-   * Mutually exclusive with `answerOptions`: setting both throws a
-   * validation error. Default (neither set) remains yes/no.
-   *
-   * Free-form is the more permissive mode: enum-constrained answers
-   * prevent arbitrary prose in model output, which is a potential
-   * prompt-leak exfiltration channel. Use free-form only when your use
-   * case genuinely needs open-ended answers (e.g. describing a scene,
-   * extracting quoted text) and treat the resulting answer as untrusted
-   * model output.
+   * Experimental: replies with free-form prose instead of yes/no or
+   * `answerOptions`. Length-capped via
+   * {@link AskQuestionsOptions.maxFreeFormAnswerLength} (default 500),
+   * still scrubbed for safety, still skippable. Mutually exclusive with
+   * `answerOptions`. Treat the answer as untrusted model output.
    */
   freeFormReply?: boolean;
 }
@@ -108,15 +97,9 @@ export interface AskQuestionsOptions extends MuxAIOptions {
    */
   maxAnswerOptionLength?: number;
   /**
-   * Experimental: Maximum character length for free-form answers when a
-   * question sets `freeFormReply: true`. Defaults to 500.
-   *
-   * Free-form answers bypass the enum schema, so this cap is the primary
-   * mechanical limit on how much content the model can emit per answer.
-   * Keep it low to hold answers tight and bound any potential
-   * exfiltration channel; raise only if your use case genuinely needs
-   * longer prose. Answers still pass through the output-safety scrubber
-   * regardless of this value.
+   * Experimental: max character length for free-form answers when
+   * `freeFormReply: true`. Defaults to 500. Free-form bypasses the enum
+   * schema, so this cap is the primary limit on output length.
    */
   maxFreeFormAnswerLength?: number;
 }
@@ -414,15 +397,7 @@ const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
     - Be specific and evidence-based
   </language_guidelines>`;
 
-/**
- * Additional details for free-form (<answer_format>) questions, appended
- * to the system prompt when at least one question uses free-form mode.
- *
- * The base system prompt already describes both response formats in a
- * mode-neutral way; this block only carries free-form-specific rules
- * (length cap, skip-via-sentinel semantics, no-instructions hygiene) so
- * the default path is unaffected when no question is free-form.
- */
+// Appended to the system prompt only when free-form mode is in use.
 function freeFormAddendum(maxFreeFormAnswerLength: number): string {
   return promptDedent`
     <free_form_answers>
@@ -451,18 +426,8 @@ function buildSystemPrompt(
   return `${base}\n\n${freeFormAddendum(maxFreeFormAnswerLength)}`;
 }
 
-/**
- * Internal representation of a validated question. The `mode` discriminant
- * captures the three response shapes the public API supports:
- *
- *   - `yesNo`: the default — caller didn't override anything.
- *   - `options`: the caller passed `answerOptions` — a custom enum.
- *   - `freeForm`: the caller set `freeFormReply: true`.
- *
- * Modeled as a discriminated union so all downstream branching is via
- * `switch (q.mode.kind)`. Plain data — fully serialisable across the
- * workflow runtime's step boundary.
- */
+// Validated question, discriminated by response mode. POJO — serialisable
+// across the workflow runtime's step boundary.
 interface NormalizedQuestion {
   question: string;
   mode:
@@ -473,7 +438,6 @@ interface NormalizedQuestion {
 
 const YES_NO_ANSWERS: readonly string[] = ["yes", "no"];
 
-/** The full set of allowed answer values for a single question. */
 function allowedAnswersForQuestion(q: NormalizedQuestion): readonly string[] {
   switch (q.mode.kind) {
     case "yesNo":
@@ -485,17 +449,6 @@ function allowedAnswersForQuestion(q: NormalizedQuestion): readonly string[] {
   }
 }
 
-/**
- * Validate a public-shape `Question` and normalise it into a
- * mode-discriminated internal representation.
- *
- * Public API rules:
- *  - Neither field set → yes/no (the default).
- *  - `answerOptions` → custom enum.
- *  - `freeFormReply: true` → free-form prose reply.
- *  - Setting both is rejected (they're mutually exclusive overrides of
- *    the yes/no default).
- */
 function normalizeQuestion(q: Question, idx: number): NormalizedQuestion {
   const hasOptions = Array.isArray(q.answerOptions);
   const isFreeForm = q.freeFormReply === true;
@@ -647,18 +600,9 @@ interface AnalyzeQuestionsInput {
   credentials?: WorkflowCredentialsInput;
 }
 
-/**
- * Derive the response schema from the question set. Returns:
- *
- *  - When any question is free-form: a length-capped string sub-schema for
- *    the `answer` field. A uniform z.array shape can't express a mixed
- *    per-question enum constraint, so the still-constrained questions
- *    fall back to the post-processing per-question check.
- *  - Otherwise: an enum built from the union of every question's allowed
- *    answers (yes/no for `default` mode, custom values for `options`
- *    mode), plus SKIP_SENTINEL. Providers with structured-output support
- *    reject-and-retry off-spec values at the provider layer.
- */
+// Free-form mode: permissive string schema; post-processing handles
+// per-question enum checks for any still-constrained questions.
+// Otherwise: enum of the union of every question's allowed answers.
 function buildResponseSchemaForQuestions(
   normalizedQuestions: NormalizedQuestion[],
   maxFreeFormAnswerLength: number,
@@ -853,11 +797,8 @@ export async function askQuestions(
     );
   }
   questions.forEach((q, idx) => {
-    // For free-form questions, the mutual-exclusivity check in
-    // normalizeQuestion will reject any answerOptions paired with
-    // freeFormReply. Skip the length check here so that errant input
-    // surfaces the more informative "mutually exclusive" error rather
-    // than an "answerOption too long" message.
+    // Defer to normalizeQuestion so the more informative "mutually
+    // exclusive" error wins over "answerOption too long".
     if (q.freeFormReply)
       return;
     for (const opt of q.answerOptions ?? []) {
@@ -870,11 +811,7 @@ export async function askQuestions(
     }
   });
 
-  // Free-form reply mode: validate the length cap early. Default of 500
-  // characters keeps answers tight — one or two sentences — while
-  // bounding how much content the model can emit on the open-ended
-  // channel. See AskQuestionsOptions.maxFreeFormAnswerLength for the
-  // reasoning behind the default.
+  // Cap free-form answer length: bounds the open-ended output channel.
   const DEFAULT_MAX_FREE_FORM_ANSWER_LENGTH = 500;
   const maxFreeFormAnswerLength =
     options?.maxFreeFormAnswerLength ?? DEFAULT_MAX_FREE_FORM_ANSWER_LENGTH;
@@ -1058,11 +995,8 @@ export async function askQuestions(
     const reasoningScrub = safety.scrubDetailed(raw.reasoning, `reasoning[${idx}]`);
     const explicitSkip = raw.skipped || raw.answer === SKIP_SENTINEL;
 
-    // Free-form answers are a second free-text exfiltration channel, so
-    // they get the same scrubber treatment as `reasoning`. Any detected
-    // leak flips the answer into the skipped state and suppresses both
-    // the answer and reasoning — matching how reasoning-side leaks are
-    // already handled for constrained questions.
+    // Scrub free-form answers like `reasoning`: they're a second free-text
+    // exfiltration channel. Detected leaks flip the question to skipped.
     const answerScrub = isFreeForm && !explicitSkip ?
         safety.scrubDetailed(raw.answer, `answer[${idx}]`) :
       null;
@@ -1071,10 +1005,8 @@ export async function askQuestions(
       reasoningScrub.leaked ||
       (answerScrub?.leaked ?? false);
 
-    // Constrained questions: enforce the per-question enum here. The
-    // schema-level enum already rejects off-spec values on the
-    // constrained-only path; this check is the primary defence on the
-    // free-form-mixed path where the schema is permissive.
+    // Per-question enum check — primary defence on the free-form-mixed
+    // path where the schema-level enum doesn't apply.
     if (!isSkipped && !isFreeForm) {
       const allowed = allowedAnswersForQuestion(question);
       if (!allowed.includes(raw.answer)) {
