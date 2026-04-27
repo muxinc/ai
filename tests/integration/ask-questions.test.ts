@@ -337,6 +337,18 @@ describe("ask Questions Integration Tests", () => {
         ),
       ).rejects.toThrow("maxFreeFormAnswerLength must be a positive number");
     });
+
+    it("should throw error when answerOptions and freeFormReply are both set", async () => {
+      await expect(
+        askQuestions(testAssetId, [
+          {
+            question: "Describe the video.",
+            answerOptions: ["a", "b"],
+            freeFormReply: true,
+          },
+        ]),
+      ).rejects.toThrow("mutually exclusive");
+    });
   });
 
   it("should throw error when answer count doesn't match question count", async () => {

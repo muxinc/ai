@@ -255,10 +255,11 @@ const result = await askQuestions("asset-id", [
 
 > ⚠️ **Experimental:** `freeFormReply` enables open-ended answers for a given
 > question. This bypasses the enum schema and allows the model to reply with
-> prose instead of selecting from `answerOptions` — use it only when your
-> use case genuinely needs open-ended answers (e.g. describing a scene,
+> prose instead of yes/no or `answerOptions` — use it only when your use
+> case genuinely needs open-ended answers (e.g. describing a scene,
 > extracting a quoted line) and treat the answer as untrusted model output.
-> The length cap (`maxFreeFormAnswerLength`, default 500 chars) and the
+> Mutually exclusive with `answerOptions` (setting both throws). The
+> length cap (`maxFreeFormAnswerLength`, default 500 chars) and the
 > output-safety scrubber still apply. API shape may change.
 
 ```typescript

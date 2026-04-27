@@ -213,8 +213,9 @@ const result = await askQuestions(assetId, questions, {
 >
 > By default, answers are constrained to the values in `answerOptions` (or
 > `["yes", "no"]`). Setting `freeFormReply: true` on a question lets the
-> model reply with open-ended prose instead. When set, `answerOptions` is
-> ignored for that question.
+> model reply with open-ended prose instead. `freeFormReply` and
+> `answerOptions` are mutually exclusive — setting both throws a
+> validation error.
 >
 > Use this only when you genuinely need open-ended answers (describing a
 > scene, extracting a quoted line, summarising a segment). The

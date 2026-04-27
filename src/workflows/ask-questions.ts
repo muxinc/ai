@@ -42,20 +42,21 @@ export interface Question {
   answerOptions?: string[];
   /**
    * EXPERIMENTAL: When true, the model replies with free-form text for
-   * this question instead of selecting from `answerOptions`. Answers are
+   * this question instead of yes/no or `answerOptions`. Answers are
    * length-capped via {@link AskQuestionsOptions.maxFreeFormAnswerLength}
    * (default 500 characters), still subject to the output-safety
    * scrubber, and the model can still skip irrelevant questions via the
    * normal skip mechanism.
    *
-   * When set, `answerOptions` is ignored for this question.
+   * Mutually exclusive with `answerOptions`: setting both throws a
+   * validation error. Default (neither set) remains yes/no.
    *
-   * The constrained-enum mode is the safer default: restricting answers
-   * to a fixed set prevents arbitrary prose in model output, which is a
-   * potential prompt-leak exfiltration channel. Use free-form only when
-   * your use case genuinely needs open-ended answers (e.g. describing a
-   * scene, extracting quoted text) and treat the resulting answer as
-   * untrusted model output.
+   * Free-form is the more permissive mode: enum-constrained answers
+   * prevent arbitrary prose in model output, which is a potential
+   * prompt-leak exfiltration channel. Use free-form only when your use
+   * case genuinely needs open-ended answers (e.g. describing a scene,
+   * extracting quoted text) and treat the resulting answer as untrusted
+   * model output.
    */
   freeFormReply?: boolean;
 }
@@ -187,17 +188,9 @@ export type QuestionAnswerType = z.infer<typeof questionAnswerSchema>;
 const SKIP_SENTINEL = "__SKIPPED__";
 
 /**
- * Builds the response schema from a caller-supplied answer sub-schema.
- *
- * The answer sub-schema varies by mode:
- *  - Constrained-only: `z.enum([...allAllowedAnswers, SKIP_SENTINEL])` so
- *    providers with structured-output support reject-and-retry invalid
- *    values at the provider layer.
- *  - Any free-form question present: `z.string().min(1).max(maxLen)` —
- *    the enum is dropped because it cannot express a mixed per-question
- *    constraint across a uniform array. Per-question enum enforcement
- *    then falls back to the post-processing validation in `askQuestions`,
- *    which is the same path that already catches off-spec answers today.
+ * Wraps a caller-supplied answer sub-schema in the standard envelope.
+ * See {@link buildResponseSchemaForQuestions} for how the sub-schema is
+ * derived from the question set.
  */
 function createAskQuestionsSchema(answerSchema: z.ZodType<string>) {
   return z.object({
@@ -433,7 +426,7 @@ const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
 function freeFormAddendum(maxFreeFormAnswerLength: number): string {
   return promptDedent`
     <free_form_answers>
-      EXPERIMENTAL. Additional rules for questions with <answer_format>free-form text ...</answer_format>:
+      Additional rules for questions with <answer_format>free-form text ...</answer_format>:
 
       - Produce a short, evidence-grounded answer in plain prose
       - Keep it tight: one or two sentences, maximum ${maxFreeFormAnswerLength} characters
@@ -458,16 +451,86 @@ function buildSystemPrompt(
   return `${base}\n\n${freeFormAddendum(maxFreeFormAnswerLength)}`;
 }
 
-type NormalizedQuestion =
-  | {
-    question: string;
-    freeFormReply: true;
-  } |
-  {
-    question: string;
-    freeFormReply?: false;
-    answerOptions: [string, ...string[]];
-  };
+/**
+ * Internal representation of a validated question. The `mode` discriminant
+ * captures the three response shapes the public API supports:
+ *
+ *   - `yesNo`: the default — caller didn't override anything.
+ *   - `options`: the caller passed `answerOptions` — a custom enum.
+ *   - `freeForm`: the caller set `freeFormReply: true`.
+ *
+ * Modeled as a discriminated union so all downstream branching is via
+ * `switch (q.mode.kind)`. Plain data — fully serialisable across the
+ * workflow runtime's step boundary.
+ */
+interface NormalizedQuestion {
+  question: string;
+  mode:
+    | { kind: "yesNo" } |
+    { kind: "options"; options: [string, ...string[]] } |
+    { kind: "freeForm" };
+}
+
+const YES_NO_ANSWERS: readonly string[] = ["yes", "no"];
+
+/** The full set of allowed answer values for a single question. */
+function allowedAnswersForQuestion(q: NormalizedQuestion): readonly string[] {
+  switch (q.mode.kind) {
+    case "yesNo":
+      return YES_NO_ANSWERS;
+    case "options":
+      return q.mode.options;
+    case "freeForm":
+      return [];
+  }
+}
+
+/**
+ * Validate a public-shape `Question` and normalise it into a
+ * mode-discriminated internal representation.
+ *
+ * Public API rules:
+ *  - Neither field set → yes/no (the default).
+ *  - `answerOptions` → custom enum.
+ *  - `freeFormReply: true` → free-form prose reply.
+ *  - Setting both is rejected (they're mutually exclusive overrides of
+ *    the yes/no default).
+ */
+function normalizeQuestion(q: Question, idx: number): NormalizedQuestion {
+  const hasOptions = Array.isArray(q.answerOptions);
+  const isFreeForm = q.freeFormReply === true;
+
+  if (hasOptions && isFreeForm) {
+    throw new MuxAiError(
+      `Question at index ${idx} sets both answerOptions and freeFormReply: true. These are mutually exclusive — pick one.`,
+      { type: "validation_error" },
+    );
+  }
+
+  if (isFreeForm) {
+    return { question: q.question, mode: { kind: "freeForm" } };
+  }
+
+  if (hasOptions) {
+    const options = Array.from(
+      new Set(
+        (q.answerOptions ?? []).map(o => o.trim()).filter(Boolean),
+      ),
+    );
+    if (!options.length) {
+      throw new MuxAiError(
+        `Question at index ${idx} has invalid answerOptions: must include at least one non-empty value.`,
+        { type: "validation_error" },
+      );
+    }
+    return {
+      question: q.question,
+      mode: { kind: "options", options: options as [string, ...string[]] },
+    };
+  }
+
+  return { question: q.question, mode: { kind: "yesNo" } };
+}
 
 interface UserPromptContext {
   questions: NormalizedQuestion[];
@@ -475,6 +538,29 @@ interface UserPromptContext {
   isCleanTranscript?: boolean;
   isAudioOnly?: boolean;
   maxFreeFormAnswerLength: number;
+}
+
+function renderFormatTag(
+  mode: NormalizedQuestion["mode"],
+  maxFreeFormAnswerLength: number,
+): string {
+  switch (mode.kind) {
+    case "yesNo":
+      return renderSection({
+        tag: "allowed_answers",
+        content: YES_NO_ANSWERS.map(a => `"${a}"`).join(", "),
+      });
+    case "options":
+      return renderSection({
+        tag: "allowed_answers",
+        content: mode.options.map(a => `"${a}"`).join(", "),
+      });
+    case "freeForm":
+      return renderSection({
+        tag: "answer_format",
+        content: `free-form text, maximum ${maxFreeFormAnswerLength} characters`,
+      });
+  }
 }
 
 function buildUserPrompt({
@@ -488,7 +574,7 @@ function buildUserPrompt({
     "audio content using transcript evidence" :
     "content";
 
-  const hasFreeForm = questions.some(q => q.freeFormReply === true);
+  const hasFreeForm = questions.some(q => q.mode.kind === "freeForm");
   const formatInstruction = hasFreeForm ?
     "Follow each question's specified response format: pick from <allowed_answers> where listed, or produce a concise free-form answer where <answer_format> is specified." :
     "Use only the values listed inside each question's own <allowed_answers> element.";
@@ -503,15 +589,7 @@ function buildUserPrompt({
   const questionBlocks = questions
     .map((q, idx) => {
       const textTag = renderSection({ tag: "text", content: q.question });
-      const formatTag = q.freeFormReply === true ?
-          renderSection({
-            tag: "answer_format",
-            content: `free-form text, maximum ${maxFreeFormAnswerLength} characters`,
-          }) :
-          renderSection({
-            tag: "allowed_answers",
-            content: q.answerOptions.map(a => `"${a}"`).join(", "),
-          });
+      const formatTag = renderFormatTag(q.mode, maxFreeFormAnswerLength);
       return `<question number="${idx + 1}">\n${textTag}\n${formatTag}\n</question>`;
     })
     .join("\n\n");
@@ -563,19 +641,38 @@ interface AnalyzeQuestionsInput {
   modelId: string;
   userPrompt: string;
   systemPrompt: string;
-  /**
-   * Non-null = constrained-enum mode (enum built from these values plus
-   * SKIP_SENTINEL). Null = free-form mode (length-capped string schema).
-   *
-   * The response schema itself is built inside the step rather than
-   * passed as an argument — step arguments get serialized by the workflow
-   * runtime for suspend/resume, and a Zod schema has functions on it
-   * that can't be JSON-serialized.
-   */
-  allowedAnswers: [string, ...string[]] | null;
+  normalizedQuestions: NormalizedQuestion[];
   maxFreeFormAnswerLength: number;
   imageDataUrl?: string;
   credentials?: WorkflowCredentialsInput;
+}
+
+/**
+ * Derive the response schema from the question set. Returns:
+ *
+ *  - When any question is free-form: a length-capped string sub-schema for
+ *    the `answer` field. A uniform z.array shape can't express a mixed
+ *    per-question enum constraint, so the still-constrained questions
+ *    fall back to the post-processing per-question check.
+ *  - Otherwise: an enum built from the union of every question's allowed
+ *    answers (yes/no for `default` mode, custom values for `options`
+ *    mode), plus SKIP_SENTINEL. Providers with structured-output support
+ *    reject-and-retry off-spec values at the provider layer.
+ */
+function buildResponseSchemaForQuestions(
+  normalizedQuestions: NormalizedQuestion[],
+  maxFreeFormAnswerLength: number,
+) {
+  const hasFreeForm = normalizedQuestions.some(q => q.mode.kind === "freeForm");
+  if (hasFreeForm) {
+    return createAskQuestionsSchema(
+      z.string().min(1).max(maxFreeFormAnswerLength),
+    );
+  }
+  const allowed = Array.from(
+    new Set(normalizedQuestions.flatMap(allowedAnswersForQuestion)),
+  ) as [string, ...string[]];
+  return createAskQuestionsSchema(z.enum([...allowed, SKIP_SENTINEL]));
 }
 
 async function analyzeQuestions({
@@ -583,7 +680,7 @@ async function analyzeQuestions({
   modelId,
   userPrompt,
   systemPrompt,
-  allowedAnswers,
+  normalizedQuestions,
   maxFreeFormAnswerLength,
   imageDataUrl,
   credentials,
@@ -591,10 +688,10 @@ async function analyzeQuestions({
   "use step";
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
 
-  const answerSchema: z.ZodType<string> = allowedAnswers === null ?
-      z.string().min(1).max(maxFreeFormAnswerLength) :
-      z.enum([...allowedAnswers, SKIP_SENTINEL]);
-  const responseSchema = createAskQuestionsSchema(answerSchema);
+  const responseSchema = buildResponseSchemaForQuestions(
+    normalizedQuestions,
+    maxFreeFormAnswerLength,
+  );
 
   const response = await generateText({
     model,
@@ -756,8 +853,11 @@ export async function askQuestions(
     );
   }
   questions.forEach((q, idx) => {
-    // answerOptions is ignored for free-form questions, so its contents
-    // are not user-facing and the length cap does not apply.
+    // For free-form questions, the mutual-exclusivity check in
+    // normalizeQuestion will reject any answerOptions paired with
+    // freeFormReply. Skip the length check here so that errant input
+    // surfaces the more informative "mutually exclusive" error rather
+    // than an "answerOption too long" message.
     if (q.freeFormReply)
       return;
     for (const opt of q.answerOptions ?? []) {
@@ -770,11 +870,11 @@ export async function askQuestions(
     }
   });
 
-  // EXPERIMENTAL free-form reply mode: validate the length cap early.
-  // Default of 500 characters keeps answers tight — one or two sentences
-  // — while bounding how much content the model can emit on the
-  // open-ended channel. See AskQuestionsOptions.maxFreeFormAnswerLength
-  // for the reasoning behind the default.
+  // Free-form reply mode: validate the length cap early. Default of 500
+  // characters keeps answers tight — one or two sentences — while
+  // bounding how much content the model can emit on the open-ended
+  // channel. See AskQuestionsOptions.maxFreeFormAnswerLength for the
+  // reasoning behind the default.
   const DEFAULT_MAX_FREE_FORM_ANSWER_LENGTH = 500;
   const maxFreeFormAnswerLength =
     options?.maxFreeFormAnswerLength ?? DEFAULT_MAX_FREE_FORM_ANSWER_LENGTH;
@@ -797,50 +897,8 @@ export async function askQuestions(
     credentials,
   } = options ?? {};
 
-  const normalizedQuestions: NormalizedQuestion[] = questions.map((q, idx) => {
-    if (q.freeFormReply === true) {
-      return { question: q.question, freeFormReply: true };
-    }
-    const options = Array.from(
-      new Set(
-        (q.answerOptions?.length ? q.answerOptions : ["yes", "no"])
-          .map(o => o.trim())
-          .filter(Boolean),
-      ),
-    );
-    if (!options.length) {
-      throw new MuxAiError(
-        `Question at index ${idx} has invalid answerOptions: must include at least one non-empty value.`,
-        { type: "validation_error" },
-      );
-    }
-    return { question: q.question, answerOptions: options as [string, ...string[]] };
-  });
-
-  const hasFreeForm = normalizedQuestions.some(q => q.freeFormReply === true);
-
-  // When any question is free-form the answer sub-schema becomes a
-  // length-capped string: a uniform z.array shape cannot express a
-  // per-question enum constraint mixed with free text. Per-question
-  // enum enforcement for the still-constrained questions then falls to
-  // the post-processing check below (which already catches off-spec
-  // answers today). When no question is free-form, the existing
-  // enum-backed schema is used so providers with structured-output
-  // support reject-and-retry invalid values at the provider layer.
-  //
-  // Only plain data crosses the step boundary — the Zod schema itself is
-  // built inside `analyzeQuestions`. Step arguments are serialized by
-  // the workflow runtime for suspend/resume, and a Zod schema object
-  // has functions on it that aren't JSON-serializable.
-  const allowedAnswersForStep: [string, ...string[]] | null = hasFreeForm ?
-    null :
-      (Array.from(
-        new Set(
-          normalizedQuestions.flatMap(q =>
-            q.freeFormReply === true ? [] : q.answerOptions,
-          ),
-        ),
-      ) as [string, ...string[]]);
+  const normalizedQuestions: NormalizedQuestion[] = questions.map((q, idx) => normalizeQuestion(q, idx));
+  const hasFreeForm = normalizedQuestions.some(q => q.mode.kind === "freeForm");
 
   const modelConfig = resolveLanguageModelConfig({
     ...options,
@@ -902,7 +960,7 @@ export async function askQuestions(
         modelId: modelConfig.modelId,
         userPrompt,
         systemPrompt,
-        allowedAnswers: allowedAnswersForStep,
+        normalizedQuestions,
         maxFreeFormAnswerLength,
         credentials,
       });
@@ -923,7 +981,7 @@ export async function askQuestions(
           modelId: modelConfig.modelId,
           userPrompt,
           systemPrompt,
-          allowedAnswers: allowedAnswersForStep,
+          normalizedQuestions,
           maxFreeFormAnswerLength,
           imageDataUrl: base64Data,
           credentials,
@@ -936,7 +994,7 @@ export async function askQuestions(
             modelId: modelConfig.modelId,
             userPrompt,
             systemPrompt,
-            allowedAnswers: allowedAnswersForStep,
+            normalizedQuestions,
             maxFreeFormAnswerLength,
             imageDataUrl: storyboardUrl,
             credentials,
@@ -995,7 +1053,7 @@ export async function askQuestions(
 
   const answers: QuestionAnswer[] = analysisResponse.result.answers.map((raw, idx) => {
     const question = normalizedQuestions[idx];
-    const isFreeForm = question.freeFormReply === true;
+    const isFreeForm = question.mode.kind === "freeForm";
 
     const reasoningScrub = safety.scrubDetailed(raw.reasoning, `reasoning[${idx}]`);
     const explicitSkip = raw.skipped || raw.answer === SKIP_SENTINEL;
@@ -1017,10 +1075,13 @@ export async function askQuestions(
     // schema-level enum already rejects off-spec values on the
     // constrained-only path; this check is the primary defence on the
     // free-form-mixed path where the schema is permissive.
-    if (!isSkipped && !isFreeForm && !question.answerOptions.includes(raw.answer)) {
-      throw new MuxAiError(
-        `Answer "${raw.answer}" for question ${idx} is not in allowed options: ${question.answerOptions.join(", ")}`,
-      );
+    if (!isSkipped && !isFreeForm) {
+      const allowed = allowedAnswersForQuestion(question);
+      if (!allowed.includes(raw.answer)) {
+        throw new MuxAiError(
+          `Answer "${raw.answer}" for question ${idx} is not in allowed options: ${allowed.join(", ")}`,
+        );
+      }
     }
 
     let finalAnswer: string | null;
