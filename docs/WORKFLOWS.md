@@ -207,6 +207,41 @@ const result = await askQuestions(assetId, questions, {
 });
 ```
 
+### Free-form Replies (Experimental)
+
+> ⚠️ **Experimental**
+>
+> By default, answers are constrained to the values in `answerOptions` (or
+> `["yes", "no"]`). Setting `freeFormReply: true` on a question lets the
+> model reply with open-ended prose instead. `freeFormReply` and
+> `answerOptions` are mutually exclusive — setting both throws a
+> validation error.
+>
+> Use this only when you genuinely need open-ended answers (describing a
+> scene, extracting a quoted line, summarising a segment). The
+> constrained-enum mode is the safer default — restricting answers to a
+> fixed set prevents arbitrary prose on the output channel. Free-form
+> answers are still length-capped (`maxFreeFormAnswerLength`, default 500)
+> and still pass through the output-safety scrubber.
+
+```typescript
+const result = await askQuestions(assetId, [
+  { question: "Is this video about glasses?" }, // constrained yes/no
+  {
+    question: "Describe the primary subject of the video in one sentence.",
+    freeFormReply: true,
+  },
+  {
+    question: "What is the primary subject?",
+    answerOptions: ["glasses", "watches", "shoes", "hats"],
+  }, // constrained enum
+], {
+  maxFreeFormAnswerLength: 300,
+});
+
+console.log(result.answers[1].answer); // e.g. "A pair of tortoiseshell glasses..."
+```
+
 ### Tips for Effective Questions
 
 - **Be specific:** "Does this show a person cooking in a kitchen?" vs "Does this have food?"

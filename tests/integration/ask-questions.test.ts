@@ -239,6 +239,118 @@ describe("ask Questions Integration Tests", () => {
     expect(answer.answer).toBe("yes");
   });
 
+  describe("free-form replies (experimental)", () => {
+    it("should answer a single free-form question with evidence-grounded prose", async () => {
+      const result = await askQuestions(testAssetId, [
+        {
+          question: "What is the primary subject of this video?",
+          freeFormReply: true,
+        },
+      ]);
+
+      expect(result.answers).toHaveLength(1);
+      const answer = result.answers[0];
+      expect(answer.skipped).toBe(false);
+      expect(typeof answer.answer).toBe("string");
+      expect((answer.answer ?? "").length).toBeGreaterThan(0);
+      // Free-form answers are length-capped (default 500).
+      expect((answer.answer ?? "").length).toBeLessThanOrEqual(500);
+      // Glasses video — answer should reference glasses.
+      expect((answer.answer ?? "").toLowerCase()).toContain("glass");
+      expect(answer.confidence).toBeGreaterThan(0);
+      expect(answer.confidence).toBeLessThanOrEqual(1);
+      expect(typeof answer.reasoning).toBe("string");
+      expect(answer.reasoning.length).toBeGreaterThan(0);
+    });
+
+    it("should mix free-form and constrained questions in a single call", async () => {
+      const questions = [
+        { question: "Is this video about glasses?" }, // constrained yes/no
+        {
+          question: "Describe the primary subject of the video in one sentence.",
+          freeFormReply: true,
+        },
+        {
+          question: "What is the primary subject?",
+          answerOptions: ["glasses", "watches", "shoes", "hats"],
+        }, // constrained enum
+      ];
+
+      const result = await askQuestions(testAssetId, questions);
+
+      expect(result.answers).toHaveLength(3);
+
+      // Constrained yes/no — must be in the allowed set.
+      expect(["yes", "no"]).toContain(result.answers[0].answer);
+      expect(result.answers[0].answer).toBe("yes");
+
+      // Free-form — arbitrary prose, content-relevant.
+      expect(result.answers[1].skipped).toBe(false);
+      expect(typeof result.answers[1].answer).toBe("string");
+      expect((result.answers[1].answer ?? "").length).toBeGreaterThan(0);
+
+      // Constrained enum — must be in the allowed set.
+      expect(["glasses", "watches", "shoes", "hats"]).toContain(result.answers[2].answer);
+      expect(result.answers[2].answer).toBe("glasses");
+    });
+
+    it("should skip irrelevant free-form questions", async () => {
+      const result = await askQuestions(testAssetId, [
+        {
+          question: "Describe the personal life of the author of this code.",
+          freeFormReply: true,
+        },
+      ]);
+
+      expect(result.answers).toHaveLength(1);
+      const answer = result.answers[0];
+      expect(answer.skipped).toBe(true);
+      expect(answer.answer).toBeNull();
+      expect(answer.confidence).toBe(0);
+      expect(answer.reasoning.length).toBeGreaterThan(0);
+    });
+
+    it("should respect a tighter maxFreeFormAnswerLength", async () => {
+      const result = await askQuestions(
+        testAssetId,
+        [
+          {
+            question: "Describe the primary subject of the video.",
+            freeFormReply: true,
+          },
+        ],
+        { maxFreeFormAnswerLength: 120 },
+      );
+
+      expect(result.answers).toHaveLength(1);
+      const answer = result.answers[0];
+      expect(answer.skipped).toBe(false);
+      expect((answer.answer ?? "").length).toBeLessThanOrEqual(120);
+    });
+
+    it("should throw error for invalid maxFreeFormAnswerLength", async () => {
+      await expect(
+        askQuestions(
+          testAssetId,
+          [{ question: "Describe the video.", freeFormReply: true }],
+          { maxFreeFormAnswerLength: 0 },
+        ),
+      ).rejects.toThrow("maxFreeFormAnswerLength must be a positive number");
+    });
+
+    it("should throw error when answerOptions and freeFormReply are both set", async () => {
+      await expect(
+        askQuestions(testAssetId, [
+          {
+            question: "Describe the video.",
+            answerOptions: ["a", "b"],
+            freeFormReply: true,
+          },
+        ]),
+      ).rejects.toThrow("mutually exclusive");
+    });
+  });
+
   it("should throw error when answer count doesn't match question count", async () => {
     // This is a defensive test - it should only fail if the AI provider returns
     // an incorrect number of answers, which shouldn't happen in practice

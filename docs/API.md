@@ -173,6 +173,7 @@ Answer questions about asset content by analyzing storyboard frames and optional
 - `questions` (array) - Array of question objects
   - Each question object must have a `question` field (string)
   - Each question may optionally include `answerOptions?: string[]` (defaults to `["yes", "no"]`)
+  - Each question may optionally include `freeFormReply?: boolean` (**experimental** — see below)
   - Example: `[{ question: "What is the production quality?", answerOptions: ["amateur", "semi-pro", "professional"] }]`
 - `options` (optional) - Configuration options
 
@@ -191,6 +192,7 @@ Answer questions about asset content by analyzing storyboard frames and optional
   - `maxRetryDelay?: number` - Maximum delay between retries in milliseconds (default: 10000)
   - `exponentialBackoff?: boolean` - Whether to use exponential backoff (default: true)
 - `storyboardWidth?: number` - Storyboard resolution in pixels (default: 640)
+- `maxFreeFormAnswerLength?: number` - **Experimental.** Maximum character length for free-form answers when a question sets `freeFormReply: true` (default: 500). Keep low to bound the open-ended output channel.
 
 **Returns:**
 
@@ -250,6 +252,28 @@ const result = await askQuestions("asset-id", [
 - Avoid ambiguous or subjective questions
 - Questions should have clear answers that map to your allowed options
 - The AI prioritizes visual evidence when transcript and visuals conflict
+
+> ⚠️ **Experimental:** `freeFormReply` enables open-ended answers for a given
+> question. This bypasses the enum schema and allows the model to reply with
+> prose instead of yes/no or `answerOptions` — use it only when your use
+> case genuinely needs open-ended answers (e.g. describing a scene,
+> extracting a quoted line) and treat the answer as untrusted model output.
+> Mutually exclusive with `answerOptions` (setting both throws). The
+> length cap (`maxFreeFormAnswerLength`, default 500 chars) and the
+> output-safety scrubber still apply. API shape may change.
+
+```typescript
+// Experimental: free-form answers for a single question
+const result = await askQuestions("asset-id", [
+  { question: "Is this video about glasses?" }, // defaults to yes/no
+  {
+    question: "Describe the primary subject of this video in one sentence.",
+    freeFormReply: true,
+  },
+], { maxFreeFormAnswerLength: 300 });
+
+console.log(result.answers[1].answer); // e.g. "A pair of tortoiseshell glasses..."
+```
 
 ## `generateEngagementInsights(assetId, options?)`
 
