@@ -138,10 +138,8 @@ const MIN_SUCCESSFUL_THUMBNAILS_FOR_CONFIDENT_THRESHOLDING = 3;
 const GOOGLE_VISION_ENDPOINT = "https://vision.googleapis.com/v1/images:annotate";
 
 /**
- * Google Vision SafeSearch returns a `Likelihood` enum (UNKNOWN..VERY_LIKELY).
- * The proto enum values are 0..5; we expose them as 0.0..1.0 by dividing by 5,
- * so LIKELY (4) maps to 0.8 — aligning with our default sexual/violence threshold.
- * This mapping may change in future versions of `@mux/ai`.
+ * Linear mapping of Google Vision SafeSearch `Likelihood` enum (UNKNOWN..VERY_LIKELY)
+ * onto a 0..1 score. This mapping may change in future versions of `@mux/ai`.
  */
 export const GOOGLE_VISION_LIKELIHOOD_TO_SCORE: Record<string, number> = {
   UNKNOWN: 0,
@@ -599,8 +597,6 @@ async function moderateImageWithGoogleVision(entry: {
   try {
     const apiKey = await getApiKeyFromEnv("google-vision-api", entry.credentials);
 
-    // The REST endpoint accepts either a public/gs:// URI or inline base64 content
-    // (without the data URI prefix).
     const imageField =
       entry.isBase64 ?
           { content: entry.image } :
@@ -698,8 +694,7 @@ async function requestGoogleVisionModeration(
         (await downloadImagesAsBase64(imageUrls, downloadOptions, maxConcurrent)).map(img => ({
           url: img.url,
           time: timeByUrl.get(img.url),
-          // The Vision REST API expects raw base64 content (no data URI prefix).
-          // downloadImagesAsBase64 returns a data URI in `base64Data`, so strip the header.
+          // Vision REST wants raw base64; downloadImagesAsBase64 returns a data URI.
           image: img.base64Data.startsWith("data:") ? img.base64Data.split(",")[1] : img.base64Data,
           isBase64: true,
           credentials,

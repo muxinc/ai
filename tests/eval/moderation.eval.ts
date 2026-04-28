@@ -76,11 +76,8 @@ import { muxTestAssets } from "../helpers/mux-test-assets";
  * - Safe audio-only: Audio asset moderated via transcript (should NOT exceed)
  *
  * Provider notes:
- * - "openai" is the default and is exercised end-to-end (image + transcript).
- * - "google-vision-api" is exercised against video assets only when
- *   GOOGLE_VISION_API_KEY is set; SafeSearch is image-only so audio-only assets
- *   are skipped for this provider. "hive" is similarly image-only and is
- *   gated on HIVE_API_KEY when added to CI in future.
+ * - "openai" is exercised end-to-end (image + transcript).
+ * - "google-vision-api" is exercised against video assets only — SafeSearch is image-only.
  *
  * ─────────────────────────────────────────────────────────────────────────────
  */

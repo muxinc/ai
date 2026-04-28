@@ -35,12 +35,7 @@ describe("hive moderation categories", () => {
 });
 
 describe("google vision moderation likelihood mapping", () => {
-  it("maps every Likelihood enum value to a 0..1 score where LIKELY trips the default 0.8 threshold", () => {
-    // The Google Vision SafeSearch annotation returns a Likelihood enum
-    // (UNKNOWN..VERY_LIKELY). We lift those onto a 0..1 axis so we can compare
-    // them against the same `sexual` / `violence` thresholds used by the other
-    // providers. Linear value/5 mapping; LIKELY at 0.8 lines up with our
-    // default threshold (note: `exceedsThreshold` uses strict `>`).
+  it("the GOOGLE_VISION_LIKELIHOOD_TO_SCORE mapping has not changed — If you change these, double-check that thresholds still behave as expected!", () => {
     expect(GOOGLE_VISION_LIKELIHOOD_TO_SCORE).toEqual({
       UNKNOWN: 0,
       VERY_UNLIKELY: 0.2,
