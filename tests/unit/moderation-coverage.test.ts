@@ -10,6 +10,7 @@ vi.mock("../../src/lib/mux-assets", () => ({
   getVideoTrackDurationSecondsFromAsset: vi.fn(),
   getVideoTrackMaxFrameRateFromAsset: vi.fn(),
   isAudioOnlyAsset: vi.fn(),
+  toPlaybackAsset: vi.fn(),
 }));
 
 vi.mock("../../src/lib/workflow-credentials", () => ({
@@ -27,6 +28,7 @@ const {
   getVideoTrackDurationSecondsFromAsset,
   getVideoTrackMaxFrameRateFromAsset,
   isAudioOnlyAsset,
+  toPlaybackAsset,
 } = await import("../../src/lib/mux-assets");
 const { resolveMuxSigningContext } = await import("../../src/lib/workflow-credentials");
 const { getThumbnailUrls } = await import("../../src/primitives/thumbnails");
@@ -63,6 +65,11 @@ beforeEach(() => {
     playbackId: "playback-123",
     policy: "public",
   } as any);
+  vi.mocked(toPlaybackAsset).mockReturnValue({
+    asset: { id: "asset-123" } as any,
+    playbackId: "playback-123",
+    policy: "public",
+  });
   vi.mocked(getVideoTrackDurationSecondsFromAsset).mockReturnValue(40);
   vi.mocked(getAssetDurationSecondsFromAsset).mockReturnValue(40);
   vi.mocked(getVideoTrackMaxFrameRateFromAsset).mockReturnValue(30);
@@ -167,5 +174,53 @@ describe("getModerationScores coverage metadata", () => {
       isLowConfidence: false,
     });
     expect(result.exceedsThreshold).toBe(false);
+  });
+});
+
+describe("getModerationScores asset-object input", () => {
+  const mockAsset = {
+    id: "asset-123",
+    playback_ids: [{ id: "playback-123", policy: "public" }],
+  } as any;
+
+  beforeEach(() => {
+    vi.mocked(getThumbnailUrls).mockResolvedValue([
+      { url: "https://thumb.test/1.png", time: 0 },
+    ]);
+    mockFetch.mockResolvedValue(
+      mockOpenAIModerationResponse({
+        status: 200,
+        body: { results: [{ category_scores: { sexual: 0.01, violence: 0.02 } }] },
+      }),
+    );
+  });
+
+  it("skips the Mux API call and uses the provided asset object", async () => {
+    await getModerationScores(mockAsset, {
+      provider: "openai",
+      model: "omni-moderation-latest",
+    });
+
+    expect(getPlaybackIdForAsset).not.toHaveBeenCalled();
+    expect(toPlaybackAsset).toHaveBeenCalledWith(mockAsset);
+  });
+
+  it("resolves assetId from asset.id in the result", async () => {
+    const result = await getModerationScores(mockAsset, {
+      provider: "openai",
+      model: "omni-moderation-latest",
+    });
+
+    expect(result.assetId).toBe("asset-123");
+  });
+
+  it("accepts a string ID and calls getPlaybackIdForAsset as before", async () => {
+    await getModerationScores("asset-123", {
+      provider: "openai",
+      model: "omni-moderation-latest",
+    });
+
+    expect(getPlaybackIdForAsset).toHaveBeenCalledWith("asset-123", undefined);
+    expect(toPlaybackAsset).not.toHaveBeenCalled();
   });
 });

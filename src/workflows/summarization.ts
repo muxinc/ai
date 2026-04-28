@@ -10,6 +10,7 @@ import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
   isAudioOnlyAsset,
+  toPlaybackAsset,
 } from "@mux/ai/lib/mux-assets";
 import { createSafetyReporter, detectUnexpectedKeysFromRawText } from "@mux/ai/lib/output-safety";
 import type { SafetyReport } from "@mux/ai/lib/output-safety";
@@ -46,6 +47,7 @@ import { fetchTranscriptForAsset, getReadyTextTracks, getReliableLanguageCode } 
 import type {
   ImageSubmissionMode,
   MuxAIOptions,
+  MuxAsset,
   TokenUsage,
   ToneType,
   WorkflowCredentialsInput,
@@ -678,7 +680,7 @@ function normalizeKeywords(keywords?: string[], limit: number = DEFAULT_SUMMARY_
 }
 
 export async function getSummaryAndTags(
-  assetId: string,
+  asset: string | MuxAsset,
   options?: SummarizationOptions,
 ): Promise<SummaryAndTagsResult> {
   "use workflow";
@@ -713,9 +715,12 @@ export async function getSummaryAndTags(
     provider: provider as SupportedProvider,
   });
   const workflowCredentials = credentials;
+  const assetId = typeof asset === "string" ? asset : asset.id;
 
   // Fetch asset data from Mux and grab playback/transcript details
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, workflowCredentials);
+  const { asset: assetData, playbackId, policy } = typeof asset === "string" ?
+      await getPlaybackIdForAsset(asset, workflowCredentials) :
+      toPlaybackAsset(asset);
 
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
 

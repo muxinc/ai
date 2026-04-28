@@ -3,6 +3,7 @@ import { embed } from "ai";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
+  toPlaybackAsset,
 } from "@mux/ai/lib/mux-assets";
 import type { EmbeddingModelIdByProvider, SupportedEmbeddingProvider } from "@mux/ai/lib/providers";
 import { createEmbeddingModelFromConfig, resolveEmbeddingModelConfig } from "@mux/ai/lib/providers";
@@ -14,6 +15,7 @@ import type {
   ChunkEmbedding,
   ChunkingStrategy,
   MuxAIOptions,
+  MuxAsset,
   TextChunk,
   VideoEmbeddingsResult,
   WorkflowCredentialsInput,
@@ -122,7 +124,7 @@ async function generateSingleChunkEmbedding({
  * 3. Generates embeddings for each chunk using the specified AI provider
  * 4. Returns both individual chunk embeddings and an averaged embedding
  *
- * @param assetId - Mux asset ID
+ * @param asset - Mux asset to process (identified by asset ID string or MuxAsset object)
  * @param options - Configuration options
  * @returns Embeddings result with chunks and averaged embedding
  *
@@ -145,7 +147,7 @@ async function generateSingleChunkEmbedding({
  * ```
  */
 async function generateEmbeddingsInternal(
-  assetId: string,
+  asset: string | MuxAsset,
   options: EmbeddingsOptions = {},
 ): Promise<EmbeddingsResult> {
   const {
@@ -158,8 +160,11 @@ async function generateEmbeddingsInternal(
   } = options;
 
   const embeddingModel = resolveEmbeddingModelConfig({ ...options, provider, model });
+  const assetId = typeof asset === "string" ? asset : asset.id;
   // Fetch asset and playback ID
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
+  const { asset: assetData, playbackId, policy } = typeof asset === "string" ?
+      await getPlaybackIdForAsset(asset, credentials) :
+      toPlaybackAsset(asset);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
 
   // Resolve signing context for signed playback IDs
@@ -252,21 +257,21 @@ async function generateEmbeddingsInternal(
 }
 
 export async function generateEmbeddings(
-  assetId: string,
+  asset: string | MuxAsset,
   options: EmbeddingsOptions = {},
 ): Promise<EmbeddingsResult> {
   "use workflow";
-  return generateEmbeddingsInternal(assetId, options);
+  return generateEmbeddingsInternal(asset, options);
 }
 
 /**
  * @deprecated Use {@link generateEmbeddings} instead. This name will be removed in a future release.
  */
 export async function generateVideoEmbeddings(
-  assetId: string,
+  asset: string | MuxAsset,
   options: EmbeddingsOptions = {},
 ): Promise<EmbeddingsResult> {
   "use workflow";
   console.warn("generateVideoEmbeddings is deprecated. Use generateEmbeddings instead.");
-  return generateEmbeddingsInternal(assetId, options);
+  return generateEmbeddingsInternal(asset, options);
 }

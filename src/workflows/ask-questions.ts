@@ -5,7 +5,7 @@ import { z } from "zod";
 import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
 import { MuxAiError, wrapError } from "@mux/ai/lib/mux-ai-error";
-import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset, isAudioOnlyAsset } from "@mux/ai/lib/mux-assets";
+import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset, isAudioOnlyAsset, toPlaybackAsset } from "@mux/ai/lib/mux-assets";
 import { createSafetyReporter, detectUnexpectedKeys, detectUnexpectedKeysFromRawText } from "@mux/ai/lib/output-safety";
 import type { SafetyReport } from "@mux/ai/lib/output-safety";
 import { createTranscriptSection, renderSection } from "@mux/ai/lib/prompt-builder";
@@ -28,7 +28,7 @@ import { withRetry } from "@mux/ai/lib/retry";
 import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
 import { getStoryboardUrl } from "@mux/ai/primitives/storyboards";
 import { fetchTranscriptForAsset } from "@mux/ai/primitives/transcripts";
-import type { ImageSubmissionMode, MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "@mux/ai/types";
+import type { ImageSubmissionMode, MuxAIOptions, MuxAsset, TokenUsage, WorkflowCredentialsInput } from "@mux/ai/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -727,7 +727,7 @@ async function analyzeQuestions({
  * scores and reasoning for each question. All questions are processed in a single LLM call for
  * efficiency.
  *
- * @param assetId - The Mux asset ID to analyze
+ * @param asset - The Mux asset to analyze (identified by asset ID string or MuxAsset object)
  * @param questions - Array of questions to answer (each must have a 'question' field)
  * @param options - Configuration options for the workflow
  * @returns Structured answers with confidence scores and reasoning
@@ -749,7 +749,7 @@ async function analyzeQuestions({
  * ```
  */
 export async function askQuestions(
-  assetId: string,
+  asset: string | MuxAsset,
   questions: Question[],
   options?: AskQuestionsOptions,
 ): Promise<AskQuestionsResult> {
@@ -853,8 +853,11 @@ export async function askQuestions(
     model,
     provider: provider as SupportedProvider,
   });
+  const assetId = typeof asset === "string" ? asset : asset.id;
   // Fetch asset data and playback ID from Mux
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
+  const { asset: assetData, playbackId, policy } = typeof asset === "string" ?
+      await getPlaybackIdForAsset(asset, credentials) :
+      toPlaybackAsset(asset);
 
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
   const isAudioOnly = isAudioOnlyAsset(assetData);

@@ -39,7 +39,7 @@ export function isAudioOnlyAsset(asset: MuxAsset): boolean {
   return hasAudioTrack && !hasVideoTrack;
 }
 
-function toPlaybackAsset(asset: MuxAsset): PlaybackAsset {
+export function toPlaybackAsset(asset: MuxAsset): PlaybackAsset {
   const { id: playbackId, policy } = getPlaybackId(asset);
   return { asset, playbackId, policy };
 }

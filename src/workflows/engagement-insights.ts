@@ -7,6 +7,7 @@ import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
   isAudioOnlyAsset,
+  toPlaybackAsset,
 } from "@mux/ai/lib/mux-assets";
 import { getMuxThumbnailBaseUrl } from "@mux/ai/lib/mux-url";
 import { createSafetyReporter, detectUnexpectedKeys, detectUnexpectedKeysFromRawText } from "@mux/ai/lib/output-safety";
@@ -36,7 +37,7 @@ import type { Shot } from "@mux/ai/primitives/shots";
 import { getShotsForAsset } from "@mux/ai/primitives/shots";
 import { getStoryboardUrl } from "@mux/ai/primitives/storyboards";
 import { fetchTranscriptForAsset, parseVTTCues, secondsToTimestamp } from "@mux/ai/primitives/transcripts";
-import type { MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "@mux/ai/types";
+import type { MuxAIOptions, MuxAsset, TokenUsage, WorkflowCredentialsInput } from "@mux/ai/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -623,7 +624,7 @@ async function generateInsightsWithAI(
  * are engaging or disengaging. It combines hotspot data, heatmap statistics, visual
  * frames (from shots or thumbnails), and transcript analysis to generate AI-powered insights.
  *
- * @param assetId - The Mux asset ID to analyze
+ * @param asset - The Mux asset to analyze (identified by asset ID string or MuxAsset object)
  * @param options - Configuration options for the workflow
  * @returns Structured insights with moment-by-moment and overall analysis
  *
@@ -640,7 +641,7 @@ async function generateInsightsWithAI(
  * ```
  */
 export async function generateEngagementInsights(
-  assetId: string,
+  asset: string | MuxAsset,
   options: EngagementInsightsOptions = {},
 ): Promise<EngagementInsightsResult> {
   "use workflow";
@@ -664,15 +665,18 @@ export async function generateEngagementInsights(
     provider: provider as SupportedProvider,
   });
 
+  const assetId = typeof asset === "string" ? asset : asset.id;
   // Step 1: Fetch asset metadata
-  const { asset, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
-  const assetDurationSeconds = getAssetDurationSecondsFromAsset(asset);
+  const { asset: assetData, playbackId, policy } = typeof asset === "string" ?
+      await getPlaybackIdForAsset(asset, credentials) :
+      toPlaybackAsset(asset);
+  const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
 
   if (!assetDurationSeconds) {
     throw new MuxAiError(`Asset ${assetId} has no valid duration.`, { type: "validation_error" });
   }
 
-  const audioOnly = isAudioOnlyAsset(asset);
+  const audioOnly = isAudioOnlyAsset(assetData);
 
   const signingContext = await resolveMuxSigningContext(credentials);
   if (policy === "signed" && !signingContext) {
@@ -715,7 +719,7 @@ export async function generateEngagementInsights(
     await Promise.allSettled([
       fetchEngagementData(assetId, { hotspotLimit, timeframe, credentials }),
       shotsPromise,
-      fetchTranscriptForAsset(asset, playbackId, {
+      fetchTranscriptForAsset(assetData, playbackId, {
         cleanTranscript: false,
         shouldSign,
         credentials,

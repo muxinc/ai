@@ -8,6 +8,7 @@ import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
   isAudioOnlyAsset,
+  toPlaybackAsset,
 } from "@mux/ai/lib/mux-assets";
 import { createSafetyReporter, detectUnexpectedKeys, detectUnexpectedKeysFromRawText } from "@mux/ai/lib/output-safety";
 import type { SafetyReport } from "@mux/ai/lib/output-safety";
@@ -28,7 +29,7 @@ import {
   getReadyTextTracks,
   getReliableLanguageCode,
 } from "@mux/ai/primitives/transcripts";
-import type { MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "@mux/ai/types";
+import type { MuxAIOptions, MuxAsset, TokenUsage, WorkflowCredentialsInput } from "@mux/ai/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -364,7 +365,7 @@ function buildUserPrompt({
 }
 
 export async function generateChapters(
-  assetId: string,
+  asset: string | MuxAsset,
   options: ChaptersOptions = {},
 ): Promise<ChaptersResult> {
   "use workflow";
@@ -384,8 +385,11 @@ export async function generateChapters(
     model,
     provider: provider as SupportedProvider,
   });
+  const assetId = typeof asset === "string" ? asset : asset.id;
   // Fetch asset and transcript
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
+  const { asset: assetData, playbackId, policy } = typeof asset === "string" ?
+      await getPlaybackIdForAsset(asset, credentials) :
+      toPlaybackAsset(asset);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
   const isAudioOnly = isAudioOnlyAsset(assetData);
 

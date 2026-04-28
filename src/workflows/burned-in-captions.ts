@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
 import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
-import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
+import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset, toPlaybackAsset } from "@mux/ai/lib/mux-assets";
 import { createSafetyReporter, detectUnexpectedKeysFromRawText } from "@mux/ai/lib/output-safety";
 import type { SafetyReport } from "@mux/ai/lib/output-safety";
 import type { PromptOverrides } from "@mux/ai/lib/prompt-builder";
@@ -25,6 +25,7 @@ import { getStoryboardUrl } from "@mux/ai/primitives/storyboards";
 import type {
   ImageSubmissionMode,
   MuxAIOptions,
+  MuxAsset,
   TokenUsage,
   WorkflowCredentialsInput,
 } from "@mux/ai/types";
@@ -324,7 +325,7 @@ async function analyzeStoryboard({
 }
 
 export async function hasBurnedInCaptions(
-  assetId: string,
+  asset: string | MuxAsset,
   options: BurnedInCaptionsOptions = {},
 ): Promise<BurnedInCaptionsResult> {
   "use workflow";
@@ -346,7 +347,10 @@ export async function hasBurnedInCaptions(
     model,
     provider: provider as SupportedProvider,
   });
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
+  const assetId = typeof asset === "string" ? asset : asset.id;
+  const { asset: assetData, playbackId, policy } = typeof asset === "string" ?
+      await getPlaybackIdForAsset(asset, credentials) :
+      toPlaybackAsset(asset);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
 
   const imageUrl = await getStoryboardUrl(playbackId, 640, policy === "signed", credentials);
