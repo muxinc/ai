@@ -810,7 +810,7 @@ export async function askQuestions(
   questions.forEach((q, idx) => {
     // Defer to normalizeQuestion so the more informative "mutually
     // exclusive" error wins over "answerOption too long".
-    if (q.freeFormReply)
+    if (q.freeFormReply === true)
       return;
     for (const opt of q.answerOptions ?? []) {
       if (typeof opt === "string" && opt.length > maxAnswerOptionLength) {
