@@ -92,6 +92,7 @@ const EnvSchema = z.object({
 
   ELEVENLABS_API_KEY: optionalString("ElevenLabs API key for audio translation.", "ElevenLabs API key"),
   HIVE_API_KEY: optionalString("Hive Visual Moderation API key.", "Hive API key"),
+  GOOGLE_VISION_API_KEY: optionalString("Google Vision API key for SafeSearch moderation.", "Google Vision API key"),
 
   // S3-Compatible Storage (required for translation & audio dubbing)
   S3_ENDPOINT: optionalString("S3-compatible endpoint for uploads.", "S3 endpoint"),

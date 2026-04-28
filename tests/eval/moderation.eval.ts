@@ -76,10 +76,11 @@ import { muxTestAssets } from "../helpers/mux-test-assets";
  * - Safe audio-only: Audio asset moderated via transcript (should NOT exceed)
  *
  * Provider notes:
- * - Only "openai" is tested because it's the default provider, supports both
- *   image and text moderation, and doesn't require additional API keys beyond
- *   OPENAI_API_KEY. The "hive" provider could be added when HIVE_API_KEY is
- *   available in CI, but it does not support transcript moderation.
+ * - "openai" is the default and is exercised end-to-end (image + transcript).
+ * - "google-vision-api" is exercised against video assets only when
+ *   GOOGLE_VISION_API_KEY is set; SafeSearch is image-only so audio-only assets
+ *   are skipped for this provider. "hive" is similarly image-only and is
+ *   gated on HIVE_API_KEY when added to CI in future.
  *
  * ─────────────────────────────────────────────────────────────────────────────
  */
@@ -189,17 +190,23 @@ const audioOnlyTestCases: TestCase[] = [
   },
 ];
 
-/** Moderation providers to test. */
-const providers: ModerationProvider[] = ["openai"];
+/** Providers exercised against video assets (image moderation). */
+const videoProviders: ModerationProvider[] = ["openai", "google-vision-api"];
+
+/**
+ * Providers exercised against audio-only assets (transcript moderation).
+ * google-vision-api is image-only, so it is excluded here.
+ */
+const audioOnlyProviders: ModerationProvider[] = ["openai"];
 
 const data = [
-  ...providers.flatMap(provider =>
+  ...videoProviders.flatMap(provider =>
     videoTestCases.map(tc => ({
       input: { assetId: tc.assetId, provider, groundTruth: tc.groundTruth },
       expected: tc.expected,
     })),
   ),
-  ...providers.flatMap(provider =>
+  ...audioOnlyProviders.flatMap(provider =>
     audioOnlyTestCases.map(tc => ({
       input: { assetId: tc.assetId, provider, groundTruth: tc.groundTruth },
       expected: tc.expected,

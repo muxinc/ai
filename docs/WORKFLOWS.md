@@ -81,10 +81,10 @@ See [API Reference](./API.md#custom-prompts-with-promptoverrides) for more examp
 
 ## Content Moderation
 
-Analyze a Mux asset for inappropriate material using OpenAI or Hive.
+Analyze a Mux asset for inappropriate material using OpenAI, Hive, or Google Vision SafeSearch.
 
 - For **video assets**, moderation runs over storyboard thumbnails.
-- For **audio-only assets**, moderation runs over transcript text.
+- For **audio-only assets**, moderation runs over transcript text. Only OpenAI supports this — Hive and Google Vision are image-only.
 
 ```typescript
 import { getModerationScores } from "@mux/ai/workflows";
@@ -103,12 +103,18 @@ const hiveResult = await getModerationScores("your-mux-asset-id", {
   provider: "hive",
   thresholds: { sexual: 0.9, violence: 0.9 },
 });
+
+// Use Google Vision SafeSearch
+const visionResult = await getModerationScores("your-mux-asset-id", {
+  provider: "google-vision-api",
+});
 ```
 
 ### Provider Comparison
 
-- **OpenAI**: Uses the `omni-moderation-latest` model with dedicated moderation API
+- **OpenAI**: Uses the `omni-moderation-latest` model with dedicated moderation API. Supports text moderation for audio-only assets.
 - **Hive**: Visual moderation by default; audio-only/text moderation requires a Hive **Text Moderation** project/API key (otherwise Hive will reject `text_data`) — see [Hive Text Moderation docs](https://docs.thehive.ai/docs/classification-text)
+- **Google Vision API**: SafeSearch detection. Image-only — audio-only assets throw a clear error. SafeSearch returns discrete `Likelihood` buckets (`UNKNOWN`..`VERY_LIKELY`) which are linearly mapped onto 0..1 (so `LIKELY` ≈ 0.8, `VERY_LIKELY` = 1.0). Only `adult` and `violence` likelihoods are surfaced; `racy`, `spoof`, and `medical` are ignored.
 
 ## Burned-in Caption Detection
 

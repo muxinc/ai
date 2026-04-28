@@ -95,6 +95,18 @@ ELEVENLABS_API_KEY=your_elevenlabs_api_key
 HIVE_API_KEY=your_hive_api_key
 ```
 
+### Google Vision API
+
+**Used by:** `getModerationScores` (alternative to OpenAI moderation, image-only via SafeSearch)
+
+**Get your API key:** [Google Cloud Console — Credentials](https://console.cloud.google.com/apis/credentials). Enable the **Cloud Vision API** on your project, then create an **API key** restricted to the Vision API.
+
+```bash
+GOOGLE_VISION_API_KEY=your_google_vision_api_key
+```
+
+This is a separate credential from `GOOGLE_GENERATIVE_AI_API_KEY` (which is used for Gemini-backed workflows).
+
 ## Cloud Infrastructure Credentials
 
 ### AWS S3 (or S3-compatible storage)
@@ -162,6 +174,7 @@ Supported credential fields:
 | `openaiApiKey` | OpenAI API key |
 | `anthropicApiKey` | Anthropic API key |
 | `googleApiKey` | Google Generative AI API key |
+| `googleVisionApiKey` | Google Vision API key (SafeSearch moderation) |
 | `hiveApiKey` | Hive API key |
 | `elevenLabsApiKey` | ElevenLabs API key |
 
@@ -230,6 +243,7 @@ ANTHROPIC_API_KEY=your_anthropic_api_key
 GOOGLE_GENERATIVE_AI_API_KEY=your_google_api_key
 ELEVENLABS_API_KEY=your_elevenlabs_api_key
 HIVE_API_KEY=your_hive_api_key
+GOOGLE_VISION_API_KEY=your_google_vision_api_key
 
 # S3-Compatible Storage (for translation & audio dubbing only)
 S3_ENDPOINT=https://your-s3-endpoint.com

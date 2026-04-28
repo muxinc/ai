@@ -13,7 +13,7 @@ program
   .addHelpText("after", `
 Notes:
   - Asset must have public playback IDs
-  - Requires OPENAI_API_KEY and HIVE_API_KEY environment variables`)
+  - Requires OPENAI_API_KEY, HIVE_API_KEY, and GOOGLE_VISION_API_KEY environment variables`)
   .action(async (assetId: string) => {
     console.log(`🔍 Comparing moderation providers for asset: ${assetId}\n`);
 
@@ -30,6 +30,12 @@ Notes:
           label: "Hive",
           options: {
             provider: "hive" as const,
+          },
+        },
+        {
+          label: "Google Vision API",
+          options: {
+            provider: "google-vision-api" as const,
           },
         },
       ];
@@ -74,7 +80,7 @@ Notes:
       const agreesOnFlag = results.every(
         entry => entry.result.exceedsThreshold === results[0].result.exceedsThreshold,
       );
-      console.log(`\n🎯 Agreement: ${agreesOnFlag ? "✅ Both providers agree" : "⚠️  Providers disagree"} on flagging`);
+      console.log(`\n🎯 Agreement: ${agreesOnFlag ? "✅ All providers agree" : "⚠️  Providers disagree"} on flagging`);
     } catch (error) {
       console.error("❌ Error:", error instanceof Error ? error.message : error);
       process.exit(1);

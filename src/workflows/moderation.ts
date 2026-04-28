@@ -75,7 +75,7 @@ export interface ModerationResult {
 }
 
 /** Provider list accepted by `getModerationScores`. */
-export type ModerationProvider = "openai" | "hive";
+export type ModerationProvider = "openai" | "hive" | "google-vision-api";
 
 export type HiveModerationSource =
   | { kind: "url"; value: string } |
@@ -134,6 +134,22 @@ const OPENAI_MODERATION_BASE_DELAY_MS = 750;
 const OPENAI_MODERATION_MAX_DELAY_MS = 3000;
 const MIN_SAMPLE_COVERAGE_FOR_CONFIDENT_THRESHOLDING = 0.5;
 const MIN_SUCCESSFUL_THUMBNAILS_FOR_CONFIDENT_THRESHOLDING = 3;
+
+const GOOGLE_VISION_ENDPOINT = "https://vision.googleapis.com/v1/images:annotate";
+
+/**
+ * Google Vision SafeSearch returns a `Likelihood` enum (UNKNOWN..VERY_LIKELY).
+ * The proto enum values are 0..5; we expose them as 0.0..1.0 by dividing by 5,
+ * so LIKELY (4) maps to 0.8 — aligning with our default sexual/violence threshold.
+ */
+export const GOOGLE_VISION_LIKELIHOOD_TO_SCORE: Record<string, number> = {
+  UNKNOWN: 0,
+  VERY_UNLIKELY: 0.2,
+  UNLIKELY: 0.4,
+  POSSIBLE: 0.6,
+  LIKELY: 0.8,
+  VERY_LIKELY: 1,
+};
 
 const HIVE_ENDPOINT = "https://api.thehive.ai/api/v2/task/sync";
 export const HIVE_SEXUAL_CATEGORIES = [
@@ -571,6 +587,132 @@ async function requestHiveModeration(
   return await processConcurrently(targets, moderateImageWithHive, maxConcurrent);
 }
 
+async function moderateImageWithGoogleVision(entry: {
+  url: string;
+  time?: number;
+  image: string;
+  isBase64: boolean;
+  credentials?: WorkflowCredentialsInput;
+}): Promise<ThumbnailModerationScore> {
+  "use step";
+  try {
+    const apiKey = await getApiKeyFromEnv("google-vision-api", entry.credentials);
+
+    // The REST endpoint accepts either a public/gs:// URI or inline base64 content
+    // (without the data URI prefix).
+    const imageField =
+      entry.isBase64 ?
+          { content: entry.image } :
+          { source: { imageUri: entry.image } };
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
+    let res: Response;
+    try {
+      res = await fetch(`${GOOGLE_VISION_ENDPOINT}?key=${encodeURIComponent(apiKey)}`, {
+        method: "POST",
+        headers: {
+          "Accept": "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          requests: [
+            {
+              image: imageField,
+              features: [{ type: "SAFE_SEARCH_DETECTION" }],
+            },
+          ],
+        }),
+        signal: controller.signal,
+      });
+    } catch (err: any) {
+      if (err?.name === "AbortError") {
+        throw new Error("Google Vision request timed out after 15s");
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    const json: any = await res.json().catch(() => undefined);
+
+    if (!res.ok) {
+      throw new Error(
+        `Google Vision moderation error: ${res.status} ${res.statusText} - ${JSON.stringify(json)}`,
+      );
+    }
+
+    const perImage = json?.responses?.[0];
+    if (perImage?.error) {
+      throw new Error(
+        `Google Vision per-image error: ${perImage.error.code} ${perImage.error.message || "Unknown error"}`,
+      );
+    }
+
+    const annotation = perImage?.safeSearchAnnotation;
+    if (!annotation) {
+      throw new Error(`Google Vision response missing safeSearchAnnotation: ${JSON.stringify(json)}`);
+    }
+
+    const adultLikelihood = typeof annotation.adult === "string" ? annotation.adult : "UNKNOWN";
+    const violenceLikelihood = typeof annotation.violence === "string" ? annotation.violence : "UNKNOWN";
+
+    const sexual = GOOGLE_VISION_LIKELIHOOD_TO_SCORE[adultLikelihood] ?? 0;
+    const violence = GOOGLE_VISION_LIKELIHOOD_TO_SCORE[violenceLikelihood] ?? 0;
+
+    return {
+      url: entry.url,
+      time: entry.time,
+      sexual,
+      violence,
+      error: false,
+    };
+  } catch (error) {
+    return {
+      url: entry.url,
+      time: entry.time,
+      sexual: 0,
+      violence: 0,
+      error: true,
+      errorMessage: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function requestGoogleVisionModeration(
+  images: Array<{ url: string; time: number }>,
+  maxConcurrent: number = 5,
+  submissionMode: "url" | "base64" = "url",
+  downloadOptions?: ImageDownloadOptions,
+  credentials?: WorkflowCredentialsInput,
+): Promise<ThumbnailModerationScore[]> {
+  "use step";
+
+  const imageUrls = images.map(img => img.url);
+  const timeByUrl = new Map(images.map(img => [img.url, img.time]));
+
+  const targets =
+    submissionMode === "base64" ?
+        (await downloadImagesAsBase64(imageUrls, downloadOptions, maxConcurrent)).map(img => ({
+          url: img.url,
+          time: timeByUrl.get(img.url),
+          // The Vision REST API expects raw base64 content (no data URI prefix).
+          // downloadImagesAsBase64 returns a data URI in `base64Data`, so strip the header.
+          image: img.base64Data.startsWith("data:") ? img.base64Data.split(",")[1] : img.base64Data,
+          isBase64: true,
+          credentials,
+        })) :
+        images.map(img => ({
+          url: img.url,
+          time: img.time,
+          image: img.url,
+          isBase64: false,
+          credentials,
+        }));
+
+  return processConcurrently(targets, moderateImageWithGoogleVision, maxConcurrent);
+}
+
 async function getThumbnailUrlsFromTimestamps(
   playbackId: string,
   timestampsMs: number[],
@@ -605,6 +747,9 @@ async function getThumbnailUrlsFromTimestamps(
  * - provider 'openai' uses OpenAI's hosted moderation endpoint (requires OPENAI_API_KEY)
  *   Ref: https://platform.openai.com/docs/guides/moderation
  * - provider 'hive' uses Hive's moderation API for thumbnails only (requires HIVE_API_KEY)
+ * - provider 'google-vision-api' uses Google Cloud Vision SafeSearch for thumbnails only
+ *   (requires GOOGLE_VISION_API_KEY).
+ *   Ref: https://cloud.google.com/vision/docs/detecting-safe-search
  */
 export async function getModerationScores(
   assetId: string,
@@ -670,8 +815,11 @@ export async function getModerationScores(
       );
     } else if (provider === "hive") {
       throw new Error("Hive does not support transcript moderation in this workflow. Use provider: 'openai' for audio-only assets.");
+    } else if (provider === "google-vision-api") {
+      throw new Error("google-vision-api is image-only and does not support transcript moderation. Use provider: 'openai' for audio-only assets.");
     } else {
-      throw new Error(`Unsupported moderation provider: ${provider}`);
+      const exhaustiveCheck: never = provider;
+      throw new Error(`Unsupported moderation provider: ${exhaustiveCheck}`);
     }
   } else {
     // Cheaply estimate how many thumbnails the interval would produce so we
@@ -724,8 +872,17 @@ export async function getModerationScores(
         imageDownloadOptions,
         credentials,
       );
+    } else if (provider === "google-vision-api") {
+      thumbnailScores = await requestGoogleVisionModeration(
+        thumbnailUrls,
+        maxConcurrent,
+        imageSubmissionMode,
+        imageDownloadOptions,
+        credentials,
+      );
     } else {
-      throw new Error(`Unsupported moderation provider: ${provider}`);
+      const exhaustiveCheck: never = provider;
+      throw new Error(`Unsupported moderation provider: ${exhaustiveCheck}`);
     }
   }
 
