@@ -80,7 +80,7 @@ Analyzes a Mux asset for inappropriate content using OpenAI's Moderation API, Hi
 
 **Hive note (audio-only):** transcript moderation submits `text_data` and requires a Hive **Text Moderation** project/API key. If you use a Visual Moderation key, Hive will reject the request (see [Hive Text Moderation docs](https://docs.thehive.ai/docs/classification-text)).
 
-**Google Vision note:** SafeSearch returns the `adult`, `violence`, `racy`, `spoof`, and `medical` `Likelihood` enum values (`UNKNOWN`..`VERY_LIKELY`). `@mux/ai` consumes only `adult` (mapped to `sexual`) and `violence`, and converts the enum onto a 0..1 scale linearly: `UNKNOWN`=0, `VERY_UNLIKELY`=0.2, `UNLIKELY`=0.4, `POSSIBLE`=0.6, `LIKELY`=0.8, `VERY_LIKELY`=1.0. Because `exceedsThreshold` uses strict `>`, the default 0.8 threshold treats only `VERY_LIKELY` as exceeding — drop the threshold to e.g. 0.7 if you want `LIKELY` to flag.
+**Google Vision note:** SafeSearch returns the `adult`, `violence`, `racy`, `spoof`, and `medical` `Likelihood` enum values (`UNKNOWN`..`VERY_LIKELY`). `@mux/ai` consumes only `adult` (mapped to `sexual`) and `violence`, and converts the enum onto a 0..1 scale linearly: `UNKNOWN`=0, `VERY_UNLIKELY`=0.2, `UNLIKELY`=0.4, `POSSIBLE`=0.6, `LIKELY`=0.8, `VERY_LIKELY`=1.0. Because `exceedsThreshold` uses strict `>`, the default 0.8 threshold treats only `VERY_LIKELY` as exceeding — drop the threshold to e.g. 0.7 if you want `LIKELY` to flag. This mapping may change in future versions of `@mux/ai`.
 
 **Returns:**
 

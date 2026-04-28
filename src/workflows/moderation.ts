@@ -141,6 +141,7 @@ const GOOGLE_VISION_ENDPOINT = "https://vision.googleapis.com/v1/images:annotate
  * Google Vision SafeSearch returns a `Likelihood` enum (UNKNOWN..VERY_LIKELY).
  * The proto enum values are 0..5; we expose them as 0.0..1.0 by dividing by 5,
  * so LIKELY (4) maps to 0.8 — aligning with our default sexual/violence threshold.
+ * This mapping may change in future versions of `@mux/ai`.
  */
 export const GOOGLE_VISION_LIKELIHOOD_TO_SCORE: Record<string, number> = {
   UNKNOWN: 0,
@@ -609,11 +610,12 @@ async function moderateImageWithGoogleVision(entry: {
     const timeout = setTimeout(() => controller.abort(), 15_000);
     let res: Response;
     try {
-      res = await fetch(`${GOOGLE_VISION_ENDPOINT}?key=${encodeURIComponent(apiKey)}`, {
+      res = await fetch(GOOGLE_VISION_ENDPOINT, {
         method: "POST",
         headers: {
           "Accept": "application/json",
           "Content-Type": "application/json",
+          "X-goog-api-key": apiKey,
         },
         body: JSON.stringify({
           requests: [
