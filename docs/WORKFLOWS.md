@@ -114,7 +114,7 @@ const visionResult = await getModerationScores("your-mux-asset-id", {
 
 - **OpenAI**: Uses the `omni-moderation-latest` model with dedicated moderation API. Supports text moderation for audio-only assets.
 - **Hive**: Visual moderation by default; audio-only/text moderation requires a Hive **Text Moderation** project/API key (otherwise Hive will reject `text_data`) — see [Hive Text Moderation docs](https://docs.thehive.ai/docs/classification-text)
-- **Google Vision API**: SafeSearch detection. Image-only — audio-only assets throw a clear error. SafeSearch returns discrete `Likelihood` buckets (`UNKNOWN`..`VERY_LIKELY`) which are linearly mapped onto 0..1 (so `LIKELY` ≈ 0.8, `VERY_LIKELY` = 1.0). Only `adult` and `violence` likelihoods are surfaced; `racy`, `spoof`, and `medical` are ignored.
+- **Google Vision API**: SafeSearch detection. Image-only — audio-only assets throw a clear error. SafeSearch returns discrete `Likelihood` buckets (`UNKNOWN`..`VERY_LIKELY`) which are linearly mapped onto 0..1 (so `LIKELY` ≈ 0.8, `VERY_LIKELY` = 1.0). Only `adult` and `violence` likelihoods are surfaced; `racy`, `spoof`, and `medical` are ignored. We've observed some instability in the `adult` measurement that can produce false positives, so you may want to tune your `sexual` threshold up when using Google Vision.
 
 ## Burned-in Caption Detection
 

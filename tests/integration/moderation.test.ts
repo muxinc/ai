@@ -135,7 +135,9 @@ describe("moderation Integration Tests", () => {
       expect(result.thumbnailScores.length).toBeGreaterThan(0);
     });
 
-    it("should detect violent content (violent but not sexual)", async () => {
+    // SafeSearch's `adult` likelihood can fluctuate per-frame, and max-aggregation
+    // amplifies any single noisy result, so we assert on the violence signal only.
+    it("should detect violent content", async () => {
       const result = await getModerationScores(violentAsset, {
         provider: "google-vision-api",
       });
@@ -147,7 +149,6 @@ describe("moderation Integration Tests", () => {
       expect(result).toHaveProperty("thumbnailScores");
 
       expect(result.maxScores.violence).toBeGreaterThan(VIOLENCE_THRESHOLD);
-      expect(result.maxScores.sexual).toBeLessThan(SEXUAL_THRESHOLD);
 
       expect(Array.isArray(result.thumbnailScores)).toBe(true);
       expect(result.thumbnailScores.length).toBeGreaterThan(0);
