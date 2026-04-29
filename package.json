@@ -103,7 +103,7 @@
     "prepare": "husky"
   },
   "peerDependencies": {
-    "workflow": ">=4.2.0-beta.64"
+    "workflow": ">=4.2.4"
   },
   "peerDependenciesMeta": {
     "workflow": {
@@ -139,6 +139,6 @@
     "tsup": "^8.5.0",
     "typescript": "^5.0.0",
     "vitest": "^4.0.13",
-    "workflow": "^4.2.0-beta.64"
+    "workflow": "^4.2.4"
   }
 }
