@@ -8,15 +8,16 @@
  *
  * Credentials are merged in order of precedence: direct input > provider > environment.
  */
-import env from "@mux/ai/env";
-import type { Env } from "@mux/ai/env";
-import type { SigningContext } from "@mux/ai/lib/url-signing";
-import { decryptFromWorkflow, isEncryptedPayload } from "@mux/ai/lib/workflow-crypto";
+import env from "../env";
+import type { Env } from "../env";
 import type {
   WorkflowCredentials,
   WorkflowCredentialsInput,
   WorkflowMuxClient,
-} from "@mux/ai/types";
+} from "../types";
+
+import type { SigningContext } from "./url-signing";
+import { decryptFromWorkflow, isEncryptedPayload } from "./workflow-crypto";
 
 /**
  * A function that returns workflow credentials, either synchronously or asynchronously.

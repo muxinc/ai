@@ -1,5 +1,6 @@
-import type { VTTCue } from "@mux/ai/primitives/transcripts";
-import type { ChunkingStrategy, TextChunk } from "@mux/ai/types";
+import type { ChunkingStrategy, TextChunk } from "../types";
+
+import type { VTTCue } from "./transcripts";
 
 /**
  * Generic text-first chunking utilities.

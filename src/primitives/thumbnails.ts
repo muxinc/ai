@@ -1,6 +1,6 @@
-import { getMuxThumbnailBaseUrl } from "@mux/ai/lib/mux-url";
-import { signUrl } from "@mux/ai/lib/url-signing";
-import type { WorkflowCredentialsInput } from "@mux/ai/types";
+import { getMuxThumbnailBaseUrl } from "../lib/mux-url";
+import { signUrl } from "../lib/url-signing";
+import type { WorkflowCredentialsInput } from "../types";
 
 export interface ThumbnailOptions {
   /** Interval between thumbnails in seconds (default: 10) */

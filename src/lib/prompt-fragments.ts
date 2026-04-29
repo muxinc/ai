@@ -1,6 +1,6 @@
 import dedent from "dedent";
 
-import env from "@mux/ai/env";
+import env from "../env";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared prompt fragments

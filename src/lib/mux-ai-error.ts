@@ -1,4 +1,4 @@
-import { detectLeakReason } from "@mux/ai/lib/output-safety";
+import { detectLeakReason } from "./output-safety";
 
 export type MuxAiErrorType = "validation_error" | "processing_error" | "timeout_error";
 

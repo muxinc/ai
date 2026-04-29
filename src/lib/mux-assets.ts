@@ -1,6 +1,7 @@
-import { getMuxClientFromEnv } from "@mux/ai/lib/client-factory";
-import { MuxAiError } from "@mux/ai/lib/mux-ai-error";
-import type { MuxAsset, PlaybackAsset, PlaybackPolicy, WorkflowCredentialsInput, WorkflowMuxClient } from "@mux/ai/types";
+import type { MuxAsset, PlaybackAsset, PlaybackPolicy, WorkflowCredentialsInput, WorkflowMuxClient } from "../types";
+
+import { getMuxClientFromEnv } from "./client-factory";
+import { MuxAiError } from "./mux-ai-error";
 
 /**
  * Finds a usable playback ID for the given asset.

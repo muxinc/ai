@@ -1,5 +1,5 @@
-import { getMuxClientFromEnv } from "@mux/ai/lib/client-factory";
-import type { WorkflowCredentialsInput } from "@mux/ai/types";
+import { getMuxClientFromEnv } from "../lib/client-factory";
+import type { WorkflowCredentialsInput } from "../types";
 
 export interface HeatmapOptions {
   /** Time window for results, e.g., '7:days' (default: '7:days') */

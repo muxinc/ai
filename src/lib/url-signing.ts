@@ -1,6 +1,7 @@
-import env from "@mux/ai/env";
-import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
-import type { WorkflowCredentialsInput } from "@mux/ai/types";
+import env from "../env";
+import type { WorkflowCredentialsInput } from "../types";
+
+import { resolveMuxSigningContext } from "./workflow-credentials";
 
 import type Mux from "@mux/mux-node";
 

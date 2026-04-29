@@ -1,5 +1,6 @@
-import { resolveMuxClient } from "@mux/ai/lib/workflow-credentials";
-import type { WorkflowCredentialsInput } from "@mux/ai/types";
+import type { WorkflowCredentialsInput } from "../types";
+
+import { resolveMuxClient } from "./workflow-credentials";
 
 export async function fetchVttFromMux(vttUrl: string): Promise<string> {
   "use step";

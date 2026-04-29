@@ -1,14 +1,15 @@
 import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 
-import {
-  createPresignedGetUrl,
-  putObjectToS3,
-} from "@mux/ai/lib/s3-sigv4";
-import { registerWorkflowSerializationClass } from "@mux/ai/lib/workflow-serialization";
 import type {
   StoragePresignGetObjectInput,
   StoragePutObjectInput,
-} from "@mux/ai/types";
+} from "../types";
+
+import {
+  createPresignedGetUrl,
+  putObjectToS3,
+} from "./s3-sigv4";
+import { registerWorkflowSerializationClass } from "./workflow-serialization";
 
 export interface WorkflowStorageClientOptions {
   accessKeyId?: string;

@@ -1,4 +1,4 @@
-import env from "@mux/ai/env";
+import env from "../env";
 
 const AWS4_ALGORITHM = "AWS4-HMAC-SHA256";
 const AWS4_REQUEST_TERMINATOR = "aws4_request";
