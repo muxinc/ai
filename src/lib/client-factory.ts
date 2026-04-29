@@ -1,15 +1,15 @@
-import type { WorkflowCredentialsInput, WorkflowMuxClient } from "../types";
+import type { WorkflowCredentialsInput, WorkflowMuxClient } from "../types.ts";
 
 import type {
   ModelIdByProvider,
   ModelRequestOptions,
   SupportedProvider,
-} from "./providers";
+} from "./providers.ts";
 import {
   resolveLanguageModel,
-} from "./providers";
-import type { ApiKeyProvider } from "./workflow-credentials";
-import { resolveMuxClient, resolveProviderApiKey } from "./workflow-credentials";
+} from "./providers.ts";
+import type { ApiKeyProvider } from "./workflow-credentials.ts";
+import { resolveMuxClient, resolveProviderApiKey } from "./workflow-credentials.ts";
 
 /**
  * Gets a WorkflowMuxClient from workflow credentials or environment variables.

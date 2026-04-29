@@ -1,10 +1,10 @@
-import { isUndeterminedLanguageCode } from "../lib/language-codes";
-import { MuxAiError, wrapError } from "../lib/mux-ai-error";
-import { isAudioOnlyAsset } from "../lib/mux-assets";
-import { getMuxStreamOrigin } from "../lib/mux-url";
-import { normalizeUntrustedUnicode } from "../lib/output-safety";
-import { signUrl } from "../lib/url-signing";
-import type { AssetTextTrack, MuxAsset, WorkflowCredentialsInput } from "../types";
+import { isUndeterminedLanguageCode } from "../lib/language-codes.ts";
+import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
+import { isAudioOnlyAsset } from "../lib/mux-assets.ts";
+import { getMuxStreamOrigin } from "../lib/mux-url.ts";
+import { normalizeUntrustedUnicode } from "../lib/output-safety.ts";
+import { signUrl } from "../lib/url-signing.ts";
+import type { AssetTextTrack, MuxAsset, WorkflowCredentialsInput } from "../types.ts";
 
 /** A single cue from a VTT file with timing info. */
 export interface VTTCue {

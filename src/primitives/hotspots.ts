@@ -1,5 +1,5 @@
-import { getMuxClientFromEnv } from "../lib/client-factory";
-import type { WorkflowCredentialsInput } from "../types";
+import { getMuxClientFromEnv } from "../lib/client-factory.ts";
+import type { WorkflowCredentialsInput } from "../types.ts";
 
 export interface Hotspot {
   /** Inclusive start time in milliseconds */

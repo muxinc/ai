@@ -3,13 +3,13 @@ import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 import type {
   StoragePresignGetObjectInput,
   StoragePutObjectInput,
-} from "../types";
+} from "../types.ts";
 
 import {
   createPresignedGetUrl,
   putObjectToS3,
-} from "./s3-sigv4";
-import { registerWorkflowSerializationClass } from "./workflow-serialization";
+} from "./s3-sigv4.ts";
+import { registerWorkflowSerializationClass } from "./workflow-serialization.ts";
 
 export interface WorkflowStorageClientOptions {
   accessKeyId?: string;

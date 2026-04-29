@@ -1,6 +1,6 @@
 import dedent from "dedent";
 
-import env from "../env";
+import env from "../env.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared prompt fragments

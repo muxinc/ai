@@ -1,7 +1,7 @@
-import env from "../env";
-import type { WorkflowCredentialsInput } from "../types";
+import env from "../env.ts";
+import type { WorkflowCredentialsInput } from "../types.ts";
 
-import { resolveMuxSigningContext } from "./workflow-credentials";
+import { resolveMuxSigningContext } from "./workflow-credentials.ts";
 
 import type Mux from "@mux/mux-node";
 

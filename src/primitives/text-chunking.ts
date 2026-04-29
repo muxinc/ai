@@ -1,6 +1,6 @@
-import type { ChunkingStrategy, TextChunk } from "../types";
+import type { ChunkingStrategy, TextChunk } from "../types.ts";
 
-import type { VTTCue } from "./transcripts";
+import type { VTTCue } from "./transcripts.ts";
 
 /**
  * Generic text-first chunking utilities.

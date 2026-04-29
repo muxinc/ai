@@ -8,16 +8,16 @@
  *
  * Credentials are merged in order of precedence: direct input > provider > environment.
  */
-import env from "../env";
-import type { Env } from "../env";
+import env from "../env.ts";
+import type { Env } from "../env.ts";
 import type {
   WorkflowCredentials,
   WorkflowCredentialsInput,
   WorkflowMuxClient,
-} from "../types";
+} from "../types.ts";
 
-import type { SigningContext } from "./url-signing";
-import { decryptFromWorkflow, isEncryptedPayload } from "./workflow-crypto";
+import type { SigningContext } from "./url-signing.ts";
+import { decryptFromWorkflow, isEncryptedPayload } from "./workflow-crypto.ts";
 
 /**
  * A function that returns workflow credentials, either synchronously or asynchronously.

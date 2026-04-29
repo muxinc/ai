@@ -2,9 +2,9 @@ import type {
   StorageAdapter,
   StoragePresignGetObjectInput,
   StoragePutObjectInput,
-} from "../types";
+} from "../types.ts";
 
-import { createPresignedGetUrl, putObjectToS3 } from "./s3-sigv4";
+import { createPresignedGetUrl, putObjectToS3 } from "./s3-sigv4.ts";
 
 function requireCredentials(
   accessKeyId: string | undefined,

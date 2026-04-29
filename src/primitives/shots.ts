@@ -1,6 +1,6 @@
-import { getMuxClientFromEnv } from "../lib/client-factory";
-import { MuxAiError } from "../lib/mux-ai-error";
-import type { WorkflowCredentialsInput } from "../types";
+import { getMuxClientFromEnv } from "../lib/client-factory.ts";
+import { MuxAiError } from "../lib/mux-ai-error.ts";
+import type { WorkflowCredentialsInput } from "../types.ts";
 
 export interface Shot {
   /** Start time of the shot in seconds from the beginning of the asset. */

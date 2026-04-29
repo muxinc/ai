@@ -1,6 +1,6 @@
-import { getMuxStoryboardBaseUrl } from "../lib/mux-url";
-import { signUrl } from "../lib/url-signing";
-import type { WorkflowCredentialsInput } from "../types";
+import { getMuxStoryboardBaseUrl } from "../lib/mux-url.ts";
+import { signUrl } from "../lib/url-signing.ts";
+import type { WorkflowCredentialsInput } from "../types.ts";
 
 export const DEFAULT_STORYBOARD_WIDTH = 640;
 

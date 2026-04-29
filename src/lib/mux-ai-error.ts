@@ -1,4 +1,4 @@
-import { detectLeakReason } from "./output-safety";
+import { detectLeakReason } from "./output-safety.ts";
 
 export type MuxAiErrorType = "validation_error" | "processing_error" | "timeout_error";
 

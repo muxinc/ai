@@ -1,4 +1,4 @@
-import env from "../env";
+import env from "../env.ts";
 
 const DEFAULT_MUX_IMAGE_ORIGIN = "https://image.mux.com";
 const DEFAULT_MUX_STREAM_ORIGIN = "https://stream.mux.com";

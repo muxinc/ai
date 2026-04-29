@@ -1,6 +1,6 @@
-import type { WorkflowCredentialsInput } from "../types";
+import type { WorkflowCredentialsInput } from "../types.ts";
 
-import { resolveMuxClient } from "./workflow-credentials";
+import { resolveMuxClient } from "./workflow-credentials.ts";
 
 export async function fetchVttFromMux(vttUrl: string): Promise<string> {
   "use step";
