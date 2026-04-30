@@ -2,9 +2,9 @@ import { getModerationScores } from "@mux/ai/workflows";
 
 import "../env";
 
-const SUPPORTED_PROVIDERS = ["openai", "hive"] as const;
+const SUPPORTED_PROVIDERS = ["openai", "hive", "google-vision-api"] as const;
 type ModerationProviderArg = (typeof SUPPORTED_PROVIDERS)[number];
-type ProviderWithModel = Exclude<ModerationProviderArg, "hive">;
+type ProviderWithModel = Extract<ModerationProviderArg, "openai">;
 
 const DEFAULT_MODELS: Record<ProviderWithModel, string> = {
   openai: "omni-moderation-latest",
@@ -18,7 +18,7 @@ async function main() {
   if (!assetId) {
     console.log("Usage: npm run example:moderation <asset-id> [provider] [maxSamples]");
     console.log("Example: npm run example:moderation your-asset-id hive 3");
-    console.log("Supported providers: openai | anthropic | google | hive");
+    console.log(`Supported providers: ${SUPPORTED_PROVIDERS.join(" | ")}`);
     process.exit(1);
   }
 
@@ -28,7 +28,7 @@ async function main() {
   }
 
   const provider = providerArg;
-  const model = provider === "hive" ? undefined : DEFAULT_MODELS[provider];
+  const model = provider === "openai" ? DEFAULT_MODELS[provider] : undefined;
 
   console.log("Asset ID:", assetId);
   console.log(`Provider: ${provider} (${model})\n`);

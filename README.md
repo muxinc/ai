@@ -69,7 +69,7 @@ Workflows are high-level functions that handle complete media AI tasks end-to-en
 | Workflow | What it does | Providers | Audio-only |
 | --- | --- | --- | :---: |
 | [`getSummaryAndTags`](./docs/WORKFLOWS.md#video-summarization) | Generate titles, descriptions, and tags | OpenAI, Anthropic, Google | Yes |
-| [`getModerationScores`](./docs/WORKFLOWS.md#content-moderation) | Detect inappropriate content | OpenAI, Hive | Yes |
+| [`getModerationScores`](./docs/WORKFLOWS.md#content-moderation) | Detect inappropriate content | OpenAI, Hive, Google Vision | Yes |
 | [`hasBurnedInCaptions`](./docs/WORKFLOWS.md#burned-in-caption-detection) | Detect hardcoded subtitles in video frames | OpenAI, Anthropic, Google | — |
 | [`askQuestions`](./docs/WORKFLOWS.md#ask-questions) | Answer yes/no questions about asset content | OpenAI, Anthropic, Google | Yes |
 | [`generateChapters`](./docs/WORKFLOWS.md#chapter-generation) | Create chapter markers from transcripts | OpenAI, Anthropic, Google | Yes |

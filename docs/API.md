@@ -50,10 +50,10 @@ interface SummaryAndTagsResult {
 
 ## `getModerationScores(assetId, options?)`
 
-Analyzes a Mux asset for inappropriate content using OpenAI's Moderation API or Hive's Moderation API.
+Analyzes a Mux asset for inappropriate content using OpenAI's Moderation API, Hive's Moderation API, or Google Cloud Vision SafeSearch.
 
 - For **video assets**, this moderates **storyboard thumbnails** (image moderation).
-- For **audio-only assets**, this moderates the **underlying transcript text** (text moderation).
+- For **audio-only assets**, this moderates the **underlying transcript text** (text moderation). Only `openai` supports this; `hive` and `google-vision-api` are image-only and will throw.
 
 **Parameters:**
 
@@ -62,8 +62,8 @@ Analyzes a Mux asset for inappropriate content using OpenAI's Moderation API or 
 
 **Options:**
 
-- `provider?: 'openai' | 'hive'` - Moderation provider (default: 'openai')
-- `model?: string` - OpenAI moderation model to use (default: `omni-moderation-latest`)
+- `provider?: 'openai' | 'hive' | 'google-vision-api'` - Moderation provider (default: 'openai')
+- `model?: string` - OpenAI moderation model to use (default: `omni-moderation-latest`); ignored for `hive` and `google-vision-api`
 - `languageCode?: string` - Transcript language code when moderating audio-only assets (optional)
 - `thresholds?: { sexual?: number; violence?: number }` - Custom thresholds (default: {sexual: 0.7, violence: 0.8})
 - `thumbnailInterval?: number` - Seconds between thumbnails for long videos (default: 10)
@@ -79,6 +79,8 @@ Analyzes a Mux asset for inappropriate content using OpenAI's Moderation API or 
   - `exponentialBackoff?: boolean` - Whether to use exponential backoff (default: true)
 
 **Hive note (audio-only):** transcript moderation submits `text_data` and requires a Hive **Text Moderation** project/API key. If you use a Visual Moderation key, Hive will reject the request (see [Hive Text Moderation docs](https://docs.thehive.ai/docs/classification-text)).
+
+**Google Vision note:** SafeSearch returns the `adult`, `violence`, `racy`, `spoof`, and `medical` `Likelihood` enum values (`UNKNOWN`..`VERY_LIKELY`). `@mux/ai` consumes only `adult` (mapped to `sexual`) and `violence`, and converts the enum onto a 0..1 scale linearly: `UNKNOWN`=0, `VERY_UNLIKELY`=0.2, `UNLIKELY`=0.4, `POSSIBLE`=0.6, `LIKELY`=0.8, `VERY_LIKELY`=1.0. Because `exceedsThreshold` uses strict `>`, the default 0.8 threshold treats only `VERY_LIKELY` as exceeding — drop the threshold to e.g. 0.7 if you want `LIKELY` to flag. This mapping may change in future versions of `@mux/ai`.
 
 **Returns:**
 

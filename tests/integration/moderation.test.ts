@@ -114,6 +114,55 @@ describe("moderation Integration Tests", () => {
     });
   });
 
+  describe("google-vision-api provider", () => {
+    it("should detect safe content (not violent, not sexual)", async () => {
+      const result = await getModerationScores(safeAsset, {
+        provider: "google-vision-api",
+      });
+
+      expect(result).toBeDefined();
+      expect(result.assetId).toBe(safeAsset);
+
+      expect(result).toHaveProperty("maxScores");
+      expect(result).toHaveProperty("thumbnailScores");
+      expect(result).toHaveProperty("exceedsThreshold");
+      expect(result).toHaveProperty("thresholds");
+
+      expect(result.maxScores.violence).toBeLessThan(VIOLENCE_THRESHOLD);
+      expect(result.maxScores.sexual).toBeLessThan(SEXUAL_THRESHOLD);
+
+      expect(Array.isArray(result.thumbnailScores)).toBe(true);
+      expect(result.thumbnailScores.length).toBeGreaterThan(0);
+    });
+
+    // SafeSearch's `adult` likelihood can fluctuate per-frame, and max-aggregation
+    // amplifies any single noisy result, so we assert on the violence signal only.
+    it("should detect violent content", async () => {
+      const result = await getModerationScores(violentAsset, {
+        provider: "google-vision-api",
+      });
+
+      expect(result).toBeDefined();
+      expect(result.assetId).toBe(violentAsset);
+
+      expect(result).toHaveProperty("maxScores");
+      expect(result).toHaveProperty("thumbnailScores");
+
+      expect(result.maxScores.violence).toBeGreaterThan(VIOLENCE_THRESHOLD);
+
+      expect(Array.isArray(result.thumbnailScores)).toBe(true);
+      expect(result.thumbnailScores.length).toBeGreaterThan(0);
+    });
+
+    it("rejects audio-only assets with a clear message", async () => {
+      await expect(
+        getModerationScores(safeAudioOnlyAssetId, {
+          provider: "google-vision-api",
+        }),
+      ).rejects.toThrow(/google-vision-api is image-only/);
+    });
+  });
+
   describe("audio-only assets (transcript moderation)", () => {
     it("should return a transcript-based moderation result for OpenAI", async () => {
       const result = await getModerationScores(safeAudioOnlyAssetId, {
