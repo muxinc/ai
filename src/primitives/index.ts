@@ -1,8 +1,8 @@
 // primitives public surface intentionally minimal; provider plumbing lives in lib/providers
-export * from "./heatmap";
-export * from "./hotspots";
-export * from "./shots";
-export * from "./storyboards";
-export * from "./text-chunking";
-export * from "./thumbnails";
-export * from "./transcripts";
+export * from "./heatmap.ts";
+export * from "./hotspots.ts";
+export * from "./shots.ts";
+export * from "./storyboards.ts";
+export * from "./text-chunking.ts";
+export * from "./thumbnails.ts";
+export * from "./transcripts.ts";

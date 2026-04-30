@@ -2,33 +2,33 @@ import { generateText, Output } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
-import { getLanguageName } from "@mux/ai/lib/language-codes";
-import { MuxAiError, wrapError } from "@mux/ai/lib/mux-ai-error";
+import { getLanguageName } from "../lib/language-codes.ts";
+import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
   isAudioOnlyAsset,
-} from "@mux/ai/lib/mux-assets";
-import { createSafetyReporter, detectUnexpectedKeys, detectUnexpectedKeysFromRawText } from "@mux/ai/lib/output-safety";
-import type { SafetyReport } from "@mux/ai/lib/output-safety";
-import type { PromptOverrides, PromptSection } from "@mux/ai/lib/prompt-builder";
-import { createLanguageSection, createPromptBuilder } from "@mux/ai/lib/prompt-builder";
+} from "../lib/mux-assets.ts";
+import { createSafetyReporter, detectUnexpectedKeys, detectUnexpectedKeysFromRawText } from "../lib/output-safety.ts";
+import type { SafetyReport } from "../lib/output-safety.ts";
+import type { PromptOverrides, PromptSection } from "../lib/prompt-builder.ts";
+import { createLanguageSection, createPromptBuilder } from "../lib/prompt-builder.ts";
 import {
   CANARY_TRIPWIRE,
   NON_DISCLOSURE_CONSTRAINT,
   UNTRUSTED_USER_INPUT_NOTICE,
-} from "@mux/ai/lib/prompt-fragments";
-import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
-import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
-import { withRetry } from "@mux/ai/lib/retry";
-import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
+} from "../lib/prompt-fragments.ts";
+import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
+import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
+import { withRetry } from "../lib/retry.ts";
+import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
 import {
   extractTimestampedTranscript,
   fetchTranscriptForAsset,
   getReadyTextTracks,
   getReliableLanguageCode,
-} from "@mux/ai/primitives/transcripts";
-import type { MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "@mux/ai/types";
+} from "../primitives/transcripts.ts";
+import type { MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "../types.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types

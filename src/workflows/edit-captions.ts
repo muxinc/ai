@@ -1,39 +1,39 @@
 import { generateText, Output } from "ai";
 import { z } from "zod";
 
-import env from "@mux/ai/env";
-import { MuxAiError, wrapError } from "@mux/ai/lib/mux-ai-error";
+import env from "../env.ts";
+import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
-} from "@mux/ai/lib/mux-assets";
-import { createTextTrackOnMux, fetchVttFromMux } from "@mux/ai/lib/mux-tracks";
-import { createSafetyReporter, detectUnexpectedKeysFromRawText } from "@mux/ai/lib/output-safety";
-import type { SafetyReport } from "@mux/ai/lib/output-safety";
-import { renderSection } from "@mux/ai/lib/prompt-builder";
+} from "../lib/mux-assets.ts";
+import { createTextTrackOnMux, fetchVttFromMux } from "../lib/mux-tracks.ts";
+import { createSafetyReporter, detectUnexpectedKeysFromRawText } from "../lib/output-safety.ts";
+import type { SafetyReport } from "../lib/output-safety.ts";
+import { renderSection } from "../lib/prompt-builder.ts";
 import {
   CANARY_TRIPWIRE,
   NON_DISCLOSURE_CONSTRAINT,
   promptDedent,
   UNTRUSTED_USER_INPUT_NOTICE,
-} from "@mux/ai/lib/prompt-fragments";
-import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
-import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
+} from "../lib/prompt-fragments.ts";
+import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
+import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
 import {
   createPresignedGetUrlWithStorageAdapter,
   putObjectWithStorageAdapter,
-} from "@mux/ai/lib/storage-adapter";
+} from "../lib/storage-adapter.ts";
 import {
   resolveMuxClient,
   resolveMuxSigningContext,
-} from "@mux/ai/lib/workflow-credentials";
-import { buildTranscriptUrl, extractTextFromVTT, getReadyTextTracks, vttTimestampToSeconds } from "@mux/ai/primitives/transcripts";
+} from "../lib/workflow-credentials.ts";
+import { buildTranscriptUrl, extractTextFromVTT, getReadyTextTracks, vttTimestampToSeconds } from "../primitives/transcripts.ts";
 import type {
   MuxAIOptions,
   StorageAdapter,
   TokenUsage,
   WorkflowCredentialsInput,
-} from "@mux/ai/types";
+} from "../types.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types

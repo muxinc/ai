@@ -1,22 +1,22 @@
-import env from "@mux/ai/env";
-import { getApiKeyFromEnv } from "@mux/ai/lib/client-factory";
-import { getLanguageCodePair, toISO639_1, toISO639_3 } from "@mux/ai/lib/language-codes";
-import type { LanguageCodePair, SupportedISO639_1 } from "@mux/ai/lib/language-codes";
-import { MuxAiError, wrapError } from "@mux/ai/lib/mux-ai-error";
-import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
-import { getMuxStreamOrigin } from "@mux/ai/lib/mux-url";
+import env from "../env.ts";
+import { getApiKeyFromEnv } from "../lib/client-factory.ts";
+import { getLanguageCodePair, toISO639_1, toISO639_3 } from "../lib/language-codes.ts";
+import type { LanguageCodePair, SupportedISO639_1 } from "../lib/language-codes.ts";
+import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
+import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "../lib/mux-assets.ts";
+import { getMuxStreamOrigin } from "../lib/mux-url.ts";
 import {
   createPresignedGetUrlWithStorageAdapter,
   putObjectWithStorageAdapter,
-} from "@mux/ai/lib/storage-adapter";
-import { signUrl } from "@mux/ai/lib/url-signing";
-import { resolveMuxClient } from "@mux/ai/lib/workflow-credentials";
+} from "../lib/storage-adapter.ts";
+import { signUrl } from "../lib/url-signing.ts";
+import { resolveMuxClient } from "../lib/workflow-credentials.ts";
 import type {
   MuxAIOptions,
   StorageAdapter,
   TokenUsage,
   WorkflowCredentialsInput,
-} from "@mux/ai/types";
+} from "../types.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types

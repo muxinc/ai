@@ -1,26 +1,26 @@
-import { getApiKeyFromEnv } from "@mux/ai/lib/client-factory";
-import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
-import { downloadImagesAsBase64 } from "@mux/ai/lib/image-download";
+import { getApiKeyFromEnv } from "../lib/client-factory.ts";
+import type { ImageDownloadOptions } from "../lib/image-download.ts";
+import { downloadImagesAsBase64 } from "../lib/image-download.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
   getVideoTrackDurationSecondsFromAsset,
   getVideoTrackMaxFrameRateFromAsset,
   isAudioOnlyAsset,
-} from "@mux/ai/lib/mux-assets";
-import { getMuxThumbnailBaseUrl } from "@mux/ai/lib/mux-url";
-import { withRetry } from "@mux/ai/lib/retry";
-import { planSamplingTimestamps } from "@mux/ai/lib/sampling-plan";
-import { signUrl } from "@mux/ai/lib/url-signing";
-import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
-import { getThumbnailUrls } from "@mux/ai/primitives/thumbnails";
-import { fetchTranscriptForAsset } from "@mux/ai/primitives/transcripts";
+} from "../lib/mux-assets.ts";
+import { getMuxThumbnailBaseUrl } from "../lib/mux-url.ts";
+import { withRetry } from "../lib/retry.ts";
+import { planSamplingTimestamps } from "../lib/sampling-plan.ts";
+import { signUrl } from "../lib/url-signing.ts";
+import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
+import { getThumbnailUrls } from "../primitives/thumbnails.ts";
+import { fetchTranscriptForAsset } from "../primitives/transcripts.ts";
 import type {
   ImageSubmissionMode,
   MuxAIOptions,
   TokenUsage,
   WorkflowCredentialsInput,
-} from "@mux/ai/types";
+} from "../types.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types

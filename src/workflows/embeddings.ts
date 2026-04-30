@@ -3,13 +3,13 @@ import { embed } from "ai";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
-} from "@mux/ai/lib/mux-assets";
-import type { EmbeddingModelIdByProvider, SupportedEmbeddingProvider } from "@mux/ai/lib/providers";
-import { createEmbeddingModelFromConfig, resolveEmbeddingModelConfig } from "@mux/ai/lib/providers";
-import { withRetry } from "@mux/ai/lib/retry";
-import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
-import { chunkText, chunkVTTCues } from "@mux/ai/primitives/text-chunking";
-import { fetchTranscriptForAsset, parseVTTCues } from "@mux/ai/primitives/transcripts";
+} from "../lib/mux-assets.ts";
+import type { EmbeddingModelIdByProvider, SupportedEmbeddingProvider } from "../lib/providers.ts";
+import { createEmbeddingModelFromConfig, resolveEmbeddingModelConfig } from "../lib/providers.ts";
+import { withRetry } from "../lib/retry.ts";
+import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
+import { chunkText, chunkVTTCues } from "../primitives/text-chunking.ts";
+import { fetchTranscriptForAsset, parseVTTCues } from "../primitives/transcripts.ts";
 import type {
   ChunkEmbedding,
   ChunkingStrategy,
@@ -17,7 +17,7 @@ import type {
   TextChunk,
   VideoEmbeddingsResult,
   WorkflowCredentialsInput,
-} from "@mux/ai/types";
+} from "../types.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
