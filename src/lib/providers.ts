@@ -2,10 +2,11 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 
-import type { Env } from "@mux/ai/env";
-import env from "@mux/ai/env";
-import { resolveProviderApiKey } from "@mux/ai/lib/workflow-credentials";
-import type { MuxAIOptions, WorkflowCredentialsInput } from "@mux/ai/types";
+import type { Env } from "../env.ts";
+import env from "../env.ts";
+import type { MuxAIOptions, WorkflowCredentialsInput } from "../types.ts";
+
+import { resolveProviderApiKey } from "./workflow-credentials.ts";
 
 import type { EmbeddingModel, LanguageModel } from "ai";
 

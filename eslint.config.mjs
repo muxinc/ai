@@ -43,6 +43,26 @@ export default antfu({
     "style/operator-linebreak": ["error", "after"],
   },
 }, {
+  files: ["src/**/*.ts"],
+  rules: {
+    "no-restricted-imports": ["error", {
+      patterns: [{
+        group: ["@mux/ai", "@mux/ai/*"],
+        message: "Use relative imports inside src/. The @mux/ai/* aliases break when the workflow runtime externalizes helpers — they're loaded as source by Node's ESM resolver, which doesn't honour tsconfig paths.",
+      }],
+    }],
+    "no-restricted-syntax": ["error", {
+      selector: "ImportDeclaration[source.value=/^\\.\\.?\\//]:not([source.value=/\\.(ts|json)$/])",
+      message: "Relative imports inside src/ must include the .ts extension — Node's strict ESM resolver requires it when workflow externalizes helpers at runtime.",
+    }, {
+      selector: "ExportNamedDeclaration[source.value=/^\\.\\.?\\//]:not([source.value=/\\.(ts|json)$/])",
+      message: "Relative re-exports inside src/ must include the .ts extension.",
+    }, {
+      selector: "ExportAllDeclaration[source.value=/^\\.\\.?\\//]:not([source.value=/\\.(ts|json)$/])",
+      message: "Relative re-exports inside src/ must include the .ts extension.",
+    }],
+  },
+}, {
   files: ["scripts/**/*.ts"],
   rules: {
     "node/no-process-env": ["off"],

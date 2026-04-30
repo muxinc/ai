@@ -1,4 +1,4 @@
-import { SYSTEM_PROMPT_CANARY } from "@mux/ai/lib/prompt-fragments";
+import { SYSTEM_PROMPT_CANARY } from "./prompt-fragments.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Output-side safety checks

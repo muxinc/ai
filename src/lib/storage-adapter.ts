@@ -1,9 +1,10 @@
-import { createPresignedGetUrl, putObjectToS3 } from "@mux/ai/lib/s3-sigv4";
 import type {
   StorageAdapter,
   StoragePresignGetObjectInput,
   StoragePutObjectInput,
-} from "@mux/ai/types";
+} from "../types.ts";
+
+import { createPresignedGetUrl, putObjectToS3 } from "./s3-sigv4.ts";
 
 function requireCredentials(
   accessKeyId: string | undefined,

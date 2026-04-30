@@ -2,26 +2,26 @@ import { generateText, Output } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
-import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
-import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
-import { getLanguageName } from "@mux/ai/lib/language-codes";
-import { MuxAiError, wrapError } from "@mux/ai/lib/mux-ai-error";
+import type { ImageDownloadOptions } from "../lib/image-download.ts";
+import { downloadImageAsBase64 } from "../lib/image-download.ts";
+import { getLanguageName } from "../lib/language-codes.ts";
+import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
   isAudioOnlyAsset,
-} from "@mux/ai/lib/mux-assets";
-import { createSafetyReporter, detectUnexpectedKeysFromRawText } from "@mux/ai/lib/output-safety";
-import type { SafetyReport } from "@mux/ai/lib/output-safety";
+} from "../lib/mux-assets.ts";
+import { createSafetyReporter, detectUnexpectedKeysFromRawText } from "../lib/output-safety.ts";
+import type { SafetyReport } from "../lib/output-safety.ts";
 import type {
   PromptOverrides,
-} from "@mux/ai/lib/prompt-builder";
+} from "../lib/prompt-builder.ts";
 import {
   createLanguageSection,
   createPromptBuilder,
   createToneSection,
   createTranscriptSection,
-} from "@mux/ai/lib/prompt-builder";
+} from "../lib/prompt-builder.ts";
 import {
   CANARY_TRIPWIRE,
   createLanguageGuidelines,
@@ -34,22 +34,22 @@ import {
   TONE_GUIDANCE,
   UNTRUSTED_USER_INPUT_NOTICE,
   VISUAL_TEXT_AS_CONTENT,
-} from "@mux/ai/lib/prompt-fragments";
-import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
-import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
-import { withRetry } from "@mux/ai/lib/retry";
+} from "../lib/prompt-fragments.ts";
+import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
+import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
+import { withRetry } from "../lib/retry.ts";
 import {
   resolveMuxSigningContext,
-} from "@mux/ai/lib/workflow-credentials";
-import { getStoryboardUrl } from "@mux/ai/primitives/storyboards";
-import { fetchTranscriptForAsset, getReadyTextTracks, getReliableLanguageCode } from "@mux/ai/primitives/transcripts";
+} from "../lib/workflow-credentials.ts";
+import { getStoryboardUrl } from "../primitives/storyboards.ts";
+import { fetchTranscriptForAsset, getReadyTextTracks, getReliableLanguageCode } from "../primitives/transcripts.ts";
 import type {
   ImageSubmissionMode,
   MuxAIOptions,
   TokenUsage,
   ToneType,
   WorkflowCredentialsInput,
-} from "@mux/ai/types";
+} from "../types.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types

@@ -8,38 +8,38 @@ import {
 } from "ai";
 import { z } from "zod";
 
-import env from "@mux/ai/env";
-import { getLanguageCodePair, getLanguageName } from "@mux/ai/lib/language-codes";
-import type { LanguageCodePair, SupportedISO639_1 } from "@mux/ai/lib/language-codes";
-import { MuxAiError, wrapError } from "@mux/ai/lib/mux-ai-error";
+import env from "../env.ts";
+import { getLanguageCodePair, getLanguageName } from "../lib/language-codes.ts";
+import type { LanguageCodePair, SupportedISO639_1 } from "../lib/language-codes.ts";
+import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
-} from "@mux/ai/lib/mux-assets";
-import { createTextTrackOnMux, fetchVttFromMux } from "@mux/ai/lib/mux-tracks";
+} from "../lib/mux-assets.ts";
+import { createTextTrackOnMux, fetchVttFromMux } from "../lib/mux-tracks.ts";
 import {
   detectLeakReason,
   detectUnexpectedKeysFromRawText,
   scrubFreeTextField,
-} from "@mux/ai/lib/output-safety";
-import type { LeakReason, SafetyReport } from "@mux/ai/lib/output-safety";
+} from "../lib/output-safety.ts";
+import type { LeakReason, SafetyReport } from "../lib/output-safety.ts";
 import {
   CANARY_TRIPWIRE,
   NON_DISCLOSURE_CONSTRAINT,
   promptDedent,
   UNTRUSTED_USER_INPUT_NOTICE,
-} from "@mux/ai/lib/prompt-fragments";
-import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
-import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
+} from "../lib/prompt-fragments.ts";
+import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
+import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
 import {
   createPresignedGetUrlWithStorageAdapter,
   putObjectWithStorageAdapter,
-} from "@mux/ai/lib/storage-adapter";
-import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
+} from "../lib/storage-adapter.ts";
+import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
 import {
   chunkVTTCuesByBudget,
   chunkVTTCuesByDuration,
-} from "@mux/ai/primitives/text-chunking";
+} from "../primitives/text-chunking.ts";
 import {
   buildTranscriptUrl,
   buildVttFromTranslatedCueBlocks,
@@ -48,13 +48,13 @@ import {
   parseVTTCues,
   splitVttPreambleAndCueBlocks,
   stripVttMetadataBlocks,
-} from "@mux/ai/primitives/transcripts";
+} from "../primitives/transcripts.ts";
 import type {
   MuxAIOptions,
   StorageAdapter,
   TokenUsage,
   WorkflowCredentialsInput,
-} from "@mux/ai/types";
+} from "../types.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types

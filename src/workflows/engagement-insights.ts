@@ -2,16 +2,16 @@ import { generateText, Output } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
-import { MuxAiError } from "@mux/ai/lib/mux-ai-error";
+import { MuxAiError } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
   isAudioOnlyAsset,
-} from "@mux/ai/lib/mux-assets";
-import { getMuxThumbnailBaseUrl } from "@mux/ai/lib/mux-url";
-import { createSafetyReporter, detectUnexpectedKeys, detectUnexpectedKeysFromRawText } from "@mux/ai/lib/output-safety";
-import type { SafetyReport } from "@mux/ai/lib/output-safety";
-import { createPromptBuilder } from "@mux/ai/lib/prompt-builder";
+} from "../lib/mux-assets.ts";
+import { getMuxThumbnailBaseUrl } from "../lib/mux-url.ts";
+import { createSafetyReporter, detectUnexpectedKeys, detectUnexpectedKeysFromRawText } from "../lib/output-safety.ts";
+import type { SafetyReport } from "../lib/output-safety.ts";
+import { createPromptBuilder } from "../lib/prompt-builder.ts";
 import {
   CANARY_TRIPWIRE,
   METADATA_BOUNDARY_WARNING,
@@ -22,21 +22,21 @@ import {
   STRUCTURED_DATA_CONSTRAINT,
   UNTRUSTED_USER_INPUT_NOTICE,
   VISUAL_TEXT_AS_CONTENT,
-} from "@mux/ai/lib/prompt-fragments";
-import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
-import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
-import { withRetry } from "@mux/ai/lib/retry";
-import { signUrl } from "@mux/ai/lib/url-signing";
-import { resolveMuxSigningContext } from "@mux/ai/lib/workflow-credentials";
-import type { HeatmapResponse } from "@mux/ai/primitives/heatmap";
-import { getHeatmapForAsset } from "@mux/ai/primitives/heatmap";
-import type { Hotspot } from "@mux/ai/primitives/hotspots";
-import { getHotspotsForAsset } from "@mux/ai/primitives/hotspots";
-import type { Shot } from "@mux/ai/primitives/shots";
-import { getShotsForAsset } from "@mux/ai/primitives/shots";
-import { getStoryboardUrl } from "@mux/ai/primitives/storyboards";
-import { fetchTranscriptForAsset, parseVTTCues, secondsToTimestamp } from "@mux/ai/primitives/transcripts";
-import type { MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "@mux/ai/types";
+} from "../lib/prompt-fragments.ts";
+import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
+import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
+import { withRetry } from "../lib/retry.ts";
+import { signUrl } from "../lib/url-signing.ts";
+import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
+import type { HeatmapResponse } from "../primitives/heatmap.ts";
+import { getHeatmapForAsset } from "../primitives/heatmap.ts";
+import type { Hotspot } from "../primitives/hotspots.ts";
+import { getHotspotsForAsset } from "../primitives/hotspots.ts";
+import type { Shot } from "../primitives/shots.ts";
+import { getShotsForAsset } from "../primitives/shots.ts";
+import { getStoryboardUrl } from "../primitives/storyboards.ts";
+import { fetchTranscriptForAsset, parseVTTCues, secondsToTimestamp } from "../primitives/transcripts.ts";
+import type { MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "../types.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types

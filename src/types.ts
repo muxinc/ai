@@ -1,4 +1,4 @@
-import type { Encrypted } from "@mux/ai/lib/workflow-crypto";
+import type { Encrypted } from "./lib/workflow-crypto.ts";
 
 import type Mux from "@mux/mux-node";
 

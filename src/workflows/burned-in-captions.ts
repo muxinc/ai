@@ -2,13 +2,13 @@ import { generateText, Output } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
-import type { ImageDownloadOptions } from "@mux/ai/lib/image-download";
-import { downloadImageAsBase64 } from "@mux/ai/lib/image-download";
-import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "@mux/ai/lib/mux-assets";
-import { createSafetyReporter, detectUnexpectedKeysFromRawText } from "@mux/ai/lib/output-safety";
-import type { SafetyReport } from "@mux/ai/lib/output-safety";
-import type { PromptOverrides } from "@mux/ai/lib/prompt-builder";
-import { createPromptBuilder } from "@mux/ai/lib/prompt-builder";
+import type { ImageDownloadOptions } from "../lib/image-download.ts";
+import { downloadImageAsBase64 } from "../lib/image-download.ts";
+import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "../lib/mux-assets.ts";
+import { createSafetyReporter, detectUnexpectedKeysFromRawText } from "../lib/output-safety.ts";
+import type { SafetyReport } from "../lib/output-safety.ts";
+import type { PromptOverrides } from "../lib/prompt-builder.ts";
+import { createPromptBuilder } from "../lib/prompt-builder.ts";
 import {
   CANARY_TRIPWIRE,
   METADATA_BOUNDARY_WARNING,
@@ -18,16 +18,16 @@ import {
   STRUCTURED_DATA_CONSTRAINT,
   UNTRUSTED_USER_INPUT_NOTICE,
   VISUAL_TEXT_AS_CONTENT,
-} from "@mux/ai/lib/prompt-fragments";
-import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "@mux/ai/lib/providers";
-import type { ModelIdByProvider, SupportedProvider } from "@mux/ai/lib/providers";
-import { getStoryboardUrl } from "@mux/ai/primitives/storyboards";
+} from "../lib/prompt-fragments.ts";
+import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
+import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
+import { getStoryboardUrl } from "../primitives/storyboards.ts";
 import type {
   ImageSubmissionMode,
   MuxAIOptions,
   TokenUsage,
   WorkflowCredentialsInput,
-} from "@mux/ai/types";
+} from "../types.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
