@@ -10,7 +10,7 @@ type Provider = "openai" | "anthropic" | "google";
 const DEFAULT_MODELS: Record<Provider, string> = {
   openai: "gpt-5.1",
   anthropic: "claude-sonnet-4-5",
-  google: "gemini-3.1-flash-lite-preview",
+  google: "gemini-3.1-flash-lite",
 };
 
 const DEFAULT_QUESTION = "Is there spoken dialogue in this content?";

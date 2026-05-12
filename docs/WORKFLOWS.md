@@ -790,7 +790,7 @@ const result = await getSummaryAndTags(assetId, {
 // Use a faster/cheaper model
 const fastResult = await getSummaryAndTags(assetId, {
   provider: "google",
-  model: "gemini-3.1-flash-lite-preview" // Smallest/fastest Gemini
+  model: "gemini-3.1-flash-lite" // Smallest/fastest Gemini
 });
 ```
 
