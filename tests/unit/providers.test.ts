@@ -17,7 +17,7 @@ describe("language model deprecations", () => {
     expect(deprecation).toMatchObject({
       provider: "google",
       modelId: "gemini-2.5-flash",
-      replacementModelId: "gemini-3.1-flash-lite-preview",
+      replacementModelId: "gemini-3.1-flash-lite",
       phase: "warn",
     });
   });
@@ -37,7 +37,7 @@ describe("language model deprecations", () => {
     expect(warnSpy).toHaveBeenCalledTimes(1);
     const firstWarning = String(warnSpy.mock.calls[0]?.[0]);
     expect(firstWarning).toContain("provider=\"google\" model=\"gemini-2.5-flash\"");
-    expect(firstWarning).toContain("provider=\"google\" model=\"gemini-3.1-flash-lite-preview\"");
+    expect(firstWarning).toContain("provider=\"google\" model=\"gemini-3.1-flash-lite\"");
     expect(firstWarning).toContain("Planned removal date");
   });
 
@@ -46,7 +46,7 @@ describe("language model deprecations", () => {
 
     resolveLanguageModelConfig({
       provider: "google",
-      model: "gemini-3.1-flash-lite-preview",
+      model: "gemini-3.1-flash-lite",
     });
 
     expect(warnSpy).not.toHaveBeenCalled();
