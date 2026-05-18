@@ -1,5 +1,23 @@
 import { version } from "../package.json";
 
+// Language code utilities
+export {
+  getLanguageCodePair,
+  getLanguageName,
+  isUndeterminedLanguageCode,
+  isValidISO639_1,
+  isValidISO639_3,
+  toISO639_1,
+  toISO639_3,
+} from "./lib/language-codes.ts";
+export type {
+  ISO639_1,
+  ISO639_3,
+  LanguageCodePair,
+  SupportedISO639_1,
+  SupportedISO639_3,
+} from "./lib/language-codes.ts";
+
 // Error types
 export { MuxAiError, wrapError } from "./lib/mux-ai-error.ts";
 export type { MuxAiErrorType } from "./lib/mux-ai-error.ts";
