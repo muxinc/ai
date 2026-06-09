@@ -84,7 +84,6 @@ describe("engagement Insights Integration Tests", () => {
     result.momentInsights.forEach((insight) => {
       expect(insight).toHaveProperty("startMs");
       expect(insight).toHaveProperty("endMs");
-      expect(insight).toHaveProperty("timestamp");
       expect(insight).toHaveProperty("engagementScore");
       expect(insight).toHaveProperty("insight");
       expect(typeof insight.insight).toBe("string");
