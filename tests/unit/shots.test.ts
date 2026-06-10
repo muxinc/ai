@@ -35,12 +35,12 @@ const MOCK_COMPLETED_RESPONSE = {
 const MOCK_SHOTS_MANIFEST = {
   shots: [
     {
-      startTime: 0.0416667,
-      imageUrl: "https://stream.mux.com/aicontext/test-asset/shot_0.webp?signature=first",
+      start_time: 0.0416667,
+      image_url: "https://stream.mux.com/aicontext/test-asset/shot_0.webp?signature=first",
     },
     {
-      startTime: 2.75,
-      imageUrl: "https://stream.mux.com/aicontext/test-asset/shot_1.webp?signature=second",
+      start_time: 2.75,
+      image_url: "https://stream.mux.com/aicontext/test-asset/shot_1.webp?signature=second",
     },
   ],
 };

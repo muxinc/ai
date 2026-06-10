@@ -71,8 +71,8 @@ interface ShotsApiResponse {
 
 interface ShotsManifestResponse {
   shots: Array<{
-    startTime: number;
-    imageUrl: string;
+    start_time: number;
+    image_url: string;
   }>;
 }
 
@@ -89,14 +89,14 @@ function mapManifestShots(
   shots: ShotsManifestResponse["shots"],
 ): Shot[] {
   return shots.map((shot, index) => {
-    const { startTime, imageUrl } = shot;
+    const { start_time: startTime, image_url: imageUrl } = shot;
 
     if (typeof startTime !== "number" || !Number.isFinite(startTime)) {
-      throw new TypeError(`Invalid shot startTime in shots manifest at index ${index}`);
+      throw new TypeError(`Invalid shot start_time in shots manifest at index ${index}`);
     }
 
     if (typeof imageUrl !== "string" || imageUrl.length === 0) {
-      throw new TypeError(`Invalid shot imageUrl in shots manifest at index ${index}`);
+      throw new TypeError(`Invalid shot image_url in shots manifest at index ${index}`);
     }
 
     return {
