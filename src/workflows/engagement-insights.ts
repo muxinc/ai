@@ -71,8 +71,6 @@ export interface MomentInsight {
   startMs: number;
   /** End time in milliseconds */
   endMs: number;
-  /** Human-readable timestamp (e.g., "2:15") */
-  timestamp: string;
   /** Normalized engagement score (0-1) */
   engagementScore: number;
   /** Primary insight explaining the engagement pattern */
@@ -635,7 +633,7 @@ async function generateInsightsWithAI(
  * });
  *
  * result.momentInsights.forEach(m => {
- *   console.log(`${m.timestamp}: ${m.insight}`);
+ *   console.log(`${m.startMs}ms: ${m.insight}`);
  * });
  * ```
  */
@@ -873,7 +871,6 @@ export async function generateEngagementInsights(
     momentInsights.push({
       startMs: hotspot.startMs,
       endMs: hotspot.endMs,
-      timestamp: secondsToTimestamp(hotspot.startMs / 1000),
       engagementScore: hotspot.score,
       insight: insightScrub.leaked ? "Insight suppressed by safety filter." : insightScrub.text,
     });
