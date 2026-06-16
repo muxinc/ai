@@ -396,6 +396,17 @@ const player = document.querySelector("mux-player");
 player.addChapters(result.chapters);
 ```
 
+To write the chapters back to the asset as a `chapters` text track, opt in with `uploadToMux` (off by default):
+
+```typescript
+const result = await generateChapters("your-mux-asset-id", {
+  provider: "openai",
+  uploadToMux: true, // Serialize to WebVTT and attach a chapters track (default: false)
+});
+
+console.log(result.uploadedTrackId); // ID of the new chapters track on the Mux asset
+```
+
 ### Requirements
 
 - Asset must have a ready caption/transcript track

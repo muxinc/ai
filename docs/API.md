@@ -497,6 +497,13 @@ Generates AI-powered chapter markers by analyzing video or audio transcripts. Cr
   - `titleGuidelines?: string` - Override chapter title style guidelines
 - `minChaptersPerHour?: number` - Minimum chapters to generate per hour of content (default: 3)
 - `maxChaptersPerHour?: number` - Maximum chapters to generate per hour of content (default: 8)
+- `uploadToMux?: boolean` - Serialize the chapters to WebVTT and attach them as a `chapters` text track on the Mux asset (default: **false** — writeback is opt-in). Implies `uploadToS3: true`.
+- `uploadToS3?: boolean` - Upload the chapters VTT to S3-compatible storage and return a `presignedUrl` (default: the value of `uploadToMux`)
+- `s3Endpoint?: string` - S3-compatible storage endpoint
+- `s3Region?: string` - S3 region (default: 'auto')
+- `s3Bucket?: string` - S3 bucket name
+- `storageAdapter?: StorageAdapter` - Optional adapter with `putObject` and `createPresignedGetUrl` methods
+- `s3SignedUrlExpirySeconds?: number` - Expiry duration in seconds for S3 presigned GET URLs (default: 86400 / 24 hours)
 
 **Returns:**
 
@@ -508,9 +515,14 @@ Generates AI-powered chapter markers by analyzing video or audio transcripts. Cr
     startTime: number; // Chapter start time in seconds
     title: string; // Descriptive chapter title
   }>;
+  uploadedTrackId?: string; // Mux chapters track ID (when uploadToMux succeeded)
+  presignedUrl?: string; // Presigned GET URL of the uploaded VTT (when uploaded)
+  chaptersVtt?: string; // WebVTT serialization of the chapters (when uploaded)
   usage?: TokenUsage; // Token usage from the AI provider
 }
 ```
+
+**Writeback:** When `uploadToMux: true`, the chapters are serialized to a WebVTT chapters file (one cue per chapter, each ending at the next chapter's start; the last cue ends at the asset duration), uploaded to S3, and attached to the asset via the Mux CreateTrack API with `text_type: "chapters"`. Storage configuration (`s3Endpoint`/`s3Bucket` plus credentials, or a `storageAdapter`) is required when uploading.
 
 **Requirements:**
 

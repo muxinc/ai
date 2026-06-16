@@ -2,6 +2,7 @@ import { generateText, Output } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
+import env from "../env.ts";
 import { getLanguageName } from "../lib/language-codes.ts";
 import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import {
@@ -9,6 +10,7 @@ import {
   getPlaybackIdForAsset,
   isAudioOnlyAsset,
 } from "../lib/mux-assets.ts";
+import { createChaptersTrackOnMux } from "../lib/mux-tracks.ts";
 import { createSafetyReporter, detectUnexpectedKeys, detectUnexpectedKeysFromRawText } from "../lib/output-safety.ts";
 import type { SafetyReport } from "../lib/output-safety.ts";
 import type { PromptOverrides, PromptSection } from "../lib/prompt-builder.ts";
@@ -21,14 +23,19 @@ import {
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
 import { withRetry } from "../lib/retry.ts";
+import {
+  createPresignedGetUrlWithStorageAdapter,
+  putObjectWithStorageAdapter,
+} from "../lib/storage-adapter.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
 import {
+  buildChaptersVtt,
   extractTimestampedTranscript,
   fetchTranscriptForAsset,
   getReadyTextTracks,
   getReliableLanguageCode,
 } from "../primitives/transcripts.ts";
-import type { MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "../types.ts";
+import type { MuxAIOptions, StorageAdapter, TokenUsage, WorkflowCredentialsInput } from "../types.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -69,6 +76,18 @@ export interface ChaptersResult {
   assetId: string;
   languageCode: string;
   chapters: Chapter[];
+  /**
+   * ID of the chapters text track created on the Mux asset.
+   * Present only when `uploadToMux` was enabled and track creation succeeded.
+   */
+  uploadedTrackId?: string;
+  /**
+   * Presigned GET URL of the uploaded chapters VTT.
+   * Present only when `uploadToS3` (or `uploadToMux`) was enabled.
+   */
+  presignedUrl?: string;
+  /** WebVTT serialisation of the chapters. Present when an upload was requested. */
+  chaptersVtt?: string;
   /** Token usage from the AI provider (for efficiency/cost analysis). */
   usage?: TokenUsage;
   /**
@@ -135,6 +154,35 @@ export interface ChaptersOptions extends MuxAIOptions {
    * Falls back to unconstrained (LLM decides) if no language metadata is available.
    */
   outputLanguageCode?: string;
+  /** Optional override for the S3-compatible endpoint used for uploads. */
+  s3Endpoint?: string;
+  /** S3 region (defaults to env.S3_REGION or 'auto'). */
+  s3Region?: string;
+  /** Bucket that will store the chapters VTT files. */
+  s3Bucket?: string;
+  /**
+   * When `true` the chapters VTT is uploaded to the configured
+   * S3-compatible bucket and a `presignedUrl` is returned.
+   * Defaults to the value of `uploadToMux` when omitted.
+   * Ignored (treated as `true`) when `uploadToMux` is `true`,
+   * since Mux track creation requires a presigned URL.
+   */
+  uploadToS3?: boolean;
+  /**
+   * When `true` the generated chapters are serialised to WebVTT and
+   * attached as a `chapters` text track on the Mux asset. Implies
+   * `uploadToS3: true` because a presigned URL is required for track
+   * creation.
+   *
+   * Defaults to `false`: unlike caption translation, chaptering is
+   * commonly used to read structured data back without mutating the
+   * asset, so writeback is opt-in.
+   */
+  uploadToMux?: boolean;
+  /** Optional storage adapter override for upload + presign operations. */
+  storageAdapter?: StorageAdapter;
+  /** Expiry duration in seconds for S3 presigned GET URLs. Defaults to 86400 (24 hours). */
+  s3SignedUrlExpirySeconds?: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -363,6 +411,52 @@ function buildUserPrompt({
   return chaptersPromptBuilder.buildWithContext(mergedOverrides, contextSections);
 }
 
+async function uploadChaptersVttToS3({
+  chaptersVtt,
+  assetId,
+  s3Endpoint,
+  s3Region,
+  s3Bucket,
+  storageAdapter,
+  s3SignedUrlExpirySeconds,
+}: {
+  chaptersVtt: string;
+  assetId: string;
+  s3Endpoint: string;
+  s3Region: string;
+  s3Bucket: string;
+  storageAdapter?: StorageAdapter;
+  s3SignedUrlExpirySeconds?: number;
+}): Promise<string> {
+  "use step";
+
+  const s3AccessKeyId = env.S3_ACCESS_KEY_ID;
+  const s3SecretAccessKey = env.S3_SECRET_ACCESS_KEY;
+
+  const vttKey = `chapters/${assetId}/${Date.now()}.vtt`;
+
+  await putObjectWithStorageAdapter({
+    accessKeyId: s3AccessKeyId,
+    secretAccessKey: s3SecretAccessKey,
+    endpoint: s3Endpoint,
+    region: s3Region,
+    bucket: s3Bucket,
+    key: vttKey,
+    body: chaptersVtt,
+    contentType: "text/vtt",
+  }, storageAdapter);
+
+  return createPresignedGetUrlWithStorageAdapter({
+    accessKeyId: s3AccessKeyId,
+    secretAccessKey: s3SecretAccessKey,
+    endpoint: s3Endpoint,
+    region: s3Region,
+    bucket: s3Bucket,
+    key: vttKey,
+    expiresInSeconds: s3SignedUrlExpirySeconds ?? 86400,
+  }, storageAdapter);
+}
+
 export async function generateChapters(
   assetId: string,
   options: ChaptersOptions = {},
@@ -377,7 +471,30 @@ export async function generateChapters(
     maxChaptersPerHour,
     credentials,
     outputLanguageCode,
+    s3Endpoint: providedS3Endpoint,
+    s3Region: providedS3Region,
+    s3Bucket: providedS3Bucket,
+    uploadToS3: uploadToS3Option,
+    uploadToMux: uploadToMuxOption,
+    storageAdapter,
+    s3SignedUrlExpirySeconds,
   } = options;
+
+  // Writeback is opt-in for chapters (default false), unlike caption
+  // translation. uploadToMux implies uploadToS3 because Mux track
+  // creation requires a presigned URL.
+  const uploadToMux = uploadToMuxOption === true;
+  const uploadToS3 = uploadToS3Option || uploadToMux;
+
+  const s3Endpoint = providedS3Endpoint ?? env.S3_ENDPOINT;
+  const s3Region = providedS3Region ?? env.S3_REGION ?? "auto";
+  const s3Bucket = providedS3Bucket ?? env.S3_BUCKET;
+  const s3AccessKeyId = env.S3_ACCESS_KEY_ID;
+  const s3SecretAccessKey = env.S3_SECRET_ACCESS_KEY;
+
+  if (uploadToS3 && (!s3Endpoint || !s3Bucket || (!storageAdapter && (!s3AccessKeyId || !s3SecretAccessKey)))) {
+    throw new MuxAiError("Storage configuration is required for uploading. Provide s3Endpoint and s3Bucket. If no storageAdapter is supplied, also provide s3AccessKeyId and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.", { type: "validation_error" });
+  }
 
   const modelConfig = resolveLanguageModelConfig({
     ...options,
@@ -535,10 +652,57 @@ export async function generateChapters(
     },
   };
 
+  const returnLanguageCode = languageCode ?? getReliableLanguageCode(transcriptResult.track) ?? "en";
+
+  // Optionally serialise the chapters to WebVTT, upload to S3, and
+  // attach them as a `chapters` track on the Mux asset. Mirrors the
+  // writeback path in translate-captions / edit-captions.
+  let chaptersVtt: string | undefined;
+  let presignedUrl: string | undefined;
+  let uploadedTrackId: string | undefined;
+
+  if (uploadToS3) {
+    chaptersVtt = buildChaptersVtt(scrubbedChapters, assetDurationSeconds);
+
+    try {
+      presignedUrl = await uploadChaptersVttToS3({
+        chaptersVtt,
+        assetId,
+        s3Endpoint: s3Endpoint!,
+        s3Region,
+        s3Bucket: s3Bucket!,
+        storageAdapter,
+        s3SignedUrlExpirySeconds,
+      });
+    } catch (error) {
+      wrapError(error, "Failed to upload chapters VTT to S3");
+    }
+
+    if (uploadToMux) {
+      try {
+        const languageName = getLanguageName(returnLanguageCode) ?? returnLanguageCode.toUpperCase();
+        const trackName = `${languageName} (auto-generated chapters)`;
+
+        uploadedTrackId = await createChaptersTrackOnMux(
+          assetId,
+          returnLanguageCode,
+          trackName,
+          presignedUrl,
+          credentials,
+        );
+      } catch (error) {
+        console.warn(`Failed to add chapters track to Mux asset: ${error instanceof Error ? error.message : "Unknown error"}`);
+      }
+    }
+  }
+
   return {
     assetId,
-    languageCode: languageCode ?? getReliableLanguageCode(transcriptResult.track) ?? "en",
+    languageCode: returnLanguageCode,
     chapters: scrubbedChapters,
+    uploadedTrackId,
+    presignedUrl,
+    chaptersVtt,
     usage: usageWithMetadata,
     safety: safety.report(),
   };

@@ -2,6 +2,7 @@ import dedent from "dedent";
 import { describe, expect, it } from "vitest";
 
 import {
+  buildChaptersVtt,
   buildVttFromCueBlocks,
   buildVttFromTranslatedCueBlocks,
   concatenateVttSegments,
@@ -11,6 +12,7 @@ import {
   LOW_CONFIDENCE_THRESHOLD,
   parseVTTCues,
   secondsToTimestamp,
+  secondsToVttTimestamp,
   splitVttPreambleAndCueBlocks,
   stripVttMetadataBlocks,
   vttTimestampToSeconds,
@@ -79,6 +81,63 @@ describe("secondsToTimestamp", () => {
     expect(secondsToTimestamp(60)).toBe("1:00");
     expect(secondsToTimestamp(120)).toBe("2:00");
     expect(secondsToTimestamp(180)).toBe("3:00");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// secondsToVttTimestamp
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("secondsToVttTimestamp", () => {
+  it("formats with millisecond precision and zero-padded hours", () => {
+    expect(secondsToVttTimestamp(0)).toBe("00:00:00.000");
+    expect(secondsToVttTimestamp(65)).toBe("00:01:05.000");
+    expect(secondsToVttTimestamp(45.5)).toBe("00:00:45.500");
+    expect(secondsToVttTimestamp(3661.25)).toBe("01:01:01.250");
+  });
+
+  it("clamps negatives to zero", () => {
+    expect(secondsToVttTimestamp(-5)).toBe("00:00:00.000");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// buildChaptersVtt
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("buildChaptersVtt", () => {
+  it("emits one cue per chapter, ending each at the next chapter's start", () => {
+    const vtt = buildChaptersVtt(
+      [
+        { startTime: 0, title: "Introduction" },
+        { startTime: 45.5, title: "Main Topic" },
+        { startTime: 120, title: "Conclusion" },
+      ],
+      180,
+    );
+
+    expect(vtt).toBe(`${dedent`
+      WEBVTT
+
+      00:00:00.000 --> 00:00:45.500
+      Introduction
+
+      00:00:45.500 --> 00:02:00.000
+      Main Topic
+
+      00:02:00.000 --> 00:03:00.000
+      Conclusion
+    `}\n`);
+  });
+
+  it("falls back to a one-second final cue when duration is unknown", () => {
+    const vtt = buildChaptersVtt([{ startTime: 0, title: "Only" }]);
+    expect(vtt).toContain("00:00:00.000 --> 00:00:01.000");
+  });
+
+  it("nudges the end forward when duration is not after the last start", () => {
+    const vtt = buildChaptersVtt([{ startTime: 10, title: "Late" }], 5);
+    expect(vtt).toContain("00:00:10.000 --> 00:00:10.001");
   });
 });
 

@@ -451,6 +451,55 @@ export function secondsToTimestamp(seconds: number): string {
   return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
 }
 
+/**
+ * Formats a time in seconds as a WebVTT cue timestamp (`HH:MM:SS.mmm`).
+ *
+ * Unlike {@link secondsToTimestamp} (a human-facing `M:SS` / `HH:MM:SS`
+ * label), this emits the millisecond-precision form the WebVTT spec
+ * requires for the `-->` timing line. Mux track ingestion and
+ * web-native players both reject cue timings without the `.mmm` suffix.
+ */
+export function secondsToVttTimestamp(seconds: number): string {
+  const clamped = Math.max(0, seconds);
+  const totalMs = Math.round(clamped * 1000);
+  const hours = Math.floor(totalMs / 3_600_000);
+  const minutes = Math.floor((totalMs % 3_600_000) / 60_000);
+  const secs = Math.floor((totalMs % 60_000) / 1000);
+  const ms = totalMs % 1000;
+
+  return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}.${ms.toString().padStart(3, "0")}`;
+}
+
+/**
+ * Serialises an ordered list of chapters into a WebVTT chapters file.
+ *
+ * Emits one cue per chapter: the cue spans from the chapter's start to
+ * the next chapter's start, and the final cue runs to
+ * `assetDurationSeconds` (falling back to a one-second cue when the
+ * duration is unknown or not after the last chapter's start). The cue
+ * payload is the chapter title.
+ *
+ * Chapters are expected to arrive sorted with non-decreasing start
+ * times (as `generateChapters` returns them). Any chapter whose
+ * computed end would not be strictly after its start is nudged forward
+ * by one millisecond so every cue stays well-formed.
+ */
+export function buildChaptersVtt(
+  chapters: Array<{ startTime: number; title: string }>,
+  assetDurationSeconds?: number,
+): string {
+  const cueBlocks = chapters.map((chapter, index) => {
+    const nextStart = index < chapters.length - 1 ?
+      chapters[index + 1].startTime :
+        (assetDurationSeconds ?? chapter.startTime + 1);
+    const end = nextStart > chapter.startTime ? nextStart : chapter.startTime + 0.001;
+
+    return `${secondsToVttTimestamp(chapter.startTime)} --> ${secondsToVttTimestamp(end)}\n${chapter.title}`;
+  });
+
+  return buildVttFromCueBlocks(cueBlocks);
+}
+
 export function extractTimestampedTranscript(vttContent: string): string {
   if (!vttContent.trim()) {
     return "";
