@@ -480,6 +480,45 @@ describe("applyReplacements", () => {
     expect(replacements).toHaveLength(1);
   });
 
+  it("matches phrase replacements that end with punctuation", () => {
+    const vtt = [
+      "WEBVTT",
+      "",
+      "00:00:01.000 --> 00:00:04.000",
+      "This is one long timeline, and it needs punctuation fixed.",
+    ].join("\n");
+    const { editedVtt, replacements } = applyReplacements(vtt, [
+      { find: "one long timeline,", replace: "one long timeline:", caseSensitive: false },
+    ]);
+    expect(editedVtt).toContain("This is one long timeline: and it needs punctuation fixed.");
+    expect(replacements).toHaveLength(1);
+    expect(replacements[0]).toEqual({
+      cueStartTime: 1,
+      before: "one long timeline,",
+      after: "one long timeline:",
+    });
+  });
+
+  it("matches phrase replacements across line-wrapped cue text", () => {
+    const vtt = [
+      "WEBVTT",
+      "",
+      "00:00:01.000 --> 00:00:04.000",
+      "This is one long",
+      "timeline, and it needs punctuation fixed.",
+    ].join("\n");
+    const { editedVtt, replacements } = applyReplacements(vtt, [
+      { find: "one long timeline,", replace: "one long timeline:", caseSensitive: false },
+    ]);
+    expect(editedVtt).toContain("This is one long timeline: and it needs punctuation fixed.");
+    expect(replacements).toHaveLength(1);
+    expect(replacements[0]).toEqual({
+      cueStartTime: 1,
+      before: "one long\ntimeline,",
+      after: "one long timeline:",
+    });
+  });
+
   it("returns original when no replacements match", () => {
     const { editedVtt, replacements } = applyReplacements(sampleVtt, [
       { find: "nonexistent", replace: "something" },

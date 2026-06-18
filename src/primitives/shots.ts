@@ -184,7 +184,7 @@ export async function requestShotsForAsset(
   const { credentials } = options;
   const muxClient = await getMuxClientFromEnv(credentials);
   const mux = await muxClient.createClient();
-  const response = await mux.post<ShotsApiResponse>(
+  const response = await mux.post<Record<string, never>, ShotsApiResponse>(
     getShotsPath(assetId),
     { body: {} },
   );
@@ -214,7 +214,7 @@ export async function getShotsForAsset(
   const { credentials } = options;
   const muxClient = await getMuxClientFromEnv(credentials);
   const mux = await muxClient.createClient();
-  const response = await mux.get<ShotsApiResponse>(
+  const response = await mux.get<unknown, ShotsApiResponse>(
     getShotsPath(assetId),
   );
 

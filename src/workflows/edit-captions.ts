@@ -215,6 +215,74 @@ export function transformCueText(
   return transformed.join("\n");
 }
 
+function transformCueTextBlocks(
+  rawVtt: string,
+  transform: (cueText: string, cueStartTime: number) => string,
+): string {
+  const lines = rawVtt.split("\n");
+  const transformed: string[] = [];
+  let cueTextLines: string[] | undefined;
+  let currentCueStartTime = 0;
+
+  const flushCueText = () => {
+    if (!cueTextLines)
+      return;
+
+    if (cueTextLines.length > 0) {
+      transformed.push(...transform(cueTextLines.join("\n"), currentCueStartTime).split("\n"));
+    }
+    cueTextLines = undefined;
+  };
+
+  for (const line of lines) {
+    if (line.includes("-->")) {
+      flushCueText();
+      const startTimestamp = line.split("-->")[0].trim();
+      currentCueStartTime = vttTimestampToSeconds(startTimestamp);
+      transformed.push(line);
+      cueTextLines = [];
+      continue;
+    }
+
+    if (cueTextLines) {
+      if (line.trim() === "") {
+        flushCueText();
+        transformed.push(line);
+      } else {
+        cueTextLines.push(line);
+      }
+      continue;
+    }
+
+    transformed.push(line);
+  }
+
+  flushCueText();
+
+  return transformed.join("\n");
+}
+
+function escapeRegex(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function buildStaticReplacementRegex(find: string, caseSensitive?: boolean): RegExp {
+  const pattern = find
+    .split(/(\s+)/)
+    .map(part => /\s+/.test(part) ? "\\s+" : escapeRegex(part))
+    .join("");
+  const firstNonWhitespaceIndex = find.search(/\S/);
+  const firstNonWhitespace = firstNonWhitespaceIndex >= 0 ? find[firstNonWhitespaceIndex] : undefined;
+  const lastNonWhitespaceMatch = /\S(?=\s*$)/.exec(find);
+  const lastNonWhitespace = lastNonWhitespaceMatch?.[0];
+  const startsAtTextBoundary = firstNonWhitespaceIndex === 0 && !!firstNonWhitespace && /\w/.test(firstNonWhitespace);
+  const endsAtTextBoundary = !!lastNonWhitespace && find.trimEnd().length === find.length;
+  const prefix = startsAtTextBoundary ? "(?<!\\w)" : "";
+  const suffix = endsAtTextBoundary ? "(?!\\w)" : "";
+  const flags = caseSensitive === false ? "gi" : "g";
+  return new RegExp(`${prefix}${pattern}${suffix}`, flags);
+}
+
 /**
  * Builds a case-insensitive word-boundary regex from an array of profane words.
  * Words are sorted longest-first so multi-word phrases match before individual words.
@@ -228,7 +296,7 @@ export function buildReplacementRegex(words: string[]): RegExp | null {
   filtered.sort((a, b) => b.length - a.length);
 
   // Escape regex special characters in each word
-  const escaped = filtered.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const escaped = filtered.map(escapeRegex);
 
   const pattern = escaped.join("|");
   return new RegExp(`\\b(?:${pattern})\\b`, "gi");
@@ -308,12 +376,14 @@ export function applyOverrideLists(
 }
 
 /**
- * Applies static find/replace pairs to cue text lines in raw VTT content
- * using word-boundary regex. Defaults to case-sensitive matching since static
- * replacements typically target specific known strings; each entry may opt
- * into case-insensitive matching via `caseSensitive: false`. Headers,
- * timestamps, and cue identifiers are untouched. Returns the edited VTT and
- * the total number of replacements.
+ * Applies static find/replace pairs to cue text blocks in raw VTT content.
+ * Whitespace in the find string can match VTT line wrapping, and matches are
+ * constrained by text boundaries to avoid replacing substrings inside words.
+ * Defaults to case-sensitive matching since static replacements typically
+ * target specific known strings; each entry may opt into case-insensitive
+ * matching via `caseSensitive: false`. Headers, timestamps, and cue
+ * identifiers are untouched. Returns the edited VTT and the total number of
+ * replacements.
  */
 export function applyReplacements(
   rawVtt: string,
@@ -326,12 +396,10 @@ export function applyReplacements(
 
   const records: ReplacementRecord[] = [];
 
-  const editedVtt = transformCueText(rawVtt, (line, cueStartTime) => {
-    let result = line;
+  const editedVtt = transformCueTextBlocks(rawVtt, (cueText, cueStartTime) => {
+    let result = cueText;
     for (const { find, replace, caseSensitive } of filtered) {
-      const escaped = find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const flags = caseSensitive === false ? "gi" : "g";
-      const regex = new RegExp(`\\b${escaped}\\b`, flags);
+      const regex = buildStaticReplacementRegex(find, caseSensitive);
       result = result.replace(regex, (match) => {
         records.push({ cueStartTime, before: match, after: replace });
         return replace;

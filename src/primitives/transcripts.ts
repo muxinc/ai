@@ -6,6 +6,10 @@ import { normalizeUntrustedUnicode } from "../lib/output-safety.ts";
 import { signUrl } from "../lib/url-signing.ts";
 import type { AssetTextTrack, MuxAsset, WorkflowCredentialsInput } from "../types.ts";
 
+type TrackWithAutoLanguageConfidence = AssetTextTrack & {
+  auto_language_confidence?: number;
+};
+
 /** A single cue from a VTT file with timing info. */
 export interface VTTCue {
   startTime: number;
@@ -98,8 +102,9 @@ export function getReliableLanguageCode(
     return undefined;
   if (isUndeterminedLanguageCode(track.language_code))
     return undefined;
-  if (track.auto_language_confidence !== undefined &&
-    track.auto_language_confidence < confidenceThreshold) {
+  const { auto_language_confidence: autoLanguageConfidence } = track as TrackWithAutoLanguageConfidence;
+  if (autoLanguageConfidence !== undefined &&
+    autoLanguageConfidence < confidenceThreshold) {
     return undefined;
   }
   return track.language_code;
