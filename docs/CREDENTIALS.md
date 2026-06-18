@@ -172,11 +172,18 @@ Supported credential fields:
 | `muxSigningKey` | Mux signing key ID (for signed playback) |
 | `muxPrivateKey` | Mux private key (for signed playback) |
 | `openaiApiKey` | OpenAI API key |
+| `basetenApiKey` | Baseten API key |
+| `basetenBaseUrl` | Baseten API base URL or dedicated language model URL |
+| `basetenModelUrl` | Baseten dedicated language model URL |
+| `basetenEmbeddingBaseUrl` | Baseten embedding base URL alias |
+| `basetenEmbeddingModelUrl` | Baseten dedicated embedding model URL |
 | `anthropicApiKey` | Anthropic API key |
 | `googleApiKey` | Google Generative AI API key |
 | `googleVisionApiKey` | Google Vision API key (SafeSearch moderation) |
 | `hiveApiKey` | Hive API key |
 | `elevenLabsApiKey` | ElevenLabs API key |
+
+Baseten language workflows can use either Baseten Model APIs or a dedicated OpenAI-compatible `/sync/v1` deployment URL. Baseten embeddings require a dedicated `/sync` or `/sync/v1` deployment URL, configured with `BASETEN_EMBEDDING_MODEL_URL` or `basetenEmbeddingModelUrl`.
 
 ### Global credentials provider
 
@@ -239,6 +246,11 @@ MUX_PRIVATE_KEY=your_base64_encoded_private_key
 
 # AI Providers (configure only what you need)
 OPENAI_API_KEY=your_openai_api_key
+BASETEN_API_KEY=your_baseten_api_key
+BASETEN_MODEL=your-baseten-language-model
+BASETEN_MODEL_URL=https://model-id.api.baseten.co/sync/v1
+BASETEN_EMBEDDING_MODEL=your-baseten-embedding-model
+BASETEN_EMBEDDING_MODEL_URL=https://model-id.api.baseten.co/sync
 ANTHROPIC_API_KEY=your_anthropic_api_key
 GOOGLE_GENERATIVE_AI_API_KEY=your_google_api_key
 ELEVENLABS_API_KEY=your_elevenlabs_api_key

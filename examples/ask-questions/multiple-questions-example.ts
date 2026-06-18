@@ -17,7 +17,7 @@ program
     "comma-separated options, e.g. \"What is the quality?|amateur,semi-pro,professional\". " +
     "Use \"|*\" (experimental) for a free-form prose reply.",
   )
-  .option("-p, --provider <provider>", "AI provider: openai, anthropic, google (default: openai)")
+  .option("-p, --provider <provider>", "AI provider: openai, anthropic, google, baseten (default: openai)")
   .option("-m, --model <model>", "Model name (default varies by provider)")
   .option("--no-transcript", "Exclude transcript from analysis")
   .option(

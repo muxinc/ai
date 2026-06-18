@@ -242,7 +242,7 @@ export async function resolveMuxClient(
 }
 
 /** Supported AI/ML provider identifiers for API key resolution. */
-export type ApiKeyProvider = "openai" | "anthropic" | "google" | "google-vision-api" | "hive" | "elevenlabs";
+export type ApiKeyProvider = "openai" | "baseten" | "anthropic" | "google" | "google-vision-api" | "hive" | "elevenlabs";
 
 function resolveProviderApiKeyFromCredentials(
   provider: ApiKeyProvider,
@@ -250,6 +250,7 @@ function resolveProviderApiKeyFromCredentials(
 ): string {
   const record = resolved as Record<string, unknown>;
   const openaiApiKey = readString(record, "openaiApiKey");
+  const basetenApiKey = readString(record, "basetenApiKey");
   const anthropicApiKey = readString(record, "anthropicApiKey");
   const googleApiKey = readString(record, "googleApiKey");
   const googleVisionApiKey = readString(record, "googleVisionApiKey");
@@ -259,6 +260,7 @@ function resolveProviderApiKeyFromCredentials(
   // Map each provider to its credential source and env var fallback
   const apiKeyMap: Record<ApiKeyProvider, string | undefined> = {
     "openai": openaiApiKey ?? env.OPENAI_API_KEY,
+    "baseten": basetenApiKey ?? env.BASETEN_API_KEY,
     "anthropic": anthropicApiKey ?? env.ANTHROPIC_API_KEY,
     "google": googleApiKey ?? env.GOOGLE_GENERATIVE_AI_API_KEY,
     "google-vision-api": googleVisionApiKey ?? env.GOOGLE_VISION_API_KEY,
@@ -272,6 +274,7 @@ function resolveProviderApiKeyFromCredentials(
     // Using `satisfies` ensures these stay in sync with the Env schema.
     const envVarNames = {
       "openai": "OPENAI_API_KEY",
+      "baseten": "BASETEN_API_KEY",
       "anthropic": "ANTHROPIC_API_KEY",
       "google": "GOOGLE_GENERATIVE_AI_API_KEY",
       "google-vision-api": "GOOGLE_VISION_API_KEY",
