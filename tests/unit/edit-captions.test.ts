@@ -499,6 +499,23 @@ describe("applyReplacements", () => {
     });
   });
 
+  it("matches punctuation-ended replacements followed immediately by letters", () => {
+    const vtt = [
+      "WEBVTT",
+      "",
+      "00:00:01.000 --> 00:00:04.000",
+      "This timeline,and this U.S.A mention Dr.Smith.",
+    ].join("\n");
+    const { editedVtt, replacements } = applyReplacements(vtt, [
+      { find: "timeline,", replace: "timeline:" },
+      { find: "U.S.", replace: "United States " },
+      { find: "Dr.", replace: "Doctor " },
+    ]);
+    expect(editedVtt).toContain("This timeline:and this United States A mention Doctor Smith.");
+    expect(replacements).toHaveLength(3);
+    expect(replacements.map(r => r.before)).toEqual(["timeline,", "U.S.", "Dr."]);
+  });
+
   it("matches phrase replacements across line-wrapped cue text", () => {
     const vtt = [
       "WEBVTT",

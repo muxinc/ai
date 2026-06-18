@@ -276,7 +276,7 @@ function buildStaticReplacementRegex(find: string, caseSensitive?: boolean): Reg
   const lastNonWhitespaceMatch = /\S(?=\s*$)/.exec(find);
   const lastNonWhitespace = lastNonWhitespaceMatch?.[0];
   const startsAtTextBoundary = firstNonWhitespaceIndex === 0 && !!firstNonWhitespace && /\w/.test(firstNonWhitespace);
-  const endsAtTextBoundary = !!lastNonWhitespace && find.trimEnd().length === find.length;
+  const endsAtTextBoundary = !!lastNonWhitespace && find.trimEnd().length === find.length && /\w/.test(lastNonWhitespace);
   const prefix = startsAtTextBoundary ? "(?<!\\w)" : "";
   const suffix = endsAtTextBoundary ? "(?!\\w)" : "";
   const flags = caseSensitive === false ? "gi" : "g";
@@ -377,8 +377,8 @@ export function applyOverrideLists(
 
 /**
  * Applies static find/replace pairs to cue text blocks in raw VTT content.
- * Whitespace in the find string can match VTT line wrapping, and matches are
- * constrained by text boundaries to avoid replacing substrings inside words.
+ * Whitespace in the find string can match VTT line wrapping, and word-character
+ * edges are constrained to avoid replacing substrings inside words.
  * Defaults to case-sensitive matching since static replacements typically
  * target specific known strings; each entry may opt into case-insensitive
  * matching via `caseSensitive: false`. Headers, timestamps, and cue
