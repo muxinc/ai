@@ -248,7 +248,7 @@ function buildDescriptionGuidance(wordCount: number, contentType: "video" | "aud
         Write in present tense. Be specific about observable details rather than making assumptions.
         If the transcript provides dialogue or narration, incorporate key points but prioritize visual content.`;
     }
-    return dedent`A detailed summary that describes the audio content.
+    return dedent`A detailed summary that describes the transcript content.
       Never exceed ${wordCount} words, but shorter is perfectly fine. You may use multiple sentences.
       Be thorough: cover topics, speakers, themes, progression, and any notable insights.
       Write in present tense. Be specific about what is discussed or presented rather than making assumptions.
@@ -262,7 +262,7 @@ function buildDescriptionGuidance(wordCount: number, contentType: "video" | "aud
       Write in present tense. Be specific about observable details rather than making assumptions.
       If the transcript provides dialogue or narration, incorporate key points but prioritize visual content.`;
   }
-  return dedent`A summary that describes the audio content.
+  return dedent`A summary that describes the transcript content.
     Never exceed ${wordCount} words, but shorter is perfectly fine. You may use multiple sentences.
     Cover the main topics, speakers, themes, and any notable progression in the discussion or narration.
     Write in present tense. Be specific about what is discussed or presented rather than making assumptions.
@@ -325,15 +325,15 @@ function createAudioOnlyBuilder({ titleLength, descriptionLength, tagCount }: Pr
     template: {
       task: {
         tag: "task",
-        content: "Analyze the transcript and generate metadata that captures the essence of the audio content.",
+        content: "Analyze the transcript and generate metadata that captures the essence of the content.",
       },
       title: {
         tag: "title_requirements",
         content: dedent`
           A concise, label-style title — not a sentence or description.
           Never exceed ${titleLimit} words, but shorter is better.
-          Think of how a podcast episode title or playlist entry would read — e.g. "Weekly News Roundup" or "Interview with Dr. Smith".
-          Start with the primary subject or topic. Never begin with "An audio of" or similar phrasing.
+          Think of how a media title or playlist entry would read — e.g. "Weekly News Roundup" or "Interview with Dr. Smith".
+          Start with the primary subject or topic. Never begin with "A video of", "An audio of", or similar phrasing.
           Use specific nouns over lengthy descriptions. Avoid clauses, conjunctions, or narrative structure.`,
       },
       description: {
@@ -347,7 +347,7 @@ function createAudioOnlyBuilder({ titleLength, descriptionLength, tagCount }: Pr
           - Primary topics and themes
           - Speakers or presenters (if named)
           - Key concepts and terminology
-          - Content type (interview, lecture, music, etc.)
+          - Content type (interview, lecture, tutorial, music, etc.)
           - Genre or style (if applicable)
           Prefer concrete nouns and relevant terms over abstract concepts.
           Use lowercase. Avoid redundant or overly generic terms like "audio" or "content".`,
@@ -421,26 +421,26 @@ const SYSTEM_PROMPT = promptDedent`
 
 const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
   <role>
-    You are an audio content analyst specializing in transcript analysis and metadata generation.
+    You are a media content analyst specializing in transcript analysis and metadata generation.
   </role>
 
   <context>
-    You receive transcript text from audio-only content (podcasts, audiobooks, music, etc.).
-    Your task is to analyze the spoken/audio content and generate accurate, searchable metadata.
+    You receive transcript text from media content such as videos, podcasts, audiobooks, and music.
+    Your task is to analyze the transcript content and generate accurate, searchable metadata.
   </context>
 
   <transcript_guidance>
     - Carefully analyze the entire transcript to understand themes, topics, and key points
     - Extract key terminology, names, concepts, and specific language used
-    - Identify the content type (interview, lecture, music, narration, etc.)
-    - Note the tone, style, and any distinctive characteristics of the audio
+    - Identify the content type (interview, lecture, tutorial, music, narration, etc.)
+    - Note the tone, style, and any distinctive characteristics of the content
     - Consider the intended audience and context based on language and content
   </transcript_guidance>
 
   <capabilities>
-    - Extract meaning and themes from spoken/audio content
+    - Extract meaning and themes from transcript content
     - Identify subjects, topics, speakers, and narrative structure
-    - Generate accurate, searchable metadata from audio-based content
+    - Generate accurate, searchable metadata from transcript-based content
     - Understand context and intent from transcript alone
   </capabilities>
 
@@ -457,7 +457,7 @@ const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
     - ${NO_FABRICATION_CONSTRAINT}
     - ${METADATA_BOUNDARY_WARNING}
     - ${STRUCTURED_DATA_CONSTRAINT}
-    - Focus entirely on audio/spoken content - there are no visual elements
+    - Focus entirely on transcript content - do not infer visual details
     - Output only the JSON object; no markdown or extra text
     - When a <language> section is provided, all output text MUST be written in that language
   </constraints>
@@ -759,13 +759,24 @@ export async function getSummaryAndTags(
       (getReliableLanguageCode(transcriptResult?.track) ?? getReliableLanguageCode(getReadyTextTracks(assetData)[0]));
   const languageName = resolvedLanguageCode ? getLanguageName(resolvedLanguageCode) : undefined;
 
+  const useTranscriptOnlyAnalysis =
+    isAudioOnly || modelConfig.provider === "baseten";
+
+  if (modelConfig.provider === "baseten" && !transcriptText.trim()) {
+    throw new MuxAiError(
+      "Baseten summarization currently uses transcript-only analysis for video assets. " +
+      "Set includeTranscript: true and ensure the asset has a ready text track, or use a provider/model that supports image input.",
+      { type: "validation_error" },
+    );
+  }
+
   // Build the user prompt with all context and any overrides
   const userPrompt = buildUserPrompt({
     tone,
     transcriptText,
     isCleanTranscript: cleanTranscript,
     promptOverrides,
-    isAudioOnly,
+    isAudioOnly: useTranscriptOnlyAnalysis,
     titleLength,
     descriptionLength,
     tagCount,
@@ -776,7 +787,7 @@ export async function getSummaryAndTags(
   let imageUrl: string | undefined;
 
   // Choose system prompt and analysis method based on asset type
-  const systemPrompt = isAudioOnly ? AUDIO_ONLY_SYSTEM_PROMPT : SYSTEM_PROMPT;
+  const systemPrompt = useTranscriptOnlyAnalysis ? AUDIO_ONLY_SYSTEM_PROMPT : SYSTEM_PROMPT;
 
   // Word count used to scale the dynamic `description` cap in
   // `buildSummarySchema`. Falls back to the documented default so the
@@ -784,8 +795,8 @@ export async function getSummaryAndTags(
   const effectiveDescriptionLength = descriptionLength ?? DEFAULT_DESCRIPTION_LENGTH;
 
   try {
-    if (isAudioOnly) {
-      // Audio-only analysis: skip storyboard, analyze transcript only
+    if (useTranscriptOnlyAnalysis) {
+      // Transcript-only analysis: skip storyboard, analyze transcript only.
       analysisResponse = await analyzeAudioOnly(
         modelConfig.provider,
         modelConfig.modelId,

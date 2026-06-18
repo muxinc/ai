@@ -204,7 +204,7 @@ const result = await askQuestions(assetId, [
 
 ```typescript
 const result = await askQuestions(assetId, questions, {
-  provider: "openai", // "openai", "anthropic", or "google" (default: "openai")
+  provider: "openai", // "openai", "anthropic", "google", or "baseten" (default: "openai")
   model: "gpt-5.1", // Override default model
   includeTranscript: true, // Include transcript (default: true)
   cleanTranscript: true, // Remove timestamps/markup (default: true)
@@ -319,7 +319,7 @@ console.log("Trends:", result.overallInsight.trends);
 
 ```typescript
 const result = await generateEngagementInsights(assetId, {
-  provider: "openai", // "openai", "anthropic", or "google"
+  provider: "openai", // "openai", "anthropic", "google", or "baseten"
   hotspotLimit: 5, // Moments per direction (1-10, default: 5). Up to 2x total.
   timeframe: "7:days", // "1:hour", "24:hours", "7:days", "30:days"
   skipShots: false, // Skip shots polling, use thumbnails (default: false)
@@ -747,10 +747,17 @@ const googleResult = await getSummaryAndTags(assetId, {
   tone: "professional"
 });
 
+// Baseten analysis (requires BASETEN_MODEL or explicit model)
+const basetenResult = await getSummaryAndTags(assetId, {
+  provider: "baseten",
+  tone: "professional"
+});
+
 // Compare results
 console.log("OpenAI:", openaiResult.title);
 console.log("Anthropic:", anthropicResult.title);
 console.log("Google:", googleResult.title);
+console.log("Baseten:", basetenResult.title);
 ```
 
 Works with any workflow:
@@ -771,6 +778,11 @@ const anthropicChapters = await generateChapters(assetId, {
 // Google (default: gemini-3-flash-preview)
 const googleChapters = await generateChapters(assetId, {
   provider: "google"
+});
+
+// Baseten (requires BASETEN_MODEL or explicit model)
+const basetenChapters = await generateChapters(assetId, {
+  provider: "baseten"
 });
 ```
 

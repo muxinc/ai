@@ -112,6 +112,7 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.16",
+    "@ai-sdk/baseten": "^1.0.54",
     "@ai-sdk/google": "^3.0.10",
     "@ai-sdk/openai": "^3.0.12",
     "@mux/mux-node": "^14.0.0",
