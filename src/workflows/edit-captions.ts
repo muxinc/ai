@@ -266,6 +266,11 @@ function escapeRegex(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/**
+ * Matches the given text literally, treats whitespace flexibly, optionally
+ * ignores case, and avoids matching inside larger words when the search text
+ * starts or ends with word characters.
+ */
 function buildStaticReplacementRegex(find: string, caseSensitive?: boolean): RegExp {
   const pattern = find
     .split(/(\s+)/)
