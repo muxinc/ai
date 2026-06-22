@@ -480,6 +480,62 @@ describe("applyReplacements", () => {
     expect(replacements).toHaveLength(1);
   });
 
+  it("matches phrase replacements that end with punctuation", () => {
+    const vtt = [
+      "WEBVTT",
+      "",
+      "00:00:01.000 --> 00:00:04.000",
+      "This is one long timeline, and it needs punctuation fixed.",
+    ].join("\n");
+    const { editedVtt, replacements } = applyReplacements(vtt, [
+      { find: "one long timeline,", replace: "one long timeline:", caseSensitive: false },
+    ]);
+    expect(editedVtt).toContain("This is one long timeline: and it needs punctuation fixed.");
+    expect(replacements).toHaveLength(1);
+    expect(replacements[0]).toEqual({
+      cueStartTime: 1,
+      before: "one long timeline,",
+      after: "one long timeline:",
+    });
+  });
+
+  it("matches punctuation-ended replacements followed immediately by letters", () => {
+    const vtt = [
+      "WEBVTT",
+      "",
+      "00:00:01.000 --> 00:00:04.000",
+      "This timeline,and this U.S.A mention Dr.Smith.",
+    ].join("\n");
+    const { editedVtt, replacements } = applyReplacements(vtt, [
+      { find: "timeline,", replace: "timeline:" },
+      { find: "U.S.", replace: "United States " },
+      { find: "Dr.", replace: "Doctor " },
+    ]);
+    expect(editedVtt).toContain("This timeline:and this United States A mention Doctor Smith.");
+    expect(replacements).toHaveLength(3);
+    expect(replacements.map(r => r.before)).toEqual(["timeline,", "U.S.", "Dr."]);
+  });
+
+  it("matches phrase replacements across line-wrapped cue text", () => {
+    const vtt = [
+      "WEBVTT",
+      "",
+      "00:00:01.000 --> 00:00:04.000",
+      "This is one long",
+      "timeline, and it needs punctuation fixed.",
+    ].join("\n");
+    const { editedVtt, replacements } = applyReplacements(vtt, [
+      { find: "one long timeline,", replace: "one long timeline:", caseSensitive: false },
+    ]);
+    expect(editedVtt).toContain("This is one long timeline: and it needs punctuation fixed.");
+    expect(replacements).toHaveLength(1);
+    expect(replacements[0]).toEqual({
+      cueStartTime: 1,
+      before: "one long\ntimeline,",
+      after: "one long timeline:",
+    });
+  });
+
   it("returns original when no replacements match", () => {
     const { editedVtt, replacements } = applyReplacements(sampleVtt, [
       { find: "nonexistent", replace: "something" },

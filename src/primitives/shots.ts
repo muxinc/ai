@@ -184,10 +184,10 @@ export async function requestShotsForAsset(
   const { credentials } = options;
   const muxClient = await getMuxClientFromEnv(credentials);
   const mux = await muxClient.createClient();
-  const response = await mux.post<ShotsApiResponse>(
+  const response = await mux.post(
     getShotsPath(assetId),
     { body: {} },
-  );
+  ) as ShotsApiResponse;
   const result = await transformShotsResponse(response);
 
   if (result.status !== "pending") {
@@ -214,9 +214,9 @@ export async function getShotsForAsset(
   const { credentials } = options;
   const muxClient = await getMuxClientFromEnv(credentials);
   const mux = await muxClient.createClient();
-  const response = await mux.get<ShotsApiResponse>(
+  const response = await mux.get(
     getShotsPath(assetId),
-  );
+  ) as ShotsApiResponse;
 
   return await transformShotsResponse(response);
 }
