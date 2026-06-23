@@ -36,11 +36,11 @@ const MOCK_SHOTS_MANIFEST = {
   shots: [
     {
       start_time: 0.0416667,
-      image_url: "https://stream.mux.com/aicontext/test-asset/shot_0.webp?signature=first",
+      shot_preview_image_url: "https://stream.mux.com/aicontext/test-asset/shot_0.webp?signature=first",
     },
     {
       start_time: 2.75,
-      image_url: "https://stream.mux.com/aicontext/test-asset/shot_1.webp?signature=second",
+      shot_preview_image_url: "https://stream.mux.com/aicontext/test-asset/shot_1.webp?signature=second",
     },
   ],
 };
@@ -151,6 +151,36 @@ describe("getShotsForAsset", () => {
         },
       ],
     });
+  });
+
+  it("falls back to the deprecated image_url field with a warning", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockMuxGet.mockResolvedValue(MOCK_COMPLETED_RESPONSE);
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({
+        shots: [
+          {
+            start_time: 0.0416667,
+            image_url: "https://stream.mux.com/aicontext/test-asset/shot_0.webp?signature=legacy",
+          },
+        ],
+      }),
+    });
+
+    const result = await getShotsForAsset("test-asset-123");
+
+    expect(result).toEqual({
+      status: "completed",
+      createdAt: "1773108428",
+      shots: [
+        {
+          startTime: 0.0416667,
+          imageUrl: "https://stream.mux.com/aicontext/test-asset/shot_0.webp?signature=legacy",
+        },
+      ],
+    });
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("image_url"));
   });
 
   it("returns transformed errored result", async () => {

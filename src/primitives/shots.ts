@@ -72,7 +72,9 @@ interface ShotsApiResponse {
 interface ShotsManifestResponse {
   shots: Array<{
     start_time: number;
-    image_url: string;
+    shot_preview_image_url?: string;
+    /** @deprecated Replaced by shot_preview_image_url. Will be removed in a future manifest version. */
+    image_url?: string;
   }>;
 }
 
@@ -88,15 +90,22 @@ function getShotsPath(assetId: string): string {
 function mapManifestShots(
   shots: ShotsManifestResponse["shots"],
 ): Shot[] {
-  return shots.map((shot, index) => {
-    const { start_time: startTime, image_url: imageUrl } = shot;
+  let usedDeprecatedField = false;
+
+  const mapped = shots.map((shot, index) => {
+    const { start_time: startTime } = shot;
+    const imageUrl = shot.shot_preview_image_url ?? shot.image_url;
+
+    if (shot.shot_preview_image_url === undefined && shot.image_url !== undefined) {
+      usedDeprecatedField = true;
+    }
 
     if (typeof startTime !== "number" || !Number.isFinite(startTime)) {
       throw new TypeError(`Invalid shot start_time in shots manifest at index ${index}`);
     }
 
     if (typeof imageUrl !== "string" || imageUrl.length === 0) {
-      throw new TypeError(`Invalid shot image_url in shots manifest at index ${index}`);
+      throw new TypeError(`Invalid shot shot_preview_image_url in shots manifest at index ${index}`);
     }
 
     return {
@@ -104,6 +113,14 @@ function mapManifestShots(
       imageUrl,
     };
   });
+
+  if (usedDeprecatedField) {
+    console.warn(
+      "The 'image_url' field in the Mux shots manifest is deprecated and will be removed. Use 'shot_preview_image_url' instead.",
+    );
+  }
+
+  return mapped;
 }
 
 async function fetchShotsFromManifest(
