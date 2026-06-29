@@ -186,7 +186,7 @@ describe("getModerationScores includeTranscript (video assets)", () => {
     } as any;
   }
 
-  it("appends a transcript entry for a video asset and a high transcript score raises maxScores/exceedsThreshold", async () => {
+  it("populates transcriptScores for a video asset and a high transcript score raises maxScores/exceedsThreshold", async () => {
     vi.mocked(getPlaybackIdForAsset).mockResolvedValue(videoAssetWithTextTrack());
 
     const urls = [
@@ -229,19 +229,25 @@ describe("getModerationScores includeTranscript (video assets)", () => {
       includeTranscript: true,
     });
 
-    // Still thumbnail mode for a video asset.
-    expect(result.mode).toBe("thumbnails");
+    // Both surfaces moderated → combined mode.
+    expect(result.mode).toBe("combined");
     expect(result.isAudioOnly).toBe(false);
 
-    // A transcript-prefixed entry is appended.
-    const transcriptEntries = result.thumbnailScores.filter(s => s.url.startsWith("transcript:"));
-    expect(transcriptEntries.length).toBeGreaterThan(0);
+    // Transcript scores land in their own array, keyed by chunkIndex.
+    expect(result.transcriptScores.length).toBeGreaterThan(0);
+    expect(result.transcriptScores[0]).toMatchObject({ chunkIndex: 0, error: false });
+    expect(typeof result.transcriptScores[0].sexual).toBe("number");
+
+    // thumbnailScores holds image entries only (each has a `time`).
+    expect(result.thumbnailScores.length).toBe(3);
+    expect(result.thumbnailScores.every(s => typeof s.time === "number")).toBe(true);
+    expect(result.thumbnailScores.every(s => "url" in s)).toBe(true);
 
     // The high transcript score drives maxScores and threshold.
     expect(result.maxScores.sexual).toBe(0.95);
     expect(result.exceedsThreshold).toBe(true);
 
-    // Coverage is computed over thumbnails only (transcript entries excluded).
+    // Coverage is computed over thumbnails only.
     expect(result.coverage.requestedSampleCount).toBe(3);
     expect(result.coverage.successfulSampleCount).toBe(3);
   });
@@ -278,8 +284,60 @@ describe("getModerationScores includeTranscript (video assets)", () => {
       includeTranscript: true,
     });
 
-    expect(result.thumbnailScores.some(s => s.url.startsWith("transcript:"))).toBe(false);
+    expect(result.transcriptScores).toEqual([]);
+    expect(result.mode).toBe("thumbnails");
     expect(result.coverage.requestedSampleCount).toBe(3);
+    expect(result.exceedsThreshold).toBe(false);
+  });
+
+  it("places audio-only transcript results in transcriptScores and is not low-confidence", async () => {
+    vi.mocked(isAudioOnlyAsset).mockReturnValue(true);
+    vi.mocked(getPlaybackIdForAsset).mockResolvedValue({
+      asset: {
+        id: "asset-audio",
+        tracks: [
+          { id: "track-en", type: "text", status: "ready", text_type: "subtitles", language_code: "en" },
+        ],
+      },
+      playbackId: "playback-audio",
+      policy: "public",
+    } as any);
+    // Audio-only assets have no video track / thumbnails.
+    vi.mocked(getThumbnailUrls).mockResolvedValue([]);
+
+    mockFetch.mockImplementation(async (url, init) => {
+      if (String(url).endsWith(".vtt")) {
+        return {
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          text: vi.fn().mockResolvedValue(VTT_BODY),
+        } as any;
+      }
+      const body = JSON.parse(String(init?.body));
+      // Should only ever be text moderation for audio-only.
+      expect(typeof body.input).toBe("string");
+      return mockOpenAIModerationResponse({
+        status: 200,
+        body: { results: [{ category_scores: { sexual: 0.04, violence: 0.06 } }] },
+      });
+    });
+
+    const result = await getModerationScores("asset-audio", {
+      provider: "openai",
+      model: "omni-moderation-latest",
+    });
+
+    expect(result.mode).toBe("transcript");
+    expect(result.isAudioOnly).toBe(true);
+    // Transcript scores live in their own array; thumbnailScores is empty.
+    expect(result.thumbnailScores).toEqual([]);
+    expect(result.transcriptScores.length).toBeGreaterThan(0);
+    expect(result.transcriptScores[0]).toMatchObject({ chunkIndex: 0, error: false });
+    // Audio-only must not be penalized for having zero thumbnails.
+    expect(result.coverage.isLowConfidence).toBe(false);
+    expect(result.coverage.requestedSampleCount).toBe(0);
+    expect(result.maxScores.violence).toBe(0.06);
     expect(result.exceedsThreshold).toBe(false);
   });
 
