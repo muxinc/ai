@@ -116,6 +116,14 @@ export interface ModerationOptions extends MuxAIOptions {
   imageSubmissionMode?: ImageSubmissionMode;
   /** Download tuning used when `imageSubmissionMode` === 'base64'. */
   imageDownloadOptions?: ImageDownloadOptions;
+  /**
+   * When true, also moderate transcript text for video assets, in addition to thumbnails.
+   * No effect on audio-only assets, which always moderate transcript text.
+   * If set but no ready text track exists, transcript moderation is skipped silently;
+   * transcription is never triggered. Only supported with provider 'openai'.
+   * @default false
+   */
+  includeTranscript?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -764,6 +772,7 @@ export async function getModerationScores(
     maxConcurrent = 5,
     imageSubmissionMode = "url",
     imageDownloadOptions,
+    includeTranscript = false,
     credentials: providedCredentials,
   } = options;
   const credentials = providedCredentials;
@@ -881,6 +890,28 @@ export async function getModerationScores(
       const exhaustiveCheck: never = provider;
       throw new Error(`Unsupported moderation provider: ${exhaustiveCheck}`);
     }
+
+    if (includeTranscript) {
+      if (provider !== "openai") {
+        throw new Error("includeTranscript is only supported with provider 'openai'.");
+      }
+      const transcriptResult = await fetchTranscriptForAsset(asset, playbackId, {
+        languageCode,
+        cleanTranscript: true,
+        shouldSign: policy === "signed",
+        credentials,
+        required: false,
+      });
+      if (transcriptResult.transcriptText.trim()) {
+        const transcriptScores = await requestOpenAITranscriptModeration(
+          transcriptResult.transcriptText,
+          model || "omni-moderation-latest",
+          maxConcurrent,
+          credentials,
+        );
+        thumbnailScores = [...thumbnailScores, ...transcriptScores];
+      }
+    }
   }
 
   const failed = thumbnailScores.filter(s => s.error);
@@ -903,10 +934,21 @@ export async function getModerationScores(
   const maxViolence = Math.max(...successful.map(s => s.violence));
 
   const finalThresholds = { ...DEFAULT_THRESHOLDS, ...thresholds };
-  const requestedSampleCount = thumbnailScores.length;
-  const successfulSampleCount = successful.length;
-  const failedSampleCount = failed.length;
-  const sampleCoverage = successfulSampleCount / requestedSampleCount;
+  // Coverage describes how well the thumbnails were sampled, so for video
+  // assets the transcript moderation entries (added when `includeTranscript`
+  // is set) are excluded from the denominator to keep thumbnail coverage
+  // meaningful. Transcript entries are identified by their synthetic
+  // `transcript:` URL prefix. For transcript mode (audio-only) every entry is
+  // a transcript entry and coverage is computed over them as before.
+  const isTranscriptEntry = (s: ThumbnailModerationScore) => s.url.startsWith("transcript:");
+  const coverageScores =
+    mode === "thumbnails" ? thumbnailScores.filter(s => !isTranscriptEntry(s)) : thumbnailScores;
+  const coverageFailed = coverageScores.filter(s => s.error);
+  const coverageSuccessful = coverageScores.filter(s => !s.error);
+  const requestedSampleCount = coverageScores.length;
+  const successfulSampleCount = coverageSuccessful.length;
+  const failedSampleCount = coverageFailed.length;
+  const sampleCoverage = requestedSampleCount > 0 ? successfulSampleCount / requestedSampleCount : 0;
   const hasEnoughSuccessfulSamples = mode === "transcript" ||
     successfulSampleCount >= MIN_SUCCESSFUL_THUMBNAILS_FOR_CONFIDENT_THRESHOLDING;
   const isLowConfidence = sampleCoverage < MIN_SAMPLE_COVERAGE_FOR_CONFIDENT_THRESHOLDING ||

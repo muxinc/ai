@@ -169,3 +169,146 @@ describe("getModerationScores coverage metadata", () => {
     expect(result.exceedsThreshold).toBe(false);
   });
 });
+
+describe("getModerationScores includeTranscript (video assets)", () => {
+  const VTT_BODY = "WEBVTT\n\n00:00:01.000 --> 00:00:04.000\nsome flagged transcript line\n";
+
+  function videoAssetWithTextTrack() {
+    return {
+      asset: {
+        id: "asset-123",
+        tracks: [
+          { id: "track-en", type: "text", status: "ready", text_type: "subtitles", language_code: "en" },
+        ],
+      },
+      playbackId: "playback-123",
+      policy: "public",
+    } as any;
+  }
+
+  it("appends a transcript entry for a video asset and a high transcript score raises maxScores/exceedsThreshold", async () => {
+    vi.mocked(getPlaybackIdForAsset).mockResolvedValue(videoAssetWithTextTrack());
+
+    const urls = [
+      { url: "https://thumb.test/a.png", time: 0 },
+      { url: "https://thumb.test/b.png", time: 10 },
+      { url: "https://thumb.test/c.png", time: 20 },
+    ];
+    vi.mocked(getThumbnailUrls).mockResolvedValue(urls);
+
+    mockFetch.mockImplementation(async (url, init) => {
+      // Transcript VTT fetch (GET to the .vtt URL).
+      if (String(url).endsWith(".vtt")) {
+        return {
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          text: vi.fn().mockResolvedValue(VTT_BODY),
+        } as any;
+      }
+
+      const body = JSON.parse(String(init?.body));
+      // Text moderation: `input` is a string. Return a high sexual score.
+      if (typeof body.input === "string") {
+        return mockOpenAIModerationResponse({
+          status: 200,
+          body: { results: [{ category_scores: { sexual: 0.95, violence: 0.1 } }] },
+        });
+      }
+
+      // Image moderation: `input` is an array. All thumbnails are benign.
+      return mockOpenAIModerationResponse({
+        status: 200,
+        body: { results: [{ category_scores: { sexual: 0.02, violence: 0.03 } }] },
+      });
+    });
+
+    const result = await getModerationScores("asset-123", {
+      provider: "openai",
+      model: "omni-moderation-latest",
+      includeTranscript: true,
+    });
+
+    // Still thumbnail mode for a video asset.
+    expect(result.mode).toBe("thumbnails");
+    expect(result.isAudioOnly).toBe(false);
+
+    // A transcript-prefixed entry is appended.
+    const transcriptEntries = result.thumbnailScores.filter(s => s.url.startsWith("transcript:"));
+    expect(transcriptEntries.length).toBeGreaterThan(0);
+
+    // The high transcript score drives maxScores and threshold.
+    expect(result.maxScores.sexual).toBe(0.95);
+    expect(result.exceedsThreshold).toBe(true);
+
+    // Coverage is computed over thumbnails only (transcript entries excluded).
+    expect(result.coverage.requestedSampleCount).toBe(3);
+    expect(result.coverage.successfulSampleCount).toBe(3);
+  });
+
+  it("skips transcript moderation silently when no ready text track exists", async () => {
+    vi.mocked(getPlaybackIdForAsset).mockResolvedValue({
+      asset: { id: "asset-123", tracks: [] },
+      playbackId: "playback-123",
+      policy: "public",
+    } as any);
+
+    const urls = [
+      { url: "https://thumb.test/a.png", time: 0 },
+      { url: "https://thumb.test/b.png", time: 10 },
+      { url: "https://thumb.test/c.png", time: 20 },
+    ];
+    vi.mocked(getThumbnailUrls).mockResolvedValue(urls);
+
+    mockFetch.mockImplementation(async (url, init) => {
+      if (String(url).endsWith(".vtt")) {
+        throw new Error("transcript fetch should not happen when no track exists");
+      }
+      const body = JSON.parse(String(init?.body));
+      expect(Array.isArray(body.input)).toBe(true);
+      return mockOpenAIModerationResponse({
+        status: 200,
+        body: { results: [{ category_scores: { sexual: 0.02, violence: 0.03 } }] },
+      });
+    });
+
+    const result = await getModerationScores("asset-123", {
+      provider: "openai",
+      model: "omni-moderation-latest",
+      includeTranscript: true,
+    });
+
+    expect(result.thumbnailScores.some(s => s.url.startsWith("transcript:"))).toBe(false);
+    expect(result.coverage.requestedSampleCount).toBe(3);
+    expect(result.exceedsThreshold).toBe(false);
+  });
+
+  it("throws when includeTranscript is used with a non-openai provider", async () => {
+    vi.mocked(getPlaybackIdForAsset).mockResolvedValue(videoAssetWithTextTrack());
+
+    const urls = [
+      { url: "https://thumb.test/a.png", time: 0 },
+      { url: "https://thumb.test/b.png", time: 10 },
+      { url: "https://thumb.test/c.png", time: 20 },
+    ];
+    vi.mocked(getThumbnailUrls).mockResolvedValue(urls);
+
+    mockFetch.mockImplementation(async () =>
+      ({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        json: vi.fn().mockResolvedValue({
+          status: [{ response: { output: [{ classes: [] }] } }],
+        }),
+        text: vi.fn().mockResolvedValue("{}"),
+      }) as any);
+
+    await expect(
+      getModerationScores("asset-123", {
+        provider: "hive",
+        includeTranscript: true,
+      }),
+    ).rejects.toThrow("includeTranscript is only supported with provider 'openai'.");
+  });
+});

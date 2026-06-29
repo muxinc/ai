@@ -52,7 +52,7 @@ interface SummaryAndTagsResult {
 
 Analyzes a Mux asset for inappropriate content using OpenAI's Moderation API, Hive's Moderation API, or Google Cloud Vision SafeSearch.
 
-- For **video assets**, this moderates **storyboard thumbnails** (image moderation).
+- For **video assets**, this moderates **storyboard thumbnails** (image moderation). Optionally, set `includeTranscript: true` to **also** moderate the caption transcript text alongside the thumbnails.
 - For **audio-only assets**, this moderates the **underlying transcript text** (text moderation). Only `openai` supports this; `hive` and `google-vision-api` are image-only and will throw.
 
 **Parameters:**
@@ -77,6 +77,7 @@ Analyzes a Mux asset for inappropriate content using OpenAI's Moderation API, Hi
   - `retryDelay?: number` - Base delay between retries in milliseconds (default: 1000)
   - `maxRetryDelay?: number` - Maximum delay between retries in milliseconds (default: 10000)
   - `exponentialBackoff?: boolean` - Whether to use exponential backoff (default: true)
+- `includeTranscript?: boolean` - When `true`, also moderate the caption transcript text for **video assets**, in addition to thumbnails (default: `false`). Only supported with provider `openai`; throws otherwise. Has no effect on audio-only assets, which always moderate transcript text. If set but no ready text track exists, transcript moderation is skipped silently — transcription is never triggered. Transcript scores appear in `thumbnailScores` with a synthetic `transcript:`-prefixed `url` and are excluded from the thumbnail `coverage` denominator.
 
 **Hive note (audio-only):** transcript moderation submits `text_data` and requires a Hive **Text Moderation** project/API key. If you use a Visual Moderation key, Hive will reject the request (see [Hive Text Moderation docs](https://docs.thehive.ai/docs/classification-text)).
 
