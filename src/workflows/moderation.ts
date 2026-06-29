@@ -26,11 +26,21 @@ import type {
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Per-thumbnail moderation result returned from `getModerationScores`. */
+/** Per-thumbnail (image) moderation result returned from `getModerationScores`. */
 export interface ThumbnailModerationScore {
   url: string;
-  /** Time in seconds of the thumbnail within the video. Absent for transcript moderation entries. */
+  /** Time in seconds of the thumbnail within the video. */
   time?: number;
+  sexual: number;
+  violence: number;
+  error: boolean;
+  errorMessage?: string;
+}
+
+/** Per-transcript-chunk moderation result returned from `getModerationScores`. */
+export interface TranscriptModerationScore {
+  /** Index of the ~10k-character transcript chunk that was moderated. */
+  chunkIndex: number;
   sexual: number;
   violence: number;
   error: boolean;
@@ -40,11 +50,19 @@ export interface ThumbnailModerationScore {
 /** Aggregated moderation payload returned from `getModerationScores`. */
 export interface ModerationResult {
   assetId: string;
-  /** Whether moderation ran on thumbnails (video) or transcript text (audio-only). */
-  mode: "thumbnails" | "transcript";
-  /** Convenience flag so callers can understand why `thumbnailScores` may contain a transcript entry. */
+  /**
+   * What was moderated:
+   * - `"thumbnails"`: only image thumbnails (video without transcript moderation).
+   * - `"transcript"`: only transcript text (audio-only assets).
+   * - `"combined"`: both thumbnails and transcript text (video with `includeTranscript`).
+   */
+  mode: "thumbnails" | "transcript" | "combined";
+  /** Convenience flag indicating the asset has no video track (transcript-only moderation). */
   isAudioOnly: boolean;
+  /** Image (thumbnail) moderation results. Empty for audio-only assets. */
   thumbnailScores: ThumbnailModerationScore[];
+  /** Transcript-chunk moderation results. Empty unless audio-only or `includeTranscript` produced scores. */
+  transcriptScores: TranscriptModerationScore[];
   /** Coverage metadata describing how many requested moderation samples actually succeeded. */
   coverage: {
     requestedSampleCount: number;
@@ -379,39 +397,6 @@ async function requestOpenAIModeration(
   return processConcurrently(targetUrls, moderateImageWithOpenAI, maxConcurrent);
 }
 
-async function requestOpenAITextModeration(
-  text: string,
-  model: string,
-  url: string,
-  credentials?: WorkflowCredentialsInput,
-): Promise<ThumbnailModerationScore> {
-  "use step";
-  try {
-    const json: any = await callOpenAIModerationApi({
-      model,
-      input: text,
-      credentials,
-    });
-    const categoryScores = json.results?.[0]?.category_scores || {};
-
-    return {
-      url,
-      sexual: categoryScores.sexual || 0,
-      violence: categoryScores.violence || 0,
-      error: false,
-    };
-  } catch (error) {
-    console.error("OpenAI text moderation failed:", error);
-    return {
-      url,
-      sexual: 0,
-      violence: 0,
-      error: true,
-      errorMessage: error instanceof Error ? error.message : String(error),
-    };
-  }
-}
-
 function chunkTextByUtf16CodeUnits(text: string, maxUnits: number): string[] {
   if (!text.trim()) {
     return [];
@@ -429,30 +414,61 @@ function chunkTextByUtf16CodeUnits(text: string, maxUnits: number): string[] {
   return chunks;
 }
 
+async function moderateTranscriptChunkWithOpenAI(entry: {
+  text: string;
+  chunkIndex: number;
+  model: string;
+  credentials?: WorkflowCredentialsInput;
+}): Promise<TranscriptModerationScore> {
+  "use step";
+  try {
+    const json: any = await callOpenAIModerationApi({
+      model: entry.model,
+      input: entry.text,
+      credentials: entry.credentials,
+    });
+    const categoryScores = json.results?.[0]?.category_scores || {};
+
+    return {
+      chunkIndex: entry.chunkIndex,
+      sexual: categoryScores.sexual || 0,
+      violence: categoryScores.violence || 0,
+      error: false,
+    };
+  } catch (error) {
+    console.error("OpenAI transcript moderation failed:", error);
+    return {
+      chunkIndex: entry.chunkIndex,
+      sexual: 0,
+      violence: 0,
+      error: true,
+      errorMessage: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 async function requestOpenAITranscriptModeration(
   transcriptText: string,
   model: string,
   maxConcurrent: number = 5,
   credentials?: WorkflowCredentialsInput,
-): Promise<ThumbnailModerationScore[]> {
+): Promise<TranscriptModerationScore[]> {
   "use step";
   // OpenAI supports larger inputs, but chunking avoids pathological single-request sizes and
   // mirrors our "max over segments" behavior used for thumbnail moderation.
   const chunks = chunkTextByUtf16CodeUnits(transcriptText, 10_000);
   if (!chunks.length) {
     return [
-      { url: "transcript:0", sexual: 0, violence: 0, error: true, errorMessage: "No transcript chunks to moderate" },
+      { chunkIndex: 0, sexual: 0, violence: 0, error: true, errorMessage: "No transcript chunks to moderate" },
     ];
   }
   const targets = chunks.map((chunk, idx) => ({
-    chunk,
-    url: `transcript:${idx}`,
+    text: chunk,
+    chunkIndex: idx,
+    model,
+    credentials,
   }));
-  return processConcurrently(
-    targets,
-    async entry => requestOpenAITextModeration(entry.chunk, model, entry.url, credentials),
-    maxConcurrent,
-  );
+  return processConcurrently(targets, moderateTranscriptChunkWithOpenAI, maxConcurrent);
 }
 
 function getHiveCategoryScores(
@@ -798,7 +814,8 @@ export async function getModerationScores(
     );
   }
 
-  let thumbnailScores: ThumbnailModerationScore[];
+  let thumbnailScores: ThumbnailModerationScore[] = [];
+  let transcriptScores: TranscriptModerationScore[] = [];
   let mode: ModerationResult["mode"] = "thumbnails";
   let thumbnailCount: number | undefined;
 
@@ -813,7 +830,7 @@ export async function getModerationScores(
     });
 
     if (provider === "openai") {
-      thumbnailScores = await requestOpenAITranscriptModeration(
+      transcriptScores = await requestOpenAITranscriptModeration(
         transcriptResult.transcriptText,
         model || "omni-moderation-latest",
         maxConcurrent,
@@ -903,62 +920,79 @@ export async function getModerationScores(
         required: false,
       });
       if (transcriptResult.transcriptText.trim()) {
-        const transcriptScores = await requestOpenAITranscriptModeration(
+        transcriptScores = await requestOpenAITranscriptModeration(
           transcriptResult.transcriptText,
           model || "omni-moderation-latest",
           maxConcurrent,
           credentials,
         );
-        thumbnailScores = [...thumbnailScores, ...transcriptScores];
       }
     }
   }
 
-  const failed = thumbnailScores.filter(s => s.error);
-  const successful = thumbnailScores.filter(s => !s.error);
+  // A video asset that ran `includeTranscript` and produced transcript scores
+  // moderated both surfaces; reflect that in `mode`.
+  if (mode === "thumbnails" && transcriptScores.length > 0) {
+    mode = "combined";
+  }
+
+  // Aggregate across both surfaces (thumbnails + transcript) for the all-failed
+  // guard and for the max-score / threshold computation.
+  const allScores: Array<{ sexual: number; violence: number; error: boolean; errorMessage?: string; label: string }> = [
+    ...thumbnailScores.map(s => ({ ...s, label: s.url })),
+    ...transcriptScores.map(s => ({ ...s, label: `transcript chunk ${s.chunkIndex}` })),
+  ];
+  const failed = allScores.filter(s => s.error);
+  const successful = allScores.filter(s => !s.error);
   if (successful.length === 0) {
-    const details = failed.map(s => `${s.url}: ${s.errorMessage || "Unknown error"}`).join("; ");
+    const details = failed.map(s => `${s.label}: ${s.errorMessage || "Unknown error"}`).join("; ");
     throw new Error(
-      `Moderation failed for all ${thumbnailScores.length} sample(s): ${details}`,
+      `Moderation failed for all ${allScores.length} sample(s): ${details}`,
     );
   }
 
   if (failed.length > 0) {
     console.warn(
-      `Moderation had partial failures (${failed.length}/${thumbnailScores.length}); continuing with successful samples.`,
+      `Moderation had partial failures (${failed.length}/${allScores.length}); continuing with successful samples.`,
     );
   }
 
-  // Find highest scores across all thumbnails
+  // Find highest scores across both thumbnails and transcript chunks.
   const maxSexual = Math.max(...successful.map(s => s.sexual));
   const maxViolence = Math.max(...successful.map(s => s.violence));
 
   const finalThresholds = { ...DEFAULT_THRESHOLDS, ...thresholds };
-  // Coverage describes how well the thumbnails were sampled, so for video
-  // assets the transcript moderation entries (added when `includeTranscript`
-  // is set) are excluded from the denominator to keep thumbnail coverage
-  // meaningful. Transcript entries are identified by their synthetic
-  // `transcript:` URL prefix. For transcript mode (audio-only) every entry is
-  // a transcript entry and coverage is computed over them as before.
-  const isTranscriptEntry = (s: ThumbnailModerationScore) => s.url.startsWith("transcript:");
-  const coverageScores =
-    mode === "thumbnails" ? thumbnailScores.filter(s => !isTranscriptEntry(s)) : thumbnailScores;
+  // Coverage describes how well the *thumbnails* were sampled; transcript scores
+  // now live in their own array so they never enter this denominator.
+  const coverageScores = thumbnailScores;
   const coverageFailed = coverageScores.filter(s => s.error);
   const coverageSuccessful = coverageScores.filter(s => !s.error);
   const requestedSampleCount = coverageScores.length;
   const successfulSampleCount = coverageSuccessful.length;
   const failedSampleCount = coverageFailed.length;
   const sampleCoverage = requestedSampleCount > 0 ? successfulSampleCount / requestedSampleCount : 0;
-  const hasEnoughSuccessfulSamples = mode === "transcript" ||
-    successfulSampleCount >= MIN_SUCCESSFUL_THUMBNAILS_FOR_CONFIDENT_THRESHOLDING;
-  const isLowConfidence = sampleCoverage < MIN_SAMPLE_COVERAGE_FOR_CONFIDENT_THRESHOLDING ||
-    !hasEnoughSuccessfulSamples;
+  // A transcript-only result (audio-only assets) has no thumbnails to sample, so
+  // it must not be penalized for "too few thumbnails" / zero thumbnail coverage.
+  // Treat it as confident as long as at least one transcript chunk succeeded.
+  const hasThumbnails = requestedSampleCount > 0;
+  const hasSuccessfulTranscript = transcriptScores.some(s => !s.error);
+  let isLowConfidence: boolean;
+  if (!hasThumbnails) {
+    // Transcript-only (audio-only) path: confidence is driven by transcript success.
+    isLowConfidence = !hasSuccessfulTranscript;
+  } else {
+    const hasEnoughSuccessfulSamples =
+      successfulSampleCount >= MIN_SUCCESSFUL_THUMBNAILS_FOR_CONFIDENT_THRESHOLDING;
+    isLowConfidence = sampleCoverage < MIN_SAMPLE_COVERAGE_FOR_CONFIDENT_THRESHOLDING ||
+      !hasEnoughSuccessfulSamples;
+  }
 
   return {
     assetId,
     mode,
     isAudioOnly,
     thumbnailScores,
+    transcriptScores,
     coverage: {
       requestedSampleCount,
       successfulSampleCount,

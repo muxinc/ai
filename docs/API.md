@@ -77,7 +77,7 @@ Analyzes a Mux asset for inappropriate content using OpenAI's Moderation API, Hi
   - `retryDelay?: number` - Base delay between retries in milliseconds (default: 1000)
   - `maxRetryDelay?: number` - Maximum delay between retries in milliseconds (default: 10000)
   - `exponentialBackoff?: boolean` - Whether to use exponential backoff (default: true)
-- `includeTranscript?: boolean` - When `true`, also moderate the caption transcript text for **video assets**, in addition to thumbnails (default: `false`). Only supported with provider `openai`; throws otherwise. Has no effect on audio-only assets, which always moderate transcript text. If set but no ready text track exists, transcript moderation is skipped silently — transcription is never triggered. Transcript scores appear in `thumbnailScores` with a synthetic `transcript:`-prefixed `url` and are excluded from the thumbnail `coverage` denominator.
+- `includeTranscript?: boolean` - When `true`, also moderate the caption transcript text for **video assets**, in addition to thumbnails (default: `false`). Only supported with provider `openai`; throws otherwise. Has no effect on audio-only assets, which always moderate transcript text. If set but no ready text track exists, transcript moderation is skipped silently — transcription is never triggered. Transcript scores are returned in the dedicated `transcriptScores` array (keyed by `chunkIndex`), separate from `thumbnailScores`; they never enter the thumbnail `coverage` denominator.
 
 **Hive note (audio-only):** transcript moderation submits `text_data` and requires a Hive **Text Moderation** project/API key. If you use a Visual Moderation key, Hive will reject the request (see [Hive Text Moderation docs](https://docs.thehive.ai/docs/classification-text)).
 
@@ -88,9 +88,11 @@ Analyzes a Mux asset for inappropriate content using OpenAI's Moderation API, Hi
 ```typescript
 {
   assetId: string;
-  mode: 'thumbnails' | 'transcript';
+  // 'thumbnails' = images only (video); 'transcript' = transcript text only (audio-only);
+  // 'combined' = both images and transcript (video with includeTranscript that produced scores).
+  mode: 'thumbnails' | 'transcript' | 'combined';
   isAudioOnly: boolean;
-  thumbnailScores: Array<{ // Individual thumbnail results
+  thumbnailScores: Array<{ // Image (thumbnail) results only; empty for audio-only assets
     url: string;
     time?: number; // Time in seconds of the thumbnail within the video
     sexual: number; // 0-1 score
@@ -98,7 +100,14 @@ Analyzes a Mux asset for inappropriate content using OpenAI's Moderation API, Hi
     error: boolean;
     errorMessage?: string;
   }>;
-  maxScores: { // Highest scores across all thumbnails (or transcript chunks for audio-only)
+  transcriptScores: Array<{ // Transcript-chunk results; empty unless audio-only or includeTranscript produced scores
+    chunkIndex: number; // Index of the ~10k-character transcript chunk
+    sexual: number; // 0-1 score
+    violence: number; // 0-1 score
+    error: boolean;
+    errorMessage?: string;
+  }>;
+  maxScores: { // Highest scores across thumbnails AND transcript chunks
     sexual: number;
     violence: number;
   };
