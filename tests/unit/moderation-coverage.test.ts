@@ -30,7 +30,7 @@ const {
 } = await import("../../src/lib/mux-assets");
 const { resolveMuxSigningContext } = await import("../../src/lib/workflow-credentials");
 const { getThumbnailUrls } = await import("../../src/primitives/thumbnails");
-const { getModerationScores } = await import("../../src/workflows/moderation");
+const { getModerationScores, buildTranscriptWindows } = await import("../../src/workflows/moderation");
 
 const mockFetch = vi.fn();
 
@@ -208,15 +208,18 @@ describe("getModerationScores includeTranscript (video assets)", () => {
       }
 
       const body = JSON.parse(String(init?.body));
-      // Text moderation: `input` is a string. Return a high sexual score.
-      if (typeof body.input === "string") {
+      // Text (transcript) moderation: `input` is an array of strings. Return a
+      // high sexual score for every window in the batch.
+      if (Array.isArray(body.input) && typeof body.input[0] === "string") {
         return mockOpenAIModerationResponse({
           status: 200,
-          body: { results: [{ category_scores: { sexual: 0.95, violence: 0.1 } }] },
+          body: {
+            results: body.input.map(() => ({ category_scores: { sexual: 0.95, violence: 0.1 } })),
+          },
         });
       }
 
-      // Image moderation: `input` is an array. All thumbnails are benign.
+      // Image moderation: `input` is an array of image_url objects. Benign.
       return mockOpenAIModerationResponse({
         status: 200,
         body: { results: [{ category_scores: { sexual: 0.02, violence: 0.03 } }] },
@@ -258,22 +261,37 @@ describe("getModerationScores includeTranscript (video assets)", () => {
     expect(result.coverage.successfulSampleCount).toBe(3);
   });
 
-  it("segments a long transcript into multiple time-ordered, non-overlapping windows", async () => {
+  // Builds a VTT whose cues each span [k*step, k*step + step - 1] seconds.
+  function buildEvenlySpacedVtt(cueCount: number, step: number): { vtt: string; cueTexts: string[] } {
+    const cueTexts: string[] = [];
+    let vtt = "WEBVTT\n\n";
+    const fmt = (s: number) => {
+      const hh = String(Math.floor(s / 3600)).padStart(2, "0");
+      const mm = String(Math.floor((s % 3600) / 60)).padStart(2, "0");
+      const ss = String(s % 60).padStart(2, "0");
+      return `${hh}:${mm}:${ss}.000`;
+    };
+    for (let i = 0; i < cueCount; i++) {
+      const start = i * step;
+      const end = start + step - 1;
+      const text = `cue ${i} content`;
+      cueTexts.push(text);
+      vtt += `${fmt(start)} --> ${fmt(end)}\n${text}\n\n`;
+    }
+    return { vtt, cueTexts };
+  }
+
+  it("produces multiple overlapping windows whose time ranges overlap by design", async () => {
     vi.mocked(getPlaybackIdForAsset).mockResolvedValue(videoAssetWithTextTrack());
+    // Short asset duration → minimum 20s windows, 5s overlap, 15s stride.
+    vi.mocked(getVideoTrackDurationSecondsFromAsset).mockReturnValue(40);
+    vi.mocked(getAssetDurationSecondsFromAsset).mockReturnValue(40);
     vi.mocked(getThumbnailUrls).mockResolvedValue([
       { url: "https://thumb.test/a.png", time: 0 },
     ]);
 
-    // Six cues, each near the 2,000-char per-cue cap, so their concatenated
-    // text exceeds the ~10,000 UTF-16 budget and must split into >1 window.
-    const cueText = "word ".repeat(380).trim(); // ~1,899 chars
-    let vtt = "WEBVTT\n\n";
-    for (let i = 0; i < 6; i++) {
-      const start = i * 5;
-      const end = start + 4;
-      const fmt = (s: number) => `00:00:${String(s).padStart(2, "0")}.000`;
-      vtt += `${fmt(start)} --> ${fmt(end)}\n${cueText}\n\n`;
-    }
+    // 25 cues at 5s spacing → cues span 0..124s, far longer than one window.
+    const { vtt } = buildEvenlySpacedVtt(25, 5);
 
     mockFetch.mockImplementation(async (url, init) => {
       if (String(url).endsWith(".vtt")) {
@@ -285,10 +303,10 @@ describe("getModerationScores includeTranscript (video assets)", () => {
         } as any;
       }
       const body = JSON.parse(String(init?.body));
-      if (typeof body.input === "string") {
+      if (Array.isArray(body.input) && typeof body.input[0] === "string") {
         return mockOpenAIModerationResponse({
           status: 200,
-          body: { results: [{ category_scores: { sexual: 0.01, violence: 0.02 } }] },
+          body: { results: body.input.map(() => ({ category_scores: { sexual: 0.01, violence: 0.02 } })) },
         });
       }
       return mockOpenAIModerationResponse({
@@ -303,7 +321,7 @@ describe("getModerationScores includeTranscript (video assets)", () => {
       includeTranscript: true,
     });
 
-    // More than one window emitted, each carrying its own timecodes.
+    // Multiple windows, each carrying its own timecodes.
     expect(result.transcriptScores.length).toBeGreaterThanOrEqual(2);
     for (const score of result.transcriptScores) {
       expect(typeof score.startTime).toBe("number");
@@ -311,12 +329,146 @@ describe("getModerationScores includeTranscript (video assets)", () => {
       expect(score.endTime).toBeGreaterThanOrEqual(score.startTime);
       expect(score).not.toHaveProperty("chunkIndex");
     }
-    // Windows are time-ordered and non-overlapping.
-    for (let i = 1; i < result.transcriptScores.length; i++) {
-      expect(result.transcriptScores[i].startTime).toBeGreaterThanOrEqual(
-        result.transcriptScores[i - 1].endTime,
-      );
-    }
+    // By design consecutive windows OVERLAP: at least one later window starts
+    // before the previous window ends.
+    const hasOverlap = result.transcriptScores.some(
+      (score, i) => i > 0 && score.startTime < result.transcriptScores[i - 1].endTime,
+    );
+    expect(hasOverlap).toBe(true);
+  });
+
+  it("scales window size with asset duration (longer asset → fewer, larger windows)", () => {
+    // Same cue density (cues every 5s across ~10 minutes) but different durations.
+    const cues = Array.from({ length: 120 }, (_, i) => ({
+      startTime: i * 5,
+      endTime: i * 5 + 4,
+      text: `cue ${i}`,
+    }));
+
+    // Short asset → window clamps to the 20s floor (many small windows).
+    const shortWindows = buildTranscriptWindows(cues, 60);
+    // Long asset → window grows toward the 120s ceil (fewer, larger windows).
+    const longWindows = buildTranscriptWindows(cues, 4000);
+
+    expect(shortWindows.length).toBeGreaterThan(longWindows.length);
+    const avgSpan = (windows: Array<{ startTime: number; endTime: number }>) =>
+      windows.reduce((sum, w) => sum + (w.endTime - w.startTime), 0) / windows.length;
+    expect(avgSpan(longWindows)).toBeGreaterThan(avgSpan(shortWindows));
+  });
+
+  it("unit: a cue straddling a window boundary appears in two consecutive windows", () => {
+    // duration 40 → windowSeconds 20, overlap 5, stride 15. Window 0 = [0,20],
+    // window 1 = [15,35]. A cue at [16,18] intersects both.
+    const cues = [
+      { startTime: 1, endTime: 3, text: "alpha" },
+      { startTime: 16, endTime: 18, text: "BOUNDARY" },
+      { startTime: 30, endTime: 33, text: "omega" },
+    ];
+    const windows = buildTranscriptWindows(cues, 40);
+    const containing = windows.filter(w => w.text.includes("BOUNDARY"));
+    expect(containing.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("batches multiple windows into a single array `input` request", async () => {
+    vi.mocked(getPlaybackIdForAsset).mockResolvedValue(videoAssetWithTextTrack());
+    vi.mocked(getVideoTrackDurationSecondsFromAsset).mockReturnValue(40);
+    vi.mocked(getAssetDurationSecondsFromAsset).mockReturnValue(40);
+    vi.mocked(getThumbnailUrls).mockResolvedValue([
+      { url: "https://thumb.test/a.png", time: 0 },
+    ]);
+
+    const { vtt } = buildEvenlySpacedVtt(25, 5);
+
+    const transcriptInputSizes: number[] = [];
+    mockFetch.mockImplementation(async (url, init) => {
+      if (String(url).endsWith(".vtt")) {
+        return {
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          text: vi.fn().mockResolvedValue(vtt),
+        } as any;
+      }
+      const body = JSON.parse(String(init?.body));
+      if (Array.isArray(body.input) && typeof body.input[0] === "string") {
+        transcriptInputSizes.push(body.input.length);
+        return mockOpenAIModerationResponse({
+          status: 200,
+          body: { results: body.input.map(() => ({ category_scores: { sexual: 0.01, violence: 0.02 } })) },
+        });
+      }
+      return mockOpenAIModerationResponse({
+        status: 200,
+        body: { results: [{ category_scores: { sexual: 0.0, violence: 0.0 } }] },
+      });
+    });
+
+    const result = await getModerationScores("asset-123", {
+      provider: "openai",
+      model: "omni-moderation-latest",
+      includeTranscript: true,
+    });
+
+    // The small windows fit in a single batched request whose `input` array
+    // carries more than one window text.
+    expect(transcriptInputSizes.length).toBe(1);
+    expect(transcriptInputSizes[0]).toBeGreaterThan(1);
+    // One score per window is returned, index-aligned to the batch.
+    expect(result.transcriptScores.length).toBe(transcriptInputSizes[0]);
+  });
+
+  it("splits a batch and retries when a batched request is rejected with 400", async () => {
+    vi.mocked(getPlaybackIdForAsset).mockResolvedValue(videoAssetWithTextTrack());
+    vi.mocked(getVideoTrackDurationSecondsFromAsset).mockReturnValue(40);
+    vi.mocked(getAssetDurationSecondsFromAsset).mockReturnValue(40);
+    vi.mocked(getThumbnailUrls).mockResolvedValue([
+      { url: "https://thumb.test/a.png", time: 0 },
+    ]);
+
+    const { vtt } = buildEvenlySpacedVtt(25, 5);
+
+    let transcriptCallCount = 0;
+    mockFetch.mockImplementation(async (url, init) => {
+      if (String(url).endsWith(".vtt")) {
+        return {
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          text: vi.fn().mockResolvedValue(vtt),
+        } as any;
+      }
+      const body = JSON.parse(String(init?.body));
+      if (Array.isArray(body.input) && typeof body.input[0] === "string") {
+        transcriptCallCount++;
+        // Reject the first (full) batch as too large; accept the split halves.
+        if (body.input.length > 1 && transcriptCallCount === 1) {
+          return mockOpenAIModerationResponse({
+            status: 400,
+            body: { error: { message: "input too large" } },
+          });
+        }
+        return mockOpenAIModerationResponse({
+          status: 200,
+          body: { results: body.input.map(() => ({ category_scores: { sexual: 0.5, violence: 0.1 } })) },
+        });
+      }
+      return mockOpenAIModerationResponse({
+        status: 200,
+        body: { results: [{ category_scores: { sexual: 0.0, violence: 0.0 } }] },
+      });
+    });
+
+    const result = await getModerationScores("asset-123", {
+      provider: "openai",
+      model: "omni-moderation-latest",
+      includeTranscript: true,
+    });
+
+    // The initial 400 triggered a split-and-retry, producing per-window results
+    // with no errors.
+    expect(transcriptCallCount).toBeGreaterThan(1);
+    expect(result.transcriptScores.length).toBeGreaterThanOrEqual(2);
+    expect(result.transcriptScores.every(s => s.error === false)).toBe(true);
   });
 
   it("skips transcript moderation silently when no ready text track exists", async () => {
@@ -382,11 +534,14 @@ describe("getModerationScores includeTranscript (video assets)", () => {
         } as any;
       }
       const body = JSON.parse(String(init?.body));
-      // Should only ever be text moderation for audio-only.
-      expect(typeof body.input).toBe("string");
+      // Should only ever be text (array-batched) moderation for audio-only.
+      expect(Array.isArray(body.input)).toBe(true);
+      expect(typeof body.input[0]).toBe("string");
       return mockOpenAIModerationResponse({
         status: 200,
-        body: { results: [{ category_scores: { sexual: 0.04, violence: 0.06 } }] },
+        body: {
+          results: body.input.map(() => ({ category_scores: { sexual: 0.04, violence: 0.06 } })),
+        },
       });
     });
 

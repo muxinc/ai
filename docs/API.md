@@ -78,6 +78,12 @@ Analyzes a Mux asset for inappropriate content using OpenAI's Moderation API, Hi
   - `maxRetryDelay?: number` - Maximum delay between retries in milliseconds (default: 10000)
   - `exponentialBackoff?: boolean` - Whether to use exponential backoff (default: true)
 - `includeTranscript?: boolean` - When `true`, also moderate the caption transcript text for **video assets**, in addition to thumbnails (default: `false`). Only supported with provider `openai`; throws otherwise. Has no effect on audio-only assets, which always moderate transcript text. If set but no ready text track exists, transcript moderation is skipped silently — transcription is never triggered. Transcript scores are returned in the dedicated `transcriptScores` array, separate from `thumbnailScores`; they never enter the thumbnail `coverage` denominator.
+- `transcriptWindowing?: object` - Optional tuning for transcript time-windowing (all fields optional; sensible defaults applied). Transcript moderation splits the caption track into **dynamic, overlapping** time windows whose size scales with the asset's duration: `windowSeconds = clamp(duration / targetWindowCount, minWindowSeconds, maxWindowSeconds)` and consecutive windows overlap by `max(minOverlapSeconds, windowSeconds * overlapFraction)`, so content straddling a window boundary is still scored intact.
+  - `targetWindowCount?: number` - Divisor used to derive the base window size from duration (default: `40`)
+  - `minWindowSeconds?: number` - Lower clamp on window size, in seconds (default: `20`)
+  - `maxWindowSeconds?: number` - Upper clamp on window size, in seconds (default: `120`)
+  - `overlapFraction?: number` - Fraction (0..1) of the window size used as overlap (default: `0.15`)
+  - `minOverlapSeconds?: number` - Lower clamp on the overlap, in seconds (default: `5`)
 
 **Hive note (audio-only):** transcript moderation submits `text_data` and requires a Hive **Text Moderation** project/API key. If you use a Visual Moderation key, Hive will reject the request (see [Hive Text Moderation docs](https://docs.thehive.ai/docs/classification-text)).
 
@@ -101,8 +107,8 @@ Analyzes a Mux asset for inappropriate content using OpenAI's Moderation API, Hi
     errorMessage?: string;
   }>;
   transcriptScores: Array<{ // Time-windowed transcript results; empty unless audio-only or includeTranscript produced scores
-    startTime: number; // Seconds — start of the moderated time window (first cue's start)
-    endTime: number;   // Seconds — end of the window (last cue's end)
+    startTime: number; // Seconds — start of the moderated time window. Ranges may overlap between consecutive entries by design.
+    endTime: number;   // Seconds — end of the moderated time window
     sexual: number; // 0-1 score
     violence: number; // 0-1 score
     error: boolean;
@@ -129,7 +135,7 @@ Analyzes a Mux asset for inappropriate content using OpenAI's Moderation API, Hi
 }
 ```
 
-**Transcript moderation is segmented by time.** Each `transcriptScores` entry is a moderated **time window** carrying `startTime`/`endTime` (in seconds) — directly analogous to how a flagged thumbnail carries its `time` — so consumers can locate flagged speech on the timeline rather than receiving a single verdict for the whole transcript. Windows are built from the caption track's per-cue timecodes: consecutive cues are grouped into contiguous, non-overlapping, time-ordered windows, and a new window is started whenever adding the next cue would push the window's concatenated text past the OpenAI moderation input budget. The internal windowing exists only to respect that input limit, but it is aligned to caption-cue boundaries (never split mid-cue) so the reported timecodes stay accurate. When both thumbnails and transcript windows produce scores (a video asset with `includeTranscript`), `mode` is `'combined'`; `maxScores`/`exceedsThreshold` aggregate the highest `sexual`/`violence` across thumbnails **and** all transcript windows.
+**Transcript moderation uses dynamic, overlapping time windows.** Each `transcriptScores` entry is a moderated **time window** carrying `startTime`/`endTime` (in seconds) — directly analogous to how a flagged thumbnail carries its `time` — so consumers can locate flagged speech on the timeline rather than receiving a single verdict for the whole transcript. Window **size scales with the asset's duration** (`windowSeconds = clamp(duration / 40, 20s, 120s)`), and consecutive windows **overlap** (~15% of the window size, at least 5 seconds) so content that straddles a window boundary is still scored intact in at least one window. Windows are aligned to caption-cue boundaries (a single cue is never split across windows) so the reported timecodes stay accurate. Because windows overlap by design, **consecutive `transcriptScores` entries' `[startTime, endTime]` ranges may overlap** by roughly the overlap amount. Windows are sent to OpenAI as **batched array requests** (multiple window texts per `/v1/moderations` call via the array `input`, with `results[]` mapped back index-aligned); if a batch is rejected as too large it is split in half and retried down to a single window. The windowing is tunable via the `transcriptWindowing` option (see above). When both thumbnails and transcript windows produce scores (a video asset with `includeTranscript`), `mode` is `'combined'`; `maxScores`/`exceedsThreshold` aggregate the highest `sexual`/`violence` across thumbnails **and** all transcript windows.
 
 ## `hasBurnedInCaptions(assetId, options?)`
 
