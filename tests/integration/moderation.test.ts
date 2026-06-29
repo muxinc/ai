@@ -179,7 +179,9 @@ describe("moderation Integration Tests", () => {
       expect(result.transcriptScores.length).toBeGreaterThan(0);
       expect(result.transcriptScores.filter(s => !s.error).length).toBeGreaterThan(0);
       expect(result.thumbnailScores).toEqual([]);
-      expect(typeof result.transcriptScores[0].chunkIndex).toBe("number");
+      expect(typeof result.transcriptScores[0].startTime).toBe("number");
+      expect(typeof result.transcriptScores[0].endTime).toBe("number");
+      expect(result.transcriptScores[0]).not.toHaveProperty("chunkIndex");
       expect(typeof result.transcriptScores[0].sexual).toBe("number");
       expect(typeof result.transcriptScores[0].violence).toBe("number");
     });
@@ -199,7 +201,9 @@ describe("moderation Integration Tests", () => {
       expect(result.transcriptScores.length).toBeGreaterThan(0);
       expect(result.transcriptScores.filter(s => !s.error).length).toBeGreaterThan(0);
       expect(result.thumbnailScores).toEqual([]);
-      expect(typeof result.transcriptScores[0].chunkIndex).toBe("number");
+      expect(typeof result.transcriptScores[0].startTime).toBe("number");
+      expect(typeof result.transcriptScores[0].endTime).toBe("number");
+      expect(result.transcriptScores[0]).not.toHaveProperty("chunkIndex");
 
       // Assert violent content is detected
       expect(result.maxScores.violence).toBeGreaterThan(VIOLENCE_THRESHOLD);
