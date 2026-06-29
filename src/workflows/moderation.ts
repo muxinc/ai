@@ -14,7 +14,8 @@ import { planSamplingTimestamps } from "../lib/sampling-plan.ts";
 import { signUrl } from "../lib/url-signing.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
 import { getThumbnailUrls } from "../primitives/thumbnails.ts";
-import { fetchTranscriptForAsset } from "../primitives/transcripts.ts";
+import type { VTTCue } from "../primitives/transcripts.ts";
+import { fetchTranscriptForAsset, parseVTTCues } from "../primitives/transcripts.ts";
 import type {
   ImageSubmissionMode,
   MuxAIOptions,
@@ -37,10 +38,12 @@ export interface ThumbnailModerationScore {
   errorMessage?: string;
 }
 
-/** Per-transcript-chunk moderation result returned from `getModerationScores`. */
+/** Per-time-window transcript moderation result returned from `getModerationScores`. */
 export interface TranscriptModerationScore {
-  /** Index of the ~10k-character transcript chunk that was moderated. */
-  chunkIndex: number;
+  /** Seconds — start of the moderated time window (first cue's start time). */
+  startTime: number;
+  /** Seconds — end of the moderated time window (last cue's end time). */
+  endTime: number;
   sexual: number;
   violence: number;
   error: boolean;
@@ -61,7 +64,11 @@ export interface ModerationResult {
   isAudioOnly: boolean;
   /** Image (thumbnail) moderation results. Empty for audio-only assets. */
   thumbnailScores: ThumbnailModerationScore[];
-  /** Transcript-chunk moderation results. Empty unless audio-only or `includeTranscript` produced scores. */
+  /**
+   * Transcript moderation results, one entry per moderated time window
+   * (each carries `startTime`/`endTime`). Empty unless audio-only or
+   * `includeTranscript` produced scores.
+   */
   transcriptScores: TranscriptModerationScore[];
   /** Coverage metadata describing how many requested moderation samples actually succeeded. */
   coverage: {
@@ -397,26 +404,77 @@ async function requestOpenAIModeration(
   return processConcurrently(targetUrls, moderateImageWithOpenAI, maxConcurrent);
 }
 
-function chunkTextByUtf16CodeUnits(text: string, maxUnits: number): string[] {
-  if (!text.trim()) {
-    return [];
-  }
-  if (text.length <= maxUnits) {
-    return [text];
-  }
-  const chunks: string[] = [];
-  for (let i = 0; i < text.length; i += maxUnits) {
-    const chunk = text.slice(i, i + maxUnits).trim();
-    if (chunk) {
-      chunks.push(chunk);
-    }
-  }
-  return chunks;
+/**
+ * Maximum number of UTF-16 code units of concatenated cue text we send to
+ * OpenAI's moderation endpoint in a single request. OpenAI supports larger
+ * inputs, but windowing keeps individual requests bounded and lets us return
+ * a moderation score per time window rather than one verdict for the whole
+ * transcript.
+ */
+const TRANSCRIPT_WINDOW_MAX_UTF16_CODE_UNITS = 10_000;
+
+/** A contiguous, time-bounded window of transcript text built from caption cues. */
+interface TranscriptWindow {
+  startTime: number;
+  endTime: number;
+  text: string;
 }
 
-async function moderateTranscriptChunkWithOpenAI(entry: {
+/**
+ * Group timestamped caption cues into contiguous time windows whose
+ * concatenated text stays under {@link TRANSCRIPT_WINDOW_MAX_UTF16_CODE_UNITS}.
+ *
+ * Each window's `startTime` is its first cue's start and `endTime` is its last
+ * cue's end, so the returned windows are non-overlapping and time-ordered.
+ *
+ * Edge case: a single cue whose text alone already exceeds the budget is still
+ * emitted as one window covering that cue's full time range. We never split a
+ * single cue across windows — its text is sent as-is (OpenAI truncation is
+ * acceptable) so the window's timecodes stay accurate.
+ */
+function groupCuesIntoTimeWindows(
+  cues: VTTCue[],
+  maxUnits: number = TRANSCRIPT_WINDOW_MAX_UTF16_CODE_UNITS,
+): TranscriptWindow[] {
+  const windows: TranscriptWindow[] = [];
+  let current: VTTCue[] = [];
+  let currentLength = 0;
+
+  const flush = () => {
+    if (current.length === 0) {
+      return;
+    }
+    windows.push({
+      startTime: current[0].startTime,
+      endTime: current[current.length - 1].endTime,
+      text: current.map(cue => cue.text).join(" "),
+    });
+    current = [];
+    currentLength = 0;
+  };
+
+  for (const cue of cues) {
+    const cueText = cue.text;
+    if (!cueText.trim()) {
+      continue;
+    }
+    // +1 accounts for the space joiner between cues.
+    const addedLength = currentLength === 0 ? cueText.length : currentLength + 1 + cueText.length;
+    if (current.length > 0 && addedLength > maxUnits) {
+      flush();
+    }
+    current.push(cue);
+    currentLength = current.length === 1 ? cueText.length : currentLength + 1 + cueText.length;
+  }
+  flush();
+
+  return windows;
+}
+
+async function moderateTranscriptWindowWithOpenAI(entry: {
+  startTime: number;
+  endTime: number;
   text: string;
-  chunkIndex: number;
   model: string;
   credentials?: WorkflowCredentialsInput;
 }): Promise<TranscriptModerationScore> {
@@ -430,7 +488,8 @@ async function moderateTranscriptChunkWithOpenAI(entry: {
     const categoryScores = json.results?.[0]?.category_scores || {};
 
     return {
-      chunkIndex: entry.chunkIndex,
+      startTime: entry.startTime,
+      endTime: entry.endTime,
       sexual: categoryScores.sexual || 0,
       violence: categoryScores.violence || 0,
       error: false,
@@ -438,7 +497,8 @@ async function moderateTranscriptChunkWithOpenAI(entry: {
   } catch (error) {
     console.error("OpenAI transcript moderation failed:", error);
     return {
-      chunkIndex: entry.chunkIndex,
+      startTime: entry.startTime,
+      endTime: entry.endTime,
       sexual: 0,
       violence: 0,
       error: true,
@@ -448,27 +508,28 @@ async function moderateTranscriptChunkWithOpenAI(entry: {
 }
 
 async function requestOpenAITranscriptModeration(
-  transcriptText: string,
+  cues: VTTCue[],
   model: string,
   maxConcurrent: number = 5,
   credentials?: WorkflowCredentialsInput,
 ): Promise<TranscriptModerationScore[]> {
   "use step";
-  // OpenAI supports larger inputs, but chunking avoids pathological single-request sizes and
-  // mirrors our "max over segments" behavior used for thumbnail moderation.
-  const chunks = chunkTextByUtf16CodeUnits(transcriptText, 10_000);
-  if (!chunks.length) {
-    return [
-      { chunkIndex: 0, sexual: 0, violence: 0, error: true, errorMessage: "No transcript chunks to moderate" },
-    ];
+  // Segment the transcript by TIME into contiguous windows aligned to caption
+  // cues, each staying under the OpenAI moderation input budget. Each window is
+  // moderated independently and mapped to a score carrying its timecodes,
+  // mirroring the "max over segments" behavior used for thumbnail moderation.
+  const windows = groupCuesIntoTimeWindows(cues);
+  if (!windows.length) {
+    return [];
   }
-  const targets = chunks.map((chunk, idx) => ({
-    text: chunk,
-    chunkIndex: idx,
+  const targets = windows.map(window => ({
+    startTime: window.startTime,
+    endTime: window.endTime,
+    text: window.text,
     model,
     credentials,
   }));
-  return processConcurrently(targets, moderateTranscriptChunkWithOpenAI, maxConcurrent);
+  return processConcurrently(targets, moderateTranscriptWindowWithOpenAI, maxConcurrent);
 }
 
 function getHiveCategoryScores(
@@ -821,9 +882,12 @@ export async function getModerationScores(
 
   if (isAudioOnly) {
     mode = "transcript";
+    // Fetch the raw VTT (cleanTranscript: false) so we can parse per-cue
+    // timecodes and segment moderation by time window. `required: true` still
+    // throws when no usable caption track / VTT exists for an audio-only asset.
     const transcriptResult = await fetchTranscriptForAsset(asset, playbackId, {
       languageCode,
-      cleanTranscript: true,
+      cleanTranscript: false,
       shouldSign: policy === "signed",
       credentials,
       required: true,
@@ -831,7 +895,7 @@ export async function getModerationScores(
 
     if (provider === "openai") {
       transcriptScores = await requestOpenAITranscriptModeration(
-        transcriptResult.transcriptText,
+        parseVTTCues(transcriptResult.transcriptText),
         model || "omni-moderation-latest",
         maxConcurrent,
         credentials,
@@ -914,14 +978,16 @@ export async function getModerationScores(
       }
       const transcriptResult = await fetchTranscriptForAsset(asset, playbackId, {
         languageCode,
-        cleanTranscript: true,
+        cleanTranscript: false,
         shouldSign: policy === "signed",
         credentials,
         required: false,
       });
-      if (transcriptResult.transcriptText.trim()) {
+      // Skip silently when there is no caption track / no parseable cues.
+      const cues = parseVTTCues(transcriptResult.transcriptText);
+      if (cues.length > 0) {
         transcriptScores = await requestOpenAITranscriptModeration(
-          transcriptResult.transcriptText,
+          cues,
           model || "omni-moderation-latest",
           maxConcurrent,
           credentials,
@@ -940,7 +1006,7 @@ export async function getModerationScores(
   // guard and for the max-score / threshold computation.
   const allScores: Array<{ sexual: number; violence: number; error: boolean; errorMessage?: string; label: string }> = [
     ...thumbnailScores.map(s => ({ ...s, label: s.url })),
-    ...transcriptScores.map(s => ({ ...s, label: `transcript chunk ${s.chunkIndex}` })),
+    ...transcriptScores.map(s => ({ ...s, error: s.error ?? false, label: `transcript window ${s.startTime}-${s.endTime}s` })),
   ];
   const failed = allScores.filter(s => s.error);
   const successful = allScores.filter(s => !s.error);
@@ -957,7 +1023,7 @@ export async function getModerationScores(
     );
   }
 
-  // Find highest scores across both thumbnails and transcript chunks.
+  // Find highest scores across both thumbnails and transcript time windows.
   const maxSexual = Math.max(...successful.map(s => s.sexual));
   const maxViolence = Math.max(...successful.map(s => s.violence));
 
@@ -973,7 +1039,7 @@ export async function getModerationScores(
   const sampleCoverage = requestedSampleCount > 0 ? successfulSampleCount / requestedSampleCount : 0;
   // A transcript-only result (audio-only assets) has no thumbnails to sample, so
   // it must not be penalized for "too few thumbnails" / zero thumbnail coverage.
-  // Treat it as confident as long as at least one transcript chunk succeeded.
+  // Treat it as confident as long as at least one transcript window succeeded.
   const hasThumbnails = requestedSampleCount > 0;
   const hasSuccessfulTranscript = transcriptScores.some(s => !s.error);
   let isLowConfidence: boolean;

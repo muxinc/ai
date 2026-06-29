@@ -77,7 +77,7 @@ Analyzes a Mux asset for inappropriate content using OpenAI's Moderation API, Hi
   - `retryDelay?: number` - Base delay between retries in milliseconds (default: 1000)
   - `maxRetryDelay?: number` - Maximum delay between retries in milliseconds (default: 10000)
   - `exponentialBackoff?: boolean` - Whether to use exponential backoff (default: true)
-- `includeTranscript?: boolean` - When `true`, also moderate the caption transcript text for **video assets**, in addition to thumbnails (default: `false`). Only supported with provider `openai`; throws otherwise. Has no effect on audio-only assets, which always moderate transcript text. If set but no ready text track exists, transcript moderation is skipped silently — transcription is never triggered. Transcript scores are returned in the dedicated `transcriptScores` array (keyed by `chunkIndex`), separate from `thumbnailScores`; they never enter the thumbnail `coverage` denominator.
+- `includeTranscript?: boolean` - When `true`, also moderate the caption transcript text for **video assets**, in addition to thumbnails (default: `false`). Only supported with provider `openai`; throws otherwise. Has no effect on audio-only assets, which always moderate transcript text. If set but no ready text track exists, transcript moderation is skipped silently — transcription is never triggered. Transcript scores are returned in the dedicated `transcriptScores` array, separate from `thumbnailScores`; they never enter the thumbnail `coverage` denominator.
 
 **Hive note (audio-only):** transcript moderation submits `text_data` and requires a Hive **Text Moderation** project/API key. If you use a Visual Moderation key, Hive will reject the request (see [Hive Text Moderation docs](https://docs.thehive.ai/docs/classification-text)).
 
@@ -100,14 +100,15 @@ Analyzes a Mux asset for inappropriate content using OpenAI's Moderation API, Hi
     error: boolean;
     errorMessage?: string;
   }>;
-  transcriptScores: Array<{ // Transcript-chunk results; empty unless audio-only or includeTranscript produced scores
-    chunkIndex: number; // Index of the ~10k-character transcript chunk
+  transcriptScores: Array<{ // Time-windowed transcript results; empty unless audio-only or includeTranscript produced scores
+    startTime: number; // Seconds — start of the moderated time window (first cue's start)
+    endTime: number;   // Seconds — end of the window (last cue's end)
     sexual: number; // 0-1 score
     violence: number; // 0-1 score
     error: boolean;
     errorMessage?: string;
   }>;
-  maxScores: { // Highest scores across thumbnails AND transcript chunks
+  maxScores: { // Highest scores across thumbnails AND all transcript time windows
     sexual: number;
     violence: number;
   };
@@ -127,6 +128,8 @@ Analyzes a Mux asset for inappropriate content using OpenAI's Moderation API, Hi
   usage?: TokenUsage; // Workflow usage metadata
 }
 ```
+
+**Transcript moderation is segmented by time.** Each `transcriptScores` entry is a moderated **time window** carrying `startTime`/`endTime` (in seconds) — directly analogous to how a flagged thumbnail carries its `time` — so consumers can locate flagged speech on the timeline rather than receiving a single verdict for the whole transcript. Windows are built from the caption track's per-cue timecodes: consecutive cues are grouped into contiguous, non-overlapping, time-ordered windows, and a new window is started whenever adding the next cue would push the window's concatenated text past the OpenAI moderation input budget. The internal windowing exists only to respect that input limit, but it is aligned to caption-cue boundaries (never split mid-cue) so the reported timecodes stay accurate. When both thumbnails and transcript windows produce scores (a video asset with `includeTranscript`), `mode` is `'combined'`; `maxScores`/`exceedsThreshold` aggregate the highest `sexual`/`violence` across thumbnails **and** all transcript windows.
 
 ## `hasBurnedInCaptions(assetId, options?)`
 

@@ -233,10 +233,16 @@ describe("getModerationScores includeTranscript (video assets)", () => {
     expect(result.mode).toBe("combined");
     expect(result.isAudioOnly).toBe(false);
 
-    // Transcript scores land in their own array, keyed by chunkIndex.
-    expect(result.transcriptScores.length).toBeGreaterThan(0);
-    expect(result.transcriptScores[0]).toMatchObject({ chunkIndex: 0, error: false });
+    // Transcript scores land in their own array as time windows carrying timecodes.
+    expect(result.transcriptScores.length).toBe(1);
+    expect(result.transcriptScores[0]).toMatchObject({
+      startTime: 1,
+      endTime: 4,
+      error: false,
+    });
     expect(typeof result.transcriptScores[0].sexual).toBe("number");
+    // No legacy chunk index on the new time-windowed entries.
+    expect(result.transcriptScores[0]).not.toHaveProperty("chunkIndex");
 
     // thumbnailScores holds image entries only (each has a `time`).
     expect(result.thumbnailScores.length).toBe(3);
@@ -250,6 +256,67 @@ describe("getModerationScores includeTranscript (video assets)", () => {
     // Coverage is computed over thumbnails only.
     expect(result.coverage.requestedSampleCount).toBe(3);
     expect(result.coverage.successfulSampleCount).toBe(3);
+  });
+
+  it("segments a long transcript into multiple time-ordered, non-overlapping windows", async () => {
+    vi.mocked(getPlaybackIdForAsset).mockResolvedValue(videoAssetWithTextTrack());
+    vi.mocked(getThumbnailUrls).mockResolvedValue([
+      { url: "https://thumb.test/a.png", time: 0 },
+    ]);
+
+    // Six cues, each near the 2,000-char per-cue cap, so their concatenated
+    // text exceeds the ~10,000 UTF-16 budget and must split into >1 window.
+    const cueText = "word ".repeat(380).trim(); // ~1,899 chars
+    let vtt = "WEBVTT\n\n";
+    for (let i = 0; i < 6; i++) {
+      const start = i * 5;
+      const end = start + 4;
+      const fmt = (s: number) => `00:00:${String(s).padStart(2, "0")}.000`;
+      vtt += `${fmt(start)} --> ${fmt(end)}\n${cueText}\n\n`;
+    }
+
+    mockFetch.mockImplementation(async (url, init) => {
+      if (String(url).endsWith(".vtt")) {
+        return {
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          text: vi.fn().mockResolvedValue(vtt),
+        } as any;
+      }
+      const body = JSON.parse(String(init?.body));
+      if (typeof body.input === "string") {
+        return mockOpenAIModerationResponse({
+          status: 200,
+          body: { results: [{ category_scores: { sexual: 0.01, violence: 0.02 } }] },
+        });
+      }
+      return mockOpenAIModerationResponse({
+        status: 200,
+        body: { results: [{ category_scores: { sexual: 0.02, violence: 0.03 } }] },
+      });
+    });
+
+    const result = await getModerationScores("asset-123", {
+      provider: "openai",
+      model: "omni-moderation-latest",
+      includeTranscript: true,
+    });
+
+    // More than one window emitted, each carrying its own timecodes.
+    expect(result.transcriptScores.length).toBeGreaterThanOrEqual(2);
+    for (const score of result.transcriptScores) {
+      expect(typeof score.startTime).toBe("number");
+      expect(typeof score.endTime).toBe("number");
+      expect(score.endTime).toBeGreaterThanOrEqual(score.startTime);
+      expect(score).not.toHaveProperty("chunkIndex");
+    }
+    // Windows are time-ordered and non-overlapping.
+    for (let i = 1; i < result.transcriptScores.length; i++) {
+      expect(result.transcriptScores[i].startTime).toBeGreaterThanOrEqual(
+        result.transcriptScores[i - 1].endTime,
+      );
+    }
   });
 
   it("skips transcript moderation silently when no ready text track exists", async () => {
@@ -330,10 +397,11 @@ describe("getModerationScores includeTranscript (video assets)", () => {
 
     expect(result.mode).toBe("transcript");
     expect(result.isAudioOnly).toBe(true);
-    // Transcript scores live in their own array; thumbnailScores is empty.
+    // Transcript scores live in their own array as time windows; thumbnailScores is empty.
     expect(result.thumbnailScores).toEqual([]);
-    expect(result.transcriptScores.length).toBeGreaterThan(0);
-    expect(result.transcriptScores[0]).toMatchObject({ chunkIndex: 0, error: false });
+    expect(result.transcriptScores.length).toBe(1);
+    expect(result.transcriptScores[0]).toMatchObject({ startTime: 1, endTime: 4, error: false });
+    expect(result.transcriptScores[0]).not.toHaveProperty("chunkIndex");
     // Audio-only must not be penalized for having zero thumbnails.
     expect(result.coverage.isLowConfidence).toBe(false);
     expect(result.coverage.requestedSampleCount).toBe(0);
