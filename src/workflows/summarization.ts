@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImageAsBase64 } from "../lib/image-download.ts";
 import { getLanguageName } from "../lib/language-codes.ts";
+import { normalizeMarkdownDescription } from "../lib/markdown-normalization.ts";
 import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
@@ -863,7 +864,8 @@ export async function getSummaryAndTags(
   }
 
   const scrubbedTitle = safety.scrub(analysisResponse.result.title, "title");
-  const scrubbedDescription = safety.scrub(analysisResponse.result.description, "description");
+  const normalizedDescription = normalizeMarkdownDescription(analysisResponse.result.description);
+  const scrubbedDescription = safety.scrub(normalizedDescription, "description");
   const scrubbedKeywords = (analysisResponse.result.keywords ?? [])
     .map((kw, i) => safety.scrubDetailed(kw, `keywords[${i}]`))
     .filter(result => !result.leaked)
