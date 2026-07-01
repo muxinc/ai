@@ -3,9 +3,9 @@ import { Command } from "commander";
 import type { ToneType } from "@mux/ai";
 import { getSummaryAndTags } from "@mux/ai/workflows";
 
-type Provider = "openai" | "anthropic" | "google";
+type Provider = "openai" | "anthropic" | "google" | "baseten";
 
-const DEFAULT_MODELS: Record<Provider, string> = {
+const DEFAULT_MODELS: Partial<Record<Provider, string>> = {
   openai: "gpt-5.1",
   anthropic: "claude-sonnet-4-5",
   google: "gemini-3-flash-preview",
@@ -17,7 +17,7 @@ program
   .name("summarization")
   .description("Generate summary and tags for a Mux video asset")
   .argument("<asset-id>", "Mux asset ID to analyze")
-  .option("-p, --provider <provider>", "AI provider (openai, anthropic, google)", "openai")
+  .option("-p, --provider <provider>", "AI provider (openai, anthropic, google, baseten)", "openai")
   .option("-m, --model <model>", "Model name (overrides default for provider)")
   .option("-t, --tone <tone>", "Tone for summary (neutral, playful, professional)", "neutral")
   .option("--no-transcript", "Exclude transcript from analysis")
@@ -36,8 +36,8 @@ program
     outputLanguage?: string;
   }) => {
     // Validate provider
-    if (!["openai", "anthropic", "google"].includes(options.provider)) {
-      console.error("❌ Unsupported provider. Choose from: openai, anthropic, google");
+    if (!["openai", "anthropic", "google", "baseten"].includes(options.provider)) {
+      console.error("❌ Unsupported provider. Choose from: openai, anthropic, google, baseten");
       process.exit(1);
     }
 
@@ -48,10 +48,12 @@ program
     }
 
     // Use provided model or default for the provider
-    const model = options.model || DEFAULT_MODELS[options.provider];
+    const model = options.model ||
+      DEFAULT_MODELS[options.provider] ||
+      (options.provider === "baseten" ? process.env.BASETEN_MODEL : undefined);
 
     console.log("Asset ID:", assetId);
-    console.log(`Provider: ${options.provider} (${model})`);
+    console.log(`Provider: ${options.provider}${model ? ` (${model})` : ""}`);
     console.log(`Tone: ${options.tone}`);
     console.log(`Include Transcript: ${options.transcript}`);
     if (options.titleLength) console.log(`Title Length: ~${options.titleLength} words`);

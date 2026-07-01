@@ -4,9 +4,9 @@ import { translateCaptions } from "@mux/ai/workflows";
 
 import "../env";
 
-type Provider = "openai" | "anthropic" | "google";
+type Provider = "openai" | "anthropic" | "google" | "baseten";
 
-const DEFAULT_MODELS: Record<Provider, string> = {
+const DEFAULT_MODELS: Partial<Record<Provider, string>> = {
   openai: "gpt-5.1",
   anthropic: "claude-sonnet-4-5",
   google: "gemini-3-flash-preview",
@@ -20,7 +20,7 @@ program
   .argument("<asset-id>", "Mux asset ID to translate")
   .requiredOption("--track <trackId>", "Source text track ID")
   .option("-t, --to <language>", "Target language code", "es")
-  .option("-p, --provider <provider>", "AI provider (openai, anthropic, google)", "anthropic")
+  .option("-p, --provider <provider>", "AI provider (openai, anthropic, google, baseten)", "anthropic")
   .option("-m, --model <model>", "Model name (overrides default for provider)")
   .option("--no-upload", "Skip uploading translated captions to Mux (returns presigned URL only)")
   .action(async (assetId: string, options: {
@@ -31,8 +31,8 @@ program
     upload: boolean;
   }) => {
     // Validate provider
-    if (!["openai", "anthropic", "google"].includes(options.provider)) {
-      console.error("Unsupported provider. Choose from: openai, anthropic, google");
+    if (!["openai", "anthropic", "google", "baseten"].includes(options.provider)) {
+      console.error("Unsupported provider. Choose from: openai, anthropic, google, baseten");
       process.exit(1);
     }
 

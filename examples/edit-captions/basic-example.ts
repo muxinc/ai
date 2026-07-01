@@ -5,9 +5,9 @@ import { editCaptions } from "@mux/ai/workflows";
 
 import "../env";
 
-type Provider = "openai" | "anthropic" | "google";
+type Provider = "openai" | "anthropic" | "google" | "baseten";
 
-const DEFAULT_MODELS: Record<Provider, string> = {
+const DEFAULT_MODELS: Partial<Record<Provider, string>> = {
   openai: "gpt-5.1",
   anthropic: "claude-sonnet-4-5",
   google: "gemini-3-flash-preview",
@@ -22,7 +22,7 @@ program
   .description("Edit captions for a Mux video asset: censor profanity and/or apply static replacements")
   .argument("<asset-id>", "Mux asset ID")
   .argument("<track-id>", "Caption track ID to edit")
-  .option("-p, --provider <provider>", "AI provider (openai, anthropic, google)", "anthropic")
+  .option("-p, --provider <provider>", "AI provider (openai, anthropic, google, baseten)", "anthropic")
   .option("-m, --model <model>", "Model name (overrides default for provider)")
   .option("--mode <mode>", "Censor mode: blank ([____]), remove, or mask (????)", "blank")
   .option("--always-censor <words>", "Comma-separated words to always censor", "")
@@ -42,8 +42,8 @@ program
     upload: boolean;
     delete: boolean;
   }) => {
-    if (!["openai", "anthropic", "google"].includes(options.provider)) {
-      console.error("Unsupported provider. Choose from: openai, anthropic, google");
+    if (!["openai", "anthropic", "google", "baseten"].includes(options.provider)) {
+      console.error("Unsupported provider. Choose from: openai, anthropic, google, baseten");
       process.exit(1);
     }
 

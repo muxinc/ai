@@ -5,9 +5,9 @@ import { getSummaryAndTags } from "@mux/ai/workflows";
 
 import env from "../env";
 
-type Provider = "openai" | "anthropic" | "google";
+type Provider = "openai" | "anthropic" | "google" | "baseten";
 
-const DEFAULT_MODELS: Record<Provider, string> = {
+const DEFAULT_MODELS: Partial<Record<Provider, string>> = {
   openai: "gpt-5.1",
   anthropic: "claude-sonnet-4-5",
   google: "gemini-3-flash-preview",
@@ -22,7 +22,7 @@ program
     "[asset-id]",
     "Mux asset ID to analyze (defaults to MUX_TEST_ASSET_ID_AUDIO_ONLY)",
   )
-  .option("-p, --provider <provider>", "AI provider (openai, anthropic, google)", "openai")
+  .option("-p, --provider <provider>", "AI provider (openai, anthropic, google, baseten)", "openai")
   .option("-m, --model <model>", "Model name (overrides default for provider)")
   .option("-t, --tone <tone>", "Tone for summary (neutral, playful, professional)", "neutral")
   .action(async (assetId: string | undefined, options: {
@@ -39,8 +39,8 @@ program
       process.exit(1);
     }
 
-    if (!["openai", "anthropic", "google"].includes(options.provider)) {
-      console.error("❌ Unsupported provider. Choose from: openai, anthropic, google");
+    if (!["openai", "anthropic", "google", "baseten"].includes(options.provider)) {
+      console.error("❌ Unsupported provider. Choose from: openai, anthropic, google, baseten");
       process.exit(1);
     }
 
