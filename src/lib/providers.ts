@@ -62,7 +62,7 @@ const DEFAULT_EMBEDDING_MODELS: { [K in SupportedEmbeddingProvider]: EmbeddingMo
 export const LANGUAGE_MODELS: { [K in SupportedProvider]: ModelIdByProvider[K][] } = {
   openai: ["gpt-5.1", "gpt-5-mini"],
   anthropic: ["claude-sonnet-4-5"],
-  google: ["gemini-3-flash-preview", "gemini-3.1-flash-lite", "gemini-3.1-flash-lite-preview", "gemini-2.5-flash"],
+  google: ["gemini-3-flash-preview", "gemini-3.1-flash-lite", "gemini-2.5-flash"],
 };
 
 export type ModelDeprecationPhase = "warn" | "blocked";
@@ -102,10 +102,10 @@ export const LANGUAGE_MODEL_DEPRECATIONS: LanguageModelDeprecation[] = [
     provider: "google",
     modelId: "gemini-3.1-flash-lite-preview",
     replacementModelId: "gemini-3.1-flash-lite",
-    phase: "warn",
+    phase: "blocked",
     deprecatedOn: "2026-05-12",
     sunsetOn: "2026-05-25",
-    reason: "Preview model graduated to the stable Gemini 3.1 Flash-Lite release.",
+    reason: "Google shut down Gemini 3.1 Flash-Lite Preview on 2026-05-25.",
   },
 ];
 
@@ -306,8 +306,8 @@ export function resolveEmbeddingModelConfig<P extends SupportedEmbeddingProvider
 // Pricing is in USD per million tokens. These values are used for cost estimation
 // in evaluations and should be periodically verified against official sources.
 //
-// Sources (verified on 2026-02-17):
-// - OpenAI: https://openai.com/api/pricing
+// Sources (verified on 2026-07-06):
+// - OpenAI: https://developers.openai.com/api/docs/pricing
 // - Anthropic: https://www.anthropic.com/pricing
 // - Google: https://ai.google.dev/gemini-api/docs/pricing
 // ─────────────────────────────────────────────────────────────────────────────
@@ -337,18 +337,18 @@ export interface ModelPricing {
  */
 export const MODEL_PRICING: Record<string, ModelPricing> = {
   // OpenAI models
-  // Reference: https://openai.com/api/pricing
+  // Reference: https://developers.openai.com/api/docs/pricing
   "gpt-5.1": {
     inputPerMillion: 1.25,
     outputPerMillion: 10.00,
     cachedInputPerMillion: 0.125,
-    pricingUrl: "https://openai.com/api/pricing",
+    pricingUrl: "https://developers.openai.com/api/docs/pricing",
   },
   "gpt-5-mini": {
     inputPerMillion: 0.25,
     outputPerMillion: 2.00,
     cachedInputPerMillion: 0.025,
-    pricingUrl: "https://openai.com/api/pricing",
+    pricingUrl: "https://developers.openai.com/api/docs/pricing",
   },
 
   // Anthropic models
@@ -361,14 +361,8 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
   },
 
   // Google models
-  // Reference: https://ai.google.dev/pricing
+  // Reference: https://ai.google.dev/gemini-api/docs/pricing
   "gemini-3.1-flash-lite": {
-    inputPerMillion: 0.25,
-    outputPerMillion: 1.50,
-    cachedInputPerMillion: 0.025,
-    pricingUrl: "https://ai.google.dev/gemini-api/docs/pricing",
-  },
-  "gemini-3.1-flash-lite-preview": {
     inputPerMillion: 0.25,
     outputPerMillion: 1.50,
     cachedInputPerMillion: 0.025,
