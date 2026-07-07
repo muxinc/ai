@@ -50,6 +50,51 @@ export interface TranscriptModerationScore {
   errorMessage?: string;
 }
 
+/**
+ * Machine-readable reason transcript moderation was requested but skipped.
+ *
+ * - `"no_ready_text_track"` — the asset had no ready caption/subtitle track
+ *   (or no track matching `languageCode`), so nothing could be fetched.
+ * - `"no_transcript_content"` — a track was found but its caption text was
+ *   empty (missing track id, transcript URL fetch failed, or the returned VTT
+ *   body was blank).
+ * - `"no_cues"` — the VTT body was non-empty but had no parseable cues (e.g.
+ *   header-only, all cues had blank text, or windowing produced zero windows).
+ */
+export type TranscriptModerationSkipReason =
+  | "no_ready_text_track" |
+  "no_transcript_content" |
+  "no_cues";
+
+/**
+ * Outcome of transcript moderation on a single asset. Attached to
+ * {@link ModerationResult.transcriptModeration} so callers can audit
+ * whether transcript moderation was requested, completed, or skipped
+ * (and why) rather than having to infer it from an empty `transcriptScores`.
+ */
+export interface TranscriptModerationStatus {
+  /**
+   * True if transcript moderation was requested for this call — either the
+   * asset is audio-only (implicit) or `includeTranscript: true` was passed on
+   * a video asset (explicit).
+   */
+  requested: boolean;
+  /**
+   * - `"completed"` — transcript moderation ran successfully (at least one
+   *   window was moderated; individual windows may still carry per-window
+   *   `error` in {@link TranscriptModerationScore}).
+   * - `"skipped"` — moderation was requested but no windows were moderated;
+   *   see {@link skipReason} / {@link skipMessage}.
+   * - `"not_requested"` — the caller did not request transcript moderation
+   *   (video asset with `includeTranscript` unset/false).
+   */
+  status: "completed" | "skipped" | "not_requested";
+  /** Present only when `status === "skipped"`. Machine-readable reason. */
+  skipReason?: TranscriptModerationSkipReason;
+  /** Present only when `status === "skipped"`. Human-readable explanation. */
+  skipMessage?: string;
+}
+
 /** Aggregated moderation payload returned from `getModerationScores`. */
 export interface ModerationResult {
   assetId: string;
@@ -70,6 +115,16 @@ export interface ModerationResult {
    * `includeTranscript` produced scores.
    */
   transcriptScores: TranscriptModerationScore[];
+  /**
+   * Audit trail for transcript moderation on this asset: whether it was
+   * requested, whether it completed or was skipped, and — when skipped —
+   * a machine-readable {@link TranscriptModerationSkipReason} plus a
+   * human-readable explanation. This exists so a caller who sets
+   * `includeTranscript: true` on a video asset can tell the difference
+   * between "no caption track" (skipped, auditable) and "moderated cleanly
+   * with no findings" (completed).
+   */
+  transcriptModeration: TranscriptModerationStatus;
   /** Coverage metadata describing how many requested moderation samples actually succeeded. */
   coverage: {
     requestedSampleCount: number;
@@ -144,8 +199,11 @@ export interface ModerationOptions extends MuxAIOptions {
   /**
    * When true, also moderate transcript text for video assets, in addition to thumbnails.
    * No effect on audio-only assets, which always moderate transcript text.
-   * If set but no ready text track exists, transcript moderation is skipped silently;
-   * transcription is never triggered. Only supported with provider 'openai'.
+   * If set but no ready caption track exists (or the track has no parseable
+   * cues), transcript moderation is reported as skipped in
+   * {@link ModerationResult.transcriptModeration} (with a machine-readable
+   * `skipReason`) — the call itself still succeeds and thumbnails still moderate.
+   * Transcription is never triggered. Only supported with provider 'openai'.
    * @default false
    */
   includeTranscript?: boolean;
@@ -1131,6 +1189,14 @@ export async function getModerationScores(
   let transcriptScores: TranscriptModerationScore[] = [];
   let mode: ModerationResult["mode"] = "thumbnails";
   let thumbnailCount: number | undefined;
+  // Transcript moderation audit trail. Populated at each branch below so the
+  // caller can tell "not requested" apart from "requested but skipped, and
+  // here's why". Overwritten later in the audio-only and includeTranscript
+  // branches.
+  let transcriptModeration: TranscriptModerationStatus = {
+    requested: false,
+    status: "not_requested",
+  };
 
   if (isAudioOnly) {
     mode = "transcript";
@@ -1146,6 +1212,10 @@ export async function getModerationScores(
     });
 
     if (provider === "openai") {
+      // Audio-only implicitly requests transcript moderation. `required: true`
+      // above already threw for the "no transcript" case, so reaching here
+      // means we have transcript text — record as completed.
+      transcriptModeration = { requested: true, status: "completed" };
       transcriptScores = await requestOpenAITranscriptModeration(
         parseVTTCues(transcriptResult.transcriptText),
         duration,
@@ -1228,6 +1298,8 @@ export async function getModerationScores(
 
     if (includeTranscript) {
       if (provider !== "openai") {
+        // Caller error — leave transcriptModeration in its "not_requested"
+        // default; the throw ends the call before it matters.
         throw new Error("includeTranscript is only supported with provider 'openai'.");
       }
       const transcriptResult = await fetchTranscriptForAsset(asset, playbackId, {
@@ -1237,17 +1309,52 @@ export async function getModerationScores(
         credentials,
         required: false,
       });
-      // Skip silently when there is no caption track / no parseable cues.
-      const cues = parseVTTCues(transcriptResult.transcriptText);
-      if (cues.length > 0) {
-        transcriptScores = await requestOpenAITranscriptModeration(
-          cues,
-          duration,
-          model || "omni-moderation-latest",
-          maxConcurrent,
-          credentials,
-          windowingParams,
-        );
+      // Classify why (if at all) we're skipping so callers get an auditable
+      // reason instead of silently seeing an empty `transcriptScores`. The
+      // three code paths are:
+      //   1. no track found by `fetchTranscriptForAsset` (track is undefined);
+      //   2. track found but its transcript text is empty (no id, fetch
+      //      failure, or blank VTT body — all reported here as
+      //      "no_transcript_content");
+      //   3. transcript text exists but has no parseable cues, OR windowing
+      //      produced zero windows — reported as "no_cues".
+      if (!transcriptResult.track) {
+        transcriptModeration = {
+          requested: true,
+          status: "skipped",
+          skipReason: "no_ready_text_track",
+          skipMessage: "No ready caption/subtitle track found for this asset.",
+        };
+      } else if (!transcriptResult.transcriptText.trim()) {
+        transcriptModeration = {
+          requested: true,
+          status: "skipped",
+          skipReason: "no_transcript_content",
+          skipMessage: "Caption track was empty; nothing to moderate.",
+        };
+      } else {
+        const cues = parseVTTCues(transcriptResult.transcriptText);
+        const windows = cues.length === 0 ?
+            [] :
+            buildTranscriptWindows(cues, duration, windowingParams);
+        if (windows.length === 0) {
+          transcriptModeration = {
+            requested: true,
+            status: "skipped",
+            skipReason: "no_cues",
+            skipMessage: "Caption track had no parseable cues.",
+          };
+        } else {
+          transcriptModeration = { requested: true, status: "completed" };
+          transcriptScores = await requestOpenAITranscriptModeration(
+            cues,
+            duration,
+            model || "omni-moderation-latest",
+            maxConcurrent,
+            credentials,
+            windowingParams,
+          );
+        }
       }
     }
   }
@@ -1315,6 +1422,7 @@ export async function getModerationScores(
     isAudioOnly,
     thumbnailScores,
     transcriptScores,
+    transcriptModeration,
     coverage: {
       requestedSampleCount,
       successfulSampleCount,

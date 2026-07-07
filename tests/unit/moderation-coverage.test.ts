@@ -124,6 +124,11 @@ describe("getModerationScores coverage metadata", () => {
     });
     expect(result.exceedsThreshold).toBe(true);
     expect(result.maxScores.violence).toBe(0.9);
+    // Video, no includeTranscript → transcript moderation was not requested.
+    expect(result.transcriptModeration).toEqual({
+      requested: false,
+      status: "not_requested",
+    });
   });
 
   it("keeps confidence normal when enough thumbnail samples succeed", async () => {
@@ -259,6 +264,12 @@ describe("getModerationScores includeTranscript (video assets)", () => {
     // Coverage is computed over thumbnails only.
     expect(result.coverage.requestedSampleCount).toBe(3);
     expect(result.coverage.successfulSampleCount).toBe(3);
+
+    // Transcript moderation ran to completion for this asset.
+    expect(result.transcriptModeration).toEqual({
+      requested: true,
+      status: "completed",
+    });
   });
 
   // Builds a VTT whose cues each span [k*step, k*step + step - 1] seconds.
@@ -471,7 +482,7 @@ describe("getModerationScores includeTranscript (video assets)", () => {
     expect(result.transcriptScores.every(s => s.error === false)).toBe(true);
   });
 
-  it("skips transcript moderation silently when no ready text track exists", async () => {
+  it("reports transcript moderation as skipped when no ready text track exists", async () => {
     vi.mocked(getPlaybackIdForAsset).mockResolvedValue({
       asset: { id: "asset-123", tracks: [] },
       playbackId: "playback-123",
@@ -507,6 +518,60 @@ describe("getModerationScores includeTranscript (video assets)", () => {
     expect(result.mode).toBe("thumbnails");
     expect(result.coverage.requestedSampleCount).toBe(3);
     expect(result.exceedsThreshold).toBe(false);
+    // Skip is now surfaced through transcriptModeration for auditability.
+    expect(result.transcriptModeration).toEqual({
+      requested: true,
+      status: "skipped",
+      skipReason: "no_ready_text_track",
+      skipMessage: "No ready caption/subtitle track found for this asset.",
+    });
+  });
+
+  it("reports transcript moderation as skipped with no_cues when the caption track has no parseable cues", async () => {
+    vi.mocked(getPlaybackIdForAsset).mockResolvedValue(videoAssetWithTextTrack());
+
+    const urls = [
+      { url: "https://thumb.test/a.png", time: 0 },
+      { url: "https://thumb.test/b.png", time: 10 },
+      { url: "https://thumb.test/c.png", time: 20 },
+    ];
+    vi.mocked(getThumbnailUrls).mockResolvedValue(urls);
+
+    // A VTT header with no cues at all — text is non-empty but parseVTTCues returns [].
+    const HEADER_ONLY_VTT = "WEBVTT\n\nNOTE this file has no cues\n";
+
+    mockFetch.mockImplementation(async (url, init) => {
+      if (String(url).endsWith(".vtt")) {
+        return {
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          text: vi.fn().mockResolvedValue(HEADER_ONLY_VTT),
+        } as any;
+      }
+      const body = JSON.parse(String(init?.body));
+      // No transcript batch should ever be sent when there are no cues.
+      expect(Array.isArray(body.input) && typeof body.input[0] === "string").toBe(false);
+      return mockOpenAIModerationResponse({
+        status: 200,
+        body: { results: [{ category_scores: { sexual: 0.02, violence: 0.03 } }] },
+      });
+    });
+
+    const result = await getModerationScores("asset-123", {
+      provider: "openai",
+      model: "omni-moderation-latest",
+      includeTranscript: true,
+    });
+
+    expect(result.transcriptScores).toEqual([]);
+    expect(result.mode).toBe("thumbnails");
+    expect(result.transcriptModeration).toEqual({
+      requested: true,
+      status: "skipped",
+      skipReason: "no_cues",
+      skipMessage: "Caption track had no parseable cues.",
+    });
   });
 
   it("places audio-only transcript results in transcriptScores and is not low-confidence", async () => {
@@ -562,6 +627,11 @@ describe("getModerationScores includeTranscript (video assets)", () => {
     expect(result.coverage.requestedSampleCount).toBe(0);
     expect(result.maxScores.violence).toBe(0.06);
     expect(result.exceedsThreshold).toBe(false);
+    // Audio-only implicitly requests transcript moderation.
+    expect(result.transcriptModeration).toEqual({
+      requested: true,
+      status: "completed",
+    });
   });
 
   it("throws when includeTranscript is used with a non-openai provider", async () => {

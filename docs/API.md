@@ -77,7 +77,7 @@ Analyzes a Mux asset for inappropriate content using OpenAI's Moderation API, Hi
   - `retryDelay?: number` - Base delay between retries in milliseconds (default: 1000)
   - `maxRetryDelay?: number` - Maximum delay between retries in milliseconds (default: 10000)
   - `exponentialBackoff?: boolean` - Whether to use exponential backoff (default: true)
-- `includeTranscript?: boolean` - When `true`, also moderate the caption transcript text for **video assets**, in addition to thumbnails (default: `false`). Only supported with provider `openai`; throws otherwise. Has no effect on audio-only assets, which always moderate transcript text. If set but no ready text track exists, transcript moderation is skipped silently — transcription is never triggered. Transcript scores are returned in the dedicated `transcriptScores` array, separate from `thumbnailScores`; they never enter the thumbnail `coverage` denominator.
+- `includeTranscript?: boolean` - When `true`, also moderate the caption transcript text for **video assets**, in addition to thumbnails (default: `false`). Only supported with provider `openai`; throws otherwise. Has no effect on audio-only assets, which always moderate transcript text. If set but no ready caption track exists (or the track has no parseable cues), transcript moderation is reported as `skipped` in `transcriptModeration` (`skipReason: "no_ready_text_track"` / `"no_transcript_content"` / `"no_cues"`) so it's auditable — the call itself still succeeds and thumbnails still moderate. Transcription is never triggered. Transcript scores are returned in the dedicated `transcriptScores` array, separate from `thumbnailScores`; they never enter the thumbnail `coverage` denominator.
 - `transcriptWindowing?: object` - Optional tuning for transcript time-windowing (all fields optional; sensible defaults applied). Transcript moderation splits the caption track into **dynamic, overlapping** time windows whose size scales with the asset's duration: `windowSeconds = clamp(duration / targetWindowCount, minWindowSeconds, maxWindowSeconds)` and consecutive windows overlap by `max(minOverlapSeconds, windowSeconds * overlapFraction)`, so content straddling a window boundary is still scored intact.
   - `targetWindowCount?: number` - Divisor used to derive the base window size from duration (default: `40`)
   - `minWindowSeconds?: number` - Lower clamp on window size, in seconds (default: `20`)
@@ -114,6 +114,20 @@ Analyzes a Mux asset for inappropriate content using OpenAI's Moderation API, Hi
     error: boolean;
     errorMessage?: string;
   }>;
+  transcriptModeration: { // Audit trail for transcript moderation: was it requested, did it complete, and if skipped, why?
+    requested: boolean; // true when the asset is audio-only OR includeTranscript was passed on a video
+    // 'completed' — moderation ran (at least one window was moderated; individual windows may still carry per-window `error`).
+    // 'skipped'   — requested but no windows were moderated (see `skipReason` / `skipMessage`).
+    // 'not_requested' — video asset without `includeTranscript`.
+    status: 'completed' | 'skipped' | 'not_requested';
+    // Present only when status === 'skipped'. Machine-readable reason:
+    //   'no_ready_text_track'   — no ready caption/subtitle track for the asset (or none matching languageCode).
+    //   'no_transcript_content' — track exists but its transcript text was empty (missing track id, fetch failed, or blank VTT body).
+    //   'no_cues'               — VTT body was non-empty but no cues could be parsed (or windowing produced zero windows).
+    skipReason?: 'no_ready_text_track' | 'no_transcript_content' | 'no_cues';
+    // Present only when status === 'skipped'. Human-readable explanation.
+    skipMessage?: string;
+  };
   maxScores: { // Highest scores across thumbnails AND all transcript time windows
     sexual: number;
     violence: number;
@@ -134,6 +148,8 @@ Analyzes a Mux asset for inappropriate content using OpenAI's Moderation API, Hi
   usage?: TokenUsage; // Workflow usage metadata
 }
 ```
+
+**Transcript moderation is auditable, not silent.** Whether the caller passed `includeTranscript: true` on a video asset or the asset was audio-only (implicit request), the result always carries a `transcriptModeration: TranscriptModerationStatus` field describing whether transcript moderation was `not_requested`, `completed`, or `skipped` — and, when skipped, a machine-readable `skipReason` (`no_ready_text_track` / `no_transcript_content` / `no_cues`) plus a human-readable `skipMessage`. This lets callers keep an audit trail for skipped moderations without having to distinguish "moderated cleanly with no findings" from "no caption track" by inspecting an empty `transcriptScores`.
 
 **Transcript moderation uses dynamic, overlapping time windows.** Each `transcriptScores` entry is a moderated **time window** carrying `startTime`/`endTime` (in seconds) — directly analogous to how a flagged thumbnail carries its `time` — so consumers can locate flagged speech on the timeline rather than receiving a single verdict for the whole transcript. Window **size scales with the asset's duration** (`windowSeconds = clamp(duration / 40, 20s, 120s)`), and consecutive windows **overlap** (~15% of the window size, at least 5 seconds) so content that straddles a window boundary is still scored intact in at least one window. Windows are aligned to caption-cue boundaries (a single cue is never split across windows) so the reported timecodes stay accurate. Because windows overlap by design, **consecutive `transcriptScores` entries' `[startTime, endTime]` ranges may overlap** by roughly the overlap amount. Windows are sent to OpenAI as **batched array requests** (multiple window texts per `/v1/moderations` call via the array `input`, with `results[]` mapped back index-aligned); if a batch is rejected as too large it is split in half and retried down to a single window. The windowing is tunable via the `transcriptWindowing` option (see above). When both thumbnails and transcript windows produce scores (a video asset with `includeTranscript`), `mode` is `'combined'`; `maxScores`/`exceedsThreshold` aggregate the highest `sexual`/`violence` across thumbnails **and** all transcript windows.
 
