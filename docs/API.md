@@ -132,7 +132,7 @@ Analyzes a Mux asset for inappropriate content using OpenAI's Moderation API, Hi
     sexual: number;
     violence: number;
   };
-  coverage: {
+  coverage: { // Thumbnail sampling only (transcript windows are excluded)
     requestedSampleCount: number;
     successfulSampleCount: number;
     failedSampleCount: number;
@@ -152,6 +152,12 @@ Analyzes a Mux asset for inappropriate content using OpenAI's Moderation API, Hi
 **Transcript moderation is auditable, not silent.** Whether the caller passed `includeTranscript: true` on a video asset or the asset was audio-only (implicit request), the result always carries a `transcriptModeration: TranscriptModerationStatus` field describing whether transcript moderation was `not_requested`, `completed`, or `skipped` — and, when skipped, a machine-readable `skipReason` (`no_ready_text_track` / `no_transcript_content` / `no_cues`) plus a human-readable `skipMessage`. This lets callers keep an audit trail for skipped moderations without having to distinguish "moderated cleanly with no findings" from "no caption track" by inspecting an empty `transcriptScores`.
 
 **Transcript moderation uses dynamic, overlapping time windows.** Each `transcriptScores` entry is a moderated **time window** carrying `startTime`/`endTime` (in seconds) — directly analogous to how a flagged thumbnail carries its `time` — so consumers can locate flagged speech on the timeline rather than receiving a single verdict for the whole transcript. Window **size scales with the asset's duration** (`windowSeconds = clamp(duration / 40, 20s, 120s)`), and consecutive windows **overlap** (~15% of the window size, at least 5 seconds) so content that straddles a window boundary is still scored intact in at least one window. Windows are aligned to caption-cue boundaries (a single cue is never split across windows) so the reported timecodes stay accurate. Because windows overlap by design, **consecutive `transcriptScores` entries' `[startTime, endTime]` ranges may overlap** by roughly the overlap amount. Windows are sent to OpenAI as **batched array requests** (multiple window texts per `/v1/moderations` call via the array `input`, with `results[]` mapped back index-aligned); if a batch is rejected as too large it is split in half and retried down to a single window. The windowing is tunable via the `transcriptWindowing` option (see above). When both thumbnails and transcript windows produce scores (a video asset with `includeTranscript`), `mode` is `'combined'`; `maxScores`/`exceedsThreshold` aggregate the highest `sexual`/`violence` across thumbnails **and** all transcript windows.
+
+**Completeness and coverage.** Before you rely on a result, understand exactly what was scored and how completely:
+
+- **All scored units are returned; scoring never stops at the first flag.** Every sampled thumbnail appears in `thumbnailScores` and every transcript window in `transcriptScores`, whether or not it crosses a threshold. `maxScores` and `exceedsThreshold` are a max-based rollup across all of them (`exceedsThreshold` is `true` if any single unit's `sexual`/`violence` exceeds its threshold). To find which region triggered a flag, scan the arrays for entries above your threshold.
+- **Thumbnail (visual) coverage is sampled, not exhaustive.** Frames are sampled at `thumbnailInterval` (default every 10s), capped by `maxSamples`. Content between sampled frames is not inspected, so a result with no visual flag does not guarantee every frame is clean; lower `thumbnailInterval` or raise `maxSamples` for denser coverage. The `coverage` object (`requestedSampleCount`, `sampleCoverage`, `isLowConfidence`) describes **thumbnail sampling only** — transcript windows are excluded from its denominator, and `isLowConfidence` signals thin sampling without making thumbnail coverage exhaustive.
+- **Transcript (text) coverage is exhaustive.** Every caption cue falls in at least one time window and windows overlap, so all spoken content is moderated. Because windows overlap, the same flagged utterance near a boundary can appear in two adjacent `transcriptScores` entries with overlapping `[startTime, endTime]` ranges; merge/deduplicate overlapping flagged ranges if you want one finding per utterance.
 
 ## `hasBurnedInCaptions(assetId, options?)`
 
