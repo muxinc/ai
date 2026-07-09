@@ -66,11 +66,35 @@ export class MuxAiError extends Error {
  * trigger the much stronger field-level scrubber on the preceding
  * model output.
  */
+/**
+ * Best-effort, exception-safe coercion of an arbitrary thrown value into a
+ * human-readable detail. Falls back to `"Unknown error"` only when nothing
+ * usable can be extracted (e.g. `String(error)` itself throws).
+ */
+function coerceDetail(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message || error.name || "Unknown error";
+  }
+  try {
+    if (error && typeof error === "object") {
+      const obj = error as { name?: unknown; code?: unknown; message?: unknown };
+      const parts = [obj.name, obj.code, obj.message].filter(v => typeof v === "string" && v.length > 0);
+      if (parts.length > 0) {
+        return parts.join(": ");
+      }
+    }
+    const coerced = String(error);
+    return coerced && coerced !== "[object Object]" ? coerced : "Unknown error";
+  } catch {
+    return "Unknown error";
+  }
+}
+
 export function wrapError(error: unknown, message: string): never {
   if (error instanceof MuxAiError) {
     throw error;
   }
-  const rawDetail = error instanceof Error ? error.message : "Unknown error";
+  const rawDetail = coerceDetail(error);
   const leakReason = detectLeakReason(rawDetail);
   const shouldSuppress = leakReason === "canary" || leakReason === "prompt_tag";
   const detail = shouldSuppress ?

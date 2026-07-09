@@ -1,3 +1,5 @@
+import pRetry, { AbortError } from "p-retry";
+
 import env from "../env.ts";
 import { getApiKeyFromEnv } from "../lib/client-factory.ts";
 import { getLanguageCodePair, toISO639_1, toISO639_3 } from "../lib/language-codes.ts";
@@ -83,6 +85,16 @@ export interface AudioTranslationOptions extends MuxAIOptions {
 
 const STATIC_RENDITION_POLL_INTERVAL_MS = 5000;
 const STATIC_RENDITION_MAX_ATTEMPTS = 36; // ~3 minutes
+
+// Audio downloads can be large (a multi-hour asset is hundreds of MB), so the
+// per-attempt timeout is generous. Without a client-side timeout a slow/hung
+// download can be killed by the workflow platform (step wall-clock/eviction)
+// before it reports anything, which is how this step failed with no message at
+// all. The AbortController below converts that silent kill into a clear,
+// message-bearing timeout error we control. Transient failures
+// (network/timeout/5xx) are retried; 4xx responses are treated as fatal.
+const AUDIO_DOWNLOAD_TIMEOUT_MS = 600_000; // 10 minutes per attempt
+const AUDIO_DOWNLOAD_RETRIES = 2; // 3 attempts total
 
 async function sleep(ms: number): Promise<void> {
   "use step";
@@ -198,15 +210,77 @@ async function waitForAudioStaticRendition({
   );
 }
 
-async function fetchAudioFromMux(audioUrl: string): Promise<ArrayBuffer> {
+/** Coerce a non-Error thrown value into a meaningful, non-empty detail. */
+function describeThrown(error: unknown): string {
+  if (error instanceof Error) {
+    // undici network errors carry a useful `code` (e.g. ECONNRESET, ENOTFOUND).
+    const code = (error as { code?: string }).code;
+    return code ? `${error.name} (${code}): ${error.message}` : `${error.name}: ${error.message}`;
+  }
+  if (error && typeof error === "object") {
+    const obj = error as { name?: unknown; code?: unknown; message?: unknown };
+    const parts = [obj.name, obj.code, obj.message].filter(v => typeof v === "string");
+    if (parts.length > 0) {
+      return parts.join(": ");
+    }
+  }
+  return String(error);
+}
+
+export async function fetchAudioFromMux(audioUrl: string): Promise<ArrayBuffer> {
   "use step";
 
-  const audioResponse = await fetch(audioUrl);
-  if (!audioResponse.ok) {
-    throw new Error(`Failed to fetch audio file: ${audioResponse.statusText}`);
-  }
+  return pRetry(
+    async () => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), AUDIO_DOWNLOAD_TIMEOUT_MS);
 
-  return audioResponse.arrayBuffer();
+      try {
+        const audioResponse = await fetch(audioUrl, { signal: controller.signal });
+
+        if (!audioResponse.ok) {
+          // Include the status code so a bare status (e.g. 403 with an empty
+          // statusText) still yields a meaningful, non-empty message.
+          const detail = `HTTP ${audioResponse.status} ${audioResponse.statusText}`.trim();
+          const isClientError = audioResponse.status >= 400 && audioResponse.status < 500 &&
+            audioResponse.status !== 429;
+          const err = new MuxAiError(`Failed to fetch audio file from Mux: ${detail}`, {
+            retryable: !isClientError,
+          });
+          // Don't retry 4xx (except 429) — they won't self-resolve.
+          throw isClientError ? new AbortError(err) : err;
+        }
+
+        return await audioResponse.arrayBuffer();
+      } catch (error) {
+        if (error instanceof AbortError || error instanceof MuxAiError) {
+          throw error;
+        }
+        if (error instanceof Error && error.name === "AbortError") {
+          throw new MuxAiError(
+            `Audio download from Mux timed out after ${AUDIO_DOWNLOAD_TIMEOUT_MS}ms.`,
+            { type: "timeout_error", retryable: true },
+          );
+        }
+        // Network/undici error or a thrown non-Error value: normalize so this
+        // step always fails with a meaningful, non-empty message.
+        throw new MuxAiError(
+          `Audio download from Mux failed: ${describeThrown(error)}`,
+          { retryable: true },
+        );
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    },
+    {
+      retries: AUDIO_DOWNLOAD_RETRIES,
+      onFailedAttempt: ({ error, attemptNumber, retriesLeft }) => {
+        console.warn(
+          `Audio download attempt ${attemptNumber} failed (${retriesLeft} retries left): ${error.message}`,
+        );
+      },
+    },
+  );
 }
 
 async function createElevenLabsDubbingJob({
