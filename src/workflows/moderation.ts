@@ -786,9 +786,22 @@ export async function getModerationScores(
     scope :
     undefined;
   const resolvedScope = effectiveScope ?
-      resolveWorkflowScope(effectiveScope, duration) :
+      resolveWorkflowScope(effectiveScope, assetDurationSeconds) :
     undefined;
   const isAudioOnly = isAudioOnlyAsset(asset);
+  // Scope boundaries are asset-relative, but video thumbnails must stay within
+  // the renderable video track. A valid scope can therefore extend beyond the
+  // available video when an asset has trailing non-video media.
+  const renderableScope = resolvedScope ?
+      {
+        startTime: Math.min(resolvedScope.startTime, duration),
+        endTime: Math.min(resolvedScope.endTime, duration),
+      } :
+    undefined;
+
+  if (!isAudioOnly && renderableScope && renderableScope.startTime >= renderableScope.endTime) {
+    throw new Error("The requested scope does not include any renderable video.");
+  }
 
   // Resolve signing context for signed playback IDs
   const signingContext = await resolveMuxSigningContext(credentials);
@@ -832,8 +845,8 @@ export async function getModerationScores(
   } else {
     // Cheaply estimate how many thumbnails the interval would produce so we
     // can skip generating (and potentially JWT-signing) URLs we'd discard.
-    const scopedDuration = resolvedScope ?
-      resolvedScope.endTime - resolvedScope.startTime :
+    const scopedDuration = renderableScope ?
+      renderableScope.endTime - renderableScope.startTime :
       duration;
     const estimatedIntervalCount = scopedDuration <= 50 ? 5 : Math.ceil(scopedDuration / thumbnailInterval);
 
@@ -847,15 +860,15 @@ export async function getModerationScores(
             planSamplingTimestamps({
               duration_sec: duration,
               max_candidates: maxSamples,
-              trim_start_sec: resolvedScope?.startTime ??
+              trim_start_sec: renderableScope?.startTime ??
                 (duration > 2 ? Math.min(5, Math.max(1, duration / 6)) : 0),
-              trim_end_sec: resolvedScope ?
-                duration - resolvedScope.endTime :
+              trim_end_sec: renderableScope ?
+                duration - renderableScope.endTime :
                   (duration > 2 ? Math.min(5, Math.max(1, duration / 6)) : 0),
               fps: videoTrackFps,
               base_cadence_hz: thumbnailInterval > 0 ? 1 / thumbnailInterval : undefined,
             }).filter(timestampMs =>
-              !resolvedScope || timestampMs < resolvedScope.endTime * 1000,
+              !renderableScope || timestampMs < renderableScope.endTime * 1000,
             ),
             {
               width: thumbnailWidth,
@@ -868,7 +881,7 @@ export async function getModerationScores(
             width: thumbnailWidth,
             shouldSign: policy === "signed",
             credentials,
-            scope: effectiveScope,
+            scope: renderableScope,
           });
     thumbnailCount = thumbnailUrls.length;
 

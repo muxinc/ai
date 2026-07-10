@@ -128,6 +128,28 @@ describe("getModerationScores coverage metadata", () => {
     expect(thumbnailTimes.every(time => time < 14)).toBe(true);
   });
 
+  it("accepts asset-relative scopes that extend past the video track", async () => {
+    vi.mocked(getVideoTrackDurationSecondsFromAsset).mockReturnValue(80);
+    vi.mocked(getAssetDurationSecondsFromAsset).mockReturnValue(100);
+    mockFetch.mockResolvedValue(mockOpenAIModerationResponse({
+      status: 200,
+      body: { results: [{ category_scores: { sexual: 0, violence: 0 } }] },
+    }));
+
+    await expect(getModerationScores("asset-123", {
+      provider: "openai",
+      maxSamples: 4,
+      scope: { endTime: 100 },
+    })).resolves.toBeDefined();
+
+    const thumbnailTimes = mockFetch.mock.calls.map(([, init]) => {
+      const body = JSON.parse(String(init?.body));
+      return Number(new URL(body.input[0].image_url.url).searchParams.get("time"));
+    });
+
+    expect(thumbnailTimes.every(time => time < 80)).toBe(true);
+  });
+
   it("marks thumbnail results as low confidence when too few samples succeed", async () => {
     const urls = [
       { url: "https://thumb.test/1.png", time: 0 },
