@@ -53,6 +53,26 @@ export interface MuxAIOptions {
 }
 
 /**
+ * Asset-relative time range used to limit workflow analysis.
+ *
+ * Times are expressed in seconds. The start is inclusive and the end is
+ * exclusive. Either boundary may be omitted to analyze from the beginning or
+ * through the end of the asset, respectively.
+ */
+export interface WorkflowScope {
+  /** Inclusive start offset from the beginning of the asset, in seconds. */
+  startTime?: number;
+  /** Exclusive end offset from the beginning of the asset, in seconds. */
+  endTime?: number;
+}
+
+/** Base options for workflows that can analyze a bounded part of an asset. */
+export interface ScopedMuxAIOptions extends MuxAIOptions {
+  /** Optional asset-relative time range to analyze. */
+  scope?: WorkflowScope;
+}
+
+/**
  * Workflow credentials.
  *
  * Supports plain credential objects and primitive credential fields for

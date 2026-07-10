@@ -9,12 +9,13 @@ import { createEmbeddingModelFromConfig, resolveEmbeddingModelConfig } from "../
 import { withRetry } from "../lib/retry.ts";
 import { getErrorTokenUsage, rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
+import { resolveWorkflowScope } from "../lib/workflow-scope.ts";
 import { chunkText, chunkVTTCues } from "../primitives/text-chunking.ts";
 import { fetchTranscriptForAsset, parseVTTCues } from "../primitives/transcripts.ts";
 import type {
   ChunkEmbedding,
   ChunkingStrategy,
-  MuxAIOptions,
+  ScopedMuxAIOptions,
   TextChunk,
   TokenUsage,
   VideoEmbeddingsResult,
@@ -26,7 +27,7 @@ import type {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Configuration accepted by `generateEmbeddings`. */
-export interface EmbeddingsOptions extends MuxAIOptions {
+export interface EmbeddingsOptions extends ScopedMuxAIOptions {
   /** AI provider used to generate embeddings (defaults to 'openai'). */
   provider?: SupportedEmbeddingProvider;
   /** Provider-specific model identifier (defaults to text-embedding-3-small for OpenAI). */
@@ -163,12 +164,16 @@ async function generateEmbeddingsInternal(
     chunkingStrategy = { type: "token", maxTokens: 500, overlap: 100 } as ChunkingStrategy,
     batchSize = 5,
     credentials,
+    scope,
   } = options;
 
   const embeddingModel = resolveEmbeddingModelConfig({ ...options, provider, model });
   // Fetch asset and playback ID
   const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
+  if (scope) {
+    resolveWorkflowScope(scope, assetDurationSeconds);
+  }
 
   // Resolve signing context for signed playback IDs
   const signingContext = await resolveMuxSigningContext(credentials);
@@ -187,6 +192,7 @@ async function generateEmbeddingsInternal(
     shouldSign: policy === "signed",
     credentials,
     required: true,
+    scope,
   });
 
   const transcriptText = transcriptResult.transcriptText;

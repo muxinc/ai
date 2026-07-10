@@ -13,11 +13,12 @@ import { withRetry } from "../lib/retry.ts";
 import { planSamplingTimestamps } from "../lib/sampling-plan.ts";
 import { signUrl } from "../lib/url-signing.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
+import { resolveWorkflowScope } from "../lib/workflow-scope.ts";
 import { getThumbnailUrls } from "../primitives/thumbnails.ts";
 import { fetchTranscriptForAsset } from "../primitives/transcripts.ts";
 import type {
   ImageSubmissionMode,
-  MuxAIOptions,
+  ScopedMuxAIOptions,
   TokenUsage,
   WorkflowCredentialsInput,
 } from "../types.ts";
@@ -89,7 +90,7 @@ export interface HiveModerationOutput {
 }
 
 /** Configuration accepted by `getModerationScores`. */
-export interface ModerationOptions extends MuxAIOptions {
+export interface ModerationOptions extends ScopedMuxAIOptions {
   /** Provider used for moderation (defaults to 'openai'). */
   provider?: ModerationProvider;
   /** OpenAI moderation model identifier (defaults to 'omni-moderation-latest'). */
@@ -765,6 +766,7 @@ export async function getModerationScores(
     imageSubmissionMode = "url",
     imageDownloadOptions,
     credentials: providedCredentials,
+    scope,
   } = options;
   const credentials = providedCredentials;
   // Fetch asset data and playback ID from Mux via helper
@@ -778,6 +780,9 @@ export async function getModerationScores(
     (d): d is number => d != null,
   );
   const duration = candidateDurations.length > 0 ? Math.min(...candidateDurations) : 0;
+  const resolvedScope = scope ?
+      resolveWorkflowScope(scope, duration) :
+    undefined;
   const isAudioOnly = isAudioOnlyAsset(asset);
 
   // Resolve signing context for signed playback IDs
@@ -801,6 +806,7 @@ export async function getModerationScores(
       shouldSign: policy === "signed",
       credentials,
       required: true,
+      scope,
     });
 
     if (provider === "openai") {
@@ -821,7 +827,10 @@ export async function getModerationScores(
   } else {
     // Cheaply estimate how many thumbnails the interval would produce so we
     // can skip generating (and potentially JWT-signing) URLs we'd discard.
-    const estimatedIntervalCount = duration <= 50 ? 5 : Math.ceil(duration / thumbnailInterval);
+    const scopedDuration = resolvedScope ?
+        resolvedScope.endTime - resolvedScope.startTime :
+      duration;
+    const estimatedIntervalCount = scopedDuration <= 50 ? 5 : Math.ceil(scopedDuration / thumbnailInterval);
 
     // maxSamples acts as a true cap: if the interval already fits within the
     // budget we use the interval-based path. Only when the interval would
@@ -833,8 +842,11 @@ export async function getModerationScores(
             planSamplingTimestamps({
               duration_sec: duration,
               max_candidates: maxSamples,
-              trim_start_sec: duration > 2 ? Math.min(5, Math.max(1, duration / 6)) : 0,
-              trim_end_sec: duration > 2 ? Math.min(5, Math.max(1, duration / 6)) : 0,
+              trim_start_sec: resolvedScope?.startTime ??
+                (duration > 2 ? Math.min(5, Math.max(1, duration / 6)) : 0),
+              trim_end_sec: resolvedScope ?
+                  duration - resolvedScope.endTime :
+                (duration > 2 ? Math.min(5, Math.max(1, duration / 6)) : 0),
               fps: videoTrackFps,
               base_cadence_hz: thumbnailInterval > 0 ? 1 / thumbnailInterval : undefined,
             }),
@@ -849,6 +861,7 @@ export async function getModerationScores(
             width: thumbnailWidth,
             shouldSign: policy === "signed",
             credentials,
+            scope,
           });
     thumbnailCount = thumbnailUrls.length;
 

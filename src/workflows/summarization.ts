@@ -40,6 +40,7 @@ import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../li
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
 import { withRetry } from "../lib/retry.ts";
 import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
+import { resolveWorkflowScope } from "../lib/workflow-scope.ts";
 import {
   resolveMuxSigningContext,
 } from "../lib/workflow-credentials.ts";
@@ -47,7 +48,7 @@ import { getStoryboardUrl } from "../primitives/storyboards.ts";
 import { fetchTranscriptForAsset, getReadyTextTracks, getReliableLanguageCode } from "../primitives/transcripts.ts";
 import type {
   ImageSubmissionMode,
-  MuxAIOptions,
+  ScopedMuxAIOptions,
   TokenUsage,
   ToneType,
   WorkflowCredentialsInput,
@@ -173,7 +174,7 @@ export type SummarizationPromptSections =
 export type SummarizationPromptOverrides = PromptOverrides<SummarizationPromptSections>;
 
 /** Configuration accepted by `getSummaryAndTags`. */
-export interface SummarizationOptions extends MuxAIOptions {
+export interface SummarizationOptions extends ScopedMuxAIOptions {
   /** AI provider to run (defaults to 'openai'). */
   provider?: SupportedProvider;
   /** Provider-specific chat model identifier. */
@@ -712,6 +713,7 @@ async function getSummaryAndTagsInternal(
     descriptionLength,
     tagCount,
     outputLanguageCode,
+    scope,
   } = options ?? {};
 
   // Validate tone parameter
@@ -733,6 +735,9 @@ async function getSummaryAndTagsInternal(
   const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, workflowCredentials);
 
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
+  if (scope) {
+    resolveWorkflowScope(scope, assetDurationSeconds);
+  }
 
   // Detect if asset is audio-only
   const isAudioOnly = isAudioOnlyAsset(assetData);
@@ -763,6 +768,7 @@ async function getSummaryAndTagsInternal(
           shouldSign: policy === "signed",
           credentials: workflowCredentials,
           required: isAudioOnly,
+          scope,
         }) :
       undefined;
   const transcriptText = transcriptResult?.transcriptText ?? "";
@@ -811,7 +817,13 @@ async function getSummaryAndTagsInternal(
       );
     } else {
       // Video analysis: fetch storyboard and analyze with visual content
-      const storyboardUrl = await getStoryboardUrl(playbackId, 640, policy === "signed", workflowCredentials);
+      const storyboardUrl = await getStoryboardUrl(
+        playbackId,
+        640,
+        policy === "signed",
+        workflowCredentials,
+        scope,
+      );
       imageUrl = storyboardUrl;
 
       if (imageSubmissionMode === "base64") {

@@ -1,6 +1,7 @@
 import { getMuxThumbnailBaseUrl } from "../lib/mux-url.ts";
 import { signUrl } from "../lib/url-signing.ts";
-import type { WorkflowCredentialsInput } from "../types.ts";
+import { resolveWorkflowScope } from "../lib/workflow-scope.ts";
+import type { WorkflowCredentialsInput, WorkflowScope } from "../types.ts";
 
 export interface ThumbnailOptions {
   /** Interval between thumbnails in seconds (default: 10) */
@@ -13,6 +14,8 @@ export interface ThumbnailOptions {
   maxSamples?: number;
   /** Workflow credentials for signing (optional). */
   credentials?: WorkflowCredentialsInput;
+  /** Optional asset-relative range from which thumbnails should be sampled. */
+  scope?: WorkflowScope;
 }
 
 /**
@@ -30,16 +33,25 @@ export async function getThumbnailUrls(
   options: ThumbnailOptions = {},
 ): Promise<Array<{ url: string; time: number }>> {
   "use step";
-  const { interval = 10, width = 640, shouldSign = false, maxSamples, credentials } = options;
+  const { interval = 10, width = 640, shouldSign = false, maxSamples, credentials, scope } = options;
+  const resolvedScope = scope ?
+      resolveWorkflowScope(scope, duration) :
+    { startTime: 0, endTime: duration };
+  const rangeDuration = resolvedScope.endTime - resolvedScope.startTime;
   let timestamps: number[] = [];
 
-  if (duration <= 50) {
-    const spacing = duration / 6;
+  if (rangeDuration <= 50) {
+    const spacing = rangeDuration / 6;
     for (let i = 1; i <= 5; i++) {
-      timestamps.push(Math.round(i * spacing));
+      const time = resolvedScope.startTime + i * spacing;
+      timestamps.push(scope ? Number(time.toFixed(3)) : Math.round(time));
     }
   } else {
-    for (let time = 0; time < duration; time += interval) {
+    for (
+      let time = resolvedScope.startTime;
+      time < resolvedScope.endTime;
+      time += interval
+    ) {
       timestamps.push(time);
     }
   }
@@ -49,16 +61,19 @@ export async function getThumbnailUrls(
     const newTimestamps: number[] = [];
 
     // Always include first frame
-    newTimestamps.push(0);
+    newTimestamps.push(resolvedScope.startTime);
 
     // If maxSamples >= 2, add evenly distributed middle frames and last frame
     if (maxSamples >= 2) {
-      const spacing = duration / (maxSamples - 1);
+      const lastTime = scope ?
+          Math.max(resolvedScope.startTime, resolvedScope.endTime - 0.001) :
+        resolvedScope.endTime;
+      const spacing = (lastTime - resolvedScope.startTime) / (maxSamples - 1);
       for (let i = 1; i < maxSamples - 1; i++) {
-        newTimestamps.push(spacing * i);
+        newTimestamps.push(resolvedScope.startTime + spacing * i);
       }
       // Always include last frame
-      newTimestamps.push(duration);
+      newTimestamps.push(lastTime);
     }
 
     timestamps = newTimestamps;

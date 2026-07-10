@@ -27,9 +27,10 @@ import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
 import { withRetry } from "../lib/retry.ts";
 import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
+import { resolveWorkflowScope } from "../lib/workflow-scope.ts";
 import { getStoryboardUrl } from "../primitives/storyboards.ts";
 import { fetchTranscriptForAsset } from "../primitives/transcripts.ts";
-import type { ImageSubmissionMode, MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "../types.ts";
+import type { ImageSubmissionMode, ScopedMuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "../types.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -66,7 +67,7 @@ export interface QuestionAnswer {
 }
 
 /** Configuration options for askQuestions workflow. */
-export interface AskQuestionsOptions extends MuxAIOptions {
+export interface AskQuestionsOptions extends ScopedMuxAIOptions {
   /** AI provider to run (defaults to 'openai'). */
   provider?: SupportedProvider;
   /** Provider-specific chat model identifier. */
@@ -857,6 +858,7 @@ async function askQuestionsInternal(
     imageDownloadOptions,
     storyboardWidth = 640,
     credentials,
+    scope,
   } = options ?? {};
 
   const normalizedQuestions: NormalizedQuestion[] = questions.map((q, idx) => normalizeQuestion(q, idx));
@@ -871,6 +873,9 @@ async function askQuestionsInternal(
   const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
 
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
+  if (scope) {
+    resolveWorkflowScope(scope, assetDurationSeconds);
+  }
   const isAudioOnly = isAudioOnlyAsset(assetData);
 
   if (isAudioOnly && !includeTranscript) {
@@ -898,6 +903,7 @@ async function askQuestionsInternal(
           shouldSign: policy === "signed",
           credentials,
           required: isAudioOnly,
+          scope,
         }) :
       undefined;
   const transcriptText = transcriptResult?.transcriptText ?? "";
@@ -933,6 +939,7 @@ async function askQuestionsInternal(
         storyboardWidth,
         policy === "signed",
         credentials,
+        scope,
       );
       imageUrl = storyboardUrl;
 

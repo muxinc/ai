@@ -2,6 +2,28 @@
 
 All workflows accept an optional `credentials` object for [runtime credential injection](./CREDENTIALS.md#runtime-credentials). This is inherited from the base `MuxAIOptions` interface and is not repeated for each workflow below.
 
+### Scoped execution
+
+Workflows that analyze asset content accept an optional asset-relative `scope`:
+
+```typescript
+interface WorkflowScope {
+  startTime?: number; // Inclusive, in seconds
+  endTime?: number; // Exclusive, in seconds
+}
+```
+
+Both boundaries are optional. `{ startTime: 30 }` analyzes from 30 seconds
+through the end of the asset, while `{ endTime: 90 }` analyzes from the
+beginning up to 90 seconds. Times remain relative to the original asset in
+workflow outputs.
+
+`scope` is supported by `getSummaryAndTags`, `getModerationScores`,
+`hasBurnedInCaptions`, `askQuestions`, `generateChapters`, and
+`generateEmbeddings`. It bounds storyboard or thumbnail selection and
+transcript cues as applicable. The workflow rejects negative, non-finite,
+empty, reversed, or out-of-asset ranges.
+
 ## `getSummaryAndTags(assetId, options?)`
 
 Analyzes a Mux video or audio asset and returns AI-generated metadata.

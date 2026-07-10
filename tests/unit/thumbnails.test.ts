@@ -177,6 +177,40 @@ describe("getThumbnailUrls", () => {
     });
   });
 
+  describe("scope parameter", () => {
+    it("samples only within a bounded range", async () => {
+      const urls = await getThumbnailUrls(testPlaybackId, 100, {
+        interval: 10,
+        scope: { startTime: 25, endTime: 80 },
+        shouldSign: false,
+      });
+
+      expect(urls.map(entry => entry.time)).toEqual([25, 35, 45, 55, 65, 75]);
+    });
+
+    it("supports one-sided ranges", async () => {
+      const urls = await getThumbnailUrls(testPlaybackId, 100, {
+        interval: 20,
+        scope: { startTime: 60 },
+        shouldSign: false,
+      });
+
+      expect(urls.every(entry => entry.time >= 60 && entry.time < 100)).toBe(true);
+    });
+
+    it("keeps capped samples below the exclusive end", async () => {
+      const urls = await getThumbnailUrls(testPlaybackId, 100, {
+        maxSamples: 3,
+        scope: { startTime: 20, endTime: 80 },
+        shouldSign: false,
+      });
+
+      expect(urls).toHaveLength(3);
+      expect(urls[0].time).toBe(20);
+      expect(urls[2].time).toBeLessThan(80);
+    });
+  });
+
   describe("formatting of URLs", () => {
     it("should include width parameter", async () => {
       const duration = 30;

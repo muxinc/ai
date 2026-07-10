@@ -23,9 +23,10 @@ import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../li
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
 import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import { getStoryboardUrl } from "../primitives/storyboards.ts";
+import { resolveWorkflowScope } from "../lib/workflow-scope.ts";
 import type {
   ImageSubmissionMode,
-  MuxAIOptions,
+  ScopedMuxAIOptions,
   TokenUsage,
   WorkflowCredentialsInput,
 } from "../types.ts";
@@ -81,7 +82,7 @@ export type BurnedInCaptionsPromptSections =
 export type BurnedInCaptionsPromptOverrides = PromptOverrides<BurnedInCaptionsPromptSections>;
 
 /** Configuration accepted by `hasBurnedInCaptions`. */
-export interface BurnedInCaptionsOptions extends MuxAIOptions {
+export interface BurnedInCaptionsOptions extends ScopedMuxAIOptions {
   /** AI provider used for storyboard inspection (defaults to 'openai'). */
   provider?: SupportedProvider;
   /** Provider-specific model identifier. */
@@ -349,6 +350,7 @@ async function hasBurnedInCaptionsInternal(
     imageDownloadOptions,
     promptOverrides,
     credentials,
+    scope,
     ...config
   } = options;
 
@@ -362,8 +364,17 @@ async function hasBurnedInCaptionsInternal(
   });
   const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
+  if (scope) {
+    resolveWorkflowScope(scope, assetDurationSeconds);
+  }
 
-  const imageUrl = await getStoryboardUrl(playbackId, 640, policy === "signed", credentials);
+  const imageUrl = await getStoryboardUrl(
+    playbackId,
+    640,
+    policy === "signed",
+    credentials,
+    scope,
+  );
 
   let analysisResponse: AnalysisResponse;
 

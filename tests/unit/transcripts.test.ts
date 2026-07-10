@@ -6,6 +6,7 @@ import {
   buildVttFromTranslatedCueBlocks,
   concatenateVttSegments,
   extractTextFromVTT,
+  filterVttByScope,
   findCaptionTrack,
   getReliableLanguageCode,
   LOW_CONFIDENCE_THRESHOLD,
@@ -79,6 +80,46 @@ describe("secondsToTimestamp", () => {
     expect(secondsToTimestamp(60)).toBe("1:00");
     expect(secondsToTimestamp(120)).toBe("2:00");
     expect(secondsToTimestamp(180)).toBe("3:00");
+  });
+});
+
+describe("filterVttByScope", () => {
+  const vttContent = dedent`
+    WEBVTT
+
+    1
+    00:00:00.000 --> 00:00:05.000
+    Intro
+
+    2
+    00:00:05.000 --> 00:00:10.000
+    First topic
+
+    3
+    00:00:10.000 --> 00:00:15.000
+    Second topic
+  `;
+
+  it("keeps only cues overlapping the scope", () => {
+    const result = filterVttByScope(vttContent, {
+      startTime: 7,
+      endTime: 12,
+    });
+
+    expect(extractTextFromVTT(result)).toBe("First topic Second topic");
+    expect(result).not.toContain("Intro");
+  });
+
+  it("treats the end boundary as exclusive", () => {
+    const result = filterVttByScope(vttContent, { endTime: 5 });
+
+    expect(extractTextFromVTT(result)).toBe("Intro");
+  });
+
+  it("preserves original cue timestamps", () => {
+    const result = filterVttByScope(vttContent, { startTime: 10 });
+
+    expect(result).toContain("00:00:10.000 --> 00:00:15.000");
   });
 });
 
