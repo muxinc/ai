@@ -76,6 +76,58 @@ afterEach(() => {
 });
 
 describe("getModerationScores coverage metadata", () => {
+  it("treats an empty scope like an omitted scope when capped sampling is used", async () => {
+    mockFetch.mockResolvedValue(mockOpenAIModerationResponse({
+      status: 200,
+      body: { results: [{ category_scores: { sexual: 0, violence: 0 } }] },
+    }));
+
+    await getModerationScores("asset-123", {
+      provider: "openai",
+      maxSamples: 4,
+    });
+    const timesWithOmittedScope = mockFetch.mock.calls.map(([, init]) => {
+      const body = JSON.parse(String(init?.body));
+      return body.input[0].image_url.url;
+    });
+
+    mockFetch.mockClear();
+
+    await getModerationScores("asset-123", {
+      provider: "openai",
+      maxSamples: 4,
+      scope: {},
+    });
+    const timesWithEmptyScope = mockFetch.mock.calls.map(([, init]) => {
+      const body = JSON.parse(String(init?.body));
+      return body.input[0].image_url.url;
+    });
+
+    expect(timesWithEmptyScope).toEqual(timesWithOmittedScope);
+  });
+
+  it("excludes the scoped end timestamp when capped sampling rounds to a frame", async () => {
+    vi.mocked(getVideoTrackMaxFrameRateFromAsset).mockReturnValue(1);
+    mockFetch.mockResolvedValue(mockOpenAIModerationResponse({
+      status: 200,
+      body: { results: [{ category_scores: { sexual: 0, violence: 0 } }] },
+    }));
+
+    await getModerationScores("asset-123", {
+      provider: "openai",
+      maxSamples: 4,
+      scope: { startTime: 10, endTime: 14 },
+    });
+
+    const thumbnailTimes = mockFetch.mock.calls.map(([, init]) => {
+      const body = JSON.parse(String(init?.body));
+      return Number(new URL(body.input[0].image_url.url).searchParams.get("time"));
+    });
+
+    expect(thumbnailTimes).toEqual([10, 11, 12, 13]);
+    expect(thumbnailTimes.every(time => time < 14)).toBe(true);
+  });
+
   it("marks thumbnail results as low confidence when too few samples succeed", async () => {
     const urls = [
       { url: "https://thumb.test/1.png", time: 0 },

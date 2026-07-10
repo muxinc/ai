@@ -780,8 +780,13 @@ export async function getModerationScores(
     (d): d is number => d != null,
   );
   const duration = candidateDurations.length > 0 ? Math.min(...candidateDurations) : 0;
-  const resolvedScope = scope ?
-      resolveWorkflowScope(scope, duration) :
+  // An empty scope is equivalent to omitting scope. Keeping that distinction
+  // avoids changing the default edge trims merely because callers pass `{}`.
+  const effectiveScope = scope?.startTime !== undefined || scope?.endTime !== undefined ?
+    scope :
+    undefined;
+  const resolvedScope = effectiveScope ?
+      resolveWorkflowScope(effectiveScope, duration) :
     undefined;
   const isAudioOnly = isAudioOnlyAsset(asset);
 
@@ -806,7 +811,7 @@ export async function getModerationScores(
       shouldSign: policy === "signed",
       credentials,
       required: true,
-      scope,
+      scope: effectiveScope,
     });
 
     if (provider === "openai") {
@@ -849,7 +854,9 @@ export async function getModerationScores(
                   (duration > 2 ? Math.min(5, Math.max(1, duration / 6)) : 0),
               fps: videoTrackFps,
               base_cadence_hz: thumbnailInterval > 0 ? 1 / thumbnailInterval : undefined,
-            }),
+            }).filter(timestampMs =>
+              !resolvedScope || timestampMs < resolvedScope.endTime * 1000,
+            ),
             {
               width: thumbnailWidth,
               shouldSign: policy === "signed",
@@ -861,7 +868,7 @@ export async function getModerationScores(
             width: thumbnailWidth,
             shouldSign: policy === "signed",
             credentials,
-            scope,
+            scope: effectiveScope,
           });
     thumbnailCount = thumbnailUrls.length;
 
