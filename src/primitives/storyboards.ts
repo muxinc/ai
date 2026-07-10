@@ -38,6 +38,6 @@ export async function getStoryboardUrl(
   }
 
   return `${baseUrl}?${new URLSearchParams(
-    Object.entries(params).map(([key, value]) => [key, String(value)]),
+    Object.entries(params).map(([key, value]): [string, string] => [key, String(value)]),
   ).toString()}`;
 }

@@ -1,5 +1,6 @@
-import { MuxAiError } from "./mux-ai-error.ts";
 import type { WorkflowScope } from "../types.ts";
+
+import { MuxAiError } from "./mux-ai-error.ts";
 
 /** A workflow scope with both asset-relative boundaries resolved. */
 export interface ResolvedWorkflowScope {
@@ -15,9 +16,13 @@ export interface ResolvedWorkflowScope {
  */
 export function resolveWorkflowScope(
   scope: WorkflowScope | undefined,
-  assetDurationSeconds: number,
+  assetDurationSeconds: number | undefined,
 ): ResolvedWorkflowScope {
-  if (!Number.isFinite(assetDurationSeconds) || assetDurationSeconds <= 0) {
+  if (
+    assetDurationSeconds === undefined ||
+    !Number.isFinite(assetDurationSeconds) ||
+    assetDurationSeconds <= 0
+  ) {
     throw new MuxAiError("Asset has no valid duration.", { type: "validation_error" });
   }
 

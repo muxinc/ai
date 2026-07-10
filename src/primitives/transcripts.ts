@@ -590,12 +590,20 @@ export function filterVttByScope(
   }
 
   const { preamble, cueBlocks } = splitVttPreambleAndCueBlocks(vttContent);
-  const scopedCueBlocks = cueBlocks.filter((cueBlock) => {
-    const cue = parseVTTCues(cueBlock)[0];
-    return cue ?
-        timeRangesOverlap(cue.startTime, cue.endTime, scope) :
-      false;
-  });
+  const scopedCueBlocks = cueBlocks
+    .filter((cueBlock) => {
+      const cue = parseVTTCues(cueBlock)[0];
+      return cue ?
+          timeRangesOverlap(cue.startTime, cue.endTime, scope) :
+        false;
+    })
+    .map((cueBlock, index) => {
+      const lines = cueBlock.split("\n");
+      if (/^\d+$/.test(lines[0]?.trim()) && lines[1]?.includes("-->")) {
+        lines[0] = String(index + 1);
+      }
+      return lines.join("\n");
+    });
 
   return buildVttFromCueBlocks(scopedCueBlocks, preamble);
 }

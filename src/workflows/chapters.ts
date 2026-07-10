@@ -494,8 +494,8 @@ async function generateChaptersInternal(
     .filter(chapter => typeof chapter.startTime === "number" && typeof chapter.title === "string")
     .filter(chapter =>
       resolvedScope ?
-          chapter.startTime >= resolvedScope.startTime &&
-          chapter.startTime < resolvedScope.endTime :
+        chapter.startTime >= resolvedScope.startTime &&
+        chapter.startTime < resolvedScope.endTime :
         true,
     )
     .sort((a, b) => a.startTime - b.startTime);

@@ -36,7 +36,7 @@ export async function getThumbnailUrls(
   const { interval = 10, width = 640, shouldSign = false, maxSamples, credentials, scope } = options;
   const resolvedScope = scope ?
       resolveWorkflowScope(scope, duration) :
-    { startTime: 0, endTime: duration };
+      { startTime: 0, endTime: duration };
   const rangeDuration = resolvedScope.endTime - resolvedScope.startTime;
   let timestamps: number[] = [];
 

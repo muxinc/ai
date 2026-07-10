@@ -828,7 +828,7 @@ export async function getModerationScores(
     // Cheaply estimate how many thumbnails the interval would produce so we
     // can skip generating (and potentially JWT-signing) URLs we'd discard.
     const scopedDuration = resolvedScope ?
-        resolvedScope.endTime - resolvedScope.startTime :
+      resolvedScope.endTime - resolvedScope.startTime :
       duration;
     const estimatedIntervalCount = scopedDuration <= 50 ? 5 : Math.ceil(scopedDuration / thumbnailInterval);
 
@@ -845,8 +845,8 @@ export async function getModerationScores(
               trim_start_sec: resolvedScope?.startTime ??
                 (duration > 2 ? Math.min(5, Math.max(1, duration / 6)) : 0),
               trim_end_sec: resolvedScope ?
-                  duration - resolvedScope.endTime :
-                (duration > 2 ? Math.min(5, Math.max(1, duration / 6)) : 0),
+                duration - resolvedScope.endTime :
+                  (duration > 2 ? Math.min(5, Math.max(1, duration / 6)) : 0),
               fps: videoTrackFps,
               base_cadence_hz: thumbnailInterval > 0 ? 1 / thumbnailInterval : undefined,
             }),
