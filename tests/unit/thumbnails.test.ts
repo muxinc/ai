@@ -178,6 +178,20 @@ describe("getThumbnailUrls", () => {
   });
 
   describe("scope parameter", () => {
+    it("treats an empty scope like an omitted scope", async () => {
+      const withoutScope = await getThumbnailUrls(testPlaybackId, 100, {
+        maxSamples: 4,
+        shouldSign: false,
+      });
+      const withEmptyScope = await getThumbnailUrls(testPlaybackId, 100, {
+        maxSamples: 4,
+        shouldSign: false,
+        scope: {},
+      });
+
+      expect(withEmptyScope).toEqual(withoutScope);
+    });
+
     it("samples only within a bounded range", async () => {
       const urls = await getThumbnailUrls(testPlaybackId, 100, {
         interval: 10,

@@ -13,7 +13,7 @@ import { withRetry } from "../lib/retry.ts";
 import { planSamplingTimestamps } from "../lib/sampling-plan.ts";
 import { signUrl } from "../lib/url-signing.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
-import { resolveWorkflowScope } from "../lib/workflow-scope.ts";
+import { hasWorkflowScopeBoundaries, resolveWorkflowScope } from "../lib/workflow-scope.ts";
 import { getThumbnailUrls } from "../primitives/thumbnails.ts";
 import { fetchTranscriptForAsset } from "../primitives/transcripts.ts";
 import type {
@@ -782,7 +782,7 @@ export async function getModerationScores(
   const duration = candidateDurations.length > 0 ? Math.min(...candidateDurations) : 0;
   // An empty scope is equivalent to omitting scope. Keeping that distinction
   // avoids changing the default edge trims merely because callers pass `{}`.
-  const effectiveScope = scope?.startTime !== undefined || scope?.endTime !== undefined ?
+  const effectiveScope = hasWorkflowScopeBoundaries(scope) ?
     scope :
     undefined;
   const resolvedScope = effectiveScope ?

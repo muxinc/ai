@@ -4,7 +4,7 @@ import { isAudioOnlyAsset } from "../lib/mux-assets.ts";
 import { getMuxStreamOrigin } from "../lib/mux-url.ts";
 import { normalizeUntrustedUnicode } from "../lib/output-safety.ts";
 import { signUrl } from "../lib/url-signing.ts";
-import { timeRangesOverlap } from "../lib/workflow-scope.ts";
+import { hasWorkflowScopeBoundaries, timeRangesOverlap } from "../lib/workflow-scope.ts";
 import type { AssetTextTrack, MuxAsset, WorkflowCredentialsInput, WorkflowScope } from "../types.ts";
 
 type TrackWithAutoLanguageConfidence = AssetTextTrack & {
@@ -814,13 +814,14 @@ export async function fetchTranscriptForAsset(
     }
 
     const rawVtt = await response.text();
-    const scopedVtt = filterVttByScope(rawVtt, scope);
+    const effectiveScope = hasWorkflowScopeBoundaries(scope) ? scope : undefined;
+    const scopedVtt = filterVttByScope(rawVtt, effectiveScope);
     const transcriptText = cleanTranscript ? extractTextFromVTT(scopedVtt) : scopedVtt;
 
-    const hasScopedCues = !scope || parseVTTCues(scopedVtt).length > 0;
+    const hasScopedCues = !effectiveScope || parseVTTCues(scopedVtt).length > 0;
     if (required && (!transcriptText.trim() || !hasScopedCues)) {
       throw new MuxAiError(
-        scope ? "Transcript has no cues in the requested scope." : "Transcript is empty.",
+        effectiveScope ? "Transcript has no cues in the requested scope." : "Transcript is empty.",
         { type: "validation_error" },
       );
     }

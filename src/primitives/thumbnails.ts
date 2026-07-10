@@ -1,6 +1,6 @@
 import { getMuxThumbnailBaseUrl } from "../lib/mux-url.ts";
 import { signUrl } from "../lib/url-signing.ts";
-import { resolveWorkflowScope } from "../lib/workflow-scope.ts";
+import { hasWorkflowScopeBoundaries, resolveWorkflowScope } from "../lib/workflow-scope.ts";
 import type { WorkflowCredentialsInput, WorkflowScope } from "../types.ts";
 
 export interface ThumbnailOptions {
@@ -34,8 +34,9 @@ export async function getThumbnailUrls(
 ): Promise<Array<{ url: string; time: number }>> {
   "use step";
   const { interval = 10, width = 640, shouldSign = false, maxSamples, credentials, scope } = options;
-  const resolvedScope = scope ?
-      resolveWorkflowScope(scope, duration) :
+  const effectiveScope = hasWorkflowScopeBoundaries(scope) ? scope : undefined;
+  const resolvedScope = effectiveScope ?
+      resolveWorkflowScope(effectiveScope, duration) :
       { startTime: 0, endTime: duration };
   const rangeDuration = resolvedScope.endTime - resolvedScope.startTime;
   let timestamps: number[] = [];
@@ -44,7 +45,7 @@ export async function getThumbnailUrls(
     const spacing = rangeDuration / 6;
     for (let i = 1; i <= 5; i++) {
       const time = resolvedScope.startTime + i * spacing;
-      timestamps.push(scope ? Number(time.toFixed(3)) : Math.round(time));
+      timestamps.push(effectiveScope ? Number(time.toFixed(3)) : Math.round(time));
     }
   } else {
     for (
@@ -65,7 +66,7 @@ export async function getThumbnailUrls(
 
     // If maxSamples >= 2, add evenly distributed middle frames and last frame
     if (maxSamples >= 2) {
-      const lastTime = scope ?
+      const lastTime = effectiveScope ?
           Math.max(resolvedScope.startTime, resolvedScope.endTime - 0.001) :
         resolvedScope.endTime;
       const spacing = (lastTime - resolvedScope.startTime) / (maxSamples - 1);

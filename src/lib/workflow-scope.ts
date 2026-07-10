@@ -10,6 +10,13 @@ export interface ResolvedWorkflowScope {
   endTime: number;
 }
 
+/** Returns whether a scope actually narrows an asset-relative range. */
+export function hasWorkflowScopeBoundaries(
+  scope: WorkflowScope | undefined,
+): scope is WorkflowScope {
+  return scope?.startTime !== undefined || scope?.endTime !== undefined;
+}
+
 /**
  * Validates a caller-provided scope and fills omitted boundaries from the
  * asset duration.

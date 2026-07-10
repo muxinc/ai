@@ -1,11 +1,12 @@
 import dedent from "dedent";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildVttFromCueBlocks,
   buildVttFromTranslatedCueBlocks,
   concatenateVttSegments,
   extractTextFromVTT,
+  fetchTranscriptForAsset,
   filterVttByScope,
   findCaptionTrack,
   getReliableLanguageCode,
@@ -120,6 +121,34 @@ describe("filterVttByScope", () => {
     const result = filterVttByScope(vttContent, { startTime: 10 });
 
     expect(result).toContain("00:00:10.000 --> 00:00:15.000");
+  });
+});
+
+describe("fetchTranscriptForAsset", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("reports an empty transcript, not an empty scope, for a boundary-less scope", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      text: vi.fn().mockResolvedValue("WEBVTT\n\n"),
+    }));
+
+    const asset = {
+      tracks: [{
+        type: "text",
+        id: "track-1",
+        status: "ready",
+        text_type: "subtitles",
+        language_code: "en",
+      }],
+    } as MuxAsset;
+
+    await expect(fetchTranscriptForAsset(asset, "playback-1", {
+      required: true,
+      scope: {},
+    })).rejects.toThrow("Transcript is empty.");
   });
 });
 
