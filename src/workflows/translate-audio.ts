@@ -481,15 +481,15 @@ export async function translateAudio(
     wrapError(error, "Failed to create ElevenLabs dubbing job");
   }
 
-  // Poll for completion
+  // Poll for completion. ElevenLabs added intermediate dubbing states
   console.warn("⏳ Waiting for dubbing to complete...");
 
-  let dubbingStatus: string = "dubbing";
+  let dubbingStatus = "dubbing";
   let pollAttempts = 0;
   const maxPollAttempts = 180; // 30 minutes at 10s intervals
   let targetLanguages: string[] = [];
 
-  while (dubbingStatus === "dubbing" && pollAttempts < maxPollAttempts) {
+  while (dubbingStatus !== "dubbed" && pollAttempts < maxPollAttempts) {
     await sleep(10000); // Wait 10 seconds
     pollAttempts++;
 
@@ -500,12 +500,12 @@ export async function translateAudio(
       });
       dubbingStatus = statusResult.status;
       targetLanguages = statusResult.targetLanguages;
-
-      if (dubbingStatus === "failed") {
-        throw new Error("ElevenLabs dubbing job failed");
-      }
     } catch (error) {
       wrapError(error, "Failed to check dubbing status");
+    }
+
+    if (dubbingStatus === "failed") {
+      throw new MuxAiError("ElevenLabs reported that the dubbing job failed.", { type: "processing_error" });
     }
   }
 
