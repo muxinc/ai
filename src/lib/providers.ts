@@ -306,7 +306,7 @@ export function resolveEmbeddingModelConfig<P extends SupportedEmbeddingProvider
 // Pricing is in USD per million tokens. These values are used for cost estimation
 // in evaluations and should be periodically verified against official sources.
 //
-// Sources (verified on 2026-07-06):
+// Sources (verified on 2026-07-13):
 // - OpenAI: https://developers.openai.com/api/docs/pricing
 // - Anthropic: https://www.anthropic.com/pricing
 // - Google: https://ai.google.dev/gemini-api/docs/pricing
@@ -339,15 +339,15 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
   // OpenAI models
   // Reference: https://developers.openai.com/api/docs/pricing
   "gpt-5.1": {
-    inputPerMillion: 1.25,
-    outputPerMillion: 10.00,
-    cachedInputPerMillion: 0.125,
+    inputPerMillion: 5.00,
+    outputPerMillion: 30.00,
+    cachedInputPerMillion: 0.50,
     pricingUrl: "https://developers.openai.com/api/docs/pricing",
   },
   "gpt-5-mini": {
-    inputPerMillion: 0.25,
-    outputPerMillion: 2.00,
-    cachedInputPerMillion: 0.025,
+    inputPerMillion: 0.75,
+    outputPerMillion: 4.50,
+    cachedInputPerMillion: 0.075,
     pricingUrl: "https://developers.openai.com/api/docs/pricing",
   },
 
