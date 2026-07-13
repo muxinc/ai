@@ -26,6 +26,7 @@ import {
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
 import { withRetry } from "../lib/retry.ts";
+import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import { signUrl } from "../lib/url-signing.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
 import type { HeatmapResponse } from "../primitives/heatmap.ts";
@@ -642,7 +643,22 @@ export async function generateEngagementInsights(
   options: EngagementInsightsOptions = {},
 ): Promise<EngagementInsightsResult> {
   "use workflow";
+  // Usage from provider calls made so far. A throw after the insights call
+  // (e.g. no valid insights) still reports the tokens burned via the error's
+  // `usage` property.
+  const collectedUsage: TokenUsage[] = [];
+  try {
+    return await generateEngagementInsightsInternal(assetId, options, collectedUsage);
+  } catch (error) {
+    rethrowWithTokenUsage(error, collectedUsage);
+  }
+}
 
+async function generateEngagementInsightsInternal(
+  assetId: string,
+  options: EngagementInsightsOptions,
+  collectedUsage: TokenUsage[],
+): Promise<EngagementInsightsResult> {
   const {
     provider = "openai",
     model,
@@ -819,6 +835,7 @@ export async function generateEngagementInsights(
     credentials,
   );
   const { result: aiInsights, usage } = aiStepResult;
+  collectedUsage.push(usage);
 
   if (!aiInsights.momentInsights || aiInsights.momentInsights.length === 0) {
     throw new MuxAiError(`Failed to generate insights for asset ${assetId}.`);

@@ -21,6 +21,7 @@ import {
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
 import { withRetry } from "../lib/retry.ts";
+import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
 import {
   extractTimestampedTranscript,
@@ -368,6 +369,22 @@ export async function generateChapters(
   options: ChaptersOptions = {},
 ): Promise<ChaptersResult> {
   "use workflow";
+  // Usage from provider calls made so far. A throw after the generation call
+  // (e.g. no valid chapters) still reports the tokens burned via the error's
+  // `usage` property.
+  const collectedUsage: TokenUsage[] = [];
+  try {
+    return await generateChaptersInternal(assetId, options, collectedUsage);
+  } catch (error) {
+    rethrowWithTokenUsage(error, collectedUsage);
+  }
+}
+
+async function generateChaptersInternal(
+  assetId: string,
+  options: ChaptersOptions,
+  collectedUsage: TokenUsage[],
+): Promise<ChaptersResult> {
   const {
     languageCode,
     provider = "openai",
@@ -454,6 +471,10 @@ export async function generateChapters(
     });
   } catch (error) {
     wrapError(error, `Failed to generate chapters with ${provider}`);
+  }
+
+  if (chaptersData) {
+    collectedUsage.push(chaptersData.usage);
   }
 
   if (!chaptersData || !chaptersData.chapters) {

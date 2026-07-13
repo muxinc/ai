@@ -35,6 +35,7 @@ import {
   createPresignedGetUrlWithStorageAdapter,
   putObjectWithStorageAdapter,
 } from "../lib/storage-adapter.ts";
+import { aggregateTokenUsage, getErrorTokenUsage, rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
 import {
   chunkVTTCuesByBudget,
@@ -233,15 +234,8 @@ interface TranslationChunkRequest {
   cueBlocks: string[];
 }
 
-const TOKEN_USAGE_FIELDS = [
-  "inputTokens",
-  "outputTokens",
-  "totalTokens",
-  "reasoningTokens",
-  "cachedInputTokens",
-] as const;
-
-type AggregatedTokenUsageField = (typeof TOKEN_USAGE_FIELDS)[number];
+// Re-exported from its original home for backwards compatibility.
+export { aggregateTokenUsage };
 
 class TranslationChunkValidationError extends Error {
   constructor(message: string) {
@@ -286,10 +280,6 @@ export function shouldSplitChunkTranslationError(error: unknown): boolean {
   );
 }
 
-function isDefinedTokenUsageValue(value: number | undefined): value is number {
-  return typeof value === "number";
-}
-
 function resolveTranslationChunkingOptions(
   options?: TranslationChunkingOptions,
 ): Required<TranslationChunkingOptions> {
@@ -320,22 +310,39 @@ function resolveTranslationChunkingOptions(
   };
 }
 
-export function aggregateTokenUsage(usages: TokenUsage[]): TokenUsage {
-  return TOKEN_USAGE_FIELDS.reduce<TokenUsage>((aggregate, field) => {
-    // Only aggregate values that were explicitly reported by the provider so
-    // omitted fields stay undefined instead of being coerced to 0.
-    const values = usages
-      .map(usage => usage[field as AggregatedTokenUsageField])
-      .filter(isDefinedTokenUsageValue);
-
-    if (values.length > 0) {
-      // Sum this field independently and write it back only when at least one
-      // chunk included real data for it.
-      aggregate[field] = values.reduce((total, value) => total + value, 0);
+/**
+ * Unwraps `Promise.allSettled` outcomes for a group of chunk translations.
+ * On any rejection, the usage of the fulfilled siblings (plus `priorUsage`
+ * and the usage carried by the other rejections) is attached to the first
+ * rejection before it is rethrown, so tokens burned on successful chunks
+ * aren't lost when one chunk fails.
+ */
+function collectSettledTranslationsOrRethrow(
+  outcomes: Array<PromiseSettledResult<TranslateStepResult>>,
+  priorUsage: TokenUsage[],
+): TranslateStepResult[] {
+  const results: TranslateStepResult[] = [];
+  const failures: unknown[] = [];
+  for (const outcome of outcomes) {
+    if (outcome.status === "fulfilled") {
+      results.push(outcome.value);
+    } else {
+      failures.push(outcome.reason);
     }
+  }
 
-    return aggregate;
-  }, {});
+  if (failures.length > 0) {
+    const partialUsage = [...priorUsage, ...results.map(result => result.usage)];
+    for (const failure of failures.slice(1)) {
+      const usage = getErrorTokenUsage(failure);
+      if (usage) {
+        partialUsage.push(usage);
+      }
+    }
+    rethrowWithTokenUsage(failures[0], partialUsage);
+  }
+
+  return results;
 }
 
 function createTranslationChunkRequest(
@@ -838,24 +845,30 @@ async function translateChunkWithFallback({
     }
 
     const [leftChunk, rightChunk] = splitTranslationChunkAtMidpoint(chunk);
-    const [leftResult, rightResult] = await Promise.all([
-      translateChunkWithFallback({
-        chunk: leftChunk,
-        fromLanguageCode,
-        toLanguageCode,
-        provider,
-        modelId,
-        credentials,
-      }),
-      translateChunkWithFallback({
-        chunk: rightChunk,
-        fromLanguageCode,
-        toLanguageCode,
-        provider,
-        modelId,
-        credentials,
-      }),
-    ]);
+    // The failed whole-chunk attempt burned tokens too; fold its usage into
+    // the error if the split halves also fail.
+    const failedAttemptUsage = getErrorTokenUsage(error);
+    const [leftResult, rightResult] = collectSettledTranslationsOrRethrow(
+      await Promise.allSettled([
+        translateChunkWithFallback({
+          chunk: leftChunk,
+          fromLanguageCode,
+          toLanguageCode,
+          provider,
+          modelId,
+          credentials,
+        }),
+        translateChunkWithFallback({
+          chunk: rightChunk,
+          fromLanguageCode,
+          toLanguageCode,
+          provider,
+          modelId,
+          credentials,
+        }),
+      ]),
+      failedAttemptUsage ? [failedAttemptUsage] : [],
+    );
 
     return {
       translatedVtt: concatenateVttSegments([leftResult.translatedVtt, rightResult.translatedVtt]),
@@ -910,17 +923,20 @@ async function translateCaptionTrack({
 
   for (let index = 0; index < chunkPlan.chunks.length; index += resolvedChunking.maxConcurrentTranslations) {
     const batch = chunkPlan.chunks.slice(index, index + resolvedChunking.maxConcurrentTranslations);
-    const batchResults = await Promise.all(
-      batch.map(chunk =>
-        translateChunkWithFallback({
-          chunk,
-          fromLanguageCode,
-          toLanguageCode,
-          provider,
-          modelId,
-          credentials,
-        }),
+    const batchResults = collectSettledTranslationsOrRethrow(
+      await Promise.allSettled(
+        batch.map(chunk =>
+          translateChunkWithFallback({
+            chunk,
+            fromLanguageCode,
+            toLanguageCode,
+            provider,
+            modelId,
+            credentials,
+          }),
+        ),
       ),
+      usageByChunk,
     );
 
     translatedSegments.push(...batchResults.map(result => result.translatedVtt));
@@ -997,6 +1013,24 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   options: TranslationOptions<P>,
 ): Promise<TranslationResult> {
   "use workflow";
+  // Usage from provider calls made so far. A throw after translation (e.g.
+  // a failed S3 upload) still reports the tokens burned via the error's
+  // `usage` property.
+  const collectedUsage: TokenUsage[] = [];
+  try {
+    return await translateCaptionsInternal(assetId, trackId, toLanguageCode, options, collectedUsage);
+  } catch (error) {
+    rethrowWithTokenUsage(error, collectedUsage);
+  }
+}
+
+async function translateCaptionsInternal<P extends SupportedProvider = SupportedProvider>(
+  assetId: string,
+  trackId: string,
+  toLanguageCode: string,
+  options: TranslationOptions<P>,
+  collectedUsage: TokenUsage[],
+): Promise<TranslationResult> {
   const {
     provider = "openai",
     model,
@@ -1100,6 +1134,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
     });
     translatedVtt = result.translatedVtt;
     usage = result.usage;
+    collectedUsage.push(result.usage);
     scrubbedCueCounts = result.scrubbedCueCounts;
     unexpectedKeyCount = result.unexpectedKeyCount;
   } catch (error) {

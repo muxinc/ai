@@ -21,6 +21,7 @@ import {
 } from "../lib/prompt-fragments.ts";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
+import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import { getStoryboardUrl } from "../primitives/storyboards.ts";
 import type {
   ImageSubmissionMode,
@@ -328,6 +329,21 @@ export async function hasBurnedInCaptions(
   options: BurnedInCaptionsOptions = {},
 ): Promise<BurnedInCaptionsResult> {
   "use workflow";
+  // Usage from provider calls made so far. A throw after the analysis call
+  // still reports the tokens burned via the error's `usage` property.
+  const collectedUsage: TokenUsage[] = [];
+  try {
+    return await hasBurnedInCaptionsInternal(assetId, options, collectedUsage);
+  } catch (error) {
+    rethrowWithTokenUsage(error, collectedUsage);
+  }
+}
+
+async function hasBurnedInCaptionsInternal(
+  assetId: string,
+  options: BurnedInCaptionsOptions,
+  collectedUsage: TokenUsage[],
+): Promise<BurnedInCaptionsResult> {
   const {
     provider = DEFAULT_PROVIDER,
     model,
@@ -373,6 +389,8 @@ export async function hasBurnedInCaptions(
       credentials,
     });
   }
+
+  collectedUsage.push(analysisResponse.usage);
 
   if (!analysisResponse.result) {
     throw new Error("No analysis result received from AI provider");

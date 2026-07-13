@@ -39,6 +39,7 @@ import {
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
 import { withRetry } from "../lib/retry.ts";
+import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import {
   resolveMuxSigningContext,
 } from "../lib/workflow-credentials.ts";
@@ -683,6 +684,22 @@ export async function getSummaryAndTags(
   options?: SummarizationOptions,
 ): Promise<SummaryAndTagsResult> {
   "use workflow";
+  // Usage from provider calls made so far. A throw after the analysis call
+  // (e.g. unusable model output) still reports the tokens burned via the
+  // error's `usage` property.
+  const collectedUsage: TokenUsage[] = [];
+  try {
+    return await getSummaryAndTagsInternal(assetId, options, collectedUsage);
+  } catch (error) {
+    rethrowWithTokenUsage(error, collectedUsage);
+  }
+}
+
+async function getSummaryAndTagsInternal(
+  assetId: string,
+  options: SummarizationOptions | undefined,
+  collectedUsage: TokenUsage[],
+): Promise<SummaryAndTagsResult> {
   const {
     provider = "openai",
     model,
@@ -829,6 +846,8 @@ export async function getSummaryAndTags(
     const contentType = isAudioOnly ? "audio" : "video";
     wrapError(error, `Failed to analyze ${contentType} content with ${provider}`);
   }
+
+  collectedUsage.push(analysisResponse.usage);
 
   if (!analysisResponse.result) {
     const contentType = isAudioOnly ? "audio" : "video";
