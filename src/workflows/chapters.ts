@@ -369,9 +369,6 @@ export async function generateChapters(
   options: ChaptersOptions = {},
 ): Promise<ChaptersResult> {
   "use workflow";
-  // Usage from provider calls made so far. A throw after the generation call
-  // (e.g. no valid chapters) still reports the tokens burned via the error's
-  // `usage` property.
   const collectedUsage: TokenUsage[] = [];
   try {
     return await generateChaptersInternal(assetId, options, collectedUsage);

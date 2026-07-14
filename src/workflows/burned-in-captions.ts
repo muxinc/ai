@@ -329,8 +329,6 @@ export async function hasBurnedInCaptions(
   options: BurnedInCaptionsOptions = {},
 ): Promise<BurnedInCaptionsResult> {
   "use workflow";
-  // Usage from provider calls made so far. A throw after the analysis call
-  // still reports the tokens burned via the error's `usage` property.
   const collectedUsage: TokenUsage[] = [];
   try {
     return await hasBurnedInCaptionsInternal(assetId, options, collectedUsage);

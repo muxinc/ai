@@ -755,9 +755,6 @@ export async function askQuestions(
   options?: AskQuestionsOptions,
 ): Promise<AskQuestionsResult> {
   "use workflow";
-  // Usage from provider calls made so far. A throw after the analysis call
-  // (e.g. incomplete answers) still reports the tokens burned via the
-  // error's `usage` property.
   const collectedUsage: TokenUsage[] = [];
   try {
     return await askQuestionsInternal(assetId, questions, options, collectedUsage);

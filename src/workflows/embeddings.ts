@@ -7,7 +7,7 @@ import {
 import type { EmbeddingModelIdByProvider, SupportedEmbeddingProvider } from "../lib/providers.ts";
 import { createEmbeddingModelFromConfig, resolveEmbeddingModelConfig } from "../lib/providers.ts";
 import { withRetry } from "../lib/retry.ts";
-import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
+import { getErrorTokenUsage, rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
 import { chunkText, chunkVTTCues } from "../primitives/text-chunking.ts";
 import { fetchTranscriptForAsset, parseVTTCues } from "../primitives/transcripts.ts";
@@ -114,9 +114,6 @@ async function generateSingleChunkEmbedding({
         tokenCount: chunk.tokenCount,
       },
     },
-    // Embedding tokens are all input tokens. Reported so a failure partway
-    // through the batches can attach the tokens burned so far to the error;
-    // the success-path result intentionally remains unchanged.
     usage: typeof response.usage?.tokens === "number" ?
         { inputTokens: response.usage.tokens, totalTokens: response.usage.tokens } :
       undefined,
@@ -223,9 +220,8 @@ async function generateEmbeddingsInternal(
         ),
       );
 
-      // Record usage from every settled call — including the fulfilled
-      // siblings of a failed call — before rethrowing, so the tokens
-      // burned so far ride on the thrown error.
+      // The catch below replaces the error with a message-only Error, so
+      // usage from every settled call must be recorded here to survive.
       const failures: unknown[] = [];
       for (const outcome of batchOutcomes) {
         if (outcome.status === "fulfilled") {
@@ -234,6 +230,10 @@ async function generateEmbeddingsInternal(
           }
           chunkEmbeddings.push(outcome.value.chunk);
         } else {
+          const failureUsage = getErrorTokenUsage(outcome.reason);
+          if (failureUsage) {
+            collectedUsage.push(failureUsage);
+          }
           failures.push(outcome.reason);
         }
       }

@@ -551,9 +551,6 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
   options: EditCaptionsOptions<P>,
 ): Promise<EditCaptionsResult> {
   "use workflow";
-  // Usage from provider calls made so far. A throw after profanity detection
-  // (e.g. a failed S3 upload) still reports the tokens burned via the
-  // error's `usage` property.
   const collectedUsage: TokenUsage[] = [];
   try {
     return await editCaptionsInternal(assetId, trackId, options, collectedUsage);

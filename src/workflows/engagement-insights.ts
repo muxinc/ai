@@ -643,9 +643,6 @@ export async function generateEngagementInsights(
   options: EngagementInsightsOptions = {},
 ): Promise<EngagementInsightsResult> {
   "use workflow";
-  // Usage from provider calls made so far. A throw after the insights call
-  // (e.g. no valid insights) still reports the tokens burned via the error's
-  // `usage` property.
   const collectedUsage: TokenUsage[] = [];
   try {
     return await generateEngagementInsightsInternal(assetId, options, collectedUsage);

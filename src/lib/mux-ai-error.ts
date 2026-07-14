@@ -83,10 +83,7 @@ export function wrapError(error: unknown, message: string): never {
     console.warn(`[@mux/ai] Suppressed suspected prompt leak in wrapped error (context: ${message}, reason: ${leakReason}).`);
   }
   const wrapped = new Error(`${message}: ${detail}`);
-  // Token usage rides on errors as a plain `usage` property (AI SDK errors
-  // like NoObjectGeneratedError, plus errors annotated by
-  // rethrowWithTokenUsage). Carry it through wrapping so failed workflows
-  // can still report the tokens they burned.
+  // Carry `usage` through wrapping so failed workflows still report tokens burned.
   const usage = getErrorTokenUsage(error);
   if (usage) {
     (wrapped as Error & { usage?: TokenUsage }).usage = usage;

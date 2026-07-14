@@ -33,14 +33,10 @@ export function aggregateTokenUsage(usages: TokenUsage[]): TokenUsage {
 }
 
 /**
- * Reads token usage carried on a thrown error's plain `usage` property.
- *
- * Covers both AI SDK errors that report usage for the failed call (e.g.
- * `NoObjectGeneratedError`) and errors this package has already annotated
- * via {@link rethrowWithTokenUsage}. Only the known numeric fields are
- * extracted; AI SDK v6 nests reasoning/cache counts under
- * `outputTokenDetails`/`inputTokenDetails` when the deprecated flat fields
- * are absent, so those are used as fallbacks.
+ * Reads token usage from a thrown error's plain `usage` property (AI SDK
+ * errors like `NoObjectGeneratedError`, or errors annotated by
+ * {@link rethrowWithTokenUsage}). Falls back to AI SDK v6's nested
+ * `inputTokenDetails`/`outputTokenDetails` for cache/reasoning counts.
  */
 export function getErrorTokenUsage(error: unknown): TokenUsage | undefined {
   if (typeof error !== "object" || error === null) {
@@ -77,15 +73,10 @@ export function getErrorTokenUsage(error: unknown): TokenUsage | undefined {
 }
 
 /**
- * Rethrows `error` with the aggregate token usage of all provider calls made
- * so far attached as a plain enumerable `usage` property, so consumers can
- * report tokens burned by failed workflows (mirrors the AI SDK's
- * `NoObjectGeneratedError.usage` convention).
- *
- * The error's own `usage` (from the failing call) is folded into the
- * aggregate. When no usage was collected and the error carries none, the
- * error is rethrown untouched — callers treat a missing `usage` as "no
- * tokens spent".
+ * Rethrows `error` with the aggregate of `collectedUsage` plus the error's
+ * own usage attached as a plain enumerable `usage` property (mirrors the AI
+ * SDK's `NoObjectGeneratedError.usage` convention). Rethrows untouched when
+ * there is no usage to attach.
  */
 export function rethrowWithTokenUsage(error: unknown, collectedUsage: TokenUsage[]): never {
   const usages = [...collectedUsage];

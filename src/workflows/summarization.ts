@@ -684,9 +684,6 @@ export async function getSummaryAndTags(
   options?: SummarizationOptions,
 ): Promise<SummaryAndTagsResult> {
   "use workflow";
-  // Usage from provider calls made so far. A throw after the analysis call
-  // (e.g. unusable model output) still reports the tokens burned via the
-  // error's `usage` property.
   const collectedUsage: TokenUsage[] = [];
   try {
     return await getSummaryAndTagsInternal(assetId, options, collectedUsage);

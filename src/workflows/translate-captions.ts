@@ -1013,9 +1013,6 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   options: TranslationOptions<P>,
 ): Promise<TranslationResult> {
   "use workflow";
-  // Usage from provider calls made so far. A throw after translation (e.g.
-  // a failed S3 upload) still reports the tokens burned via the error's
-  // `usage` property.
   const collectedUsage: TokenUsage[] = [];
   try {
     return await translateCaptionsInternal(assetId, trackId, toLanguageCode, options, collectedUsage);
