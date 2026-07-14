@@ -77,6 +77,8 @@ export interface AudioTranslationOptions extends MuxAIOptions {
   storageAdapter?: StorageAdapter;
   /** Expiry duration in seconds for S3 presigned GET URLs. Defaults to 86400 (24 hours). */
   s3SignedUrlExpirySeconds?: number;
+  /** Maximum time in seconds to wait before timing out. Defaults to 7200 (2 hours). */
+  dubbingPollTimeoutSeconds?: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -85,6 +87,9 @@ export interface AudioTranslationOptions extends MuxAIOptions {
 
 const STATIC_RENDITION_POLL_INTERVAL_MS = 5000;
 const STATIC_RENDITION_MAX_ATTEMPTS = 36; // ~3 minutes
+
+const DUBBING_POLL_INTERVAL_MS = 10_000;
+const DEFAULT_DUBBING_POLL_TIMEOUT_SECONDS = 7200; // 2 hours; override via options.dubbingPollTimeoutSeconds
 
 function getReadyAudioStaticRendition(asset: any) {
   const files = asset.static_renditions?.files as any[] | undefined;
@@ -484,13 +489,15 @@ export async function translateAudio(
   // Poll for completion. ElevenLabs added intermediate dubbing states
   console.warn("⏳ Waiting for dubbing to complete...");
 
+  const dubbingPollTimeoutSeconds = options.dubbingPollTimeoutSeconds ?? DEFAULT_DUBBING_POLL_TIMEOUT_SECONDS;
+  const maxPollAttempts = Math.max(1, Math.ceil((dubbingPollTimeoutSeconds * 1000) / DUBBING_POLL_INTERVAL_MS));
+
   let dubbingStatus = "dubbing";
   let pollAttempts = 0;
-  const maxPollAttempts = 180; // 30 minutes at 10s intervals
   let targetLanguages: string[] = [];
 
   while (dubbingStatus !== "dubbed" && pollAttempts < maxPollAttempts) {
-    await sleep(10000); // Wait 10 seconds
+    await sleep(DUBBING_POLL_INTERVAL_MS);
     pollAttempts++;
 
     try {
