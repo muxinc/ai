@@ -284,11 +284,11 @@ async function checkElevenLabsDubbingStatus({
   };
 }
 
-// Download from ElevenLabs and upload to S3 in a SINGLE step so the audio
-// bytes never cross a workflow step boundary. Step inputs/outputs are persisted
-// to the durable event log, which has a payload size cap — long-form dubs
-// exceed it and the write fails with HTTP 413. Only the small presigned URL
-// leaves the step.
+/**
+ * Download dubbed audio from ElevenLabs and upload to S3 in a single step so the audio
+ * bytes never cross a workflow step boundary. Step inputs/outputs are persisted
+ * to the durable event log, which has a payload size cap, so the single step prevents errors.
+ */
 async function downloadAndUploadDubbedAudio({
   dubbingId,
   languageCode,
@@ -313,8 +313,8 @@ async function downloadAndUploadDubbedAudio({
   credentials?: WorkflowCredentialsInput;
 }): Promise<string> {
   "use step";
-
   const elevenLabsApiKey = await getApiKeyFromEnv("elevenlabs", credentials);
+
   const audioUrl = `https://api.elevenlabs.io/v1/dubbing/${dubbingId}/audio/${languageCode}`;
   const audioResponse = await fetch(audioUrl, {
     headers: {
