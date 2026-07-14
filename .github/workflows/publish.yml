@@ -23,8 +23,10 @@ jobs:
           node-version: 22.22.1 # Pinned: 22.22.2 has broken npm (nodejs/node#62425)
           cache: npm
 
-      - name: Update npm to latest
-        run: npm install -g npm@latest
+      - name: Update npm to 11
+        # npm >= 11.5.1 required for OIDC trusted publishing; npm 12 requires node >= 22.22.2,
+        # which conflicts with the node pin above
+        run: npm install -g npm@11
 
       - name: Install dependencies
         run: npm ci
