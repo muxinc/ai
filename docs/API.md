@@ -550,6 +550,7 @@ Creates AI-dubbed audio tracks from existing media content using ElevenLabs voic
 - `s3Bucket?: string` - S3 bucket name
 - `storageAdapter?: StorageAdapter` - Optional adapter with `putObject` and `createPresignedGetUrl` methods
 - `s3SignedUrlExpirySeconds?: number` - Expiry duration in seconds for S3 presigned GET URLs (default: 86400 / 24 hours)
+- `dubbingPollTimeoutSeconds?: number` - Max time to wait for ElevenLabs to finish dubbing before timing out (default: 7200 / 2 hours). Raise for long-form content or when jobs queue behind the concurrency limit.
 
 **Returns:**
 
