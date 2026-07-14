@@ -40,10 +40,10 @@ import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../li
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
 import { withRetry } from "../lib/retry.ts";
 import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
-import { resolveWorkflowScope } from "../lib/workflow-scope.ts";
 import {
   resolveMuxSigningContext,
 } from "../lib/workflow-credentials.ts";
+import { resolveWorkflowScope } from "../lib/workflow-scope.ts";
 import { getStoryboardUrl } from "../primitives/storyboards.ts";
 import { fetchTranscriptForAsset, getReadyTextTracks, getReliableLanguageCode } from "../primitives/transcripts.ts";
 import type {
