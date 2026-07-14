@@ -77,13 +77,7 @@ export interface AudioTranslationOptions extends MuxAIOptions {
   storageAdapter?: StorageAdapter;
   /** Expiry duration in seconds for S3 presigned GET URLs. Defaults to 86400 (24 hours). */
   s3SignedUrlExpirySeconds?: number;
-  /**
-   * Maximum time in seconds to wait for ElevenLabs to finish dubbing before
-   * timing out. Long-form assets — and jobs queued behind ElevenLabs'
-   * concurrency limit — can take well over 30 minutes. Defaults to 7200
-   * (2 hours). Durable sleep makes waiting free, so raise this for very long
-   * content rather than letting a still-processing job fail.
-   */
+  /** Maximum time in seconds to wait before timing out. Defaults to 7200 (2 hours). */
   dubbingPollTimeoutSeconds?: number;
 }
 
