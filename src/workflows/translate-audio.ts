@@ -284,18 +284,37 @@ async function checkElevenLabsDubbingStatus({
   };
 }
 
-async function downloadDubbedAudioFromElevenLabs({
+// Download from ElevenLabs and upload to S3 in a SINGLE step so the audio
+// bytes never cross a workflow step boundary. Step inputs/outputs are persisted
+// to the durable event log, which has a payload size cap — long-form dubs
+// exceed it and the write fails with HTTP 413. Only the small presigned URL
+// leaves the step.
+async function downloadAndUploadDubbedAudio({
   dubbingId,
   languageCode,
+  assetId,
+  toLanguageCode,
+  s3Endpoint,
+  s3Region,
+  s3Bucket,
+  storageAdapter,
+  s3SignedUrlExpirySeconds,
   credentials,
 }: {
   dubbingId: string;
   languageCode: string;
+  assetId: string;
+  toLanguageCode: string;
+  s3Endpoint: string;
+  s3Region: string;
+  s3Bucket: string;
+  storageAdapter?: StorageAdapter;
+  s3SignedUrlExpirySeconds?: number;
   credentials?: WorkflowCredentialsInput;
-}): Promise<ArrayBuffer> {
+}): Promise<string> {
   "use step";
-  const elevenLabsApiKey = await getApiKeyFromEnv("elevenlabs", credentials);
 
+  const elevenLabsApiKey = await getApiKeyFromEnv("elevenlabs", credentials);
   const audioUrl = `https://api.elevenlabs.io/v1/dubbing/${dubbingId}/audio/${languageCode}`;
   const audioResponse = await fetch(audioUrl, {
     headers: {
@@ -307,29 +326,7 @@ async function downloadDubbedAudioFromElevenLabs({
     throw new Error(`Failed to fetch dubbed audio: ${audioResponse.statusText}`);
   }
 
-  return audioResponse.arrayBuffer();
-}
-
-async function uploadDubbedAudioToS3({
-  dubbedAudioBuffer,
-  assetId,
-  toLanguageCode,
-  s3Endpoint,
-  s3Region,
-  s3Bucket,
-  storageAdapter,
-  s3SignedUrlExpirySeconds,
-}: {
-  dubbedAudioBuffer: ArrayBuffer;
-  assetId: string;
-  toLanguageCode: string;
-  s3Endpoint: string;
-  s3Region: string;
-  s3Bucket: string;
-  storageAdapter?: StorageAdapter;
-  s3SignedUrlExpirySeconds?: number;
-}): Promise<string> {
-  "use step";
+  const dubbedAudio = new Uint8Array(await audioResponse.arrayBuffer());
 
   const s3AccessKeyId = env.S3_ACCESS_KEY_ID;
   const s3SecretAccessKey = env.S3_SECRET_ACCESS_KEY;
@@ -344,7 +341,7 @@ async function uploadDubbedAudioToS3({
     region: s3Region,
     bucket: s3Bucket,
     key: audioKey,
-    body: new Uint8Array(dubbedAudioBuffer),
+    body: dubbedAudio,
     contentType: "audio/mp4",
   }, storageAdapter);
 
@@ -526,52 +523,18 @@ export async function translateAudio(
   let uploadedTrackId: string | undefined;
 
   if (uploadToS3) {
-    // Download dubbed audio from ElevenLabs
-    console.warn("📥 Downloading dubbed audio from ElevenLabs...");
-
-    let dubbedAudioBuffer: ArrayBuffer;
+    console.warn("📥 Downloading dubbed audio from ElevenLabs and staging to S3...");
 
     try {
-      // Use the language code from the ElevenLabs status response
-      // ElevenLabs returns target_languages array with the exact codes available for download
-      const requestedLangCode = toISO639_3(toLanguageCode);
+      // ElevenLabs reports target_languages in ISO 639-1 and the download
+      // endpoint expects one of those codes. A single-target dub yields exactly
+      // one entry, so use it directly; fall back to the ISO 639-1 form of the
+      // requested language if the array is unexpectedly empty.
+      const downloadLangCode = targetLanguages[0] ?? toISO639_1(toLanguageCode);
 
-      // Find the matching language code from ElevenLabs response
-      // First try exact match, then try case-insensitive match
-      let downloadLangCode = targetLanguages.find(
-        lang => lang === requestedLangCode,
-      ) ?? targetLanguages.find(
-        lang => lang.toLowerCase() === requestedLangCode.toLowerCase(),
-      );
-
-      // Fallback to first available target language if no match found
-      if (!downloadLangCode && targetLanguages.length > 0) {
-        downloadLangCode = targetLanguages[0];
-        console.warn(`⚠️ Requested language "${requestedLangCode}" not found in target_languages. Using "${downloadLangCode}" instead.`);
-      }
-
-      // If still no language code, fall back to the original behavior
-      if (!downloadLangCode) {
-        downloadLangCode = requestedLangCode;
-        console.warn(`⚠️ No target_languages available from ElevenLabs status. Using requested language code: ${requestedLangCode}`);
-      }
-
-      dubbedAudioBuffer = await downloadDubbedAudioFromElevenLabs({
+      presignedUrl = await downloadAndUploadDubbedAudio({
         dubbingId,
         languageCode: downloadLangCode,
-        credentials,
-      });
-      console.warn("✅ Dubbed audio downloaded successfully!");
-    } catch (error) {
-      wrapError(error, "Failed to download dubbed audio");
-    }
-
-    // Upload to S3-compatible storage
-    console.warn("📤 Uploading dubbed audio to S3-compatible storage...");
-
-    try {
-      presignedUrl = await uploadDubbedAudioToS3({
-        dubbedAudioBuffer,
         assetId,
         toLanguageCode,
         s3Endpoint: s3Endpoint!,
@@ -579,9 +542,11 @@ export async function translateAudio(
         s3Bucket: s3Bucket!,
         storageAdapter: effectiveStorageAdapter,
         s3SignedUrlExpirySeconds: options.s3SignedUrlExpirySeconds,
+        credentials,
       });
+      console.warn("✅ Dubbed audio staged to S3 successfully!");
     } catch (error) {
-      wrapError(error, "Failed to upload audio to S3");
+      wrapError(error, "Failed to download and upload dubbed audio");
     }
 
     // Add translated audio track to Mux asset (only when uploadToMux is true)
@@ -591,7 +556,7 @@ export async function translateAudio(
       const muxLangCode = toISO639_1(toLanguageCode);
 
       try {
-        uploadedTrackId = await createAudioTrackOnMux(assetId, muxLangCode, presignedUrl, credentials);
+        uploadedTrackId = await createAudioTrackOnMux(assetId, muxLangCode, presignedUrl!, credentials);
         const languageName = new Intl.DisplayNames(["en"], { type: "language" }).of(muxLangCode) || muxLangCode.toUpperCase();
         const trackName = `${languageName} (auto-dubbed)`;
         console.warn(`✅ Track added to Mux asset with ID: ${uploadedTrackId}`);
