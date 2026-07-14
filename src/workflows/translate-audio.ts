@@ -1,3 +1,5 @@
+import { sleep } from "workflow";
+
 import env from "../env.ts";
 import { getApiKeyFromEnv } from "../lib/client-factory.ts";
 import { getLanguageCodePair, toISO639_1, toISO639_3 } from "../lib/language-codes.ts";
@@ -84,11 +86,6 @@ export interface AudioTranslationOptions extends MuxAIOptions {
 const STATIC_RENDITION_POLL_INTERVAL_MS = 5000;
 const STATIC_RENDITION_MAX_ATTEMPTS = 36; // ~3 minutes
 
-async function sleep(ms: number): Promise<void> {
-  "use step";
-  await new Promise(resolve => setTimeout(resolve, ms));
-}
-
 function getReadyAudioStaticRendition(asset: any) {
   const files = asset.static_renditions?.files as any[] | undefined;
   if (!files || files.length === 0) {
@@ -144,6 +141,18 @@ async function requestStaticRenditionCreation(
   }
 }
 
+async function retrieveAsset(
+  assetId: string,
+  credentials?: WorkflowCredentialsInput,
+): Promise<any> {
+  "use step";
+  const muxClient = await resolveMuxClient(credentials);
+  const mux = await muxClient.createClient();
+  return mux.video.assets.retrieve(assetId);
+}
+
+// Orchestration-level (not a step): the poll loop must call the durable `sleep`,
+// which suspends the workflow between retries without holding the function open.
 async function waitForAudioStaticRendition({
   assetId,
   initialAsset,
@@ -153,9 +162,6 @@ async function waitForAudioStaticRendition({
   initialAsset: any;
   credentials?: WorkflowCredentialsInput;
 }): Promise<any> {
-  "use step";
-  const muxClient = await resolveMuxClient(credentials);
-  const mux = await muxClient.createClient();
   let currentAsset = initialAsset;
 
   if (hasReadyAudioStaticRendition(currentAsset)) {
@@ -174,7 +180,7 @@ async function waitForAudioStaticRendition({
 
   for (let attempt = 1; attempt <= STATIC_RENDITION_MAX_ATTEMPTS; attempt++) {
     await sleep(STATIC_RENDITION_POLL_INTERVAL_MS);
-    currentAsset = await mux.video.assets.retrieve(assetId);
+    currentAsset = await retrieveAsset(assetId, credentials);
 
     if (hasReadyAudioStaticRendition(currentAsset)) {
       return currentAsset;
@@ -198,26 +204,15 @@ async function waitForAudioStaticRendition({
   );
 }
 
-async function fetchAudioFromMux(audioUrl: string): Promise<ArrayBuffer> {
-  "use step";
-
-  const audioResponse = await fetch(audioUrl);
-  if (!audioResponse.ok) {
-    throw new Error(`Failed to fetch audio file: ${audioResponse.statusText}`);
-  }
-
-  return audioResponse.arrayBuffer();
-}
-
 async function createElevenLabsDubbingJob({
-  audioBuffer,
+  sourceUrl,
   assetId,
   elevenLabsLangCode,
   elevenLabsSourceLangCode,
   numSpeakers,
   credentials,
 }: {
-  audioBuffer: ArrayBuffer;
+  sourceUrl: string;
   assetId: string;
   elevenLabsLangCode: string;
   elevenLabsSourceLangCode?: string;
@@ -227,10 +222,10 @@ async function createElevenLabsDubbingJob({
   "use step";
   const elevenLabsApiKey = await getApiKeyFromEnv("elevenlabs", credentials);
 
-  const audioBlob = new Blob([audioBuffer], { type: "audio/mp4" });
-
+  // Hand ElevenLabs the Mux audio URL directly so it fetches the source itself,
+  // instead of downloading the bytes onto the workflow runner and re-uploading them.
   const formData = new FormData();
-  formData.append("file", audioBlob);
+  formData.append("source_url", sourceUrl);
   formData.append("target_lang", elevenLabsLangCode);
   if (elevenLabsSourceLangCode) {
     formData.append("source_lang", elevenLabsSourceLangCode);
@@ -460,16 +455,6 @@ export async function translateAudio(
     audioUrl = await signUrl(audioUrl, playbackId, "video", undefined, credentials);
   }
 
-  // Fetch audio from Mux
-  console.warn("🎙️ Fetching audio from Mux...");
-
-  let audioBuffer: ArrayBuffer;
-  try {
-    audioBuffer = await fetchAudioFromMux(audioUrl);
-  } catch (error) {
-    wrapError(error, "Failed to fetch audio from Mux");
-  }
-
   // Create dubbing job in ElevenLabs
   console.warn("🎙️ Creating dubbing job in ElevenLabs...");
 
@@ -484,7 +469,7 @@ export async function translateAudio(
   let dubbingId: string;
   try {
     dubbingId = await createElevenLabsDubbingJob({
-      audioBuffer,
+      sourceUrl: audioUrl,
       assetId,
       elevenLabsLangCode,
       elevenLabsSourceLangCode,
@@ -496,15 +481,15 @@ export async function translateAudio(
     wrapError(error, "Failed to create ElevenLabs dubbing job");
   }
 
-  // Poll for completion
+  // Poll for completion. ElevenLabs added intermediate dubbing states
   console.warn("⏳ Waiting for dubbing to complete...");
 
-  let dubbingStatus: string = "dubbing";
+  let dubbingStatus = "dubbing";
   let pollAttempts = 0;
   const maxPollAttempts = 180; // 30 minutes at 10s intervals
   let targetLanguages: string[] = [];
 
-  while (dubbingStatus === "dubbing" && pollAttempts < maxPollAttempts) {
+  while (dubbingStatus !== "dubbed" && pollAttempts < maxPollAttempts) {
     await sleep(10000); // Wait 10 seconds
     pollAttempts++;
 
@@ -515,12 +500,12 @@ export async function translateAudio(
       });
       dubbingStatus = statusResult.status;
       targetLanguages = statusResult.targetLanguages;
-
-      if (dubbingStatus === "failed") {
-        throw new Error("ElevenLabs dubbing job failed");
-      }
     } catch (error) {
       wrapError(error, "Failed to check dubbing status");
+    }
+
+    if (dubbingStatus === "failed") {
+      throw new MuxAiError("ElevenLabs reported that the dubbing job failed.", { type: "processing_error" });
     }
   }
 

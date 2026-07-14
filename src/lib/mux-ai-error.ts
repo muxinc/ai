@@ -66,11 +66,36 @@ export class MuxAiError extends Error {
  * trigger the much stronger field-level scrubber on the preceding
  * model output.
  */
+/**
+ * Extract a human-readable detail from an unknown thrown value.
+ *
+ * An error thrown inside a Workflow DevKit step crosses a VM/serialization
+ * boundary before it reaches a workflow-level catch, arriving as a plain
+ * object that fails `instanceof Error` but still carries a `message` string.
+ * Duck-typing `message` avoids collapsing the real cause (e.g. "fetch failed")
+ * to "Unknown error".
+ */
+function extractErrorDetail(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  if (typeof error === "string" && error.length > 0) {
+    return error;
+  }
+  if (typeof error === "object" && error !== null) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && message.length > 0) {
+      return message;
+    }
+  }
+  return "Unknown error";
+}
+
 export function wrapError(error: unknown, message: string): never {
   if (error instanceof MuxAiError) {
     throw error;
   }
-  const rawDetail = error instanceof Error ? error.message : "Unknown error";
+  const rawDetail = extractErrorDetail(error);
   const leakReason = detectLeakReason(rawDetail);
   const shouldSuppress = leakReason === "canary" || leakReason === "prompt_tag";
   const detail = shouldSuppress ?
