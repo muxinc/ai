@@ -23,6 +23,7 @@ import {
   createPresignedGetUrlWithStorageAdapter,
   putObjectWithStorageAdapter,
 } from "../lib/storage-adapter.ts";
+import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import {
   resolveMuxClient,
   resolveMuxSigningContext,
@@ -550,7 +551,20 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
   options: EditCaptionsOptions<P>,
 ): Promise<EditCaptionsResult> {
   "use workflow";
+  const collectedUsage: TokenUsage[] = [];
+  try {
+    return await editCaptionsInternal(assetId, trackId, options, collectedUsage);
+  } catch (error) {
+    rethrowWithTokenUsage(error, collectedUsage);
+  }
+}
 
+async function editCaptionsInternal<P extends SupportedProvider = SupportedProvider>(
+  assetId: string,
+  trackId: string,
+  options: EditCaptionsOptions<P>,
+  collectedUsage: TokenUsage[],
+): Promise<EditCaptionsResult> {
   const {
     provider,
     model,
@@ -667,6 +681,7 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
       });
       detectedProfanity = result.profanity;
       usage = result.usage;
+      collectedUsage.push(result.usage);
       // Record schema-smuggling signals from the step. zod.strip() has
       // already removed extras from the parsed output; the safety report
       // surfaces what was stripped.

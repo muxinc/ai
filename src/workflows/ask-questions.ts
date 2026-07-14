@@ -25,6 +25,7 @@ import {
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
 import { withRetry } from "../lib/retry.ts";
+import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
 import { getStoryboardUrl } from "../primitives/storyboards.ts";
 import { fetchTranscriptForAsset } from "../primitives/transcripts.ts";
@@ -754,7 +755,20 @@ export async function askQuestions(
   options?: AskQuestionsOptions,
 ): Promise<AskQuestionsResult> {
   "use workflow";
+  const collectedUsage: TokenUsage[] = [];
+  try {
+    return await askQuestionsInternal(assetId, questions, options, collectedUsage);
+  } catch (error) {
+    rethrowWithTokenUsage(error, collectedUsage);
+  }
+}
 
+async function askQuestionsInternal(
+  assetId: string,
+  questions: Question[],
+  options: AskQuestionsOptions | undefined,
+  collectedUsage: TokenUsage[],
+): Promise<AskQuestionsResult> {
   // Validate questions array is non-empty
   if (!questions || questions.length === 0) {
     throw new MuxAiError("At least one question must be provided.", { type: "validation_error" });
@@ -954,6 +968,8 @@ export async function askQuestions(
     const contentType = isAudioOnly ? "audio" : "video";
     wrapError(error, `Failed to analyze ${contentType} questions with ${provider}`);
   }
+
+  collectedUsage.push(analysisResponse.usage);
 
   if (!analysisResponse.result?.answers) {
     throw new MuxAiError(`Failed to generate answers for asset ${assetId}.`);

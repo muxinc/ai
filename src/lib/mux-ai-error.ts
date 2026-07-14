@@ -1,4 +1,7 @@
+import type { TokenUsage } from "../types.ts";
+
 import { detectLeakReason } from "./output-safety.ts";
+import { getErrorTokenUsage } from "./token-usage.ts";
 
 export type MuxAiErrorType = "validation_error" | "processing_error" | "timeout_error";
 
@@ -104,5 +107,11 @@ export function wrapError(error: unknown, message: string): never {
   if (shouldSuppress) {
     console.warn(`[@mux/ai] Suppressed suspected prompt leak in wrapped error (context: ${message}, reason: ${leakReason}).`);
   }
-  throw new Error(`${message}: ${detail}`);
+  const wrapped = new Error(`${message}: ${detail}`);
+  // Carry `usage` through wrapping so failed workflows still report tokens burned.
+  const usage = getErrorTokenUsage(error);
+  if (usage) {
+    (wrapped as Error & { usage?: TokenUsage }).usage = usage;
+  }
+  throw wrapped;
 }
