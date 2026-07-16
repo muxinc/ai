@@ -12,6 +12,26 @@ Internally, every workflow is composed from [primitives](./PRIMITIVES.md) - the 
 
 Workflows in this project are exported with the `"use workflow"` directive, which makes them compatible with [Workflow DevKit](https://useworkflow.dev). See the [Workflow DevKit guide](./WORKFLOW-DEVKIT.md) for integration details.
 
+## Scoped Execution
+
+Content-analysis workflows can be limited to an asset-relative time range:
+
+```typescript
+const result = await getSummaryAndTags(assetId, {
+  scope: {
+    startTime: 30, // Inclusive, in seconds
+    endTime: 90, // Exclusive, in seconds
+  },
+});
+```
+
+Either boundary can be omitted. Scoped execution is available for
+summarization, moderation, burned-in caption detection, question answering,
+chapter generation, and embeddings. Visual workflows request a scoped
+storyboard or scoped thumbnails, and transcript-based workflows include only
+cues that overlap the range. Returned timestamps remain relative to the full
+asset.
+
 ## Video Summarization
 
 Generate AI-powered titles, descriptions, and tags from video content.

@@ -13,11 +13,12 @@ import { withRetry } from "../lib/retry.ts";
 import { planSamplingTimestamps } from "../lib/sampling-plan.ts";
 import { signUrl } from "../lib/url-signing.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
+import { hasWorkflowScopeBoundaries, resolveWorkflowScope } from "../lib/workflow-scope.ts";
 import { getThumbnailUrls } from "../primitives/thumbnails.ts";
 import { fetchTranscriptForAsset } from "../primitives/transcripts.ts";
 import type {
   ImageSubmissionMode,
-  MuxAIOptions,
+  ScopedMuxAIOptions,
   TokenUsage,
   WorkflowCredentialsInput,
 } from "../types.ts";
@@ -89,7 +90,7 @@ export interface HiveModerationOutput {
 }
 
 /** Configuration accepted by `getModerationScores`. */
-export interface ModerationOptions extends MuxAIOptions {
+export interface ModerationOptions extends ScopedMuxAIOptions {
   /** Provider used for moderation (defaults to 'openai'). */
   provider?: ModerationProvider;
   /** OpenAI moderation model identifier (defaults to 'omni-moderation-latest'). */
@@ -710,6 +711,30 @@ async function requestGoogleVisionModeration(
   return processConcurrently(targets, moderateImageWithGoogleVision, maxConcurrent);
 }
 
+/** Convert a millisecond timestamp to the seconds precision used in thumbnail URLs. */
+function toThumbnailTimeSeconds(timestampMs: number): number {
+  return Number((timestampMs / 1000).toFixed(2));
+}
+
+/**
+ * Keep only timestamps whose rounded thumbnail `time` stays inside an exclusive-end scope.
+ * Filtering after `toFixed(2)` matters: a millisecond value just below `endTime` can round
+ * up onto or past the exclusive boundary.
+ */
+function filterTimestampsWithinExclusiveScope(
+  timestampsMs: number[],
+  scope: { startTime: number; endTime: number } | undefined,
+): number[] {
+  if (!scope) {
+    return timestampsMs;
+  }
+
+  return timestampsMs.filter((timestampMs) => {
+    const time = toThumbnailTimeSeconds(timestampMs);
+    return time >= scope.startTime && time < scope.endTime;
+  });
+}
+
 async function getThumbnailUrlsFromTimestamps(
   playbackId: string,
   timestampsMs: number[],
@@ -724,7 +749,7 @@ async function getThumbnailUrlsFromTimestamps(
   const baseUrl = getMuxThumbnailBaseUrl(playbackId);
 
   const urlPromises = timestampsMs.map(async (tsMs) => {
-    const time = Number((tsMs / 1000).toFixed(2));
+    const time = toThumbnailTimeSeconds(tsMs);
     const url = shouldSign ?
         await signUrl(baseUrl, playbackId, "thumbnail", { time, width }, credentials) :
       `${baseUrl}?time=${time}&width=${width}`;
@@ -765,6 +790,7 @@ export async function getModerationScores(
     imageSubmissionMode = "url",
     imageDownloadOptions,
     credentials: providedCredentials,
+    scope,
   } = options;
   const credentials = providedCredentials;
   // Fetch asset data and playback ID from Mux via helper
@@ -778,7 +804,28 @@ export async function getModerationScores(
     (d): d is number => d != null,
   );
   const duration = candidateDurations.length > 0 ? Math.min(...candidateDurations) : 0;
+  // An empty scope is equivalent to omitting scope. Keeping that distinction
+  // avoids changing the default edge trims merely because callers pass `{}`.
+  const effectiveScope = hasWorkflowScopeBoundaries(scope) ?
+    scope :
+    undefined;
+  const resolvedScope = effectiveScope ?
+      resolveWorkflowScope(effectiveScope, assetDurationSeconds) :
+    undefined;
   const isAudioOnly = isAudioOnlyAsset(asset);
+  // Scope boundaries are asset-relative, but video thumbnails must stay within
+  // the renderable video track. A valid scope can therefore extend beyond the
+  // available video when an asset has trailing non-video media.
+  const renderableScope = resolvedScope ?
+      {
+        startTime: Math.min(resolvedScope.startTime, duration),
+        endTime: Math.min(resolvedScope.endTime, duration),
+      } :
+    undefined;
+
+  if (!isAudioOnly && renderableScope && renderableScope.startTime >= renderableScope.endTime) {
+    throw new Error("The requested scope does not include any renderable video.");
+  }
 
   // Resolve signing context for signed playback IDs
   const signingContext = await resolveMuxSigningContext(credentials);
@@ -801,6 +848,7 @@ export async function getModerationScores(
       shouldSign: policy === "signed",
       credentials,
       required: true,
+      scope: effectiveScope,
     });
 
     if (provider === "openai") {
@@ -821,7 +869,10 @@ export async function getModerationScores(
   } else {
     // Cheaply estimate how many thumbnails the interval would produce so we
     // can skip generating (and potentially JWT-signing) URLs we'd discard.
-    const estimatedIntervalCount = duration <= 50 ? 5 : Math.ceil(duration / thumbnailInterval);
+    const scopedDuration = renderableScope ?
+      renderableScope.endTime - renderableScope.startTime :
+      duration;
+    const estimatedIntervalCount = scopedDuration <= 50 ? 5 : Math.ceil(scopedDuration / thumbnailInterval);
 
     // maxSamples acts as a true cap: if the interval already fits within the
     // budget we use the interval-based path. Only when the interval would
@@ -830,14 +881,20 @@ export async function getModerationScores(
       maxSamples !== undefined && estimatedIntervalCount > maxSamples ?
           await getThumbnailUrlsFromTimestamps(
             playbackId,
-            planSamplingTimestamps({
-              duration_sec: duration,
-              max_candidates: maxSamples,
-              trim_start_sec: duration > 2 ? Math.min(5, Math.max(1, duration / 6)) : 0,
-              trim_end_sec: duration > 2 ? Math.min(5, Math.max(1, duration / 6)) : 0,
-              fps: videoTrackFps,
-              base_cadence_hz: thumbnailInterval > 0 ? 1 / thumbnailInterval : undefined,
-            }),
+            filterTimestampsWithinExclusiveScope(
+              planSamplingTimestamps({
+                duration_sec: duration,
+                max_candidates: maxSamples,
+                trim_start_sec: renderableScope?.startTime ??
+                  (duration > 2 ? Math.min(5, Math.max(1, duration / 6)) : 0),
+                trim_end_sec: renderableScope ?
+                  duration - renderableScope.endTime :
+                    (duration > 2 ? Math.min(5, Math.max(1, duration / 6)) : 0),
+                fps: videoTrackFps,
+                base_cadence_hz: thumbnailInterval > 0 ? 1 / thumbnailInterval : undefined,
+              }),
+              renderableScope,
+            ),
             {
               width: thumbnailWidth,
               shouldSign: policy === "signed",
@@ -849,6 +906,7 @@ export async function getModerationScores(
             width: thumbnailWidth,
             shouldSign: policy === "signed",
             credentials,
+            scope: renderableScope,
           });
     thumbnailCount = thumbnailUrls.length;
 

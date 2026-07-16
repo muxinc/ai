@@ -1,11 +1,13 @@
 import dedent from "dedent";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildVttFromCueBlocks,
   buildVttFromTranslatedCueBlocks,
   concatenateVttSegments,
   extractTextFromVTT,
+  fetchTranscriptForAsset,
+  filterVttByScope,
   findCaptionTrack,
   getReliableLanguageCode,
   LOW_CONFIDENCE_THRESHOLD,
@@ -79,6 +81,74 @@ describe("secondsToTimestamp", () => {
     expect(secondsToTimestamp(60)).toBe("1:00");
     expect(secondsToTimestamp(120)).toBe("2:00");
     expect(secondsToTimestamp(180)).toBe("3:00");
+  });
+});
+
+describe("filterVttByScope", () => {
+  const vttContent = dedent`
+    WEBVTT
+
+    1
+    00:00:00.000 --> 00:00:05.000
+    Intro
+
+    2
+    00:00:05.000 --> 00:00:10.000
+    First topic
+
+    3
+    00:00:10.000 --> 00:00:15.000
+    Second topic
+  `;
+
+  it("keeps only cues overlapping the scope", () => {
+    const result = filterVttByScope(vttContent, {
+      startTime: 7,
+      endTime: 12,
+    });
+
+    expect(extractTextFromVTT(result)).toBe("First topic Second topic");
+    expect(result).not.toContain("Intro");
+  });
+
+  it("treats the end boundary as exclusive", () => {
+    const result = filterVttByScope(vttContent, { endTime: 5 });
+
+    expect(extractTextFromVTT(result)).toBe("Intro");
+  });
+
+  it("preserves original cue timestamps", () => {
+    const result = filterVttByScope(vttContent, { startTime: 10 });
+
+    expect(result).toContain("00:00:10.000 --> 00:00:15.000");
+  });
+});
+
+describe("fetchTranscriptForAsset", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("reports an empty transcript, not an empty scope, for a boundary-less scope", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      text: vi.fn().mockResolvedValue("WEBVTT\n\n"),
+    }));
+
+    const asset = {
+      tracks: [{
+        type: "text",
+        id: "track-1",
+        status: "ready",
+        text_type: "subtitles",
+        language_code: "en",
+      }],
+    } as MuxAsset;
+
+    await expect(fetchTranscriptForAsset(asset, "playback-1", {
+      required: true,
+      scope: {},
+    })).rejects.toThrow("Transcript is empty.");
   });
 });
 

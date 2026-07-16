@@ -20,6 +20,16 @@ vi.mock("../../src/primitives/thumbnails", () => ({
   getThumbnailUrls: vi.fn(),
 }));
 
+vi.mock("../../src/lib/sampling-plan", async () => {
+  const actual = await vi.importActual<typeof import("../../src/lib/sampling-plan")>(
+    "../../src/lib/sampling-plan",
+  );
+  return {
+    ...actual,
+    planSamplingTimestamps: vi.fn(actual.planSamplingTimestamps),
+  };
+});
+
 const { getApiKeyFromEnv } = await import("../../src/lib/client-factory");
 const {
   getAssetDurationSecondsFromAsset,
@@ -28,6 +38,7 @@ const {
   getVideoTrackMaxFrameRateFromAsset,
   isAudioOnlyAsset,
 } = await import("../../src/lib/mux-assets");
+const { planSamplingTimestamps } = await import("../../src/lib/sampling-plan");
 const { resolveMuxSigningContext } = await import("../../src/lib/workflow-credentials");
 const { getThumbnailUrls } = await import("../../src/primitives/thumbnails");
 const { getModerationScores } = await import("../../src/workflows/moderation");
@@ -76,6 +87,104 @@ afterEach(() => {
 });
 
 describe("getModerationScores coverage metadata", () => {
+  it("treats an empty scope like an omitted scope when capped sampling is used", async () => {
+    mockFetch.mockResolvedValue(mockOpenAIModerationResponse({
+      status: 200,
+      body: { results: [{ category_scores: { sexual: 0, violence: 0 } }] },
+    }));
+
+    await getModerationScores("asset-123", {
+      provider: "openai",
+      maxSamples: 4,
+    });
+    const timesWithOmittedScope = mockFetch.mock.calls.map(([, init]) => {
+      const body = JSON.parse(String(init?.body));
+      return body.input[0].image_url.url;
+    });
+
+    mockFetch.mockClear();
+
+    await getModerationScores("asset-123", {
+      provider: "openai",
+      maxSamples: 4,
+      scope: {},
+    });
+    const timesWithEmptyScope = mockFetch.mock.calls.map(([, init]) => {
+      const body = JSON.parse(String(init?.body));
+      return body.input[0].image_url.url;
+    });
+
+    expect(timesWithEmptyScope).toEqual(timesWithOmittedScope);
+  });
+
+  it("excludes the scoped end timestamp when capped sampling rounds to a frame", async () => {
+    vi.mocked(getVideoTrackMaxFrameRateFromAsset).mockReturnValue(1);
+    mockFetch.mockResolvedValue(mockOpenAIModerationResponse({
+      status: 200,
+      body: { results: [{ category_scores: { sexual: 0, violence: 0 } }] },
+    }));
+
+    await getModerationScores("asset-123", {
+      provider: "openai",
+      maxSamples: 4,
+      scope: { startTime: 10, endTime: 14 },
+    });
+
+    const thumbnailTimes = mockFetch.mock.calls.map(([, init]) => {
+      const body = JSON.parse(String(init?.body));
+      return Number(new URL(body.input[0].image_url.url).searchParams.get("time"));
+    });
+
+    expect(thumbnailTimes).toEqual([10, 11, 12, 13]);
+    expect(thumbnailTimes.every(time => time < 14)).toBe(true);
+  });
+
+  it("excludes timestamps that round to the exclusive scoped end after toFixed(2)", async () => {
+    // 13996ms passes a raw millisecond exclusive-end check for endTime=14, but
+    // Number((13996 / 1000).toFixed(2)) === 14 and must still be dropped.
+    vi.mocked(planSamplingTimestamps).mockReturnValueOnce([10_000, 12_000, 13_996]);
+    mockFetch.mockResolvedValue(mockOpenAIModerationResponse({
+      status: 200,
+      body: { results: [{ category_scores: { sexual: 0, violence: 0 } }] },
+    }));
+
+    await getModerationScores("asset-123", {
+      provider: "openai",
+      maxSamples: 4,
+      scope: { startTime: 10, endTime: 14 },
+    });
+
+    const thumbnailTimes = mockFetch.mock.calls.map(([, init]) => {
+      const body = JSON.parse(String(init?.body));
+      return Number(new URL(body.input[0].image_url.url).searchParams.get("time"));
+    });
+
+    expect(thumbnailTimes).toEqual([10, 12]);
+    expect(thumbnailTimes.every(time => time < 14)).toBe(true);
+  });
+
+  it("accepts asset-relative scopes that extend past the video track", async () => {
+    vi.mocked(getVideoTrackDurationSecondsFromAsset).mockReturnValue(80);
+    vi.mocked(getAssetDurationSecondsFromAsset).mockReturnValue(100);
+    mockFetch.mockResolvedValue(mockOpenAIModerationResponse({
+      status: 200,
+      body: { results: [{ category_scores: { sexual: 0, violence: 0 } }] },
+    }));
+
+    await expect(getModerationScores("asset-123", {
+      provider: "openai",
+      maxSamples: 4,
+      scope: { endTime: 100 },
+    })).resolves.toBeDefined();
+
+    const thumbnailTimes = mockFetch.mock.calls.map(([, init]) => {
+      const body = JSON.parse(String(init?.body));
+      return Number(new URL(body.input[0].image_url.url).searchParams.get("time"));
+    });
+
+    expect(thumbnailTimes.every(time => time < 80)).toBe(true);
+  });
+
   it("marks thumbnail results as low confidence when too few samples succeed", async () => {
     const urls = [
       { url: "https://thumb.test/1.png", time: 0 },

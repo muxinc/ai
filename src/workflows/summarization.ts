@@ -10,6 +10,7 @@ import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
+  getVideoTrackDurationSecondsFromAsset,
   isAudioOnlyAsset,
 } from "../lib/mux-assets.ts";
 import { createSafetyReporter, detectUnexpectedKeysFromRawText } from "../lib/output-safety.ts";
@@ -43,11 +44,16 @@ import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import {
   resolveMuxSigningContext,
 } from "../lib/workflow-credentials.ts";
+import {
+  hasWorkflowScopeBoundaries,
+  resolveRenderableVideoScope,
+  resolveWorkflowScope,
+} from "../lib/workflow-scope.ts";
 import { getStoryboardUrl } from "../primitives/storyboards.ts";
 import { fetchTranscriptForAsset, getReadyTextTracks, getReliableLanguageCode } from "../primitives/transcripts.ts";
 import type {
   ImageSubmissionMode,
-  MuxAIOptions,
+  ScopedMuxAIOptions,
   TokenUsage,
   ToneType,
   WorkflowCredentialsInput,
@@ -173,7 +179,7 @@ export type SummarizationPromptSections =
 export type SummarizationPromptOverrides = PromptOverrides<SummarizationPromptSections>;
 
 /** Configuration accepted by `getSummaryAndTags`. */
-export interface SummarizationOptions extends MuxAIOptions {
+export interface SummarizationOptions extends ScopedMuxAIOptions {
   /** AI provider to run (defaults to 'openai'). */
   provider?: SupportedProvider;
   /** Provider-specific chat model identifier. */
@@ -712,6 +718,7 @@ async function getSummaryAndTagsInternal(
     descriptionLength,
     tagCount,
     outputLanguageCode,
+    scope,
   } = options ?? {};
 
   // Validate tone parameter
@@ -733,9 +740,19 @@ async function getSummaryAndTagsInternal(
   const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, workflowCredentials);
 
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
-
   // Detect if asset is audio-only
   const isAudioOnly = isAudioOnlyAsset(assetData);
+  const effectiveScope = hasWorkflowScopeBoundaries(scope) ? scope : undefined;
+  const storyboardScope = isAudioOnly ?
+    undefined :
+      resolveRenderableVideoScope(
+        effectiveScope,
+        assetDurationSeconds,
+        getVideoTrackDurationSecondsFromAsset(assetData),
+      );
+  if (isAudioOnly && effectiveScope) {
+    resolveWorkflowScope(effectiveScope, assetDurationSeconds);
+  }
 
   // Audio-only assets require transcripts since there's no visual content
   if (isAudioOnly && !includeTranscript) {
@@ -763,6 +780,7 @@ async function getSummaryAndTagsInternal(
           shouldSign: policy === "signed",
           credentials: workflowCredentials,
           required: isAudioOnly,
+          scope: effectiveScope,
         }) :
       undefined;
   const transcriptText = transcriptResult?.transcriptText ?? "";
@@ -811,7 +829,13 @@ async function getSummaryAndTagsInternal(
       );
     } else {
       // Video analysis: fetch storyboard and analyze with visual content
-      const storyboardUrl = await getStoryboardUrl(playbackId, 640, policy === "signed", workflowCredentials);
+      const storyboardUrl = await getStoryboardUrl(
+        playbackId,
+        640,
+        policy === "signed",
+        workflowCredentials,
+        storyboardScope,
+      );
       imageUrl = storyboardUrl;
 
       if (imageSubmissionMode === "base64") {

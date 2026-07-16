@@ -5,7 +5,12 @@ import { z } from "zod";
 import type { ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImageAsBase64 } from "../lib/image-download.ts";
 import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
-import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset, isAudioOnlyAsset } from "../lib/mux-assets.ts";
+import {
+  getAssetDurationSecondsFromAsset,
+  getPlaybackIdForAsset,
+  getVideoTrackDurationSecondsFromAsset,
+  isAudioOnlyAsset,
+} from "../lib/mux-assets.ts";
 import { createSafetyReporter, detectUnexpectedKeys, detectUnexpectedKeysFromRawText } from "../lib/output-safety.ts";
 import type { SafetyReport } from "../lib/output-safety.ts";
 import { createTranscriptSection, renderSection } from "../lib/prompt-builder.ts";
@@ -27,9 +32,14 @@ import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
 import { withRetry } from "../lib/retry.ts";
 import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
+import {
+  hasWorkflowScopeBoundaries,
+  resolveRenderableVideoScope,
+  resolveWorkflowScope,
+} from "../lib/workflow-scope.ts";
 import { getStoryboardUrl } from "../primitives/storyboards.ts";
 import { fetchTranscriptForAsset } from "../primitives/transcripts.ts";
-import type { ImageSubmissionMode, MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "../types.ts";
+import type { ImageSubmissionMode, ScopedMuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "../types.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -66,7 +76,7 @@ export interface QuestionAnswer {
 }
 
 /** Configuration options for askQuestions workflow. */
-export interface AskQuestionsOptions extends MuxAIOptions {
+export interface AskQuestionsOptions extends ScopedMuxAIOptions {
   /** AI provider to run (defaults to 'openai'). */
   provider?: SupportedProvider;
   /** Provider-specific chat model identifier. */
@@ -857,6 +867,7 @@ async function askQuestionsInternal(
     imageDownloadOptions,
     storyboardWidth = 640,
     credentials,
+    scope,
   } = options ?? {};
 
   const normalizedQuestions: NormalizedQuestion[] = questions.map((q, idx) => normalizeQuestion(q, idx));
@@ -872,6 +883,17 @@ async function askQuestionsInternal(
 
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
   const isAudioOnly = isAudioOnlyAsset(assetData);
+  const effectiveScope = hasWorkflowScopeBoundaries(scope) ? scope : undefined;
+  const storyboardScope = isAudioOnly ?
+    undefined :
+      resolveRenderableVideoScope(
+        effectiveScope,
+        assetDurationSeconds,
+        getVideoTrackDurationSecondsFromAsset(assetData),
+      );
+  if (isAudioOnly && effectiveScope) {
+    resolveWorkflowScope(effectiveScope, assetDurationSeconds);
+  }
 
   if (isAudioOnly && !includeTranscript) {
     throw new MuxAiError(
@@ -898,6 +920,7 @@ async function askQuestionsInternal(
           shouldSign: policy === "signed",
           credentials,
           required: isAudioOnly,
+          scope: effectiveScope,
         }) :
       undefined;
   const transcriptText = transcriptResult?.transcriptText ?? "";
@@ -933,6 +956,7 @@ async function askQuestionsInternal(
         storyboardWidth,
         policy === "signed",
         credentials,
+        storyboardScope,
       );
       imageUrl = storyboardUrl;
 

@@ -4,7 +4,11 @@ import { z } from "zod";
 
 import type { ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImageAsBase64 } from "../lib/image-download.ts";
-import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "../lib/mux-assets.ts";
+import {
+  getAssetDurationSecondsFromAsset,
+  getPlaybackIdForAsset,
+  getVideoTrackDurationSecondsFromAsset,
+} from "../lib/mux-assets.ts";
 import { createSafetyReporter, detectUnexpectedKeysFromRawText } from "../lib/output-safety.ts";
 import type { SafetyReport } from "../lib/output-safety.ts";
 import type { PromptOverrides } from "../lib/prompt-builder.ts";
@@ -22,10 +26,11 @@ import {
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
 import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
+import { resolveRenderableVideoScope } from "../lib/workflow-scope.ts";
 import { getStoryboardUrl } from "../primitives/storyboards.ts";
 import type {
   ImageSubmissionMode,
-  MuxAIOptions,
+  ScopedMuxAIOptions,
   TokenUsage,
   WorkflowCredentialsInput,
 } from "../types.ts";
@@ -81,7 +86,7 @@ export type BurnedInCaptionsPromptSections =
 export type BurnedInCaptionsPromptOverrides = PromptOverrides<BurnedInCaptionsPromptSections>;
 
 /** Configuration accepted by `hasBurnedInCaptions`. */
-export interface BurnedInCaptionsOptions extends MuxAIOptions {
+export interface BurnedInCaptionsOptions extends ScopedMuxAIOptions {
   /** AI provider used for storyboard inspection (defaults to 'openai'). */
   provider?: SupportedProvider;
   /** Provider-specific model identifier. */
@@ -349,6 +354,7 @@ async function hasBurnedInCaptionsInternal(
     imageDownloadOptions,
     promptOverrides,
     credentials,
+    scope,
     ...config
   } = options;
 
@@ -362,8 +368,19 @@ async function hasBurnedInCaptionsInternal(
   });
   const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
+  const storyboardScope = resolveRenderableVideoScope(
+    scope,
+    assetDurationSeconds,
+    getVideoTrackDurationSecondsFromAsset(assetData),
+  );
 
-  const imageUrl = await getStoryboardUrl(playbackId, 640, policy === "signed", credentials);
+  const imageUrl = await getStoryboardUrl(
+    playbackId,
+    640,
+    policy === "signed",
+    credentials,
+    storyboardScope,
+  );
 
   let analysisResponse: AnalysisResponse;
 
