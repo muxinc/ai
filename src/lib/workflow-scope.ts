@@ -67,6 +67,42 @@ export function resolveWorkflowScope(
   return { startTime, endTime };
 }
 
+/**
+ * Resolves an asset-relative scope and clamps it to the portion of the asset
+ * that can be rendered as video.
+ */
+export function resolveRenderableVideoScope(
+  scope: WorkflowScope | undefined,
+  assetDurationSeconds: number | undefined,
+  videoTrackDurationSeconds: number | undefined,
+): ResolvedWorkflowScope | undefined {
+  if (!hasWorkflowScopeBoundaries(scope)) {
+    return undefined;
+  }
+
+  const resolvedScope = resolveWorkflowScope(scope, assetDurationSeconds);
+  let renderableEndTime = resolvedScope.endTime;
+  if (
+    videoTrackDurationSeconds !== undefined &&
+    Number.isFinite(videoTrackDurationSeconds) &&
+    videoTrackDurationSeconds >= 0
+  ) {
+    renderableEndTime = Math.min(videoTrackDurationSeconds, resolvedScope.endTime);
+  }
+  const renderableScope = {
+    startTime: Math.min(resolvedScope.startTime, renderableEndTime),
+    endTime: renderableEndTime,
+  };
+
+  if (renderableScope.startTime >= renderableScope.endTime) {
+    throw new MuxAiError("The requested scope does not include any renderable video.", {
+      type: "validation_error",
+    });
+  }
+
+  return renderableScope;
+}
+
 /** Returns true when two asset-relative time ranges overlap. */
 export function timeRangesOverlap(
   firstStart: number,

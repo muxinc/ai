@@ -5,7 +5,12 @@ import { z } from "zod";
 import type { ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImageAsBase64 } from "../lib/image-download.ts";
 import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
-import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset, isAudioOnlyAsset } from "../lib/mux-assets.ts";
+import {
+  getAssetDurationSecondsFromAsset,
+  getPlaybackIdForAsset,
+  getVideoTrackDurationSecondsFromAsset,
+  isAudioOnlyAsset,
+} from "../lib/mux-assets.ts";
 import { createSafetyReporter, detectUnexpectedKeys, detectUnexpectedKeysFromRawText } from "../lib/output-safety.ts";
 import type { SafetyReport } from "../lib/output-safety.ts";
 import { createTranscriptSection, renderSection } from "../lib/prompt-builder.ts";
@@ -27,7 +32,11 @@ import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
 import { withRetry } from "../lib/retry.ts";
 import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
-import { resolveWorkflowScope } from "../lib/workflow-scope.ts";
+import {
+  hasWorkflowScopeBoundaries,
+  resolveRenderableVideoScope,
+  resolveWorkflowScope,
+} from "../lib/workflow-scope.ts";
 import { getStoryboardUrl } from "../primitives/storyboards.ts";
 import { fetchTranscriptForAsset } from "../primitives/transcripts.ts";
 import type { ImageSubmissionMode, ScopedMuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "../types.ts";
@@ -873,10 +882,18 @@ async function askQuestionsInternal(
   const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
 
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
-  if (scope) {
-    resolveWorkflowScope(scope, assetDurationSeconds);
-  }
   const isAudioOnly = isAudioOnlyAsset(assetData);
+  const effectiveScope = hasWorkflowScopeBoundaries(scope) ? scope : undefined;
+  const storyboardScope = isAudioOnly ?
+    undefined :
+      resolveRenderableVideoScope(
+        effectiveScope,
+        assetDurationSeconds,
+        getVideoTrackDurationSecondsFromAsset(assetData),
+      );
+  if (isAudioOnly && effectiveScope) {
+    resolveWorkflowScope(effectiveScope, assetDurationSeconds);
+  }
 
   if (isAudioOnly && !includeTranscript) {
     throw new MuxAiError(
@@ -903,7 +920,7 @@ async function askQuestionsInternal(
           shouldSign: policy === "signed",
           credentials,
           required: isAudioOnly,
-          scope,
+          scope: effectiveScope,
         }) :
       undefined;
   const transcriptText = transcriptResult?.transcriptText ?? "";
@@ -939,7 +956,7 @@ async function askQuestionsInternal(
         storyboardWidth,
         policy === "signed",
         credentials,
-        scope,
+        storyboardScope,
       );
       imageUrl = storyboardUrl;
 

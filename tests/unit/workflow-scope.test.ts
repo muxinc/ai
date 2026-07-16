@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveWorkflowScope, timeRangesOverlap } from "../../src/lib/workflow-scope";
+import {
+  resolveRenderableVideoScope,
+  resolveWorkflowScope,
+  timeRangesOverlap,
+} from "../../src/lib/workflow-scope";
 
 describe("resolveWorkflowScope", () => {
   it("uses the full asset when scope is omitted", () => {
@@ -30,6 +34,36 @@ describe("resolveWorkflowScope", () => {
     [{ startTime: 70, endTime: 60 }, 120, "must be less than"],
   ])("rejects an invalid scope", (scope, duration, message) => {
     expect(() => resolveWorkflowScope(scope, duration)).toThrow(message);
+  });
+});
+
+describe("resolveRenderableVideoScope", () => {
+  it("treats an empty scope like an omitted scope", () => {
+    expect(resolveRenderableVideoScope({}, 120, 100)).toBeUndefined();
+    expect(resolveRenderableVideoScope(undefined, 120, 100)).toBeUndefined();
+  });
+
+  it("clamps an asset-relative scope to the video track duration", () => {
+    expect(resolveRenderableVideoScope({ startTime: 70, endTime: 120 }, 120, 90)).toEqual({
+      startTime: 70,
+      endTime: 90,
+    });
+  });
+
+  it("falls back to the asset duration when the video duration is unavailable", () => {
+    expect(resolveRenderableVideoScope({ startTime: 70 }, 120, undefined)).toEqual({
+      startTime: 70,
+      endTime: 120,
+    });
+  });
+
+  it("rejects a scope with no renderable video", () => {
+    expect(() =>
+      resolveRenderableVideoScope({ startTime: 100, endTime: 120 }, 120, 90),
+    ).toThrow("does not include any renderable video");
+    expect(() =>
+      resolveRenderableVideoScope({ startTime: 0, endTime: 10 }, 120, 0),
+    ).toThrow("does not include any renderable video");
   });
 });
 

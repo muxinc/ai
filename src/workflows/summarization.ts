@@ -10,6 +10,7 @@ import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
+  getVideoTrackDurationSecondsFromAsset,
   isAudioOnlyAsset,
 } from "../lib/mux-assets.ts";
 import { createSafetyReporter, detectUnexpectedKeysFromRawText } from "../lib/output-safety.ts";
@@ -43,7 +44,11 @@ import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import {
   resolveMuxSigningContext,
 } from "../lib/workflow-credentials.ts";
-import { resolveWorkflowScope } from "../lib/workflow-scope.ts";
+import {
+  hasWorkflowScopeBoundaries,
+  resolveRenderableVideoScope,
+  resolveWorkflowScope,
+} from "../lib/workflow-scope.ts";
 import { getStoryboardUrl } from "../primitives/storyboards.ts";
 import { fetchTranscriptForAsset, getReadyTextTracks, getReliableLanguageCode } from "../primitives/transcripts.ts";
 import type {
@@ -735,12 +740,19 @@ async function getSummaryAndTagsInternal(
   const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, workflowCredentials);
 
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
-  if (scope) {
-    resolveWorkflowScope(scope, assetDurationSeconds);
-  }
-
   // Detect if asset is audio-only
   const isAudioOnly = isAudioOnlyAsset(assetData);
+  const effectiveScope = hasWorkflowScopeBoundaries(scope) ? scope : undefined;
+  const storyboardScope = isAudioOnly ?
+    undefined :
+      resolveRenderableVideoScope(
+        effectiveScope,
+        assetDurationSeconds,
+        getVideoTrackDurationSecondsFromAsset(assetData),
+      );
+  if (isAudioOnly && effectiveScope) {
+    resolveWorkflowScope(effectiveScope, assetDurationSeconds);
+  }
 
   // Audio-only assets require transcripts since there's no visual content
   if (isAudioOnly && !includeTranscript) {
@@ -768,7 +780,7 @@ async function getSummaryAndTagsInternal(
           shouldSign: policy === "signed",
           credentials: workflowCredentials,
           required: isAudioOnly,
-          scope,
+          scope: effectiveScope,
         }) :
       undefined;
   const transcriptText = transcriptResult?.transcriptText ?? "";
@@ -822,7 +834,7 @@ async function getSummaryAndTagsInternal(
         640,
         policy === "signed",
         workflowCredentials,
-        scope,
+        storyboardScope,
       );
       imageUrl = storyboardUrl;
 

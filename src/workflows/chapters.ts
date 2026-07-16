@@ -23,7 +23,7 @@ import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
 import { withRetry } from "../lib/retry.ts";
 import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
-import { resolveWorkflowScope } from "../lib/workflow-scope.ts";
+import { hasWorkflowScopeBoundaries, resolveWorkflowScope } from "../lib/workflow-scope.ts";
 import {
   extractTimestampedTranscript,
   fetchTranscriptForAsset,
@@ -406,8 +406,9 @@ async function generateChaptersInternal(
   // Fetch asset and transcript
   const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
-  const resolvedScope = scope ?
-      resolveWorkflowScope(scope, assetDurationSeconds) :
+  const effectiveScope = hasWorkflowScopeBoundaries(scope) ? scope : undefined;
+  const resolvedScope = effectiveScope ?
+      resolveWorkflowScope(effectiveScope, assetDurationSeconds) :
     undefined;
   const isAudioOnly = isAudioOnlyAsset(assetData);
 
@@ -427,7 +428,7 @@ async function generateChaptersInternal(
     cleanTranscript: false, // keep timestamps for chapter segmentation
     shouldSign: policy === "signed",
     credentials,
-    scope,
+    scope: effectiveScope,
   });
 
   if (!transcriptResult.track || !transcriptResult.transcriptText) {
