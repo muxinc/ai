@@ -711,6 +711,30 @@ async function requestGoogleVisionModeration(
   return processConcurrently(targets, moderateImageWithGoogleVision, maxConcurrent);
 }
 
+/** Convert a millisecond timestamp to the seconds precision used in thumbnail URLs. */
+function toThumbnailTimeSeconds(timestampMs: number): number {
+  return Number((timestampMs / 1000).toFixed(2));
+}
+
+/**
+ * Keep only timestamps whose rounded thumbnail `time` stays inside an exclusive-end scope.
+ * Filtering after `toFixed(2)` matters: a millisecond value just below `endTime` can round
+ * up onto or past the exclusive boundary.
+ */
+function filterTimestampsWithinExclusiveScope(
+  timestampsMs: number[],
+  scope: { startTime: number; endTime: number } | undefined,
+): number[] {
+  if (!scope) {
+    return timestampsMs;
+  }
+
+  return timestampsMs.filter((timestampMs) => {
+    const time = toThumbnailTimeSeconds(timestampMs);
+    return time >= scope.startTime && time < scope.endTime;
+  });
+}
+
 async function getThumbnailUrlsFromTimestamps(
   playbackId: string,
   timestampsMs: number[],
@@ -725,7 +749,7 @@ async function getThumbnailUrlsFromTimestamps(
   const baseUrl = getMuxThumbnailBaseUrl(playbackId);
 
   const urlPromises = timestampsMs.map(async (tsMs) => {
-    const time = Number((tsMs / 1000).toFixed(2));
+    const time = toThumbnailTimeSeconds(tsMs);
     const url = shouldSign ?
         await signUrl(baseUrl, playbackId, "thumbnail", { time, width }, credentials) :
       `${baseUrl}?time=${time}&width=${width}`;
@@ -857,18 +881,19 @@ export async function getModerationScores(
       maxSamples !== undefined && estimatedIntervalCount > maxSamples ?
           await getThumbnailUrlsFromTimestamps(
             playbackId,
-            planSamplingTimestamps({
-              duration_sec: duration,
-              max_candidates: maxSamples,
-              trim_start_sec: renderableScope?.startTime ??
-                (duration > 2 ? Math.min(5, Math.max(1, duration / 6)) : 0),
-              trim_end_sec: renderableScope ?
-                duration - renderableScope.endTime :
+            filterTimestampsWithinExclusiveScope(
+              planSamplingTimestamps({
+                duration_sec: duration,
+                max_candidates: maxSamples,
+                trim_start_sec: renderableScope?.startTime ??
                   (duration > 2 ? Math.min(5, Math.max(1, duration / 6)) : 0),
-              fps: videoTrackFps,
-              base_cadence_hz: thumbnailInterval > 0 ? 1 / thumbnailInterval : undefined,
-            }).filter(timestampMs =>
-              !renderableScope || timestampMs < renderableScope.endTime * 1000,
+                trim_end_sec: renderableScope ?
+                  duration - renderableScope.endTime :
+                    (duration > 2 ? Math.min(5, Math.max(1, duration / 6)) : 0),
+                fps: videoTrackFps,
+                base_cadence_hz: thumbnailInterval > 0 ? 1 / thumbnailInterval : undefined,
+              }),
+              renderableScope,
             ),
             {
               width: thumbnailWidth,
