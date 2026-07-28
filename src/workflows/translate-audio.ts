@@ -416,7 +416,13 @@ async function downloadAndUploadDubTranscript({
     throw new Error(`Failed to fetch dub transcript: ${transcriptResponse.statusText}`);
   }
 
-  const transcriptVtt = await transcriptResponse.text();
+  // The transcripts endpoint returns a JSON envelope (DubbingTranscriptsResponseModel)
+  // with the cue text in the field matching the requested format — not raw VTT.
+  const transcriptBody = await transcriptResponse.json() as { webvtt?: string | null };
+  const transcriptVtt = transcriptBody.webvtt;
+  if (!transcriptVtt) {
+    throw new Error("Dub transcript response did not include webvtt content");
+  }
 
   const s3AccessKeyId = env.S3_ACCESS_KEY_ID;
   const s3SecretAccessKey = env.S3_SECRET_ACCESS_KEY;
