@@ -6,6 +6,7 @@ import { getLanguageCodePair, toISO639_1, toISO639_3 } from "../lib/language-cod
 import type { LanguageCodePair, SupportedISO639_1 } from "../lib/language-codes.ts";
 import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "../lib/mux-assets.ts";
+import { createTextTrackOnMux } from "../lib/mux-tracks.ts";
 import { getMuxStreamOrigin } from "../lib/mux-url.ts";
 import {
   createPresignedGetUrlWithStorageAdapter,
@@ -37,6 +38,10 @@ export interface AudioTranslationResult {
   dubbingId: string;
   uploadedTrackId?: string;
   presignedUrl?: string;
+  /** Mux text track ID for the dubbed captions, present when `uploadCaptionsToMux` is true and the upload succeeded. */
+  captionsTrackId?: string;
+  /** Presigned URL for the dub's translated transcript (WebVTT) staged to S3. */
+  captionsPresignedUrl?: string;
   /** Workflow usage metadata (asset duration, thumbnails, etc.). */
   usage?: TokenUsage;
 }
@@ -73,6 +78,13 @@ export interface AudioTranslationOptions extends MuxAIOptions {
    * required for track creation.
    */
   uploadToMux?: boolean;
+  /**
+   * When true the dub's translated transcript (the same translation that was
+   * voiced) is attached as a subtitles text track on the Mux asset. Implies
+   * `uploadToS3: true`. Defaults to false. The SDK does not check for existing
+   * text tracks — callers decide conflict semantics before enabling this.
+   */
+  uploadCaptionsToMux?: boolean;
   /** Optional storage adapter override for upload + presign operations. */
   storageAdapter?: StorageAdapter;
   /** Expiry duration in seconds for S3 presigned GET URLs. Defaults to 86400 (24 hours). */
@@ -362,6 +374,81 @@ async function downloadAndUploadDubbedAudio({
   return presignedUrl;
 }
 
+/**
+ * Download the dub's translated transcript (WebVTT) from ElevenLabs and stage it to S3,
+ * returning a presigned URL. Single step for the same event-log payload reason as
+ * `downloadAndUploadDubbedAudio`.
+ */
+async function downloadAndUploadDubTranscript({
+  dubbingId,
+  languageCode,
+  assetId,
+  toLanguageCode,
+  s3Endpoint,
+  s3Region,
+  s3Bucket,
+  storageAdapter,
+  s3SignedUrlExpirySeconds,
+  credentials,
+}: {
+  dubbingId: string;
+  languageCode: string;
+  assetId: string;
+  toLanguageCode: string;
+  s3Endpoint: string;
+  s3Region: string;
+  s3Bucket: string;
+  storageAdapter?: StorageAdapter;
+  s3SignedUrlExpirySeconds?: number;
+  credentials?: WorkflowCredentialsInput;
+}): Promise<string> {
+  "use step";
+  const elevenLabsApiKey = await getApiKeyFromEnv("elevenlabs", credentials);
+
+  const transcriptUrl = `https://api.elevenlabs.io/v1/dubbing/${dubbingId}/transcripts/${languageCode}/format/webvtt`;
+  const transcriptResponse = await fetch(transcriptUrl, {
+    headers: {
+      "xi-api-key": elevenLabsApiKey,
+    },
+  });
+
+  if (!transcriptResponse.ok) {
+    throw new Error(`Failed to fetch dub transcript: ${transcriptResponse.statusText}`);
+  }
+
+  const transcriptVtt = await transcriptResponse.text();
+
+  const s3AccessKeyId = env.S3_ACCESS_KEY_ID;
+  const s3SecretAccessKey = env.S3_SECRET_ACCESS_KEY;
+
+  const vttKey = `audio-translations/${assetId}/auto-to-${toLanguageCode}-${Date.now()}.vtt`;
+
+  await putObjectWithStorageAdapter({
+    accessKeyId: s3AccessKeyId,
+    secretAccessKey: s3SecretAccessKey,
+    endpoint: s3Endpoint,
+    region: s3Region,
+    bucket: s3Bucket,
+    key: vttKey,
+    body: transcriptVtt,
+    contentType: "text/vtt",
+  }, storageAdapter);
+
+  const presignedUrl = await createPresignedGetUrlWithStorageAdapter({
+    accessKeyId: s3AccessKeyId,
+    secretAccessKey: s3SecretAccessKey,
+    endpoint: s3Endpoint,
+    region: s3Region,
+    bucket: s3Bucket,
+    key: vttKey,
+    expiresInSeconds: s3SignedUrlExpirySeconds ?? 86400,
+  }, storageAdapter);
+
+  console.warn(`✅ Dub transcript uploaded successfully to: ${vttKey}`);
+
+  return presignedUrl;
+}
+
 async function createAudioTrackOnMux(
   assetId: string,
   languageCode: string,
@@ -401,6 +488,7 @@ export async function translateAudio(
     numSpeakers = 0, // 0 = auto-detect
     uploadToS3: uploadToS3Option,
     uploadToMux: uploadToMuxOption,
+    uploadCaptionsToMux = false,
     storageAdapter,
     credentials: providedCredentials,
   } = options;
@@ -413,7 +501,7 @@ export async function translateAudio(
   const effectiveStorageAdapter = storageAdapter;
 
   const uploadToMux = uploadToMuxOption !== false; // Default to true
-  const uploadToS3 = uploadToS3Option || uploadToMux; // Defaults to uploadToMux; uploadToMux: true forces S3 upload
+  const uploadToS3 = uploadToS3Option || uploadToMux || uploadCaptionsToMux; // Defaults to uploadToMux; Mux uploads force S3 staging
 
   // S3 configuration
   const s3Endpoint = options.s3Endpoint ?? env.S3_ENDPOINT;
@@ -521,17 +609,19 @@ export async function translateAudio(
 
   let presignedUrl: string | undefined;
   let uploadedTrackId: string | undefined;
+  let captionsPresignedUrl: string | undefined;
+  let captionsTrackId: string | undefined;
 
   if (uploadToS3) {
     console.warn("📥 Downloading dubbed audio from ElevenLabs and staging to S3...");
 
-    try {
-      // ElevenLabs reports target_languages in ISO 639-1 and the download
-      // endpoint expects one of those codes. A single-target dub yields exactly
-      // one entry, so use it directly; fall back to the ISO 639-1 form of the
-      // requested language if the array is unexpectedly empty.
-      const downloadLangCode = targetLanguages[0] ?? toISO639_1(toLanguageCode);
+    // ElevenLabs reports target_languages in ISO 639-1 and the download
+    // endpoint expects one of those codes. A single-target dub yields exactly
+    // one entry, so use it directly; fall back to the ISO 639-1 form of the
+    // requested language if the array is unexpectedly empty.
+    const downloadLangCode = targetLanguages[0] ?? toISO639_1(toLanguageCode);
 
+    try {
       presignedUrl = await downloadAndUploadDubbedAudio({
         dubbingId,
         languageCode: downloadLangCode,
@@ -567,6 +657,45 @@ export async function translateAudio(
         console.warn(presignedUrl);
       }
     }
+
+    // The dub's translated transcript is the same translation that was voiced, and
+    // fetching it costs nothing extra. Soft-fail everything here: a transcript problem
+    // must never fail a completed, paid-for dub.
+    try {
+      console.warn("📥 Downloading dub transcript from ElevenLabs and staging to S3...");
+      captionsPresignedUrl = await downloadAndUploadDubTranscript({
+        dubbingId,
+        languageCode: downloadLangCode,
+        assetId,
+        toLanguageCode,
+        s3Endpoint: s3Endpoint!,
+        s3Region,
+        s3Bucket: s3Bucket!,
+        storageAdapter: effectiveStorageAdapter,
+        s3SignedUrlExpirySeconds: options.s3SignedUrlExpirySeconds,
+        credentials,
+      });
+
+      if (uploadCaptionsToMux) {
+        console.warn("📹 Adding dubbed captions track to Mux asset...");
+        const muxLangCode = toISO639_1(toLanguageCode);
+        const languageName = new Intl.DisplayNames(["en"], { type: "language" }).of(muxLangCode) || muxLangCode.toUpperCase();
+        captionsTrackId = await createTextTrackOnMux(
+          assetId,
+          muxLangCode,
+          `${languageName} (auto-dubbed)`,
+          captionsPresignedUrl,
+          credentials,
+        );
+        console.warn(`✅ Captions track added to Mux asset with ID: ${captionsTrackId}`);
+      }
+    } catch (error) {
+      console.warn(`⚠️ Failed to attach dubbed captions: ${error instanceof Error ? error.message : "Unknown error"}`);
+      if (captionsPresignedUrl) {
+        console.warn("🔗 You can manually add the captions track using this presigned URL:");
+        console.warn(captionsPresignedUrl);
+      }
+    }
   }
 
   const targetLanguage = getLanguageCodePair(toLanguageCode);
@@ -577,6 +706,8 @@ export async function translateAudio(
     dubbingId,
     uploadedTrackId,
     presignedUrl,
+    captionsTrackId,
+    captionsPresignedUrl,
     usage: {
       metadata: {
         assetDurationSeconds,
