@@ -2,6 +2,7 @@ import { generateText, Output } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
+import { withContentPolicyErrorHandling } from "../lib/content-policy-error.ts";
 import type { ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImageAsBase64 } from "../lib/image-download.ts";
 import { getLanguageName } from "../lib/language-codes.ts";
@@ -550,7 +551,7 @@ async function analyzeStoryboard(
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
   const schema = buildSummarySchema(descriptionLength);
 
-  const response = await generateText({
+  const response = await withContentPolicyErrorHandling(() => generateText({
     model,
     output: Output.object({
       name: "summary_metadata",
@@ -570,7 +571,7 @@ async function analyzeStoryboard(
         ],
       },
     ],
-  });
+  }));
 
   if (!response.output) {
     throw new Error("Summarization output missing");
@@ -610,7 +611,7 @@ async function analyzeAudioOnly(
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
   const schema = buildSummarySchema(descriptionLength);
 
-  const response = await generateText({
+  const response = await withContentPolicyErrorHandling(() => generateText({
     model,
     output: Output.object({
       name: "summary_metadata",
@@ -627,7 +628,7 @@ async function analyzeAudioOnly(
         content: userPrompt,
       },
     ],
-  });
+  }));
 
   if (!response.output) {
     throw new Error("Summarization output missing");

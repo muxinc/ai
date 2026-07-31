@@ -3,7 +3,10 @@ import type { TokenUsage } from "../types.ts";
 import { detectLeakReason } from "./output-safety.ts";
 import { getErrorTokenUsage } from "./token-usage.ts";
 
-export type MuxAiErrorType = "validation_error" | "processing_error" | "timeout_error";
+export type MuxAiErrorType = "validation_error" |
+  "processing_error" |
+  "timeout_error" |
+  "content_policy_error";
 
 /**
  * An error whose message is safe to surface verbatim to the customer.
@@ -40,6 +43,15 @@ export class MuxAiError extends Error {
     this.publicType = opts?.type ?? "processing_error";
     this.publicMessage = message;
     this.retryable = opts?.retryable ?? false;
+  }
+
+  static is(value: unknown): value is MuxAiError {
+    return (
+      typeof value === "object" &&
+      value !== null &&
+      "__robots_error" in value &&
+      value.__robots_error === true
+    );
   }
 }
 
@@ -95,7 +107,7 @@ function extractErrorDetail(error: unknown): string {
 }
 
 export function wrapError(error: unknown, message: string): never {
-  if (error instanceof MuxAiError) {
+  if (MuxAiError.is(error)) {
     throw error;
   }
   const rawDetail = extractErrorDetail(error);
