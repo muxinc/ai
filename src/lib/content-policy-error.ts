@@ -1,7 +1,10 @@
 import { APICallError, NoObjectGeneratedError } from "ai";
 import { z } from "zod";
 
+import type { TokenUsage } from "../types.ts";
+
 import { MuxAiError } from "./mux-ai-error.ts";
+import { getErrorTokenUsage } from "./token-usage.ts";
 
 const PolicyTokenSchema = z.string()
   .trim()
@@ -59,13 +62,18 @@ export function rethrowContentPolicyError(error: unknown): never {
   }
 
   const category = block.category ? `; category: ${block.category}` : "";
-  throw new MuxAiError(
+  const contentPolicyError = new MuxAiError(
     `The supplied content was blocked by a content policy (reason: ${block.reason}${category}).`,
     {
       type: "content_policy_error",
       retryable: false,
     },
   );
+  const usage = getErrorTokenUsage(error);
+  if (usage) {
+    (contentPolicyError as MuxAiError & { usage?: TokenUsage }).usage = usage;
+  }
+  throw contentPolicyError;
 }
 
 export function extractContentPolicyBlock(error: unknown): ContentPolicyBlock | undefined {

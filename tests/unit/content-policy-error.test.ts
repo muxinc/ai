@@ -7,6 +7,7 @@ import {
   withContentPolicyErrorHandling,
 } from "../../src/lib/content-policy-error.ts";
 import { wrapError } from "../../src/lib/mux-ai-error.ts";
+import { withRetry } from "../../src/lib/retry.ts";
 
 function createApiCallError(responseBody: string) {
   return new APICallError({
@@ -137,6 +138,23 @@ describe("content policy errors", () => {
     });
   });
 
+  it("preserves token usage when normalizing content policy errors", async () => {
+    const normalizedError = await withContentPolicyErrorHandling(async () => {
+      throw createNoObjectGeneratedError("content-filter");
+    }).catch(error => error);
+
+    expect(normalizedError).toMatchObject({
+      publicType: "content_policy_error",
+      usage: {
+        inputTokens: 10,
+        outputTokens: 0,
+        totalTokens: 10,
+        reasoningTokens: 0,
+        cachedInputTokens: 0,
+      },
+    });
+  });
+
   it("preserves content policy metadata across a serialized workflow step boundary", () => {
     const serializedError = {
       __robots_error: true,
@@ -147,6 +165,24 @@ describe("content policy errors", () => {
     };
 
     expect(captureThrown(() => wrapError(serializedError, "Failed to analyze video content")))
+      .toBe(serializedError);
+  });
+
+  it("preserves serialized content policy errors through the retry wrapper", async () => {
+    const serializedError = {
+      __robots_error: true,
+      message: "The supplied content was blocked by a content policy (reason: PROHIBITED_CONTENT).",
+      publicMessage: "The supplied content was blocked by a content policy (reason: PROHIBITED_CONTENT).",
+      publicType: "content_policy_error",
+      retryable: false,
+    };
+
+    const errorAfterRetry = await withRetry(async () => {
+      throw serializedError;
+    }).catch(error => error);
+
+    expect(errorAfterRetry).toBe(serializedError);
+    expect(captureThrown(() => wrapError(errorAfterRetry, "Failed to analyze video content")))
       .toBe(serializedError);
   });
 
