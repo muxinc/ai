@@ -28,6 +28,16 @@ const ContentPolicyResponseSchema = z.object({
   })).max(8).nullish(),
 });
 
+const ContentPolicyUsageResponseSchema = z.object({
+  usageMetadata: z.object({
+    promptTokenCount: z.number().finite().nonnegative().nullish(),
+    candidatesTokenCount: z.number().finite().nonnegative().nullish(),
+    totalTokenCount: z.number().finite().nonnegative().nullish(),
+    cachedContentTokenCount: z.number().finite().nonnegative().nullish(),
+    thoughtsTokenCount: z.number().finite().nonnegative().nullish(),
+  }).nullish(),
+});
+
 const CONTENT_POLICY_REASONS = new Set([
   "BLOCKLIST",
   "ESCALATION",
@@ -47,6 +57,13 @@ export interface ContentPolicyBlock {
   category?: string;
 }
 
+interface GeneratedOutput<T> {
+  finishReason: string;
+  rawFinishReason?: string;
+  output: T;
+  usage?: unknown;
+}
+
 export async function withContentPolicyErrorHandling<T>(operation: () => Promise<T>): Promise<T> {
   try {
     return await operation();
@@ -61,6 +78,29 @@ export function rethrowContentPolicyError(error: unknown): never {
     throw error;
   }
 
+  throwContentPolicyError(block, getContentPolicyTokenUsage(error));
+}
+
+/**
+ * Reads structured output only after checking for a successful provider
+ * response that stopped because of a content policy. AI SDK intentionally
+ * leaves output unresolved for non-`stop` finishes, so accessing `output`
+ * first would throw a metadata-free `NoOutputGeneratedError`.
+ */
+export function getGeneratedOutputWithContentPolicyHandling<T>(response: GeneratedOutput<T>): T {
+  if (response.finishReason === "content-filter") {
+    const rawReason = PolicyTokenSchema.safeParse(response.rawFinishReason);
+    const reason = rawReason.success && isContentPolicyReason(rawReason.data) ?
+      rawReason.data :
+      "CONTENT_FILTER";
+
+    throwContentPolicyError({ reason }, getErrorTokenUsage(response));
+  }
+
+  return response.output;
+}
+
+function throwContentPolicyError(block: ContentPolicyBlock, usage?: TokenUsage): never {
   const category = block.category ? `; category: ${block.category}` : "";
   const contentPolicyError = new MuxAiError(
     `The supplied content was blocked by a content policy (reason: ${block.reason}${category}).`,
@@ -69,7 +109,6 @@ export function rethrowContentPolicyError(error: unknown): never {
       retryable: false,
     },
   );
-  const usage = getErrorTokenUsage(error);
   if (usage) {
     (contentPolicyError as MuxAiError & { usage?: TokenUsage }).usage = usage;
   }
@@ -116,6 +155,41 @@ export function extractContentPolicyBlock(error: unknown): ContentPolicyBlock | 
 
 function isContentPolicyReason(reason: string | null | undefined): reason is string {
   return Boolean(reason && CONTENT_POLICY_REASONS.has(reason));
+}
+
+function getContentPolicyTokenUsage(error: unknown): TokenUsage | undefined {
+  const errorUsage = getErrorTokenUsage(error);
+  if (errorUsage) {
+    return errorUsage;
+  }
+
+  if (!APICallError.isInstance(error) || !error.responseBody) {
+    return undefined;
+  }
+
+  try {
+    const parsed = ContentPolicyUsageResponseSchema.safeParse(JSON.parse(error.responseBody));
+    const usage = parsed.success ? parsed.data.usageMetadata : undefined;
+    if (!usage) {
+      return undefined;
+    }
+
+    // Match @ai-sdk/google's normalization: reasoning tokens are included in
+    // output tokens, while cached input tokens are part of prompt tokens.
+    const inputTokens = usage.promptTokenCount ?? 0;
+    const reasoningTokens = usage.thoughtsTokenCount ?? 0;
+    const outputTokens = (usage.candidatesTokenCount ?? 0) + reasoningTokens;
+
+    return {
+      inputTokens,
+      outputTokens,
+      totalTokens: usage.totalTokenCount ?? inputTokens + outputTokens,
+      reasoningTokens,
+      cachedInputTokens: usage.cachedContentTokenCount ?? 0,
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 function findBlockedCategory(

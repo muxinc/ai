@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   extractContentPolicyBlock,
+  getGeneratedOutputWithContentPolicyHandling,
   rethrowContentPolicyError,
   withContentPolicyErrorHandling,
 } from "../../src/lib/content-policy-error.ts";
@@ -152,6 +153,65 @@ describe("content policy errors", () => {
         reasoningTokens: 0,
         cachedInputTokens: 0,
       },
+    });
+  });
+
+  it("preserves response-body usage when normalizing API content policy errors", async () => {
+    const normalizedError = await withContentPolicyErrorHandling(async () => {
+      throw createApiCallError(JSON.stringify({
+        promptFeedback: {
+          blockReason: "PROHIBITED_CONTENT",
+        },
+        usageMetadata: {
+          promptTokenCount: 100,
+          candidatesTokenCount: 4,
+          totalTokenCount: 106,
+          cachedContentTokenCount: 25,
+          thoughtsTokenCount: 2,
+        },
+      }));
+    }).catch(error => error);
+
+    expect(normalizedError).toMatchObject({
+      publicType: "content_policy_error",
+      usage: {
+        inputTokens: 100,
+        outputTokens: 6,
+        totalTokens: 106,
+        reasoningTokens: 2,
+        cachedInputTokens: 25,
+      },
+    });
+  });
+
+  it("normalizes content-filter responses before reading structured output", () => {
+    let outputRead = false;
+    const response = {
+      finishReason: "content-filter",
+      rawFinishReason: "PROHIBITED_CONTENT",
+      usage: {
+        inputTokens: 100,
+        outputTokens: 0,
+        totalTokens: 100,
+        reasoningTokens: 0,
+        cachedInputTokens: 20,
+      },
+      get output(): never {
+        outputRead = true;
+        throw new Error("structured output getter should not be read");
+      },
+    };
+
+    const normalizedError = captureThrown(() =>
+      getGeneratedOutputWithContentPolicyHandling(response),
+    );
+
+    expect(outputRead).toBe(false);
+    expect(normalizedError).toMatchObject({
+      publicType: "content_policy_error",
+      publicMessage: "The supplied content was blocked by a content policy (reason: PROHIBITED_CONTENT).",
+      retryable: false,
+      usage: response.usage,
     });
   });
 
