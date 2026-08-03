@@ -37,7 +37,7 @@ Analyzes a Mux video or audio asset and returns AI-generated metadata.
 
 - `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
 - `tone?: 'neutral' | 'playful' | 'professional'` - Analysis tone (default: 'neutral')
-- `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
+- `model?: string` - AI model to use (defaults: `gpt-5.6-luna` at medium reasoning, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
 - `languageCode?: string` - Language code for transcript track selection (e.g., 'en', 'fr'). When omitted, prefers English if available.
 - `outputLanguageCode?: string` - BCP 47 language code (e.g., 'en', 'fr', 'ja') for the generated title, description, and tags. When omitted or set to `'auto'`, auto-detects from the selected transcript track's language. Falls back to unconstrained (LLM decides) if no language metadata is available.
 - `includeTranscript?: boolean` - Include transcript in analysis (default: true)
@@ -152,7 +152,7 @@ Analyzes video frames to detect burned-in captions (hardcoded subtitles) that ar
 **Options:**
 
 - `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
-- `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
+- `model?: string` - AI model to use (defaults: `gpt-5.6-luna` at medium reasoning, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
 - `imageSubmissionMode?: 'url' | 'base64'` - How to submit storyboard to AI providers (default: 'url')
 - `imageDownloadOptions?: object` - Options for image download when using base64 mode
   - `timeout?: number` - Request timeout in milliseconds (default: 10000)
@@ -204,7 +204,7 @@ Answer questions about asset content by analyzing storyboard frames and optional
 **Options:**
 
 - `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
-- `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
+- `model?: string` - AI model to use (defaults: `gpt-5.6-luna` at medium reasoning, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
 - `languageCode?: string` - Language code for transcript track selection (e.g., 'en', 'fr'). When omitted, prefers English if available.
 - `includeTranscript?: boolean` - Include transcript in analysis (default: true, required for audio-only assets)
 - `cleanTranscript?: boolean` - Remove VTT timestamps and formatting from transcript (default: true)
@@ -311,7 +311,7 @@ Generate AI-powered insights explaining viewer engagement patterns by analyzing 
 **Options:**
 
 - `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
-- `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
+- `model?: string` - AI model to use (defaults: `gpt-5.6-luna` at medium reasoning, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
 - `hotspotLimit?: number` - Number of engagement moments to analyze per direction (default: 5, range: 1-10). Note: actual moment count may be up to 2x this value since both peaks and valleys are fetched.
 - `timeframe?: string` - Engagement data timeframe (default: '7:days')
   - Examples: `'60:minutes'`, `'24:hours'`, `'7:days'`, `'30:days'`
@@ -511,7 +511,7 @@ Generates AI-powered chapter markers by analyzing video or audio transcripts. Cr
 - `languageCode?: string` - Language code for captions (e.g., 'en', 'es', 'fr'). When omitted, prefers English if available.
 - `outputLanguageCode?: string` - BCP 47 language code (e.g., 'en', 'fr', 'ja') for the generated chapter titles. When omitted or set to `'auto'`, auto-detects from the selected transcript track's language. Falls back to unconstrained (LLM decides) if no language metadata is available.
 - `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
-- `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
+- `model?: string` - AI model to use (defaults: `gpt-5.6-luna` at medium reasoning, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
 - `promptOverrides?: object` - Override specific sections of the chaptering prompt
   - `task?: string` - Override the main task instruction
   - `outputFormat?: string` - Override the expected output format description

@@ -225,7 +225,7 @@ const result = await askQuestions(assetId, [
 ```typescript
 const result = await askQuestions(assetId, questions, {
   provider: "openai", // "openai", "anthropic", or "google" (default: "openai")
-  model: "gpt-5.1", // Override default model
+  model: "gpt-5-mini", // Override default model
   includeTranscript: true, // Include transcript (default: true)
   cleanTranscript: true, // Remove timestamps/markup (default: true)
   imageSubmissionMode: "url", // "url" or "base64" (default: "url")
@@ -749,7 +749,7 @@ import { getSummaryAndTags } from "@mux/ai/workflows";
 
 const assetId = "your-mux-asset-id";
 
-// OpenAI analysis (default: gpt-5.1)
+// OpenAI analysis (default: gpt-5.6-luna at medium reasoning)
 const openaiResult = await getSummaryAndTags(assetId, {
   provider: "openai",
   tone: "professional"
@@ -778,7 +778,7 @@ Works with any workflow:
 ```typescript
 import { generateChapters } from "@mux/ai/workflows";
 
-// OpenAI (default: gpt-5.1)
+// OpenAI (default: gpt-5.6-luna at medium reasoning)
 const openaiChapters = await generateChapters(assetId, {
   provider: "openai"
 });
@@ -804,7 +804,7 @@ import { getSummaryAndTags } from "@mux/ai/workflows";
 // Use a more powerful model
 const result = await getSummaryAndTags(assetId, {
   provider: "openai",
-  model: "gpt-5.4" // Instead of default gpt-5.1
+  model: "gpt-5.4" // Instead of default gpt-5.6-luna
 });
 
 // Use a faster/cheaper model
@@ -814,4 +814,4 @@ const fastResult = await getSummaryAndTags(assetId, {
 });
 ```
 
-**Cost Optimization Tip:** The defaults (`gpt-5.1`, `claude-sonnet-4-5`, `gemini-3-flash-preview`) are optimized for cost/quality balance. Only upgrade to more powerful models when quality needs justify the higher cost.
+**Cost Optimization Tip:** The defaults (`gpt-5.6-luna` at medium reasoning, `claude-sonnet-4-5`, `gemini-3-flash-preview`) are optimized for cost/quality balance. Only upgrade to more powerful models when quality needs justify the higher cost.

@@ -44,9 +44,9 @@ describe("getErrorTokenUsage", () => {
       usage: {
         inputTokens: 50,
         inputTokenDetails: {
-          noCacheTokens: 45,
+          noCacheTokens: 43,
           cacheReadTokens: 5,
-          cacheWriteTokens: undefined,
+          cacheWriteTokens: 2,
         },
         outputTokens: 10,
         outputTokenDetails: {
@@ -63,6 +63,7 @@ describe("getErrorTokenUsage", () => {
       totalTokens: 60,
       reasoningTokens: 3,
       cachedInputTokens: 5,
+      cacheWriteTokens: 2,
     });
   });
 });

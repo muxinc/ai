@@ -593,6 +593,7 @@ async function analyzeStoryboard(
       totalTokens: response.usage.totalTokens,
       reasoningTokens: response.usage.reasoningTokens,
       cachedInputTokens: response.usage.cachedInputTokens,
+      cacheWriteTokens: response.usage.inputTokenDetails?.cacheWriteTokens,
     },
     unexpectedKeys,
   };
@@ -650,6 +651,7 @@ async function analyzeAudioOnly(
       totalTokens: response.usage.totalTokens,
       reasoningTokens: response.usage.reasoningTokens,
       cachedInputTokens: response.usage.cachedInputTokens,
+      cacheWriteTokens: response.usage.inputTokenDetails?.cacheWriteTokens,
     },
     unexpectedKeys,
   };

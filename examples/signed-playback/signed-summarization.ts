@@ -14,7 +14,7 @@ import { getSummaryAndTags } from "@mux/ai/workflows";
 type Provider = "openai" | "anthropic" | "google";
 
 const DEFAULT_MODELS: Record<Provider, string> = {
-  openai: "gpt-5.1",
+  openai: "gpt-5.6-luna",
   anthropic: "claude-sonnet-4-5",
   google: "gemini-3-flash-preview",
 };

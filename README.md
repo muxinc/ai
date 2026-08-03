@@ -56,7 +56,7 @@ console.log(result.tags);         // ["typescript", "tutorial", "programming"]
 - **Support for video and audio assets.** The same workflows work with video and [audio-only assets](./docs/AUDIO-ONLY.md), including summarization, moderation, chaptering, and more.
 - **Provider-flexible API.** Choose OpenAI, Anthropic, or Google through workflow options while keeping the same workflow interface.
 - **Published evaluation coverage.** Workflows include [evals](./docs/EVALS.md) for quality, latency, and cost, with results [published publicly](https://evaluating-mux-ai.vercel.app/) on pushes to `main`.
-- **Sensible default models.** Defaults (`gpt-5.1`, `claude-sonnet-4-5`, `gemini-3-flash-preview`) are selected to balance output quality and runtime cost.
+- **Sensible default models.** Defaults (`gpt-5.6-luna` at medium reasoning, `claude-sonnet-4-5`, `gemini-3-flash-preview`) are selected to balance output quality and runtime cost.
 - **Typed end-to-end.** Workflow inputs, options, and outputs are fully typed in TypeScript.
 - **Operational defaults included.** Retry handling, error handling, signed playback support, and [Workflow DevKit](https://useworkflow.dev) compatibility are built in.
 - **Prompt customization support.** Use `promptOverrides` to adjust sections of workflow prompts for your domain or product requirements.
