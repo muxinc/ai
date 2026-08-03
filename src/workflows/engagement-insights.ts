@@ -2,6 +2,10 @@ import { generateText, Output } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
+import {
+  getGeneratedOutputWithContentPolicyHandling,
+  withContentPolicyErrorHandling,
+} from "../lib/content-policy-error.ts";
 import { MuxAiError } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
@@ -543,27 +547,30 @@ async function generateInsightsWithAI(
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
 
   const response = await withRetry(() =>
-    generateText({
-      model,
-      output: Output.object({ schema: engagementInsightsSchema }),
-      experimental_telemetry: { isEnabled: true },
-      messages: [
-        {
-          role: "system",
-          content: systemPrompt,
-        },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: userPrompt },
-            ...imageUrls.map(url => ({ type: "image" as const, image: url })),
-          ],
-        },
-      ],
-    }),
+    withContentPolicyErrorHandling(() =>
+      generateText({
+        model,
+        output: Output.object({ schema: engagementInsightsSchema }),
+        experimental_telemetry: { isEnabled: true },
+        messages: [
+          {
+            role: "system",
+            content: systemPrompt,
+          },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: userPrompt },
+              ...imageUrls.map(url => ({ type: "image" as const, image: url })),
+            ],
+          },
+        ],
+      }),
+    ),
   );
+  const output = getGeneratedOutputWithContentPolicyHandling(response);
 
-  if (!response.output) {
+  if (!output) {
     throw new Error("AI returned empty or unparseable response");
   }
 
@@ -597,7 +604,7 @@ async function generateInsightsWithAI(
   }
 
   return {
-    result: response.output,
+    result: output,
     usage: {
       inputTokens: response.usage.inputTokens,
       outputTokens: response.usage.outputTokens,

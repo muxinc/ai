@@ -2,6 +2,10 @@ import { generateText, Output } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
+import {
+  getGeneratedOutputWithContentPolicyHandling,
+  withContentPolicyErrorHandling,
+} from "../lib/content-policy-error.ts";
 import { getLanguageName } from "../lib/language-codes.ts";
 import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import {
@@ -168,21 +172,24 @@ async function generateChaptersWithAI({
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
 
   const response = await withRetry(() =>
-    generateText({
-      model,
-      output: Output.object({ schema: chaptersSchema }),
-      messages: [
-        {
-          role: "system",
-          content: systemPrompt,
-        },
-        {
-          role: "user",
-          content: userPrompt,
-        },
-      ],
-    }),
+    withContentPolicyErrorHandling(() =>
+      generateText({
+        model,
+        output: Output.object({ schema: chaptersSchema }),
+        messages: [
+          {
+            role: "system",
+            content: systemPrompt,
+          },
+          {
+            role: "user",
+            content: userPrompt,
+          },
+        ],
+      }),
+    ),
   );
+  const output = getGeneratedOutputWithContentPolicyHandling(response);
 
   // Detect schema-smuggling. response.output has already been stripped;
   // re-parse response.text to see what the model actually emitted.
@@ -207,7 +214,7 @@ async function generateChaptersWithAI({
   }
 
   return {
-    chapters: response.output,
+    chapters: output,
     usage: {
       inputTokens: response.usage.inputTokens,
       outputTokens: response.usage.outputTokens,

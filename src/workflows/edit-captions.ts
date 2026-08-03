@@ -2,6 +2,10 @@ import { generateText, Output } from "ai";
 import { z } from "zod";
 
 import env from "../env.ts";
+import {
+  getGeneratedOutputWithContentPolicyHandling,
+  withContentPolicyErrorHandling,
+} from "../lib/content-policy-error.ts";
 import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
@@ -447,7 +451,7 @@ async function identifyProfanityWithAI({
     content: plainText,
   });
 
-  const response = await generateText({
+  const response = await withContentPolicyErrorHandling(() => generateText({
     model,
     output: Output.object({ schema: profanityDetectionSchema }),
     messages: [
@@ -461,7 +465,8 @@ async function identifyProfanityWithAI({
           `Identify all profane words and phrases in the following subtitle transcript. Return each unique profane word or phrase exactly as it appears in the text.\n\n${transcriptSection}`,
       },
     ],
-  });
+  }));
+  const output = getGeneratedOutputWithContentPolicyHandling(response);
 
   // Detect schema-smuggling (an extra key alongside `profanity`).
   const unexpectedKeys = detectUnexpectedKeysFromRawText(
@@ -470,7 +475,7 @@ async function identifyProfanityWithAI({
   );
 
   return {
-    profanity: response.output.profanity,
+    profanity: output.profanity,
     usage: {
       inputTokens: response.usage.inputTokens,
       outputTokens: response.usage.outputTokens,

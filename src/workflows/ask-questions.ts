@@ -2,6 +2,10 @@ import { generateText, Output } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
+import {
+  getGeneratedOutputWithContentPolicyHandling,
+  withContentPolicyErrorHandling,
+} from "../lib/content-policy-error.ts";
 import type { ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImageAsBase64 } from "../lib/image-download.ts";
 import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
@@ -659,7 +663,7 @@ async function analyzeQuestions({
     maxFreeFormAnswerLength,
   );
 
-  const response = await generateText({
+  const response = await withContentPolicyErrorHandling(() => generateText({
     model,
     output: Output.object({ schema: responseSchema }),
     experimental_telemetry: { isEnabled: true },
@@ -678,13 +682,14 @@ async function analyzeQuestions({
           userPrompt,
       },
     ],
-  });
+  }));
+  const output = getGeneratedOutputWithContentPolicyHandling(response);
 
-  if (!response.output) {
+  if (!output) {
     throw new Error("Ask-questions output missing");
   }
 
-  const parsed = responseSchema.parse(response.output);
+  const parsed = responseSchema.parse(output);
 
   // Detect schema-smuggling attempts. `response.output` has already
   // been through zod.strip(), so any extras are gone from it — we
