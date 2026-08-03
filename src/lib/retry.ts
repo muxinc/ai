@@ -42,26 +42,27 @@ export async function withRetry<T>(
     shouldRetry = defaultShouldRetry,
   }: RetryOptions = {},
 ): Promise<T> {
-  let lastError: Error | undefined;
+  let lastError: unknown;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await fn();
     } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
+      lastError = error;
+      const retryError = error instanceof Error ? error : new Error(String(error));
 
       const isLastAttempt = attempt === maxRetries;
-      if (isLastAttempt || !shouldRetry(lastError, attempt + 1)) {
-        throw lastError;
+      if (isLastAttempt || !shouldRetry(retryError, attempt + 1)) {
+        throw error;
       }
 
       const delay = calculateDelay(attempt + 1, baseDelay, maxDelay);
       console.warn(
-        `Attempt ${attempt + 1} failed: ${lastError.message}. Retrying in ${Math.round(delay)}ms...`,
+        `Attempt ${attempt + 1} failed: ${retryError.message}. Retrying in ${Math.round(delay)}ms...`,
       );
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
 
-  throw lastError || new Error("Retry failed with unknown error");
+  throw lastError ?? new Error("Retry failed with unknown error");
 }

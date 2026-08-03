@@ -2,6 +2,10 @@ import { generateText, Output } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
+import {
+  getGeneratedOutputWithContentPolicyHandling,
+  withContentPolicyErrorHandling,
+} from "../lib/content-policy-error.ts";
 import type { ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImageAsBase64 } from "../lib/image-download.ts";
 import { getLanguageName } from "../lib/language-codes.ts";
@@ -550,7 +554,7 @@ async function analyzeStoryboard(
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
   const schema = buildSummarySchema(descriptionLength);
 
-  const response = await generateText({
+  const response = await withContentPolicyErrorHandling(() => generateText({
     model,
     output: Output.object({
       name: "summary_metadata",
@@ -570,13 +574,15 @@ async function analyzeStoryboard(
         ],
       },
     ],
-  });
+  }));
 
-  if (!response.output) {
+  const output = getGeneratedOutputWithContentPolicyHandling(response);
+
+  if (!output) {
     throw new Error("Summarization output missing");
   }
 
-  const parsed = schema.parse(response.output);
+  const parsed = schema.parse(output);
 
   // Detect schema-smuggling. response.output has already been stripped;
   // re-parse response.text to see what the model actually emitted.
@@ -610,7 +616,7 @@ async function analyzeAudioOnly(
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
   const schema = buildSummarySchema(descriptionLength);
 
-  const response = await generateText({
+  const response = await withContentPolicyErrorHandling(() => generateText({
     model,
     output: Output.object({
       name: "summary_metadata",
@@ -627,13 +633,15 @@ async function analyzeAudioOnly(
         content: userPrompt,
       },
     ],
-  });
+  }));
 
-  if (!response.output) {
+  const output = getGeneratedOutputWithContentPolicyHandling(response);
+
+  if (!output) {
     throw new Error("Summarization output missing");
   }
 
-  const parsed = schema.parse(response.output);
+  const parsed = schema.parse(output);
 
   // Detect schema-smuggling. response.output has already been stripped;
   // re-parse response.text to see what the model actually emitted.
