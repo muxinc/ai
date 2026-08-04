@@ -2,6 +2,10 @@ import { generateText, Output } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
+import {
+  getGeneratedOutputWithContentPolicyHandling,
+  withContentPolicyErrorHandling,
+} from "../lib/content-policy-error.ts";
 import type { ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImageAsBase64 } from "../lib/image-download.ts";
 import {
@@ -282,7 +286,7 @@ async function analyzeStoryboard({
 
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
 
-  const response = await generateText({
+  const response = await withContentPolicyErrorHandling(() => generateText({
     model,
     output: Output.object({ schema: burnedInCaptionsSchema }),
     experimental_telemetry: { isEnabled: true },
@@ -299,7 +303,8 @@ async function analyzeStoryboard({
         ],
       },
     ],
-  });
+  }));
+  const output = getGeneratedOutputWithContentPolicyHandling(response);
 
   // Detect schema-smuggling attempts. `response.output` has already
   // been through zod.strip(), so any extras the model emitted are gone
@@ -315,8 +320,8 @@ async function analyzeStoryboard({
 
   return {
     result: {
-      ...response.output,
-      confidence: Math.min(1, Math.max(0, response.output.confidence)),
+      ...output,
+      confidence: Math.min(1, Math.max(0, output.confidence)),
     },
     usage: {
       inputTokens: response.usage.inputTokens,

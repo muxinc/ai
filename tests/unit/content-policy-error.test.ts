@@ -1,4 +1,4 @@
-import { APICallError, NoObjectGeneratedError } from "ai";
+import { APICallError, NoObjectGeneratedError, RetryError } from "ai";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -184,6 +184,46 @@ describe("content policy errors", () => {
     });
   });
 
+  it("normalizes a content policy error returned after an AI SDK retry", async () => {
+    const transientError = new APICallError({
+      message: "Service unavailable",
+      url: "https://example.com/generate-content",
+      requestBodyValues: {},
+      statusCode: 503,
+    });
+    const contentPolicyError = createApiCallError(JSON.stringify({
+      promptFeedback: {
+        blockReason: "PROHIBITED_CONTENT",
+      },
+      usageMetadata: {
+        promptTokenCount: 100,
+        totalTokenCount: 100,
+      },
+    }));
+    const retryError = new RetryError({
+      message: "Failed after retrying",
+      reason: "errorNotRetryable",
+      errors: [transientError, contentPolicyError],
+    });
+
+    const normalizedError = await withContentPolicyErrorHandling(async () => {
+      throw retryError;
+    }).catch(error => error);
+
+    expect(normalizedError).toMatchObject({
+      publicType: "content_policy_error",
+      publicMessage: "The supplied content was blocked by a content policy (reason: PROHIBITED_CONTENT).",
+      retryable: false,
+      usage: {
+        inputTokens: 100,
+        outputTokens: 0,
+        totalTokens: 100,
+        reasoningTokens: 0,
+        cachedInputTokens: 0,
+      },
+    });
+  });
+
   it("normalizes content-filter responses before reading structured output", () => {
     let outputRead = false;
     const response = {
@@ -256,5 +296,16 @@ describe("content policy errors", () => {
     const error = createNoObjectGeneratedError("error");
 
     expect(() => rethrowContentPolicyError(error)).toThrow(error);
+  });
+
+  it("preserves unrelated retry failures", () => {
+    const apiError = createApiCallError("upstream temporarily unavailable");
+    const retryError = new RetryError({
+      message: "Retries exhausted",
+      reason: "maxRetriesExceeded",
+      errors: [apiError],
+    });
+
+    expect(() => rethrowContentPolicyError(retryError)).toThrow(retryError);
   });
 });

@@ -9,6 +9,10 @@ import {
 import { z } from "zod";
 
 import env from "../env.ts";
+import {
+  getGeneratedOutputWithContentPolicyHandling,
+  withContentPolicyErrorHandling,
+} from "../lib/content-policy-error.ts";
 import { getLanguageCodePair, getLanguageName } from "../lib/language-codes.ts";
 import type { LanguageCodePair, SupportedISO639_1 } from "../lib/language-codes.ts";
 import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
@@ -602,7 +606,7 @@ async function translateVttWithAI({
   // blocks implicitly.
   const sanitisedVttContent = stripVttMetadataBlocks(vttContent);
 
-  const response = await generateText({
+  const response = await withContentPolicyErrorHandling(() => generateText({
     model,
     output: Output.object({ schema: translationSchema }),
     messages: [
@@ -615,7 +619,8 @@ async function translateVttWithAI({
         content: `Translate from ${fromLanguageCode} to ${toLanguageCode}:\n\n${sanitisedVttContent}`,
       },
     ],
-  });
+  }));
+  const output = getGeneratedOutputWithContentPolicyHandling(response);
 
   // Whole-VTT path: scan the entire translated blob for leaks. This is
   // coarser than the cue-by-cue path below because the non-chunked path
@@ -628,7 +633,7 @@ async function translateVttWithAI({
   // up-front means the scrubber sees clean VTT (fewer spurious tag
   // hits) and downstream consumers (Mux track ingestion, players) get
   // the exact header they require.
-  const translated = normalizeTranslatedVtt(response.output.translation);
+  const translated = normalizeTranslatedVtt(output.translation);
   const leakReason = detectLeakReason(translated);
   const safeTranslated = leakReason !== null ? vttContent : translated;
   if (leakReason !== null) {
@@ -711,7 +716,7 @@ async function translateCueChunkWithAI({
     text: cue.text,
   }));
 
-  const response = await generateText({
+  const response = await withContentPolicyErrorHandling(() => generateText({
     model,
     output: Output.object({ schema }),
     messages: [
@@ -724,7 +729,8 @@ async function translateCueChunkWithAI({
         content: `Translate from ${fromLanguageCode} to ${toLanguageCode}.\nReturn exactly ${cues.length} translated cues in the same order as the input.\n\n${JSON.stringify(cuePayload, null, 2)}`,
       },
     ],
-  });
+  }));
+  const output = getGeneratedOutputWithContentPolicyHandling(response);
 
   // Schema-smuggling detection for the cue envelope. Any extras on the
   // root envelope were stripped by zod; log + bubble count to aggregate.
@@ -741,7 +747,7 @@ async function translateCueChunkWithAI({
   }
 
   return {
-    translations: response.output.translations,
+    translations: output.translations,
     usage: {
       inputTokens: response.usage.inputTokens,
       outputTokens: response.usage.outputTokens,
