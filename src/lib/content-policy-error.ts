@@ -1,4 +1,4 @@
-import { APICallError, NoObjectGeneratedError } from "ai";
+import { APICallError, NoObjectGeneratedError, RetryError } from "ai";
 import { z } from "zod";
 
 import type { TokenUsage } from "../types.ts";
@@ -116,6 +116,10 @@ function throwContentPolicyError(block: ContentPolicyBlock, usage?: TokenUsage):
 }
 
 export function extractContentPolicyBlock(error: unknown): ContentPolicyBlock | undefined {
+  if (RetryError.isInstance(error)) {
+    return extractContentPolicyBlock(error.lastError);
+  }
+
   if (NoObjectGeneratedError.isInstance(error) && error.finishReason === "content-filter") {
     return { reason: "CONTENT_FILTER" };
   }
@@ -161,6 +165,10 @@ function getContentPolicyTokenUsage(error: unknown): TokenUsage | undefined {
   const errorUsage = getErrorTokenUsage(error);
   if (errorUsage) {
     return errorUsage;
+  }
+
+  if (RetryError.isInstance(error)) {
+    return getContentPolicyTokenUsage(error.lastError);
   }
 
   if (!APICallError.isInstance(error) || !error.responseBody) {
