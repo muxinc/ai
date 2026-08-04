@@ -65,7 +65,7 @@ program
   )
   .option(
     "--models <pairs>",
-    "Explicit comma-separated provider:model list (overrides --model-set), e.g. openai:gpt-5.1,google:gemini-2.5-flash",
+    "Explicit comma-separated provider:model list (overrides --model-set), e.g. openai:gpt-5.6-luna,google:gemini-2.5-flash",
   )
   .action(async (options: Options) => {
     await runEvals(options);

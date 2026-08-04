@@ -759,6 +759,7 @@ async function analyzeQuestions({
       totalTokens: response.usage.totalTokens,
       reasoningTokens: response.usage.reasoningTokens,
       cachedInputTokens: response.usage.cachedInputTokens,
+      cacheWriteTokens: response.usage.inputTokenDetails?.cacheWriteTokens,
     },
     unexpectedRootKeys,
     unexpectedAnswerKeys,

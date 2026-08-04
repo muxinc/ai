@@ -229,6 +229,8 @@ export interface TokenUsage {
   reasoningTokens?: number;
   /** Input tokens served from cache (reduces cost). */
   cachedInputTokens?: number;
+  /** Input tokens written to cache (may use a provider-specific rate). */
+  cacheWriteTokens?: number;
   /** Workflow metadata (asset duration, thumbnails, etc.). */
   metadata?: UsageMetadata;
 }

@@ -665,6 +665,7 @@ async function translateVttWithAI({
       totalTokens: response.usage.totalTokens,
       reasoningTokens: response.usage.reasoningTokens,
       cachedInputTokens: response.usage.cachedInputTokens,
+      cacheWriteTokens: response.usage.inputTokenDetails?.cacheWriteTokens,
     },
   };
 }
@@ -747,6 +748,7 @@ async function translateCueChunkWithAI({
       totalTokens: response.usage.totalTokens,
       reasoningTokens: response.usage.reasoningTokens,
       cachedInputTokens: response.usage.cachedInputTokens,
+      cacheWriteTokens: response.usage.inputTokenDetails?.cacheWriteTokens,
     },
     unexpectedKeyCount: unexpectedKeys.length,
   };

@@ -389,7 +389,7 @@ async function customVideoAnalysis(assetId: string) {
 
   // Build custom prompt
   const result = await generateText({
-    model: openai("gpt-5.1"),
+    model: openai("gpt-5.6-luna"),
     messages: [
       {
         role: "user",
@@ -461,7 +461,7 @@ export async function customTranscriptAnalysis(assetId: string) {
 
   // Build your custom AI prompt
   const result = await generateText({
-    model: openai("gpt-5.1"),
+    model: openai("gpt-5.6-luna"),
     messages: [
       {
         role: "user",
@@ -550,7 +550,7 @@ export async function analyzeSentiment(
   );
 
   const result = await generateText({
-    model: openai("gpt-5.1", {
+    model: openai("gpt-5.6-luna", {
       apiKey: process.env.OPENAI_API_KEY
     }),
     messages: [

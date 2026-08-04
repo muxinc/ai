@@ -51,7 +51,7 @@ npm run example:ask-questions -- <asset-id> "Does this video contain cooking?"
 
 #### Options
 
-- `-m, --model <model>` - Specify the OpenAI model to use (default: gpt-5.1)
+- `-m, --model <model>` - Specify the OpenAI model to use (default: gpt-5.6-luna)
 - `--no-transcript` - Exclude the transcript from analysis (visual only)
 
 #### Examples
@@ -104,7 +104,7 @@ If no asset ID is provided, the script uses `MUX_TEST_ASSET_ID_AUDIO_ONLY`.
 
 #### Options
 
-- `-m, --model <model>` - Specify the OpenAI model to use (default: gpt-5.1)
+- `-m, --model <model>` - Specify the OpenAI model to use (default: gpt-5.6-luna)
 - `--no-transcript` - Exclude the transcript from analysis (visual only)
 
 #### Examples

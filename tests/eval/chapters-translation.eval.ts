@@ -137,6 +137,7 @@ evalite("Chapters Translation", {
       usage.inputTokens ?? 0,
       usage.outputTokens ?? 0,
       usage.cachedInputTokens ?? 0,
+      usage.cacheWriteTokens ?? 0,
     );
 
     reportTrace({

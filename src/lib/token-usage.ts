@@ -6,6 +6,7 @@ const TOKEN_USAGE_FIELDS = [
   "totalTokens",
   "reasoningTokens",
   "cachedInputTokens",
+  "cacheWriteTokens",
 ] as const;
 
 type AggregatedTokenUsageField = (typeof TOKEN_USAGE_FIELDS)[number];
@@ -66,6 +67,12 @@ export function getErrorTokenUsage(error: unknown): TokenUsage | undefined {
     const cacheReadTokens = (source.inputTokenDetails as { cacheReadTokens?: unknown } | undefined)?.cacheReadTokens;
     if (typeof cacheReadTokens === "number") {
       extracted.cachedInputTokens = cacheReadTokens;
+    }
+  }
+  if (extracted.cacheWriteTokens === undefined) {
+    const cacheWriteTokens = (source.inputTokenDetails as { cacheWriteTokens?: unknown } | undefined)?.cacheWriteTokens;
+    if (typeof cacheWriteTokens === "number") {
+      extracted.cacheWriteTokens = cacheWriteTokens;
     }
   }
 

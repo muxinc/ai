@@ -44,7 +44,8 @@ export interface ResolvedModel<P extends SupportedProvider = SupportedProvider> 
 }
 
 export const DEFAULT_LANGUAGE_MODELS: { [K in SupportedProvider]: ModelIdByProvider[K] } = {
-  openai: "gpt-5.1",
+  // GPT-5.6 models default to medium reasoning when no effort is specified.
+  openai: "gpt-5.6-luna",
   anthropic: "claude-sonnet-4-5",
   google: "gemini-3-flash-preview",
 };
@@ -57,10 +58,10 @@ const DEFAULT_EMBEDDING_MODELS: { [K in SupportedEmbeddingProvider]: EmbeddingMo
 /**
  * All language models available per provider.
  * Includes the default model plus any additional models for evaluation and selection.
- * New models are additive — existing defaults are unchanged.
+ * Deprecated models remain selectable during their grace period.
  */
 export const LANGUAGE_MODELS: { [K in SupportedProvider]: ModelIdByProvider[K][] } = {
-  openai: ["gpt-5.1", "gpt-5-mini"],
+  openai: ["gpt-5.6-luna", "gpt-5.1", "gpt-5-mini"],
   anthropic: ["claude-sonnet-4-5"],
   google: ["gemini-3-flash-preview", "gemini-3.1-flash-lite", "gemini-2.5-flash"],
 };
@@ -89,6 +90,15 @@ export interface LanguageModelDeprecation {
  * This enables gradual migration while clearly signaling planned removal.
  */
 export const LANGUAGE_MODEL_DEPRECATIONS: LanguageModelDeprecation[] = [
+  {
+    provider: "openai",
+    modelId: "gpt-5.1",
+    replacementModelId: "gpt-5.6-luna",
+    phase: "warn",
+    deprecatedOn: "2026-08-01",
+    sunsetOn: "2026-10-01",
+    reason: "GPT-5.6 Luna with its default medium reasoning effort is the new OpenAI default.",
+  },
   {
     provider: "google",
     modelId: "gemini-2.5-flash",
@@ -194,7 +204,7 @@ function parseEvalModelPair(value: string): EvalModelConfig {
 
   if (!provider || !modelId) {
     throw new Error(
-      `Invalid eval model pair "${value}". Use "provider:model" (example: "openai:gpt-5.1").`,
+      `Invalid eval model pair "${value}". Use "provider:model" (example: "openai:gpt-5.6-luna").`,
     );
   }
 
@@ -306,7 +316,7 @@ export function resolveEmbeddingModelConfig<P extends SupportedEmbeddingProvider
 // Pricing is in USD per million tokens. These values are used for cost estimation
 // in evaluations and should be periodically verified against official sources.
 //
-// Sources (verified on 2026-07-06):
+// Sources (verified on 2026-08-01):
 // - OpenAI: https://developers.openai.com/api/docs/pricing
 // - Anthropic: https://www.anthropic.com/pricing
 // - Google: https://ai.google.dev/gemini-api/docs/pricing
@@ -323,6 +333,21 @@ export interface ModelPricing {
   outputPerMillion: number;
   /** Cost per million cached input tokens (USD), if supported. */
   cachedInputPerMillion?: number;
+  /** Cost per million cache-write tokens (USD), if separately billed. */
+  cacheWritePerMillion?: number;
+  /** Higher rates applied to the full request above a model-specific input threshold. */
+  longContext?: {
+    /** Long-context rates apply when input tokens exceed this threshold. */
+    inputTokenThreshold: number;
+    /** Cost per million input tokens (USD). */
+    inputPerMillion: number;
+    /** Cost per million output tokens (USD). */
+    outputPerMillion: number;
+    /** Cost per million cached input tokens (USD), if supported. */
+    cachedInputPerMillion?: number;
+    /** Cost per million cache-write tokens (USD), if separately billed. */
+    cacheWritePerMillion?: number;
+  };
   /** URL to the official pricing page for verification. */
   pricingUrl: string;
 }
@@ -338,6 +363,20 @@ export interface ModelPricing {
 export const MODEL_PRICING: Record<string, ModelPricing> = {
   // OpenAI models
   // Reference: https://developers.openai.com/api/docs/pricing
+  "gpt-5.6-luna": {
+    inputPerMillion: 0.20,
+    outputPerMillion: 1.20,
+    cachedInputPerMillion: 0.02,
+    cacheWritePerMillion: 0.25,
+    longContext: {
+      inputTokenThreshold: 272_000,
+      inputPerMillion: 0.40,
+      outputPerMillion: 1.80,
+      cachedInputPerMillion: 0.04,
+      cacheWritePerMillion: 0.50,
+    },
+    pricingUrl: "https://developers.openai.com/api/docs/pricing",
+  },
   "gpt-5.1": {
     inputPerMillion: 1.25,
     outputPerMillion: 10.00,
@@ -389,6 +428,7 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
  * @param inputTokens - Number of input tokens consumed
  * @param outputTokens - Number of output tokens generated
  * @param cachedInputTokens - Number of input tokens served from cache (optional)
+ * @param cacheWriteTokens - Number of input tokens written to cache (optional)
  * @returns Estimated cost in USD
  *
  * @example
@@ -402,22 +442,32 @@ export function calculateModelCost(
   inputTokens: number,
   outputTokens: number,
   cachedInputTokens: number = 0,
+  cacheWriteTokens: number = 0,
 ): number {
   const pricing = MODEL_PRICING[modelId];
   if (!pricing) {
     throw new Error(`No pricing data for model: ${modelId}. Add pricing to MODEL_PRICING in providers.ts.`);
   }
 
-  const uncachedInputTokens = Math.max(0, inputTokens - cachedInputTokens);
+  const applicablePricing = pricing.longContext && inputTokens > pricing.longContext.inputTokenThreshold ?
+    pricing.longContext :
+    pricing;
+  const hasSeparateCacheWritePricing = applicablePricing.cacheWritePerMillion !== undefined;
+  const separatelyPricedCacheWriteTokens = hasSeparateCacheWritePricing ? cacheWriteTokens : 0;
+  const uncachedInputTokens = Math.max(0, inputTokens - cachedInputTokens - separatelyPricedCacheWriteTokens);
 
-  const inputCost = (uncachedInputTokens / 1_000_000) * pricing.inputPerMillion;
-  const outputCost = (outputTokens / 1_000_000) * pricing.outputPerMillion;
+  const inputCost = (uncachedInputTokens / 1_000_000) * applicablePricing.inputPerMillion;
+  const outputCost = (outputTokens / 1_000_000) * applicablePricing.outputPerMillion;
   let cachedCost = 0;
-  if (pricing.cachedInputPerMillion) {
-    cachedCost = (cachedInputTokens / 1_000_000) * pricing.cachedInputPerMillion;
+  if (applicablePricing.cachedInputPerMillion) {
+    cachedCost = (cachedInputTokens / 1_000_000) * applicablePricing.cachedInputPerMillion;
+  }
+  let cacheWriteCost = 0;
+  if (applicablePricing.cacheWritePerMillion !== undefined) {
+    cacheWriteCost = (cacheWriteTokens / 1_000_000) * applicablePricing.cacheWritePerMillion;
   }
 
-  return inputCost + outputCost + cachedCost;
+  return inputCost + outputCost + cachedCost + cacheWriteCost;
 }
 
 /**
@@ -428,6 +478,7 @@ export function calculateModelCost(
  * @param inputTokens - Number of input tokens consumed
  * @param outputTokens - Number of output tokens generated
  * @param cachedInputTokens - Number of input tokens served from cache (optional)
+ * @param cacheWriteTokens - Number of input tokens written to cache (optional)
  * @returns Estimated cost in USD
  *
  * @example
@@ -441,9 +492,10 @@ export function calculateCost(
   inputTokens: number,
   outputTokens: number,
   cachedInputTokens: number = 0,
+  cacheWriteTokens: number = 0,
 ): number {
   const defaultModelId = DEFAULT_LANGUAGE_MODELS[provider];
-  return calculateModelCost(defaultModelId, inputTokens, outputTokens, cachedInputTokens);
+  return calculateModelCost(defaultModelId, inputTokens, outputTokens, cachedInputTokens, cacheWriteTokens);
 }
 
 function requireEnv(value: string | undefined, name: string): string {
