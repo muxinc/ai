@@ -1,3 +1,5 @@
+import { DownloadError } from "ai";
+
 /**
  * Retry configuration options
  */
@@ -15,10 +17,23 @@ const DEFAULT_RETRY_OPTIONS: Required<Omit<RetryOptions, "shouldRetry">> = {
 };
 
 /**
- * Default retry condition - retries on timeout errors
+ * Default retry condition - retries on transient timeout and download errors
  */
 function defaultShouldRetry(error: Error, _attempt: number): boolean {
-  return Boolean(error.message && error.message.includes("Timeout while downloading"));
+  if (error.message.includes("Timeout while downloading")) {
+    return true;
+  }
+
+  if (!DownloadError.isInstance(error)) {
+    return false;
+  }
+
+  const { statusCode } = error;
+  return statusCode === undefined ||
+    statusCode === 408 ||
+    statusCode === 425 ||
+    statusCode === 429 ||
+    statusCode >= 500;
 }
 
 /**
