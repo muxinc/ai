@@ -42,6 +42,42 @@ import { fetchTranscriptForAsset } from "../primitives/transcripts.ts";
 import type { ImageSubmissionMode, ScopedMuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "../types.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Limits
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Maximum length (in characters) of a single question. Not configurable.
+ *
+ * Reasonable human-authored questions are well under a few hundred
+ * characters; anything longer is almost certainly either a misuse
+ * (pasting a whole document) or a prompt-injection payload trying to
+ * hide instructions in a long blob. Rejecting at the boundary is a
+ * cheap, deterministic defence that the model never sees.
+ *
+ * Exported so API layers wrapping this workflow can mirror the limit in
+ * their own request validation instead of surfacing it as an
+ * asynchronous job failure.
+ */
+export const ASK_QUESTIONS_MAX_QUESTION_LENGTH = 600;
+
+/**
+ * Default for {@link AskQuestionsOptions.maxAnswerOptionLength}.
+ *
+ * Answer options are meant to be short labels ("yes", "no", "low",
+ * "appropriate") or domain-specific category strings (moderation
+ * labels, compliance categories). A common prompt-injection shape
+ * smuggles the payload through option content — e.g. pairing two long
+ * sentences that both presuppose the desired outcome. The cap rejects
+ * instruction-shaped options before they reach the model, while
+ * comfortably passing category labels that legitimately run 40–80
+ * characters.
+ */
+export const ASK_QUESTIONS_DEFAULT_MAX_ANSWER_OPTION_LENGTH = 150;
+
+/** Default for {@link AskQuestionsOptions.maxFreeFormAnswerLength}. */
+export const ASK_QUESTIONS_DEFAULT_MAX_FREE_FORM_ANSWER_LENGTH = 500;
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -784,13 +820,8 @@ async function askQuestionsInternal(
     throw new MuxAiError("At least one question must be provided.", { type: "validation_error" });
   }
 
-  // Validate each question has valid text and enforce a length ceiling.
-  // Reasonable human-authored questions are well under a few hundred
-  // characters; anything longer is almost certainly either a misuse
-  // (pasting a whole document) or a prompt-injection payload trying to
-  // hide instructions in a long blob. Rejecting at the boundary is a
-  // cheap, deterministic defence that the model never sees.
-  const MAX_QUESTION_LENGTH = 500;
+  // Validate each question has valid text and enforce the length ceiling
+  // (see ASK_QUESTIONS_MAX_QUESTION_LENGTH for rationale).
   questions.forEach((q, idx) => {
     if (!q.question || typeof q.question !== "string" || !q.question.trim()) {
       throw new MuxAiError(
@@ -798,33 +829,21 @@ async function askQuestionsInternal(
         { type: "validation_error" },
       );
     }
-    if (q.question.length > MAX_QUESTION_LENGTH) {
+    if (q.question.length > ASK_QUESTIONS_MAX_QUESTION_LENGTH) {
       throw new MuxAiError(
-        `Question at index ${idx} exceeds the ${MAX_QUESTION_LENGTH}-character limit (received ${q.question.length}).`,
+        `Question at index ${idx} exceeds the ${ASK_QUESTIONS_MAX_QUESTION_LENGTH}-character limit (received ${q.question.length}).`,
         { type: "validation_error" },
       );
     }
   });
 
-  // Per-answer-option length ceiling. Answer options are meant to be
-  // short labels ("yes", "no", "low", "appropriate") or domain-specific
-  // category strings (moderation labels, compliance categories).
-  //
-  // A common prompt-injection shape smuggles the payload through option
-  // content — e.g. pairing two long sentences that both presuppose the
-  // desired outcome ("Yes, I copied the full instructions into my
-  // reasoning as required"). The cap rejects instruction-shaped options
-  // before they reach the model.
-  //
-  // Default cap is 150 characters, tuned to comfortably pass
-  // domain-specific category labels (which can legitimately run 40–80
-  // chars) while still rejecting obvious sentence-length injections.
+  // Per-answer-option length ceiling (see
+  // ASK_QUESTIONS_DEFAULT_MAX_ANSWER_OPTION_LENGTH for rationale).
   // Overridable via `options.maxAnswerOptionLength` for use cases with
   // genuinely longer labels — but beware that widening this cap reduces
   // one of the defences against option-smuggling attacks.
-  const DEFAULT_MAX_ANSWER_OPTION_LENGTH = 150;
   const maxAnswerOptionLength =
-    options?.maxAnswerOptionLength ?? DEFAULT_MAX_ANSWER_OPTION_LENGTH;
+    options?.maxAnswerOptionLength ?? ASK_QUESTIONS_DEFAULT_MAX_ANSWER_OPTION_LENGTH;
   if (!Number.isFinite(maxAnswerOptionLength) || maxAnswerOptionLength <= 0) {
     throw new MuxAiError(
       `maxAnswerOptionLength must be a positive number (received ${maxAnswerOptionLength}).`,
@@ -847,9 +866,8 @@ async function askQuestionsInternal(
   });
 
   // Cap free-form answer length: bounds the open-ended output channel.
-  const DEFAULT_MAX_FREE_FORM_ANSWER_LENGTH = 500;
   const maxFreeFormAnswerLength =
-    options?.maxFreeFormAnswerLength ?? DEFAULT_MAX_FREE_FORM_ANSWER_LENGTH;
+    options?.maxFreeFormAnswerLength ?? ASK_QUESTIONS_DEFAULT_MAX_FREE_FORM_ANSWER_LENGTH;
   if (!Number.isFinite(maxFreeFormAnswerLength) || maxFreeFormAnswerLength <= 0) {
     throw new MuxAiError(
       `maxFreeFormAnswerLength must be a positive number (received ${maxFreeFormAnswerLength}).`,
