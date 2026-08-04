@@ -24,11 +24,17 @@ function defaultShouldRetry(error: Error, _attempt: number): boolean {
     return true;
   }
 
-  if (!DownloadError.isInstance(error)) {
+  // Durable workflow steps serialize errors, which removes the AI SDK's
+  // symbol-based instance marker. Recognize that serialized shape by name so
+  // transient download failures remain retryable across step boundaries.
+  const isDownloadError = DownloadError.isInstance(error);
+  const isSerializedDownloadError = error.name === "AI_DownloadError";
+
+  if (!isDownloadError && !isSerializedDownloadError) {
     return false;
   }
 
-  const { statusCode } = error;
+  const statusCode = (error as Error & { statusCode?: number }).statusCode;
   return statusCode === undefined ||
     statusCode === 408 ||
     statusCode === 425 ||
