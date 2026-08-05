@@ -1,3 +1,5 @@
+import { DownloadError } from "ai";
+
 /**
  * Retry configuration options
  */
@@ -15,10 +17,29 @@ const DEFAULT_RETRY_OPTIONS: Required<Omit<RetryOptions, "shouldRetry">> = {
 };
 
 /**
- * Default retry condition - retries on timeout errors
+ * Default retry condition - retries on transient timeout and download errors
  */
 function defaultShouldRetry(error: Error, _attempt: number): boolean {
-  return Boolean(error.message && error.message.includes("Timeout while downloading"));
+  if (error.message.includes("Timeout while downloading")) {
+    return true;
+  }
+
+  // Durable workflow steps serialize errors, which removes the AI SDK's
+  // symbol-based instance marker. Recognize that serialized shape by name so
+  // transient download failures remain retryable across step boundaries.
+  const isDownloadError = DownloadError.isInstance(error);
+  const isSerializedDownloadError = error.name === "AI_DownloadError";
+
+  if (!isDownloadError && !isSerializedDownloadError) {
+    return false;
+  }
+
+  const statusCode = (error as Error & { statusCode?: number }).statusCode;
+  return statusCode === undefined ||
+    statusCode === 408 ||
+    statusCode === 425 ||
+    statusCode === 429 ||
+    statusCode >= 500;
 }
 
 /**

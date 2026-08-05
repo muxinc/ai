@@ -8,12 +8,13 @@ import { openai } from "@ai-sdk/openai";
 import { generateText, Output } from "ai";
 import { Command } from "commander";
 import dedent from "dedent";
-import { z } from "zod";
 
 import env from "../src/env";
 import { getAssetDurationSeconds } from "../src/lib/mux-assets";
 import { DEFAULT_LANGUAGE_MODELS } from "../src/lib/providers";
 import type { SupportedProvider } from "../src/lib/providers";
+
+import { normalizeOptionalInsight, WorkflowInsightSchema } from "./evalite-insight-contract";
 
 import type { LanguageModel } from "ai";
 
@@ -219,12 +220,6 @@ interface Options {
   model?: string;
   workflows?: WorkflowKey[];
 }
-
-const WorkflowInsightSchema = z.object({
-  summaryMarkdown: z.string(),
-  tldr: z.string(),
-  caveat: z.string(),
-});
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -980,8 +975,8 @@ async function generateWorkflowInsights(suites: EvaliteSuite[], options: Generat
       <output_format>
         Return a JSON object with:
         - summaryMarkdown: full Markdown summary
-        - tldr: a single-sentence takeaway (optional)
-        - caveat: a concise caveat (optional)
+        - tldr: a single-sentence takeaway, or null when there is no useful takeaway
+        - caveat: a concise caveat, or null when there is no meaningful caveat
       </output_format>
       <markdown_template>
         **{Workflow Name} Evals Summary ({caseCount} runs, {providerCount} providers)**
@@ -1021,8 +1016,8 @@ async function generateWorkflowInsights(suites: EvaliteSuite[], options: Generat
       workflowKey,
       workflowName: stats.workflowName,
       summaryMarkdown: result.output.summaryMarkdown.trim(),
-      tldr: result.output.tldr?.trim(),
-      caveat: result.output.caveat?.trim(),
+      tldr: normalizeOptionalInsight(result.output.tldr),
+      caveat: normalizeOptionalInsight(result.output.caveat),
       stats,
       recommendations: stats.recommendations,
     });

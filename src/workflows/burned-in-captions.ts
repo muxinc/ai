@@ -29,6 +29,7 @@ import {
 } from "../lib/prompt-fragments.ts";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
+import { withRetry } from "../lib/retry.ts";
 import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import { resolveRenderableVideoScope } from "../lib/workflow-scope.ts";
 import { getStoryboardUrl } from "../primitives/storyboards.ts";
@@ -401,14 +402,15 @@ async function hasBurnedInCaptionsInternal(
       credentials,
     });
   } else {
-    analysisResponse = await analyzeStoryboard({
-      imageDataUrl: imageUrl,
-      provider: modelConfig.provider,
-      modelId: modelConfig.modelId,
-      userPrompt,
-      systemPrompt: SYSTEM_PROMPT,
-      credentials,
-    });
+    analysisResponse = await withRetry(() =>
+      analyzeStoryboard({
+        imageDataUrl: imageUrl,
+        provider: modelConfig.provider,
+        modelId: modelConfig.modelId,
+        userPrompt,
+        systemPrompt: SYSTEM_PROMPT,
+        credentials,
+      }));
   }
 
   collectedUsage.push(analysisResponse.usage);
