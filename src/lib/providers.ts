@@ -74,7 +74,7 @@ function resolveBasetenLanguageModelId(model?: string): BasetenModelId {
 }
 
 function resolveBasetenEmbeddingModelId(model?: string): BasetenEmbeddingModelId {
-  const resolved = model ?? env.BASETEN_EMBEDDING_MODEL ?? env.BASETEN_MODEL;
+  const resolved = model ?? env.BASETEN_EMBEDDING_MODEL;
   if (!resolved) {
     throw new Error(
       "Baseten embedding model is required. Pass `model` when provider is \"baseten\" or set BASETEN_EMBEDDING_MODEL.",
@@ -350,7 +350,7 @@ export function resolveLanguageModelConfig<P extends SupportedProvider = Support
   options: ModelRequestOptions<P> = {},
 ): { provider: P; modelId: ModelIdByProvider[P] } {
   const provider = options.provider || ("openai" as P);
-  const modelId = (options.model ?? getDefaultLanguageModel(provider)) as ModelIdByProvider[P];
+  const modelId = (options.model || getDefaultLanguageModel(provider)) as ModelIdByProvider[P];
   maybeWarnOrThrowForDeprecatedLanguageModel(provider, modelId);
 
   return { provider, modelId };
@@ -360,7 +360,7 @@ export function resolveEmbeddingModelConfig<P extends SupportedEmbeddingProvider
   options: MuxAIOptions & { provider?: P; model?: EmbeddingModelIdByProvider[P] } = {},
 ): { provider: P; modelId: EmbeddingModelIdByProvider[P] } {
   const provider = options.provider || ("openai" as P);
-  const modelId = (options.model ?? getDefaultEmbeddingModel(provider)) as EmbeddingModelIdByProvider[P];
+  const modelId = (options.model || getDefaultEmbeddingModel(provider)) as EmbeddingModelIdByProvider[P];
 
   return { provider, modelId };
 }
@@ -592,6 +592,28 @@ function isDedicatedBasetenModelUrl(value: string | undefined): boolean {
   return Boolean(value && (value.includes("/sync") || value.includes("/predict")));
 }
 
+// @ai-sdk/baseten silently ignores a chat modelURL without "/sync/v1" (falling
+// back to the shared Model APIs) and throws on "/predict", so validate up front
+// rather than letting requests get misrouted.
+function validateBasetenModelUrl(url: string, kind: BasetenModelKind): string {
+  if (kind === "language") {
+    if (!url.includes("/sync/v1")) {
+      throw new Error(
+        "Baseten language models require a dedicated /sync/v1 model URL (\"/predict\" URLs are not supported). " +
+        "For shared OpenAI-compatible endpoints, set BASETEN_BASE_URL or provide basetenBaseUrl in credentials instead.",
+      );
+    }
+    return url;
+  }
+
+  if (!url.includes("/sync")) {
+    throw new Error(
+      "Baseten embeddings require a dedicated /sync or /sync/v1 model URL. Set BASETEN_EMBEDDING_MODEL_URL or provide basetenEmbeddingModelUrl in credentials.",
+    );
+  }
+  return url;
+}
+
 function basetenUrlSettingsFromCandidates({
   modelUrl,
   baseUrl,
@@ -603,7 +625,7 @@ function basetenUrlSettingsFromCandidates({
 }): BasetenUrlSettings {
   const normalizedModelUrl = normalizeBasetenUrl(modelUrl);
   if (normalizedModelUrl) {
-    return { modelURL: normalizedModelUrl };
+    return { modelURL: validateBasetenModelUrl(normalizedModelUrl, kind) };
   }
 
   const normalizedBaseUrl = normalizeBasetenUrl(baseUrl);
@@ -617,7 +639,7 @@ function basetenUrlSettingsFromCandidates({
   }
 
   if (isDedicatedBasetenModelUrl(normalizedBaseUrl)) {
-    return { modelURL: normalizedBaseUrl };
+    return { modelURL: validateBasetenModelUrl(normalizedBaseUrl, kind) };
   }
 
   if (kind === "embedding") {
@@ -633,26 +655,23 @@ function resolveBasetenUrlSettingsFromRecord(
   record: Record<string, unknown> | undefined,
   kind: BasetenModelKind,
 ): BasetenUrlSettings {
-  const basetenModelUrl = readCredentialString(record, "basetenModelUrl");
-  const basetenBaseUrl = readCredentialString(record, "basetenBaseUrl");
-
+  // Embeddings never fall back to the language deployment's URL: reusing an
+  // LLM's /sync/v1 endpoint for embed requests fails opaquely at runtime, so
+  // require embedding-specific configuration instead.
   if (kind === "embedding") {
     return basetenUrlSettingsFromCandidates({
       modelUrl:
         readCredentialString(record, "basetenEmbeddingModelUrl") ??
         readCredentialString(record, "basetenEmbeddingBaseUrl") ??
-        basetenModelUrl ??
         env.BASETEN_EMBEDDING_MODEL_URL ??
-        env.BASETEN_EMBEDDING_BASE_URL ??
-        env.BASETEN_MODEL_URL,
-      baseUrl: basetenBaseUrl ?? env.BASETEN_BASE_URL,
+        env.BASETEN_EMBEDDING_BASE_URL,
       kind,
     });
   }
 
   return basetenUrlSettingsFromCandidates({
-    modelUrl: basetenModelUrl ?? env.BASETEN_MODEL_URL,
-    baseUrl: basetenBaseUrl ?? env.BASETEN_BASE_URL,
+    modelUrl: readCredentialString(record, "basetenModelUrl") ?? env.BASETEN_MODEL_URL,
+    baseUrl: readCredentialString(record, "basetenBaseUrl") ?? env.BASETEN_BASE_URL,
     kind,
   });
 }

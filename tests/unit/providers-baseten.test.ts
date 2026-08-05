@@ -99,10 +99,10 @@ describe("baseten provider integration", () => {
     expect(createBasetenMock.mock.results[0]?.value).toHaveBeenCalledWith("mux-summarizer");
   });
 
-  it("uses Baseten embedding-specific defaults and dedicated URL fallback", async () => {
+  it("uses Baseten embedding-specific model and URL configuration", async () => {
     vi.stubEnv("BASETEN_API_KEY", "bt-key");
-    vi.stubEnv("BASETEN_BASE_URL", "https://model-456.api.baseten.co/environments/production/sync/v1");
-    vi.stubEnv("BASETEN_MODEL", "mux-shared-model");
+    vi.stubEnv("BASETEN_EMBEDDING_MODEL_URL", "https://model-456.api.baseten.co/environments/production/sync");
+    vi.stubEnv("BASETEN_EMBEDDING_MODEL", "mux-embedding-model");
 
     const {
       createEmbeddingModelFromConfig,
@@ -111,16 +111,56 @@ describe("baseten provider integration", () => {
 
     expect(resolveEmbeddingModelConfig({ provider: "baseten" })).toEqual({
       provider: "baseten",
-      modelId: "mux-shared-model",
+      modelId: "mux-embedding-model",
     });
 
-    const model = await createEmbeddingModelFromConfig("baseten", "mux-shared-model");
+    const model = await createEmbeddingModelFromConfig("baseten", "mux-embedding-model");
 
-    expect(model).toMatchObject({ kind: "embedding", modelId: "mux-shared-model" });
+    expect(model).toMatchObject({ kind: "embedding", modelId: "mux-embedding-model" });
     expect(createBasetenMock).toHaveBeenCalledWith({
       apiKey: "bt-key",
-      modelURL: "https://model-456.api.baseten.co/environments/production/sync/v1",
+      modelURL: "https://model-456.api.baseten.co/environments/production/sync",
     });
-    expect(createBasetenMock.mock.results[0]?.value.embeddingModel).toHaveBeenCalledWith("mux-shared-model");
+    expect(createBasetenMock.mock.results[0]?.value.embeddingModel).toHaveBeenCalledWith("mux-embedding-model");
+  });
+
+  it("does not fall back to the language deployment for embeddings", async () => {
+    vi.stubEnv("BASETEN_API_KEY", "bt-key");
+    vi.stubEnv("BASETEN_MODEL", "mux-language-model");
+    vi.stubEnv("BASETEN_MODEL_URL", "https://model-123.api.baseten.co/environments/production/sync/v1");
+
+    const {
+      createEmbeddingModelFromConfig,
+      resolveEmbeddingModelConfig,
+    } = await import("../../src/lib/providers");
+
+    expect(() => resolveEmbeddingModelConfig({ provider: "baseten" })).toThrow(
+      "Baseten embedding model is required.",
+    );
+    await expect(createEmbeddingModelFromConfig("baseten", "mux-embedding-model")).rejects.toThrow(
+      "Baseten embedding model URL is required.",
+    );
+  });
+
+  it("rejects Baseten /predict URLs for language models", async () => {
+    vi.stubEnv("BASETEN_API_KEY", "bt-key");
+    vi.stubEnv("BASETEN_MODEL_URL", "https://model-123.api.baseten.co/environments/production/predict");
+
+    const { createLanguageModelFromConfig } = await import("../../src/lib/providers");
+
+    await expect(createLanguageModelFromConfig("baseten", "mux-summarizer")).rejects.toThrow(
+      "Baseten language models require a dedicated /sync/v1 model URL",
+    );
+  });
+
+  it("rejects Baseten language model URLs the SDK would silently ignore", async () => {
+    vi.stubEnv("BASETEN_API_KEY", "bt-key");
+    vi.stubEnv("BASETEN_MODEL_URL", "https://llm.example.com/v1");
+
+    const { createLanguageModelFromConfig } = await import("../../src/lib/providers");
+
+    await expect(createLanguageModelFromConfig("baseten", "mux-summarizer")).rejects.toThrow(
+      "Baseten language models require a dedicated /sync/v1 model URL",
+    );
   });
 });

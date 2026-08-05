@@ -155,7 +155,7 @@ BASETEN_EMBEDDING_MODEL=your-embedding-model-id
 BASETEN_EMBEDDING_MODEL_URL=https://model-id.api.baseten.co/sync
 ```
 
-Baseten language workflows support Model APIs and dedicated OpenAI-compatible `/sync/v1` deployments. Baseten embeddings require a dedicated `/sync` or `/sync/v1` deployment URL.
+Baseten language workflows support Model APIs and dedicated OpenAI-compatible `/sync/v1` deployments. Baseten embeddings require a dedicated `/sync` or `/sync/v1` deployment URL. Workflows that analyze storyboards or frames (such as `getSummaryAndTags`, `hasBurnedInCaptions`, and `askQuestions`) require a vision-capable Baseten deployment.
 
 ## Prompt Customization
 

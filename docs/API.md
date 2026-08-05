@@ -612,7 +612,7 @@ Generate vector embeddings for transcript chunks from video or audio assets for 
 **Options:**
 
 - `provider?: 'openai' | 'google' | 'baseten'` - Embedding provider (default: 'openai')
-- `model?: string` - Model to use (defaults: `text-embedding-3-small` for OpenAI, `gemini-embedding-001` for Google, or `BASETEN_EMBEDDING_MODEL`/`BASETEN_MODEL` for Baseten)
+- `model?: string` - Model to use (defaults: `text-embedding-3-small` for OpenAI, `gemini-embedding-001` for Google, or `BASETEN_EMBEDDING_MODEL` for Baseten)
 - `chunkingStrategy?: object` - How to chunk the transcript
   - `type: 'token' | 'vtt'` - Chunking method
   - `maxTokens?: number` - Maximum tokens per chunk (default: 500)
