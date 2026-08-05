@@ -29,7 +29,7 @@ import type { ToneType } from "@mux/ai";
 import type { SummarizationPromptOverrides } from "@mux/ai/workflows";
 import { getSummaryAndTags } from "@mux/ai/workflows";
 
-type Provider = "openai" | "anthropic" | "google" | "baseten";
+type Provider = "openai" | "anthropic" | "google" | "baseten" | "openai-compatible";
 type Preset = "seo" | "social" | "technical" | "ecommerce";
 
 const DEFAULT_MODELS: Partial<Record<Provider, string>> = {
@@ -174,7 +174,7 @@ program
     transcript: boolean;
   }) => {
     // Validate provider
-    if (!["openai", "anthropic", "google", "baseten"].includes(options.provider)) {
+    if (!["openai", "anthropic", "google", "baseten", "openai-compatible"].includes(options.provider)) {
       console.error("❌ Unsupported provider. Choose from: openai, anthropic, google, baseten");
       process.exit(1);
     }

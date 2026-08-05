@@ -101,6 +101,12 @@ export interface WorkflowCredentials {
   basetenEmbeddingBaseUrl?: string;
   /** Optional direct Baseten dedicated embedding model URL. */
   basetenEmbeddingModelUrl?: string;
+  /** Optional direct API key for OpenAI-compatible endpoints. */
+  openaiCompatibleApiKey?: string;
+  /** Optional direct base URL of an OpenAI-compatible API. */
+  openaiCompatibleBaseUrl?: string;
+  /** Optional direct embedding-specific OpenAI-compatible base URL. */
+  openaiCompatibleEmbeddingBaseUrl?: string;
   /** Optional direct Anthropic API key for per-request credential injection. */
   anthropicApiKey?: string;
   /** Optional direct Google API key for per-request credential injection. */

@@ -224,7 +224,7 @@ const result = await askQuestions(assetId, [
 
 ```typescript
 const result = await askQuestions(assetId, questions, {
-  provider: "openai", // "openai", "anthropic", "google", or "baseten" (default: "openai")
+  provider: "openai", // "openai", "anthropic", "google", "baseten", or "openai-compatible" (default: "openai")
   model: "gpt-5-mini", // Override default model
   includeTranscript: true, // Include transcript (default: true)
   cleanTranscript: true, // Remove timestamps/markup (default: true)
@@ -339,7 +339,7 @@ console.log("Trends:", result.overallInsight.trends);
 
 ```typescript
 const result = await generateEngagementInsights(assetId, {
-  provider: "openai", // "openai", "anthropic", "google", or "baseten"
+  provider: "openai", // "openai", "anthropic", "google", "baseten", or "openai-compatible"
   hotspotLimit: 5, // Moments per direction (1-10, default: 5). Up to 2x total.
   timeframe: "7:days", // "1:hour", "24:hours", "7:days", "30:days"
   skipShots: false, // Skip shots polling, use thumbnails (default: false)
@@ -773,11 +773,19 @@ const basetenResult = await getSummaryAndTags(assetId, {
   tone: "professional"
 });
 
+// Any OpenAI-compatible endpoint, e.g. vLLM, Ollama, Together AI
+// (requires OPENAI_COMPATIBLE_BASE_URL and OPENAI_COMPATIBLE_MODEL or explicit model)
+const compatibleResult = await getSummaryAndTags(assetId, {
+  provider: "openai-compatible",
+  tone: "professional"
+});
+
 // Compare results
 console.log("OpenAI:", openaiResult.title);
 console.log("Anthropic:", anthropicResult.title);
 console.log("Google:", googleResult.title);
 console.log("Baseten:", basetenResult.title);
+console.log("OpenAI-compatible:", compatibleResult.title);
 ```
 
 Works with any workflow:
@@ -803,6 +811,11 @@ const googleChapters = await generateChapters(assetId, {
 // Baseten (requires BASETEN_MODEL or explicit model)
 const basetenChapters = await generateChapters(assetId, {
   provider: "baseten"
+});
+
+// Any OpenAI-compatible endpoint (requires OPENAI_COMPATIBLE_BASE_URL)
+const compatibleChapters = await generateChapters(assetId, {
+  provider: "openai-compatible"
 });
 ```
 

@@ -5,7 +5,7 @@ import { getSummaryAndTags } from "@mux/ai/workflows";
 
 import "../env";
 
-type Provider = "openai" | "anthropic" | "google" | "baseten";
+type Provider = "openai" | "anthropic" | "google" | "baseten" | "openai-compatible";
 
 const DEFAULT_MODELS: Partial<Record<Provider, string>> = {
   openai: "gpt-5.6-luna",
@@ -28,7 +28,7 @@ program
     transcript: boolean;
   }) => {
     // Validate provider
-    if (!["openai", "anthropic", "google", "baseten"].includes(options.provider)) {
+    if (!["openai", "anthropic", "google", "baseten", "openai-compatible"].includes(options.provider)) {
       console.error("❌ Unsupported provider. Choose from: openai, anthropic, google, baseten");
       process.exit(1);
     }

@@ -244,7 +244,7 @@ export async function resolveMuxClient(
 /** Supported AI/ML provider identifiers for API key resolution. */
 export type ApiKeyProvider = "openai" | "baseten" | "anthropic" | "google" | "google-vision-api" | "hive" | "elevenlabs";
 
-function resolveProviderApiKeyFromCredentials(
+export function resolveProviderApiKeyFromCredentials(
   provider: ApiKeyProvider,
   resolved: WorkflowCredentials,
 ): string {

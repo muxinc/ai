@@ -1,41 +1,50 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
-import { createBaseten } from "@ai-sdk/baseten";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 
 import type { Env } from "../env.ts";
 import env from "../env.ts";
 import type { MuxAIOptions, WorkflowCredentialsInput } from "../types.ts";
 
-import { resolveProviderApiKey, resolveWorkflowCredentials } from "./workflow-credentials.ts";
+import {
+  resolveProviderApiKeyFromCredentials,
+  resolveWorkflowCredentials,
+} from "./workflow-credentials.ts";
 
 import type { EmbeddingModel, LanguageModel } from "ai";
 
-export type SupportedProvider = "openai" | "anthropic" | "google" | "baseten";
-export type SupportedEmbeddingProvider = "openai" | "google" | "baseten";
-type EvalSupportedProvider = Exclude<SupportedProvider, "baseten">;
+export type SupportedProvider = "openai" | "anthropic" | "google" | "baseten" | "openai-compatible";
+export type SupportedEmbeddingProvider = "openai" | "google" | "baseten" | "openai-compatible";
+
+/**
+ * Providers with fixed model catalogs that participate in eval runs.
+ * Baseten and generic OpenAI-compatible endpoints serve user-deployed models,
+ * so there is no model catalog to evaluate against.
+ */
+type EvalSupportedProvider = Exclude<SupportedProvider, "baseten" | "openai-compatible">;
 
 // Model ID unions inferred from ai-sdk provider call signatures
 type OpenAIModelId = Parameters<ReturnType<typeof createOpenAI>["chat"]>[0];
 type AnthropicModelId = Parameters<ReturnType<typeof createAnthropic>["chat"]>[0];
 type GoogleModelId = Parameters<ReturnType<typeof createGoogleGenerativeAI>["chat"]>[0];
-type BasetenModelId = NonNullable<Parameters<ReturnType<typeof createBaseten>["chatModel"]>[0]>;
 
 type OpenAIEmbeddingModelId = Parameters<ReturnType<typeof createOpenAI>["embedding"]>[0];
 type GoogleEmbeddingModelId = Parameters<ReturnType<typeof createGoogleGenerativeAI>["textEmbeddingModel"]>[0];
-type BasetenEmbeddingModelId = NonNullable<Parameters<ReturnType<typeof createBaseten>["embeddingModel"]>[0]>;
 
 export interface ModelIdByProvider {
-  openai: OpenAIModelId;
-  anthropic: AnthropicModelId;
-  google: GoogleModelId;
-  baseten: BasetenModelId;
+  "openai": OpenAIModelId;
+  "anthropic": AnthropicModelId;
+  "google": GoogleModelId;
+  "baseten": string;
+  "openai-compatible": string;
 }
 
 export interface EmbeddingModelIdByProvider {
-  openai: OpenAIEmbeddingModelId;
-  google: GoogleEmbeddingModelId;
-  baseten: BasetenEmbeddingModelId;
+  "openai": OpenAIEmbeddingModelId;
+  "google": GoogleEmbeddingModelId;
+  "baseten": string;
+  "openai-compatible": string;
 }
 
 export interface ModelRequestOptions<P extends SupportedProvider = SupportedProvider> extends MuxAIOptions {
@@ -57,30 +66,50 @@ export const DEFAULT_LANGUAGE_MODELS: { [K in EvalSupportedProvider]: ModelIdByP
 };
 
 const DEFAULT_EMBEDDING_MODELS: {
-  [K in Exclude<SupportedEmbeddingProvider, "baseten">]: EmbeddingModelIdByProvider[K];
+  [K in Exclude<SupportedEmbeddingProvider, "baseten" | "openai-compatible">]: EmbeddingModelIdByProvider[K];
 } = {
   openai: "text-embedding-3-small",
   google: "gemini-embedding-001",
 };
 
-function resolveBasetenLanguageModelId(model?: string): BasetenModelId {
+function resolveBasetenLanguageModelId(model?: string): string {
   const resolved = model ?? env.BASETEN_MODEL;
   if (!resolved) {
     throw new Error(
       "Baseten model is required. Pass `model` when provider is \"baseten\" or set BASETEN_MODEL.",
     );
   }
-  return resolved as BasetenModelId;
+  return resolved;
 }
 
-function resolveBasetenEmbeddingModelId(model?: string): BasetenEmbeddingModelId {
+function resolveBasetenEmbeddingModelId(model?: string): string {
   const resolved = model ?? env.BASETEN_EMBEDDING_MODEL;
   if (!resolved) {
     throw new Error(
       "Baseten embedding model is required. Pass `model` when provider is \"baseten\" or set BASETEN_EMBEDDING_MODEL.",
     );
   }
-  return resolved as BasetenEmbeddingModelId;
+  return resolved;
+}
+
+function resolveOpenAICompatibleLanguageModelId(model?: string): string {
+  const resolved = model ?? env.OPENAI_COMPATIBLE_MODEL;
+  if (!resolved) {
+    throw new Error(
+      "OpenAI-compatible model is required. Pass `model` when provider is \"openai-compatible\" or set OPENAI_COMPATIBLE_MODEL.",
+    );
+  }
+  return resolved;
+}
+
+function resolveOpenAICompatibleEmbeddingModelId(model?: string): string {
+  const resolved = model ?? env.OPENAI_COMPATIBLE_EMBEDDING_MODEL;
+  if (!resolved) {
+    throw new Error(
+      "OpenAI-compatible embedding model is required. Pass `model` when provider is \"openai-compatible\" or set OPENAI_COMPATIBLE_EMBEDDING_MODEL.",
+    );
+  }
+  return resolved;
 }
 
 export function getDefaultLanguageModel<P extends SupportedProvider = SupportedProvider>(
@@ -88,6 +117,9 @@ export function getDefaultLanguageModel<P extends SupportedProvider = SupportedP
 ): ModelIdByProvider[P] {
   if (provider === "baseten") {
     return resolveBasetenLanguageModelId() as ModelIdByProvider[P];
+  }
+  if (provider === "openai-compatible") {
+    return resolveOpenAICompatibleLanguageModelId() as ModelIdByProvider[P];
   }
 
   return DEFAULT_LANGUAGE_MODELS[provider as EvalSupportedProvider] as ModelIdByProvider[P];
@@ -99,9 +131,12 @@ export function getDefaultEmbeddingModel<P extends SupportedEmbeddingProvider = 
   if (provider === "baseten") {
     return resolveBasetenEmbeddingModelId() as EmbeddingModelIdByProvider[P];
   }
+  if (provider === "openai-compatible") {
+    return resolveOpenAICompatibleEmbeddingModelId() as EmbeddingModelIdByProvider[P];
+  }
 
   return DEFAULT_EMBEDDING_MODELS[
-    provider as Exclude<SupportedEmbeddingProvider, "baseten">
+    provider as Exclude<SupportedEmbeddingProvider, "baseten" | "openai-compatible">
   ] as EmbeddingModelIdByProvider[P];
 }
 
@@ -258,7 +293,7 @@ function parseEvalModelPair(value: string): EvalModelConfig | undefined {
     );
   }
 
-  if (provider === "baseten") {
+  if (provider === "baseten" || provider === "openai-compatible") {
     return undefined;
   }
 
@@ -550,7 +585,7 @@ export function calculateCost(
   cachedInputTokens: number = 0,
   cacheWriteTokens: number = 0,
 ): number {
-  if (provider === "baseten") {
+  if (provider === "baseten" || provider === "openai-compatible") {
     return 0;
   }
 
@@ -565,11 +600,13 @@ function requireEnv(value: string | undefined, name: string): string {
   return value;
 }
 
-type BasetenModelKind = "language" | "embedding";
+type ModelKind = "language" | "embedding";
 
-interface BasetenUrlSettings {
-  baseURL?: string;
-  modelURL?: string;
+const BASETEN_MODEL_APIS_BASE_URL = "https://inference.baseten.co/v1";
+
+interface OpenAICompatibleSettings {
+  apiKey?: string;
+  baseURL: string;
 }
 
 function readCredentialString(record: Record<string, unknown> | undefined, key: string): string | undefined {
@@ -577,7 +614,7 @@ function readCredentialString(record: Record<string, unknown> | undefined, key: 
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-function normalizeBasetenUrl(value: string | undefined): string | undefined {
+function normalizeBaseUrl(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   if (!trimmed) {
     return undefined;
@@ -592,10 +629,10 @@ function isDedicatedBasetenModelUrl(value: string | undefined): boolean {
   return Boolean(value && (value.includes("/sync") || value.includes("/predict")));
 }
 
-// @ai-sdk/baseten silently ignores a chat modelURL without "/sync/v1" (falling
-// back to the shared Model APIs) and throws on "/predict", so validate up front
-// rather than letting requests get misrouted.
-function validateBasetenModelUrl(url: string, kind: BasetenModelKind): string {
+// Baseten serves chat models at dedicated ".../sync/v1" endpoints ("/predict"
+// endpoints are not OpenAI-compatible), so validate up front rather than
+// letting requests get misrouted or fail opaquely.
+function validateBasetenModelUrl(url: string, kind: ModelKind): string {
   if (kind === "language") {
     if (!url.includes("/sync/v1")) {
       throw new Error(
@@ -614,32 +651,41 @@ function validateBasetenModelUrl(url: string, kind: BasetenModelKind): string {
   return url;
 }
 
-function basetenUrlSettingsFromCandidates({
+// Dedicated "/sync" embedding deployments expose their OpenAI-compatible API
+// under "/sync/v1".
+function basetenEndpointBaseUrl(url: string, kind: ModelKind): string {
+  if (kind === "embedding" && !url.includes("/sync/v1")) {
+    return `${url}/v1`;
+  }
+  return url;
+}
+
+function basetenBaseUrlFromCandidates({
   modelUrl,
   baseUrl,
   kind,
 }: {
   modelUrl?: string;
   baseUrl?: string;
-  kind: BasetenModelKind;
-}): BasetenUrlSettings {
-  const normalizedModelUrl = normalizeBasetenUrl(modelUrl);
+  kind: ModelKind;
+}): string {
+  const normalizedModelUrl = normalizeBaseUrl(modelUrl);
   if (normalizedModelUrl) {
-    return { modelURL: validateBasetenModelUrl(normalizedModelUrl, kind) };
+    return basetenEndpointBaseUrl(validateBasetenModelUrl(normalizedModelUrl, kind), kind);
   }
 
-  const normalizedBaseUrl = normalizeBasetenUrl(baseUrl);
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
   if (!normalizedBaseUrl) {
     if (kind === "embedding") {
       throw new Error(
         "Baseten embedding model URL is required. Set BASETEN_EMBEDDING_MODEL_URL or provide basetenEmbeddingModelUrl in credentials.",
       );
     }
-    return {};
+    return BASETEN_MODEL_APIS_BASE_URL;
   }
 
   if (isDedicatedBasetenModelUrl(normalizedBaseUrl)) {
-    return { modelURL: validateBasetenModelUrl(normalizedBaseUrl, kind) };
+    return basetenEndpointBaseUrl(validateBasetenModelUrl(normalizedBaseUrl, kind), kind);
   }
 
   if (kind === "embedding") {
@@ -648,18 +694,18 @@ function basetenUrlSettingsFromCandidates({
     );
   }
 
-  return { baseURL: normalizedBaseUrl };
+  return normalizedBaseUrl;
 }
 
-function resolveBasetenUrlSettingsFromRecord(
+function resolveBasetenBaseUrlFromRecord(
   record: Record<string, unknown> | undefined,
-  kind: BasetenModelKind,
-): BasetenUrlSettings {
+  kind: ModelKind,
+): string {
   // Embeddings never fall back to the language deployment's URL: reusing an
   // LLM's /sync/v1 endpoint for embed requests fails opaquely at runtime, so
   // require embedding-specific configuration instead.
   if (kind === "embedding") {
-    return basetenUrlSettingsFromCandidates({
+    return basetenBaseUrlFromCandidates({
       modelUrl:
         readCredentialString(record, "basetenEmbeddingModelUrl") ??
         readCredentialString(record, "basetenEmbeddingBaseUrl") ??
@@ -669,23 +715,50 @@ function resolveBasetenUrlSettingsFromRecord(
     });
   }
 
-  return basetenUrlSettingsFromCandidates({
+  return basetenBaseUrlFromCandidates({
     modelUrl: readCredentialString(record, "basetenModelUrl") ?? env.BASETEN_MODEL_URL,
     baseUrl: readCredentialString(record, "basetenBaseUrl") ?? env.BASETEN_BASE_URL,
     kind,
   });
 }
 
-async function resolveBasetenUrlSettings(
-  credentials: WorkflowCredentialsInput | undefined,
-  kind: BasetenModelKind,
-): Promise<BasetenUrlSettings> {
-  const resolved = await resolveWorkflowCredentials(credentials);
-  return resolveBasetenUrlSettingsFromRecord(resolved as Record<string, unknown>, kind);
+function resolveOpenAICompatibleSettingsFromRecord(
+  record: Record<string, unknown> | undefined,
+  kind: ModelKind,
+): OpenAICompatibleSettings {
+  // Some local or self-hosted OpenAI-compatible endpoints don't require a key.
+  const apiKey = readCredentialString(record, "openaiCompatibleApiKey") ?? env.OPENAI_COMPATIBLE_API_KEY;
+  const sharedBaseUrl = readCredentialString(record, "openaiCompatibleBaseUrl") ?? env.OPENAI_COMPATIBLE_BASE_URL;
+  const baseUrl = normalizeBaseUrl(
+    kind === "embedding" ?
+      readCredentialString(record, "openaiCompatibleEmbeddingBaseUrl") ??
+      env.OPENAI_COMPATIBLE_EMBEDDING_BASE_URL ??
+      sharedBaseUrl :
+      sharedBaseUrl,
+  );
+
+  if (!baseUrl) {
+    throw new Error(
+      "OpenAI-compatible base URL is required. Set OPENAI_COMPATIBLE_BASE_URL or provide openaiCompatibleBaseUrl in credentials.",
+    );
+  }
+
+  return { apiKey, baseURL: baseUrl };
 }
 
-function resolveBasetenUrlSettingsFromEnv(kind: BasetenModelKind): BasetenUrlSettings {
-  return resolveBasetenUrlSettingsFromRecord(undefined, kind);
+function createBasetenProvider(apiKey: string | undefined, baseURL: string) {
+  return createOpenAICompatible({
+    name: "baseten",
+    apiKey,
+    baseURL,
+  });
+}
+
+function createGenericOpenAICompatibleProvider(settings: OpenAICompatibleSettings) {
+  return createOpenAICompatible({
+    name: "openai-compatible",
+    ...settings,
+  });
 }
 
 /**
@@ -700,27 +773,33 @@ export async function createLanguageModelFromConfig<P extends SupportedProvider 
 ): Promise<LanguageModel> {
   maybeWarnOrThrowForDeprecatedLanguageModel(provider, modelId);
 
+  const resolvedCredentials = await resolveWorkflowCredentials(credentials);
+  const credentialsRecord = resolvedCredentials as Record<string, unknown>;
+
   switch (provider) {
     case "openai": {
-      const apiKey = await resolveProviderApiKey("openai", credentials);
+      const apiKey = resolveProviderApiKeyFromCredentials("openai", resolvedCredentials);
       const openai = createOpenAI({ apiKey });
       return openai(modelId);
     }
     case "baseten": {
-      const apiKey = await resolveProviderApiKey("baseten", credentials);
-      const baseten = createBaseten({
-        apiKey,
-        ...await resolveBasetenUrlSettings(credentials, "language"),
-      });
-      return baseten(modelId);
+      const apiKey = resolveProviderApiKeyFromCredentials("baseten", resolvedCredentials);
+      const baseten = createBasetenProvider(apiKey, resolveBasetenBaseUrlFromRecord(credentialsRecord, "language"));
+      return baseten.chatModel(modelId);
+    }
+    case "openai-compatible": {
+      const compatible = createGenericOpenAICompatibleProvider(
+        resolveOpenAICompatibleSettingsFromRecord(credentialsRecord, "language"),
+      );
+      return compatible.chatModel(modelId);
     }
     case "anthropic": {
-      const apiKey = await resolveProviderApiKey("anthropic", credentials);
+      const apiKey = resolveProviderApiKeyFromCredentials("anthropic", resolvedCredentials);
       const anthropic = createAnthropic({ apiKey });
       return anthropic(modelId);
     }
     case "google": {
-      const apiKey = await resolveProviderApiKey("google", credentials);
+      const apiKey = resolveProviderApiKeyFromCredentials("google", resolvedCredentials);
       const google = createGoogleGenerativeAI({ apiKey });
       return google(modelId);
     }
@@ -743,22 +822,28 @@ export async function createEmbeddingModelFromConfig<
   modelId: EmbeddingModelIdByProvider[P],
   credentials?: WorkflowCredentialsInput,
 ): Promise<EmbeddingModel> {
+  const resolvedCredentials = await resolveWorkflowCredentials(credentials);
+  const credentialsRecord = resolvedCredentials as Record<string, unknown>;
+
   switch (provider) {
     case "openai": {
-      const apiKey = await resolveProviderApiKey("openai", credentials);
+      const apiKey = resolveProviderApiKeyFromCredentials("openai", resolvedCredentials);
       const openai = createOpenAI({ apiKey });
       return openai.embedding(modelId);
     }
     case "baseten": {
-      const apiKey = await resolveProviderApiKey("baseten", credentials);
-      const baseten = createBaseten({
-        apiKey,
-        ...await resolveBasetenUrlSettings(credentials, "embedding"),
-      });
-      return baseten.embeddingModel(modelId);
+      const apiKey = resolveProviderApiKeyFromCredentials("baseten", resolvedCredentials);
+      const baseten = createBasetenProvider(apiKey, resolveBasetenBaseUrlFromRecord(credentialsRecord, "embedding"));
+      return baseten.textEmbeddingModel(modelId);
+    }
+    case "openai-compatible": {
+      const compatible = createGenericOpenAICompatibleProvider(
+        resolveOpenAICompatibleSettingsFromRecord(credentialsRecord, "embedding"),
+      );
+      return compatible.textEmbeddingModel(modelId);
     }
     case "google": {
-      const apiKey = await resolveProviderApiKey("google", credentials);
+      const apiKey = resolveProviderApiKeyFromCredentials("google", resolvedCredentials);
       const google = createGoogleGenerativeAI({ apiKey });
       return google.textEmbeddingModel(modelId);
     }
@@ -794,15 +879,23 @@ export function resolveLanguageModel<P extends SupportedProvider = SupportedProv
     case "baseten": {
       const apiKey = env.BASETEN_API_KEY;
       requireEnv(apiKey, "BASETEN_API_KEY");
-      const baseten = createBaseten({
-        apiKey,
-        ...resolveBasetenUrlSettingsFromEnv("language"),
-      });
+      const baseten = createBasetenProvider(apiKey, resolveBasetenBaseUrlFromRecord(undefined, "language"));
 
       return {
         provider,
         modelId,
-        model: baseten(modelId),
+        model: baseten.chatModel(modelId),
+      };
+    }
+    case "openai-compatible": {
+      const compatible = createGenericOpenAICompatibleProvider(
+        resolveOpenAICompatibleSettingsFromRecord(undefined, "language"),
+      );
+
+      return {
+        provider,
+        modelId,
+        model: compatible.chatModel(modelId),
       };
     }
     case "anthropic": {
@@ -863,15 +956,23 @@ export function resolveEmbeddingModel<P extends SupportedEmbeddingProvider = "op
     case "baseten": {
       const apiKey = env.BASETEN_API_KEY;
       requireEnv(apiKey, "BASETEN_API_KEY");
-      const baseten = createBaseten({
-        apiKey,
-        ...resolveBasetenUrlSettingsFromEnv("embedding"),
-      });
+      const baseten = createBasetenProvider(apiKey, resolveBasetenBaseUrlFromRecord(undefined, "embedding"));
 
       return {
         provider,
         modelId,
-        model: baseten.embeddingModel(modelId),
+        model: baseten.textEmbeddingModel(modelId),
+      };
+    }
+    case "openai-compatible": {
+      const compatible = createGenericOpenAICompatibleProvider(
+        resolveOpenAICompatibleSettingsFromRecord(undefined, "embedding"),
+      );
+
+      return {
+        provider,
+        modelId,
+        model: compatible.textEmbeddingModel(modelId),
       };
     }
     case "google": {

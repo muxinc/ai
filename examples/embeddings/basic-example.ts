@@ -5,7 +5,7 @@ import { generateEmbeddings } from "@mux/ai/workflows";
 
 import "../env";
 
-type Provider = "openai" | "google" | "baseten";
+type Provider = "openai" | "google" | "baseten" | "openai-compatible";
 type Strategy = "token" | "vtt";
 
 const program = new Command();
@@ -27,7 +27,7 @@ program
     strategy: string;
   }) => {
     // Validate provider
-    if (!["openai", "google", "baseten"].includes(options.provider)) {
+    if (!["openai", "google", "baseten", "openai-compatible"].includes(options.provider)) {
       console.error("❌ Unsupported provider. Choose from: openai, google, baseten");
       process.exit(1);
     }

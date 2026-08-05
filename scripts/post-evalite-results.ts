@@ -889,8 +889,8 @@ function resolveInsightsModel(options: GenerateInsightsOptions = {}): ResolvedMo
 
   // If a specific provider is requested, use it (will fail if credentials missing)
   if (preferredProvider) {
-    if (preferredProvider === "baseten") {
-      throw new Error("Baseten is not yet supported for Evalite insights generation.");
+    if (preferredProvider === "baseten" || preferredProvider === "openai-compatible") {
+      throw new Error(`Provider "${preferredProvider}" is not yet supported for Evalite insights generation.`);
     }
 
     const modelId = preferredModel ?? getDefaultLanguageModel(preferredProvider);

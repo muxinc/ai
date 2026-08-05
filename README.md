@@ -3,7 +3,7 @@
 [![npm version](https://badge.fury.io/js/@mux%2Fai.svg)](https://www.npmjs.com/package/@mux/ai)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-Easy to use, purpose-driven, cost effective, configurable **_workflow functions_** in a TypeScript SDK for building AI-powered video and audio workflows on the server, powered by [Mux](https://www.mux.com), with support for popular AI/LLM providers (OpenAI, Anthropic, Google, Baseten).
+Easy to use, purpose-driven, cost effective, configurable **_workflow functions_** in a TypeScript SDK for building AI-powered video and audio workflows on the server, powered by [Mux](https://www.mux.com), with support for popular AI/LLM providers (OpenAI, Anthropic, Google, Baseten, and any OpenAI-compatible endpoint).
 
 - **Examples:** [`getSummaryAndTags`](#video-summarization), [`getModerationScores`](#content-moderation), [`hasBurnedInCaptions`](#burned-in-caption-detection), [`generateChapters`](#chapter-generation), [`generateEmbeddings`](#search-with-embeddings), [`generateEngagementInsights`](#engagement-insights), [`translateCaptions`](#caption-translation), [`editCaptions`](#caption-editing), [`translateAudio`](#audio-dubbing)
 - Workflows automatically ship with `"use workflow"` [compatability with Workflow DevKit](#compatability-with-workflow-devkit)
@@ -54,9 +54,9 @@ console.log(result.tags);         // ["typescript", "tutorial", "programming"]
 
 - **Pre-built workflows for media AI tasks.** Common multi-step operations (transcript access, frame analysis, LLM calls, and structured parsing) are available as high-level functions.
 - **Support for video and audio assets.** The same workflows work with video and [audio-only assets](./docs/AUDIO-ONLY.md), including summarization, moderation, chaptering, and more.
-- **Provider-flexible API.** Choose OpenAI, Anthropic, Google, or Baseten through workflow options while keeping the same workflow interface.
+- **Provider-flexible API.** Choose OpenAI, Anthropic, Google, Baseten, or any OpenAI-compatible endpoint through workflow options while keeping the same workflow interface.
 - **Published evaluation coverage.** Workflows include [evals](./docs/EVALS.md) for quality, latency, and cost, with results [published publicly](https://evaluating-mux-ai.vercel.app/) on pushes to `main`.
-- **Sensible default models.** Defaults (`gpt-5.6-luna` at medium reasoning, `claude-sonnet-4-5`, `gemini-3-flash-preview`) are selected to balance output quality and runtime cost. Baseten uses an explicit `model` or `BASETEN_MODEL`.
+- **Sensible default models.** Defaults (`gpt-5.6-luna` at medium reasoning, `claude-sonnet-4-5`, `gemini-3-flash-preview`) are selected to balance output quality and runtime cost. Baseten and OpenAI-compatible endpoints serve user-deployed models, so they use an explicit `model` or the `BASETEN_MODEL`/`OPENAI_COMPATIBLE_MODEL` environment variables.
 - **Typed end-to-end.** Workflow inputs, options, and outputs are fully typed in TypeScript.
 - **Operational defaults included.** Retry handling, error handling, signed playback support, and [Workflow DevKit](https://useworkflow.dev) compatibility are built in.
 - **Prompt customization support.** Use `promptOverrides` to adjust sections of workflow prompts for your domain or product requirements.
@@ -68,14 +68,14 @@ Workflows are high-level functions that handle complete media AI tasks end-to-en
 
 | Workflow | What it does | Providers | Audio-only |
 | --- | --- | --- | :---: |
-| [`getSummaryAndTags`](./docs/WORKFLOWS.md#video-summarization) | Generate titles, descriptions, and tags | OpenAI, Anthropic, Google, Baseten | Yes |
+| [`getSummaryAndTags`](./docs/WORKFLOWS.md#video-summarization) | Generate titles, descriptions, and tags | OpenAI, Anthropic, Google, Baseten, OpenAI-compatible | Yes |
 | [`getModerationScores`](./docs/WORKFLOWS.md#content-moderation) | Detect inappropriate content | OpenAI, Hive, Google Vision | Yes |
-| [`hasBurnedInCaptions`](./docs/WORKFLOWS.md#burned-in-caption-detection) | Detect hardcoded subtitles in video frames | OpenAI, Anthropic, Google, Baseten | — |
-| [`askQuestions`](./docs/WORKFLOWS.md#ask-questions) | Answer yes/no questions about asset content | OpenAI, Anthropic, Google, Baseten | Yes |
-| [`generateChapters`](./docs/WORKFLOWS.md#chapter-generation) | Create chapter markers from transcripts | OpenAI, Anthropic, Google, Baseten | Yes |
-| [`generateEmbeddings`](./docs/WORKFLOWS.md#embeddings) | Generate vector embeddings for semantic search | OpenAI, Google, Baseten | Yes |
-| [`translateCaptions`](./docs/WORKFLOWS.md#caption-translation) | Translate captions into other languages | OpenAI, Anthropic, Google, Baseten | Yes |
-| [`editCaptions`](./docs/WORKFLOWS.md#caption-editing) | Edit captions: censor profanity and/or apply static replacements | OpenAI, Anthropic, Google, Baseten | Yes |
+| [`hasBurnedInCaptions`](./docs/WORKFLOWS.md#burned-in-caption-detection) | Detect hardcoded subtitles in video frames | OpenAI, Anthropic, Google, Baseten, OpenAI-compatible | — |
+| [`askQuestions`](./docs/WORKFLOWS.md#ask-questions) | Answer yes/no questions about asset content | OpenAI, Anthropic, Google, Baseten, OpenAI-compatible | Yes |
+| [`generateChapters`](./docs/WORKFLOWS.md#chapter-generation) | Create chapter markers from transcripts | OpenAI, Anthropic, Google, Baseten, OpenAI-compatible | Yes |
+| [`generateEmbeddings`](./docs/WORKFLOWS.md#embeddings) | Generate vector embeddings for semantic search | OpenAI, Google, Baseten, OpenAI-compatible | Yes |
+| [`translateCaptions`](./docs/WORKFLOWS.md#caption-translation) | Translate captions into other languages | OpenAI, Anthropic, Google, Baseten, OpenAI-compatible | Yes |
+| [`editCaptions`](./docs/WORKFLOWS.md#caption-editing) | Edit captions: censor profanity and/or apply static replacements | OpenAI, Anthropic, Google, Baseten, OpenAI-compatible | Yes |
 | [`translateAudio`](./docs/WORKFLOWS.md#audio-dubbing) | Create AI-dubbed audio tracks | ElevenLabs | Yes |
 
 See the [Workflows guide](./docs/WORKFLOWS.md) for detailed documentation, options, and examples for each workflow. See the [API Reference](./docs/API.md) for complete parameter and return type details.
@@ -155,7 +155,20 @@ BASETEN_EMBEDDING_MODEL=your-embedding-model-id
 BASETEN_EMBEDDING_MODEL_URL=https://model-id.api.baseten.co/sync
 ```
 
-Baseten language workflows support Model APIs and dedicated OpenAI-compatible `/sync/v1` deployments. Baseten embeddings require a dedicated `/sync` or `/sync/v1` deployment URL. Workflows that analyze storyboards or frames (such as `getSummaryAndTags`, `hasBurnedInCaptions`, and `askQuestions`) require a vision-capable Baseten deployment.
+Baseten language workflows support Model APIs and dedicated OpenAI-compatible `/sync/v1` deployments. Baseten embeddings require a dedicated `/sync` or `/sync/v1` deployment URL.
+
+**OpenAI-compatible provider:**
+
+```bash
+OPENAI_COMPATIBLE_BASE_URL=https://my-endpoint.example.com/v1
+OPENAI_COMPATIBLE_API_KEY=optional-api-key
+OPENAI_COMPATIBLE_MODEL=your-language-model-id
+OPENAI_COMPATIBLE_EMBEDDING_MODEL=your-embedding-model-id
+```
+
+Use `provider: "openai-compatible"` with any endpoint that speaks the OpenAI API protocol — vLLM, Ollama, Together AI, Fireworks, OpenRouter, or a self-hosted gateway. `OPENAI_COMPATIBLE_API_KEY` is optional for endpoints that don't require authentication, and `OPENAI_COMPATIBLE_EMBEDDING_BASE_URL` can point embeddings at a separate endpoint (defaults to the shared base URL).
+
+For both providers, workflows that analyze storyboards or frames (such as `getSummaryAndTags`, `hasBurnedInCaptions`, and `askQuestions`) require the deployed model to be vision-capable.
 
 ## Prompt Customization
 
@@ -176,7 +189,7 @@ This works with `getSummaryAndTags`, `generateChapters`, and `hasBurnedInCaption
 
 ## Evaluations
 
-Choosing between OpenAI, Anthropic, and Google for a given workflow isn't guesswork. Every workflow in `@mux/ai` ships with eval coverage that benchmarks those providers and models against three dimensions. Baseten is supported at runtime and intentionally skipped by eval runs for now.
+Choosing between OpenAI, Anthropic, and Google for a given workflow isn't guesswork. Every workflow in `@mux/ai` ships with eval coverage that benchmarks those providers and models against three dimensions. Baseten and generic OpenAI-compatible endpoints serve user-deployed models, so they are supported at runtime but intentionally skipped by eval runs.
 
 - **Efficacy** — Does it produce accurate, high-quality results?
 - **Efficiency** — How fast is it and how many tokens does it consume?

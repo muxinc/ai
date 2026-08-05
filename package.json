@@ -118,9 +118,9 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.16",
-    "@ai-sdk/baseten": "^1.0.54",
     "@ai-sdk/google": "^3.0.10",
     "@ai-sdk/openai": "^3.0.12",
+    "@ai-sdk/openai-compatible": "^2.0.51",
     "@mux/mux-node": "^14.0.0",
     "@noble/ciphers": "^2.1.1",
     "ai": "^6.0.42",
