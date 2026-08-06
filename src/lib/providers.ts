@@ -729,11 +729,16 @@ function resolveOpenAICompatibleSettingsFromRecord(
   return { apiKey, baseURL: baseUrl };
 }
 
+// Without supportsStructuredOutputs the AI SDK downgrades schema-constrained
+// output to bare json_object mode, which reasoning models handle poorly
+// (rambling or truncated JSON that fails to parse). Endpoints that lack
+// json_schema support fail loudly instead, which is the better failure mode.
 function createBasetenProvider(apiKey: string | undefined, baseURL: string) {
   return createOpenAICompatible({
     name: "baseten",
     apiKey,
     baseURL,
+    supportsStructuredOutputs: true,
   });
 }
 
@@ -741,6 +746,7 @@ function createGenericOpenAICompatibleProvider(settings: OpenAICompatibleSetting
   return createOpenAICompatible({
     name: "openai-compatible",
     ...settings,
+    supportsStructuredOutputs: true,
   });
 }
 

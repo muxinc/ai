@@ -99,6 +99,7 @@ describe("baseten provider integration", () => {
       name: "baseten",
       apiKey: "bt-key",
       baseURL: "https://model-123.api.baseten.co/environments/production/sync/v1",
+      supportsStructuredOutputs: true,
     });
     expect(createOpenAICompatibleMock.mock.results[0]?.value.chatModel).toHaveBeenCalledWith("mux-summarizer");
   });
@@ -114,6 +115,7 @@ describe("baseten provider integration", () => {
       name: "baseten",
       apiKey: "bt-key",
       baseURL: "https://inference.baseten.co/v1",
+      supportsStructuredOutputs: true,
     });
   });
 
@@ -139,6 +141,7 @@ describe("baseten provider integration", () => {
       name: "baseten",
       apiKey: "bt-key",
       baseURL: "https://model-456.api.baseten.co/environments/production/sync/v1",
+      supportsStructuredOutputs: true,
     });
     expect(createOpenAICompatibleMock.mock.results[0]?.value.textEmbeddingModel).toHaveBeenCalledWith("mux-embedding-model");
   });
@@ -184,6 +187,7 @@ describe("baseten provider integration", () => {
       name: "baseten",
       apiKey: "bt-key",
       baseURL: "https://llm.example.com/v1",
+      supportsStructuredOutputs: true,
     });
   });
 });

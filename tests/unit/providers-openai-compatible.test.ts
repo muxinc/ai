@@ -88,6 +88,7 @@ describe("openai-compatible provider integration", () => {
       name: "openai-compatible",
       apiKey: undefined,
       baseURL: "http://localhost:11434/v1",
+      supportsStructuredOutputs: true,
     });
     expect(createOpenAICompatibleMock.mock.results[0]?.value.chatModel).toHaveBeenCalledWith("llama-3.3-70b-instruct");
   });
@@ -108,6 +109,7 @@ describe("openai-compatible provider integration", () => {
       name: "openai-compatible",
       apiKey: "oc-key",
       baseURL: "https://my-endpoint.example.com/v1",
+      supportsStructuredOutputs: true,
     });
   });
 
@@ -133,6 +135,7 @@ describe("openai-compatible provider integration", () => {
       name: "openai-compatible",
       apiKey: "oc-key",
       baseURL: "https://my-endpoint.example.com/v1",
+      supportsStructuredOutputs: true,
     });
     expect(createOpenAICompatibleMock.mock.results[0]?.value.textEmbeddingModel).toHaveBeenCalledWith("bge-large");
   });
@@ -149,6 +152,7 @@ describe("openai-compatible provider integration", () => {
       name: "openai-compatible",
       apiKey: undefined,
       baseURL: "https://embeddings.example.com/v1",
+      supportsStructuredOutputs: true,
     });
   });
 
