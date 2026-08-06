@@ -629,15 +629,15 @@ function isDedicatedBasetenModelUrl(value: string | undefined): boolean {
   return Boolean(value && (value.includes("/sync") || value.includes("/predict")));
 }
 
-// Baseten serves chat models at dedicated ".../sync/v1" endpoints ("/predict"
+// Baseten serves dedicated deployments at ".../sync/v1" endpoints ("/predict"
 // endpoints are not OpenAI-compatible), so validate up front rather than
-// letting requests get misrouted or fail opaquely.
-function validateBasetenModelUrl(url: string, kind: ModelKind): string {
+// letting requests fail opaquely.
+function validateDedicatedBasetenUrl(url: string, kind: ModelKind): string {
   if (kind === "language") {
     if (!url.includes("/sync/v1")) {
       throw new Error(
-        "Baseten language models require a dedicated /sync/v1 model URL (\"/predict\" URLs are not supported). " +
-        "For shared OpenAI-compatible endpoints, set BASETEN_BASE_URL or provide basetenBaseUrl in credentials instead.",
+        "Baseten dedicated deployment URLs must be /sync/v1 endpoints for language models (\"/predict\" URLs are not supported). " +
+        "Update BASETEN_URL (or basetenUrl in credentials) to the deployment's /sync/v1 URL.",
       );
     }
     return url;
@@ -645,7 +645,7 @@ function validateBasetenModelUrl(url: string, kind: ModelKind): string {
 
   if (!url.includes("/sync")) {
     throw new Error(
-      "Baseten embeddings require a dedicated /sync or /sync/v1 model URL. Set BASETEN_EMBEDDING_MODEL_URL or provide basetenEmbeddingModelUrl in credentials.",
+      "Baseten embeddings require a dedicated /sync or /sync/v1 deployment URL. Set BASETEN_EMBEDDING_URL or provide basetenEmbeddingUrl in credentials.",
     );
   }
   return url;
@@ -660,41 +660,29 @@ function basetenEndpointBaseUrl(url: string, kind: ModelKind): string {
   return url;
 }
 
-function basetenBaseUrlFromCandidates({
-  modelUrl,
-  baseUrl,
-  kind,
-}: {
-  modelUrl?: string;
-  baseUrl?: string;
-  kind: ModelKind;
-}): string {
-  const normalizedModelUrl = normalizeBaseUrl(modelUrl);
-  if (normalizedModelUrl) {
-    return basetenEndpointBaseUrl(validateBasetenModelUrl(normalizedModelUrl, kind), kind);
-  }
-
-  const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
-  if (!normalizedBaseUrl) {
+function basetenBaseUrlFromUrl(url: string | undefined, kind: ModelKind): string {
+  const normalized = normalizeBaseUrl(url);
+  if (!normalized) {
     if (kind === "embedding") {
       throw new Error(
-        "Baseten embedding model URL is required. Set BASETEN_EMBEDDING_MODEL_URL or provide basetenEmbeddingModelUrl in credentials.",
+        "Baseten embedding URL is required. Set BASETEN_EMBEDDING_URL or provide basetenEmbeddingUrl in credentials.",
       );
     }
     return BASETEN_MODEL_APIS_BASE_URL;
   }
 
-  if (isDedicatedBasetenModelUrl(normalizedBaseUrl)) {
-    return basetenEndpointBaseUrl(validateBasetenModelUrl(normalizedBaseUrl, kind), kind);
+  if (isDedicatedBasetenModelUrl(normalized)) {
+    return basetenEndpointBaseUrl(validateDedicatedBasetenUrl(normalized, kind), kind);
   }
 
   if (kind === "embedding") {
     throw new Error(
-      "Baseten embeddings require a dedicated /sync or /sync/v1 model URL. Set BASETEN_EMBEDDING_MODEL_URL or provide basetenEmbeddingModelUrl in credentials.",
+      "Baseten embeddings require a dedicated /sync or /sync/v1 deployment URL. Set BASETEN_EMBEDDING_URL or provide basetenEmbeddingUrl in credentials.",
     );
   }
 
-  return normalizedBaseUrl;
+  // Any other URL is a shared OpenAI-compatible base URL.
+  return normalized;
 }
 
 function resolveBasetenBaseUrlFromRecord(
@@ -705,21 +693,16 @@ function resolveBasetenBaseUrlFromRecord(
   // LLM's /sync/v1 endpoint for embed requests fails opaquely at runtime, so
   // require embedding-specific configuration instead.
   if (kind === "embedding") {
-    return basetenBaseUrlFromCandidates({
-      modelUrl:
-        readCredentialString(record, "basetenEmbeddingModelUrl") ??
-        readCredentialString(record, "basetenEmbeddingBaseUrl") ??
-        env.BASETEN_EMBEDDING_MODEL_URL ??
-        env.BASETEN_EMBEDDING_BASE_URL,
+    return basetenBaseUrlFromUrl(
+      readCredentialString(record, "basetenEmbeddingUrl") ?? env.BASETEN_EMBEDDING_URL,
       kind,
-    });
+    );
   }
 
-  return basetenBaseUrlFromCandidates({
-    modelUrl: readCredentialString(record, "basetenModelUrl") ?? env.BASETEN_MODEL_URL,
-    baseUrl: readCredentialString(record, "basetenBaseUrl") ?? env.BASETEN_BASE_URL,
+  return basetenBaseUrlFromUrl(
+    readCredentialString(record, "basetenUrl") ?? env.BASETEN_URL,
     kind,
-  });
+  );
 }
 
 function resolveOpenAICompatibleSettingsFromRecord(

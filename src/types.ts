@@ -93,14 +93,10 @@ export interface WorkflowCredentials {
   openaiApiKey?: string;
   /** Optional direct Baseten API key for per-request credential injection. */
   basetenApiKey?: string;
-  /** Optional direct Baseten API base URL or dedicated language model URL. */
-  basetenBaseUrl?: string;
-  /** Optional direct Baseten dedicated language model URL. */
-  basetenModelUrl?: string;
-  /** Optional direct Baseten embedding base URL or dedicated embedding model URL. */
-  basetenEmbeddingBaseUrl?: string;
-  /** Optional direct Baseten dedicated embedding model URL. */
-  basetenEmbeddingModelUrl?: string;
+  /** Optional direct Baseten language endpoint URL (dedicated /sync/v1 deployment or shared OpenAI-compatible base URL). */
+  basetenUrl?: string;
+  /** Optional direct Baseten dedicated embedding deployment URL (/sync or /sync/v1). */
+  basetenEmbeddingUrl?: string;
   /** Optional direct API key for OpenAI-compatible endpoints. */
   openaiCompatibleApiKey?: string;
   /** Optional direct base URL of an OpenAI-compatible API. */

@@ -150,12 +150,12 @@ for (const chunk of result.chunks) {
 ```bash
 BASETEN_API_KEY=your_baseten_api_key
 BASETEN_MODEL=your-language-model-id
-BASETEN_MODEL_URL=https://model-id.api.baseten.co/sync/v1
+BASETEN_URL=https://model-id.api.baseten.co/sync/v1
 BASETEN_EMBEDDING_MODEL=your-embedding-model-id
-BASETEN_EMBEDDING_MODEL_URL=https://model-id.api.baseten.co/sync
+BASETEN_EMBEDDING_URL=https://model-id.api.baseten.co/sync
 ```
 
-Baseten language workflows support Model APIs and dedicated OpenAI-compatible `/sync/v1` deployments. Baseten embeddings require a dedicated `/sync` or `/sync/v1` deployment URL.
+Omit `BASETEN_URL` to use Baseten's shared [Model APIs](https://docs.baseten.co/development/model-apis/overview); for a dedicated deployment, set it to the deployment's `/sync/v1` URL. Embeddings always run against a dedicated deployment, so `BASETEN_EMBEDDING_URL` (its `/sync` or `/sync/v1` URL) is required.
 
 **OpenAI-compatible provider:**
 
