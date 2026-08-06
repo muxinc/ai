@@ -21,11 +21,11 @@ Verified against [Baseten's Model APIs catalog](https://docs.baseten.co/developm
 
 Other Model APIs models (DeepSeek V4, GLM 4.7/5.2, Nemotron, `gpt-oss-120b`) are text-only — no good for the image-based workflows, but perfectly usable with transcript-only workflows like `generateChapters`, `translateCaptions`, and `editCaptions`.
 
-For dedicated Baseten deployments, vision support depends entirely on the model you deployed — any of the open-weights models below served behind a `/sync/v1` endpoint works.
+For dedicated Baseten deployments, vision support depends entirely on the model you deployed — any of the models below served behind a `/sync/v1` endpoint should work. You can also fine-tune your own: [Fine-tuning a multimodal model for video intelligence](https://www.mux.com/blog/fine-tuning-a-multi-modal-model-for-video-intelligence) walks through LoRA fine-tuning Mistral Small 3.1 on `@mux/ai` workflow outputs with Baseten's training SDK and consuming the dedicated deployment through the `baseten` provider.
 
-## Mistral (hosted or self-hosted)
+## Likely works: Mistral (hosted or self-hosted)
 
-Point `OPENAI_COMPATIBLE_BASE_URL` at `https://api.mistral.ai/v1` (or self-host via vLLM). Current vision-capable Mistral models:
+We haven't tested these with `@mux/ai` — they're listed because Mistral documents image input over the OpenAI-compatible API. Run [the verification script](#verifying-a-model) before relying on one. Point `OPENAI_COMPATIBLE_BASE_URL` at `https://api.mistral.ai/v1` (or self-host via vLLM).
 
 | Model | Notes |
 | --- | --- |
@@ -36,9 +36,9 @@ Point `OPENAI_COMPATIBLE_BASE_URL` at `https://api.mistral.ai/v1` (or self-host 
 
 Pixtral 12B and Pixtral Large are deprecated by Mistral — use the models above instead.
 
-## Self-hosted open weights (vLLM, SGLang, Ollama)
+## Likely works: self-hosted open weights (vLLM, SGLang, Ollama)
 
-Model families with documented image input support via OpenAI-compatible serving:
+Also untested with `@mux/ai`. These model families document image input support via OpenAI-compatible serving — verify with [the script](#verifying-a-model) against your own deployment.
 
 | Model family | Notes |
 | --- | --- |
@@ -69,4 +69,4 @@ npm run example:summarization -- <asset-id> -p baseten -m "moonshotai/Kimi-K3"
 
 Failure modes to expect from a non-vision model: an explicit provider error about image content, or low-quality output that ignores the storyboard (the model answers from the transcript alone). If you see `No output generated` persistently after retries, the model likely can't satisfy the JSON schema constraint.
 
-Model catalogs move quickly — entries here were last verified with `verify-vision-models.ts` in August 2026. When adding a model to this list, run the script against it first.
+Model catalogs move quickly — the Baseten Model APIs table was last verified with `verify-vision-models.ts` in August 2026; the "likely works" sections are curated from vendor documentation only. To promote a model out of "likely works" (or add a new one), run the script against it first.
