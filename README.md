@@ -168,7 +168,7 @@ OPENAI_COMPATIBLE_EMBEDDING_MODEL=your-embedding-model-id
 
 Use `provider: "openai-compatible"` with any endpoint that speaks the OpenAI API protocol — vLLM, Ollama, Together AI, Fireworks, OpenRouter, or a self-hosted gateway. `OPENAI_COMPATIBLE_API_KEY` is optional for endpoints that don't require authentication, and `OPENAI_COMPATIBLE_EMBEDDING_BASE_URL` can point embeddings at a separate endpoint (defaults to the shared base URL). Workflows request schema-constrained output (`response_format: json_schema`), so the endpoint must support structured outputs.
 
-For both providers, workflows that analyze storyboards or frames (such as `getSummaryAndTags`, `hasBurnedInCaptions`, and `askQuestions`) require the deployed model to be vision-capable.
+For both providers, workflows that analyze storyboards or frames (such as `getSummaryAndTags`, `hasBurnedInCaptions`, and `askQuestions`) require the deployed model to be vision-capable. See [Vision-Capable Models](./docs/VISION-MODELS.md) for known-good models and how to verify one.
 
 ## Prompt Customization
 
