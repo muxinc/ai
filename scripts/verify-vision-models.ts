@@ -19,9 +19,17 @@ import { Command } from "commander";
 import { z } from "zod";
 
 import type { SupportedProvider } from "../src/lib/providers";
-import { createLanguageModelFromConfig } from "../src/lib/providers";
 
 import "dotenv/config";
+
+// src/env.ts exits at import time unless Mux credentials are configured.
+// This script never calls Mux APIs, so satisfy that check with placeholders
+// instead of requiring unrelated credentials.
+
+process.env.MUX_TOKEN_ID ??= "unused-by-verify-vision-models";
+process.env.MUX_TOKEN_SECRET ??= "unused-by-verify-vision-models";
+
+const { createLanguageModelFromConfig } = await import("../src/lib/providers");
 
 const BASETEN_MODEL_APIS_VISION_MODELS = [
   "moonshotai/Kimi-K3",
