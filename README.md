@@ -150,9 +150,9 @@ for (const chunk of result.chunks) {
 ```bash
 BASETEN_API_KEY=your_baseten_api_key
 BASETEN_MODEL=your-language-model-id
-BASETEN_URL=https://model-id.api.baseten.co/sync/v1
+BASETEN_URL=https://model-id.api.baseten.co/environments/production/sync/v1
 BASETEN_EMBEDDING_MODEL=your-embedding-model-id
-BASETEN_EMBEDDING_URL=https://model-id.api.baseten.co/sync
+BASETEN_EMBEDDING_URL=https://model-id.api.baseten.co/environments/production/sync
 ```
 
 Omit `BASETEN_URL` to use Baseten's shared [Model APIs](https://docs.baseten.co/development/model-apis/overview); for a dedicated deployment, set it to the deployment's `/sync/v1` URL. Embeddings always run against a dedicated deployment, so `BASETEN_EMBEDDING_URL` (its `/sync` or `/sync/v1` URL) is required.

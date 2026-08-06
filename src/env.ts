@@ -89,11 +89,11 @@ const EnvSchema = z.object({
   OPENAI_API_KEY: optionalString("OpenAI API key for OpenAI-backed workflows.", "OpenAI API key"),
   BASETEN_API_KEY: optionalString("Baseten API key for Baseten-backed workflows.", "Baseten API key"),
   BASETEN_URL: optionalString(
-    "Optional Baseten language endpoint URL: a dedicated deployment's /sync/v1 URL (such as https://model-{MODEL_ID}.api.baseten.co/sync/v1) or a shared OpenAI-compatible base URL. Omit to use Baseten Model APIs.",
+    "Optional Baseten language endpoint URL: a dedicated deployment's /sync/v1 URL (such as https://model-{MODEL_ID}.api.baseten.co/environments/production/sync/v1) or a shared OpenAI-compatible base URL. Omit to use Baseten Model APIs.",
     "Baseten URL",
   ),
   BASETEN_EMBEDDING_URL: optionalString(
-    "Baseten dedicated embedding deployment URL, such as https://model-{MODEL_ID}.api.baseten.co/sync. Required for Baseten embeddings.",
+    "Baseten dedicated embedding deployment URL, such as https://model-{MODEL_ID}.api.baseten.co/environments/production/sync. Required for Baseten embeddings.",
     "Baseten embedding URL",
   ),
   BASETEN_MODEL: optionalString(
