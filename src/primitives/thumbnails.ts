@@ -45,7 +45,7 @@ export async function getThumbnailUrls(
     const spacing = rangeDuration / 6;
     for (let i = 1; i <= 5; i++) {
       const time = resolvedScope.startTime + i * spacing;
-      timestamps.push(Number(time.toFixed(3)));
+      timestamps.push(effectiveScope ? Number(time.toFixed(3)) : Math.round(time));
     }
   } else {
     for (

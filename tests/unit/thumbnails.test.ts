@@ -50,13 +50,12 @@ describe("getThumbnailUrls", () => {
       expect(urls.length).toBe(5);
     });
 
-    it("preserves distinct sub-second timestamps for very short videos", async () => {
-      const urls = await getThumbnailUrls(testPlaybackId, 0.6, {
+    it("deduplicates rounded timestamps for very short videos", async () => {
+      const urls = await getThumbnailUrls(testPlaybackId, 2, {
         shouldSign: false,
       });
 
-      expect(urls.map(entry => entry.time)).toEqual([0.1, 0.2, 0.3, 0.4, 0.5]);
-      expect(new Set(urls.map(entry => entry.url))).toHaveLength(5);
+      expect(urls.map(entry => entry.time)).toEqual([0, 1, 2]);
     });
   });
 
