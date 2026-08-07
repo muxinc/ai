@@ -49,6 +49,15 @@ describe("getThumbnailUrls", () => {
       // Short videos use special logic: 5 evenly spaced thumbnails
       expect(urls.length).toBe(5);
     });
+
+    it("preserves distinct sub-second timestamps for very short videos", async () => {
+      const urls = await getThumbnailUrls(testPlaybackId, 0.6, {
+        shouldSign: false,
+      });
+
+      expect(urls.map(entry => entry.time)).toEqual([0.1, 0.2, 0.3, 0.4, 0.5]);
+      expect(new Set(urls.map(entry => entry.url))).toHaveLength(5);
+    });
   });
 
   describe("maxSamples parameter", () => {

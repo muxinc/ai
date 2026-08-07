@@ -49,6 +49,7 @@ Analyzes a Mux video or audio asset and returns AI-generated metadata.
   - `retryDelay?: number` - Base delay between retries in milliseconds (default: 1000)
   - `maxRetryDelay?: number` - Maximum delay between retries in milliseconds (default: 10000)
   - `exponentialBackoff?: boolean` - Whether to use exponential backoff (default: true)
+  - `retryableStatusCodes?: number[]` - Additional HTTP statuses to retry when an image host uses a 4xx while media is still becoming available
 - `promptOverrides?: object` - Override specific sections of the prompt for custom use cases
   - `task?: string` - Override the main task instruction
   - `title?: string` - Override title generation guidance
@@ -99,6 +100,9 @@ Analyzes a Mux asset for inappropriate content using OpenAI's Moderation API, Hi
   - `retryDelay?: number` - Base delay between retries in milliseconds (default: 1000)
   - `maxRetryDelay?: number` - Maximum delay between retries in milliseconds (default: 10000)
   - `exponentialBackoff?: boolean` - Whether to use exponential backoff (default: true)
+  - `retryableStatusCodes?: number[]` - Additional HTTP statuses to retry when an image host uses a 4xx while media is still becoming available
+
+When OpenAI reports `image_url_unavailable` for a thumbnail URL, moderation downloads that thumbnail with bounded exponential backoff and resubmits it as base64. Temporary Mux Image readiness responses are retried without retrying unrelated client errors.
 
 **Hive note (audio-only):** transcript moderation submits `text_data` and requires a Hive **Text Moderation** project/API key. If you use a Visual Moderation key, Hive will reject the request (see [Hive Text Moderation docs](https://docs.thehive.ai/docs/classification-text)).
 
@@ -160,6 +164,7 @@ Analyzes video frames to detect burned-in captions (hardcoded subtitles) that ar
   - `retryDelay?: number` - Base delay between retries in milliseconds (default: 1000)
   - `maxRetryDelay?: number` - Maximum delay between retries in milliseconds (default: 10000)
   - `exponentialBackoff?: boolean` - Whether to use exponential backoff (default: true)
+  - `retryableStatusCodes?: number[]` - Additional HTTP statuses to retry when an image host uses a 4xx while media is still becoming available
 - `promptOverrides?: object` - Override specific sections of the detection prompt
   - `task?: string` - Override the main analysis task instruction
   - `analysisSteps?: string` - Override the step-by-step analysis procedure
@@ -215,6 +220,7 @@ Answer questions about asset content by analyzing storyboard frames and optional
   - `retryDelay?: number` - Base delay between retries in milliseconds (default: 1000)
   - `maxRetryDelay?: number` - Maximum delay between retries in milliseconds (default: 10000)
   - `exponentialBackoff?: boolean` - Whether to use exponential backoff (default: true)
+  - `retryableStatusCodes?: number[]` - Additional HTTP statuses to retry when an image host uses a 4xx while media is still becoming available
 - `storyboardWidth?: number` - Storyboard resolution in pixels (default: 640)
 - `maxFreeFormAnswerLength?: number` - **Experimental.** Maximum character length for free-form answers when a question sets `freeFormReply: true` (default: 500). Keep low to bound the open-ended output channel.
 

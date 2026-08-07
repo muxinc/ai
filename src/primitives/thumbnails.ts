@@ -45,7 +45,7 @@ export async function getThumbnailUrls(
     const spacing = rangeDuration / 6;
     for (let i = 1; i <= 5; i++) {
       const time = resolvedScope.startTime + i * spacing;
-      timestamps.push(effectiveScope ? Number(time.toFixed(3)) : Math.round(time));
+      timestamps.push(Number(time.toFixed(3)));
     }
   } else {
     for (
@@ -56,6 +56,8 @@ export async function getThumbnailUrls(
       timestamps.push(time);
     }
   }
+
+  timestamps = [...new Set(timestamps)];
 
   // Apply maxSamples cap if specified and we have more timestamps than the limit
   if (maxSamples !== undefined && timestamps.length > maxSamples) {

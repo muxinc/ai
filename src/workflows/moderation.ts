@@ -1,6 +1,6 @@
 import { getApiKeyFromEnv } from "../lib/client-factory.ts";
 import type { ImageDownloadOptions } from "../lib/image-download.ts";
-import { downloadImagesAsBase64 } from "../lib/image-download.ts";
+import { downloadImageAsBase64, downloadImagesAsBase64 } from "../lib/image-download.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -133,6 +133,14 @@ const OPENAI_MODERATION_RETRIABLE_STATUS_CODES = new Set([408, 429, 500, 502, 50
 const OPENAI_MODERATION_MAX_RETRIES = 2;
 const OPENAI_MODERATION_BASE_DELAY_MS = 750;
 const OPENAI_MODERATION_MAX_DELAY_MS = 3000;
+const OPENAI_IMAGE_URL_UNAVAILABLE_CODE = "image_url_unavailable";
+const MUX_THUMBNAIL_READINESS_DOWNLOAD_OPTIONS: ImageDownloadOptions = {
+  retries: 4,
+  retryDelay: 500,
+  maxRetryDelay: 5000,
+  exponentialBackoff: true,
+  retryableStatusCodes: [404, 408, 425],
+};
 const MIN_SAMPLE_COVERAGE_FOR_CONFIDENT_THRESHOLDING = 0.5;
 const MIN_SUCCESSFUL_THUMBNAILS_FOR_CONFIDENT_THRESHOLDING = 3;
 
@@ -176,21 +184,25 @@ export const HIVE_VIOLENCE_CATEGORIES = [
 
 class OpenAIModerationRequestError extends Error {
   readonly status?: number;
+  readonly code?: string;
   readonly retriable: boolean;
 
   constructor(
     message: string,
     {
       status,
+      code,
       retriable,
     }: {
       status?: number;
+      code?: string;
       retriable: boolean;
     },
   ) {
     super(message);
     this.name = "OpenAIModerationRequestError";
     this.status = status;
+    this.code = code;
     this.retriable = retriable;
   }
 }
@@ -272,6 +284,7 @@ async function callOpenAIModerationApi({
           `OpenAI moderation error: ${res.status} ${res.statusText} - ${JSON.stringify(json)}`,
           {
             status: res.status,
+            code: typeof json?.error?.code === "string" ? json.error.code : undefined,
             retriable: isRetriableOpenAIModerationStatus(res.status),
           },
         );
@@ -310,24 +323,45 @@ async function processConcurrently<T>(
 async function moderateImageWithOpenAI(entry: {
   url: string;
   time?: number;
-  image: string;
   model: string;
+  submissionMode: "url" | "base64";
+  downloadOptions?: ImageDownloadOptions;
   credentials?: WorkflowCredentialsInput;
 }): Promise<ThumbnailModerationScore> {
   "use step";
   try {
-    const json: any = await callOpenAIModerationApi({
-      model: entry.model,
-      input: [
-        {
-          type: "image_url",
-          image_url: {
-            url: entry.image,
-          },
-        },
-      ],
-      credentials: entry.credentials,
-    });
+    const initialImage = entry.submissionMode === "base64" ?
+        (await downloadImageAsBase64(entry.url, entry.downloadOptions)).base64Data :
+      entry.url;
+    let json: any;
+    try {
+      json = await callOpenAIModerationApi({
+        model: entry.model,
+        input: [{ type: "image_url", image_url: { url: initialImage } }],
+        credentials: entry.credentials,
+      });
+    } catch (error) {
+      const shouldFallbackToBase64 = entry.submissionMode === "url" &&
+        error instanceof OpenAIModerationRequestError &&
+        error.code === OPENAI_IMAGE_URL_UNAVAILABLE_CODE;
+      if (!shouldFallbackToBase64) {
+        throw error;
+      }
+
+      const fallbackImage = await downloadImageAsBase64(entry.url, {
+        ...MUX_THUMBNAIL_READINESS_DOWNLOAD_OPTIONS,
+        ...entry.downloadOptions,
+        retryableStatusCodes: [
+          ...MUX_THUMBNAIL_READINESS_DOWNLOAD_OPTIONS.retryableStatusCodes!,
+          ...(entry.downloadOptions?.retryableStatusCodes ?? []),
+        ],
+      });
+      json = await callOpenAIModerationApi({
+        model: entry.model,
+        input: [{ type: "image_url", image_url: { url: fallbackImage.base64Data } }],
+        credentials: entry.credentials,
+      });
+    }
     const categoryScores = json.results?.[0]?.category_scores || {};
 
     return {
@@ -359,15 +393,14 @@ async function requestOpenAIModeration(
   credentials?: WorkflowCredentialsInput,
 ): Promise<ThumbnailModerationScore[]> {
   "use step";
-  const imageUrls = images.map(img => img.url);
-  const timeByUrl = new Map(images.map(img => [img.url, img.time]));
-
-  const targetUrls =
-    submissionMode === "base64" ?
-        (await downloadImagesAsBase64(imageUrls, downloadOptions, maxConcurrent)).map(
-          img => ({ url: img.url, time: timeByUrl.get(img.url), image: img.base64Data, model, credentials }),
-        ) :
-        images.map(img => ({ url: img.url, time: img.time, image: img.url, model, credentials }));
+  const targetUrls = images.map(img => ({
+    url: img.url,
+    time: img.time,
+    model,
+    submissionMode,
+    downloadOptions,
+    credentials,
+  }));
 
   return processConcurrently(targetUrls, moderateImageWithOpenAI, maxConcurrent);
 }
@@ -748,8 +781,8 @@ async function getThumbnailUrlsFromTimestamps(
   const { width, shouldSign, credentials } = options;
   const baseUrl = getMuxThumbnailBaseUrl(playbackId);
 
-  const urlPromises = timestampsMs.map(async (tsMs) => {
-    const time = toThumbnailTimeSeconds(tsMs);
+  const times = [...new Set(timestampsMs.map(toThumbnailTimeSeconds))];
+  const urlPromises = times.map(async (time) => {
     const url = shouldSign ?
         await signUrl(baseUrl, playbackId, "thumbnail", { time, width }, credentials) :
       `${baseUrl}?time=${time}&width=${width}`;
