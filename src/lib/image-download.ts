@@ -28,8 +28,6 @@ export interface ImageDownloadOptions {
   maxRetryDelay?: number;
   /** Whether to use exponential backoff (default: true) */
   exponentialBackoff?: boolean;
-  /** Additional HTTP status codes to retry. Useful when an image host uses a 4xx while media is still becoming available. */
-  retryableStatusCodes?: number[];
 }
 
 export interface ImageDownloadResult {
@@ -64,7 +62,6 @@ const DEFAULT_OPTIONS: Required<ImageDownloadOptions> = {
   retryDelay: 1000,
   maxRetryDelay: 10000,
   exponentialBackoff: true,
-  retryableStatusCodes: [],
 };
 
 /**
@@ -100,9 +97,8 @@ export async function downloadImageAsBase64(
         clearTimeout(timeoutId);
 
         if (!response.ok) {
-          const isAdditionalRetryableStatus = opts.retryableStatusCodes.includes(response.status);
-          // Don't retry 4xx errors unless the caller identifies the status as transient.
-          if (response.status >= 400 && response.status < 500 && response.status !== 429 && !isAdditionalRetryableStatus) {
+          // Don't retry 4xx errors (except 429 rate limiting)
+          if (response.status >= 400 && response.status < 500 && response.status !== 429) {
             throw new AbortError(`HTTP ${response.status}: ${response.statusText}`);
           }
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
