@@ -4,7 +4,7 @@ import { z } from "zod";
 import env from "../env.ts";
 import {
   getGeneratedOutputWithContentPolicyHandling,
-  withContentPolicyErrorHandling,
+  withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
 import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import {
@@ -451,8 +451,9 @@ async function identifyProfanityWithAI({
     content: plainText,
   });
 
-  const response = await withContentPolicyErrorHandling(() => generateText({
+  const response = await withContentPolicyAwareRetry(() => generateText({
     model,
+    maxRetries: 0,
     output: Output.object({ schema: profanityDetectionSchema }),
     messages: [
       {

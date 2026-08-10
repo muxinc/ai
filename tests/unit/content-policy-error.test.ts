@@ -1,10 +1,13 @@
-import { APICallError, NoObjectGeneratedError, RetryError } from "ai";
+import { APICallError, generateText, NoObjectGeneratedError, Output, RetryError } from "ai";
+import { MockLanguageModelV3 } from "ai/test";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
 import {
   extractContentPolicyBlock,
   getGeneratedOutputWithContentPolicyHandling,
   rethrowContentPolicyError,
+  withContentPolicyAwareRetry,
   withContentPolicyErrorHandling,
 } from "../../src/lib/content-policy-error.ts";
 import { wrapError } from "../../src/lib/mux-ai-error.ts";
@@ -137,6 +140,97 @@ describe("content policy errors", () => {
       publicMessage: "The supplied content was blocked by a content policy (reason: PROHIBITED_CONTENT).",
       retryable: false,
     });
+  });
+
+  it("does not retry a content-policy API error marked retryable by the provider", async () => {
+    const error = new APICallError({
+      message: "Provider rejected the content",
+      url: "https://example.com/generate-content",
+      requestBodyValues: {},
+      statusCode: 500,
+      isRetryable: true,
+      responseBody: JSON.stringify({
+        promptFeedback: {
+          blockReason: "PROHIBITED_CONTENT",
+        },
+      }),
+    });
+    let attempts = 0;
+
+    await expect(withContentPolicyAwareRetry(async () => {
+      attempts++;
+      throw error;
+    }, {
+      maxRetries: 3,
+      baseDelay: 0,
+      maxDelay: 0,
+    })).rejects.toMatchObject({
+      publicType: "content_policy_error",
+      retryable: false,
+    });
+
+    expect(attempts).toBe(1);
+  });
+
+  it("continues retrying transient provider API errors", async () => {
+    const error = new APICallError({
+      message: "Service unavailable",
+      url: "https://example.com/generate-content",
+      requestBodyValues: {},
+      statusCode: 503,
+      isRetryable: true,
+    });
+    let attempts = 0;
+
+    const result = await withContentPolicyAwareRetry(async () => {
+      attempts++;
+      if (attempts === 1) {
+        throw error;
+      }
+      return "generated";
+    }, {
+      maxRetries: 1,
+      baseDelay: 0,
+      maxDelay: 0,
+    });
+
+    expect(result).toBe("generated");
+    expect(attempts).toBe(2);
+  });
+
+  it("retries invalid structured JSON and returns the recovered output", async () => {
+    let attempts = 0;
+    const model = new MockLanguageModelV3({
+      doGenerate: async () => {
+        attempts++;
+        return {
+          content: [{
+            type: "text",
+            text: attempts === 1 ? "{\"result\":" : "{\"result\":\"recovered\"}",
+          }],
+          finishReason: { unified: "stop", raw: "STOP" },
+          usage: {
+            inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
+            outputTokens: { total: 5, text: 5, reasoning: 0 },
+          },
+          warnings: [],
+        };
+      },
+    });
+
+    const response = await withContentPolicyAwareRetry(() => generateText({
+      model,
+      maxRetries: 0,
+      output: Output.object({ schema: z.object({ result: z.string() }) }),
+      prompt: "Return structured output",
+    }), {
+      maxRetries: 1,
+      baseDelay: 0,
+      maxDelay: 0,
+    });
+
+    expect(response.output).toEqual({ result: "recovered" });
+    expect(attempts).toBe(2);
   });
 
   it("preserves token usage when normalizing content policy errors", async () => {
