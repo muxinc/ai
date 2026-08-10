@@ -1,12 +1,12 @@
 import { embed } from "ai";
 
+import { withContentPolicyAwareRetry } from "../lib/content-policy-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
 } from "../lib/mux-assets.ts";
 import type { EmbeddingModelIdByProvider, SupportedEmbeddingProvider } from "../lib/providers.ts";
 import { createEmbeddingModelFromConfig, resolveEmbeddingModelConfig } from "../lib/providers.ts";
-import { withRetry } from "../lib/retry.ts";
 import { getErrorTokenUsage, rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
 import { hasWorkflowScopeBoundaries, resolveWorkflowScope } from "../lib/workflow-scope.ts";
@@ -98,9 +98,10 @@ async function generateSingleChunkEmbedding({
   "use step";
 
   const model = await createEmbeddingModelFromConfig(provider, modelId, credentials);
-  const response = await withRetry(() =>
+  const response = await withContentPolicyAwareRetry(() =>
     embed({
       model,
+      maxRetries: 0,
       value: chunk.text,
     }),
   );

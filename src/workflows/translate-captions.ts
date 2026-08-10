@@ -11,7 +11,7 @@ import { z } from "zod";
 import env from "../env.ts";
 import {
   getGeneratedOutputWithContentPolicyHandling,
-  withContentPolicyErrorHandling,
+  withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
 import { getLanguageCodePair, getLanguageName } from "../lib/language-codes.ts";
 import type { LanguageCodePair, SupportedISO639_1 } from "../lib/language-codes.ts";
@@ -606,8 +606,9 @@ async function translateVttWithAI({
   // blocks implicitly.
   const sanitisedVttContent = stripVttMetadataBlocks(vttContent);
 
-  const response = await withContentPolicyErrorHandling(() => generateText({
+  const response = await withContentPolicyAwareRetry(() => generateText({
     model,
+    maxRetries: 0,
     output: Output.object({ schema: translationSchema }),
     messages: [
       {
@@ -716,8 +717,9 @@ async function translateCueChunkWithAI({
     text: cue.text,
   }));
 
-  const response = await withContentPolicyErrorHandling(() => generateText({
+  const response = await withContentPolicyAwareRetry(() => generateText({
     model,
+    maxRetries: 0,
     output: Output.object({ schema }),
     messages: [
       {

@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import {
   getGeneratedOutputWithContentPolicyHandling,
-  withContentPolicyErrorHandling,
+  withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
 import type { ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImageAsBase64 } from "../lib/image-download.ts";
@@ -43,7 +43,6 @@ import {
 } from "../lib/prompt-fragments.ts";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
-import { withRetry } from "../lib/retry.ts";
 import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import {
   resolveMuxSigningContext,
@@ -554,8 +553,9 @@ async function analyzeStoryboard(
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
   const schema = buildSummarySchema(descriptionLength);
 
-  const response = await withContentPolicyErrorHandling(() => generateText({
+  const response = await withContentPolicyAwareRetry(() => generateText({
     model,
+    maxRetries: 0,
     output: Output.object({
       name: "summary_metadata",
       description: "Structured summary with title, description, and keywords.",
@@ -617,8 +617,9 @@ async function analyzeAudioOnly(
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
   const schema = buildSummarySchema(descriptionLength);
 
-  const response = await withContentPolicyErrorHandling(() => generateText({
+  const response = await withContentPolicyAwareRetry(() => generateText({
     model,
+    maxRetries: 0,
     output: Output.object({
       name: "summary_metadata",
       description: "Structured summary with title, description, and keywords.",
@@ -860,17 +861,15 @@ async function getSummaryAndTagsInternal(
           workflowCredentials,
         );
       } else {
-        // URL-based submission with retry logic
-        analysisResponse = await withRetry(() =>
-          analyzeStoryboard(
-            storyboardUrl,
-            modelConfig.provider,
-            modelConfig.modelId,
-            userPrompt,
-            systemPrompt,
-            effectiveDescriptionLength,
-            workflowCredentials,
-          ));
+        analysisResponse = await analyzeStoryboard(
+          storyboardUrl,
+          modelConfig.provider,
+          modelConfig.modelId,
+          userPrompt,
+          systemPrompt,
+          effectiveDescriptionLength,
+          workflowCredentials,
+        );
       }
     }
   } catch (error: unknown) {

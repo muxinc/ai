@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import {
   getGeneratedOutputWithContentPolicyHandling,
-  withContentPolicyErrorHandling,
+  withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
 import type { ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImageAsBase64 } from "../lib/image-download.ts";
@@ -33,7 +33,6 @@ import {
 } from "../lib/prompt-fragments.ts";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
-import { withRetry } from "../lib/retry.ts";
 import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
 import {
@@ -699,8 +698,9 @@ async function analyzeQuestions({
     maxFreeFormAnswerLength,
   );
 
-  const response = await withContentPolicyErrorHandling(() => generateText({
+  const response = await withContentPolicyAwareRetry(() => generateText({
     model,
+    maxRetries: 0,
     output: Output.object({ schema: responseSchema }),
     experimental_telemetry: { isEnabled: true },
     messages: [
@@ -997,19 +997,16 @@ async function askQuestionsInternal(
           credentials,
         });
       } else {
-        // URL-based submission with retry
-        analysisResponse = await withRetry(() =>
-          analyzeQuestions({
-            provider: modelConfig.provider,
-            modelId: modelConfig.modelId,
-            userPrompt,
-            systemPrompt,
-            normalizedQuestions,
-            maxFreeFormAnswerLength,
-            imageDataUrl: storyboardUrl,
-            credentials,
-          }),
-        );
+        analysisResponse = await analyzeQuestions({
+          provider: modelConfig.provider,
+          modelId: modelConfig.modelId,
+          userPrompt,
+          systemPrompt,
+          normalizedQuestions,
+          maxFreeFormAnswerLength,
+          imageDataUrl: storyboardUrl,
+          credentials,
+        });
       }
     }
   } catch (error: unknown) {

@@ -4,6 +4,8 @@ import { z } from "zod";
 import type { TokenUsage } from "../types.ts";
 
 import { MuxAiError } from "./mux-ai-error.ts";
+import { withRetry } from "./retry.ts";
+import type { RetryOptions } from "./retry.ts";
 import { getErrorTokenUsage } from "./token-usage.ts";
 
 const PolicyTokenSchema = z.string()
@@ -70,6 +72,21 @@ export async function withContentPolicyErrorHandling<T>(operation: () => Promise
   } catch (error) {
     rethrowContentPolicyError(error);
   }
+}
+
+/**
+ * Owns provider retries outside the AI SDK so content-policy errors can be
+ * normalized to a non-retryable MuxAiError before another request is made.
+ * Callers must pass `maxRetries: 0` to the AI SDK operation.
+ */
+export async function withContentPolicyAwareRetry<T>(
+  operation: () => Promise<T>,
+  retryOptions?: RetryOptions,
+): Promise<T> {
+  return withRetry(
+    () => withContentPolicyErrorHandling(operation),
+    retryOptions,
+  );
 }
 
 export function rethrowContentPolicyError(error: unknown): never {

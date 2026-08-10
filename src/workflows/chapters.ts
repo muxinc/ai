@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import {
   getGeneratedOutputWithContentPolicyHandling,
-  withContentPolicyErrorHandling,
+  withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
 import { getLanguageName } from "../lib/language-codes.ts";
 import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
@@ -24,7 +24,6 @@ import {
 } from "../lib/prompt-fragments.ts";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
-import { withRetry } from "../lib/retry.ts";
 import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
 import { hasWorkflowScopeBoundaries, resolveWorkflowScope } from "../lib/workflow-scope.ts";
@@ -171,24 +170,21 @@ async function generateChaptersWithAI({
 
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
 
-  const response = await withRetry(() =>
-    withContentPolicyErrorHandling(() =>
-      generateText({
-        model,
-        output: Output.object({ schema: chaptersSchema }),
-        messages: [
-          {
-            role: "system",
-            content: systemPrompt,
-          },
-          {
-            role: "user",
-            content: userPrompt,
-          },
-        ],
-      }),
-    ),
-  );
+  const response = await withContentPolicyAwareRetry(() => generateText({
+    model,
+    maxRetries: 0,
+    output: Output.object({ schema: chaptersSchema }),
+    messages: [
+      {
+        role: "system",
+        content: systemPrompt,
+      },
+      {
+        role: "user",
+        content: userPrompt,
+      },
+    ],
+  }));
   const output = getGeneratedOutputWithContentPolicyHandling(response);
 
   // Detect schema-smuggling. response.output has already been stripped;

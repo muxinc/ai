@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import {
   getGeneratedOutputWithContentPolicyHandling,
-  withContentPolicyErrorHandling,
+  withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
 import { MuxAiError } from "../lib/mux-ai-error.ts";
 import {
@@ -29,7 +29,6 @@ import {
 } from "../lib/prompt-fragments.ts";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
-import { withRetry } from "../lib/retry.ts";
 import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import { signUrl } from "../lib/url-signing.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
@@ -546,28 +545,25 @@ async function generateInsightsWithAI(
 
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
 
-  const response = await withRetry(() =>
-    withContentPolicyErrorHandling(() =>
-      generateText({
-        model,
-        output: Output.object({ schema: engagementInsightsSchema }),
-        experimental_telemetry: { isEnabled: true },
-        messages: [
-          {
-            role: "system",
-            content: systemPrompt,
-          },
-          {
-            role: "user",
-            content: [
-              { type: "text", text: userPrompt },
-              ...imageUrls.map(url => ({ type: "image" as const, image: url })),
-            ],
-          },
+  const response = await withContentPolicyAwareRetry(() => generateText({
+    model,
+    maxRetries: 0,
+    output: Output.object({ schema: engagementInsightsSchema }),
+    experimental_telemetry: { isEnabled: true },
+    messages: [
+      {
+        role: "system",
+        content: systemPrompt,
+      },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: userPrompt },
+          ...imageUrls.map(url => ({ type: "image" as const, image: url })),
         ],
-      }),
-    ),
-  );
+      },
+    ],
+  }));
   const output = getGeneratedOutputWithContentPolicyHandling(response);
 
   if (!output) {

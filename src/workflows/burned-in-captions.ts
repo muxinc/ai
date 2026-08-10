@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import {
   getGeneratedOutputWithContentPolicyHandling,
-  withContentPolicyErrorHandling,
+  withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
 import type { ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImageAsBase64 } from "../lib/image-download.ts";
@@ -29,7 +29,6 @@ import {
 } from "../lib/prompt-fragments.ts";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
-import { withRetry } from "../lib/retry.ts";
 import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import { resolveRenderableVideoScope } from "../lib/workflow-scope.ts";
 import { getStoryboardUrl } from "../primitives/storyboards.ts";
@@ -287,8 +286,9 @@ async function analyzeStoryboard({
 
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
 
-  const response = await withContentPolicyErrorHandling(() => generateText({
+  const response = await withContentPolicyAwareRetry(() => generateText({
     model,
+    maxRetries: 0,
     output: Output.object({ schema: burnedInCaptionsSchema }),
     experimental_telemetry: { isEnabled: true },
     messages: [
@@ -402,15 +402,14 @@ async function hasBurnedInCaptionsInternal(
       credentials,
     });
   } else {
-    analysisResponse = await withRetry(() =>
-      analyzeStoryboard({
-        imageDataUrl: imageUrl,
-        provider: modelConfig.provider,
-        modelId: modelConfig.modelId,
-        userPrompt,
-        systemPrompt: SYSTEM_PROMPT,
-        credentials,
-      }));
+    analysisResponse = await analyzeStoryboard({
+      imageDataUrl: imageUrl,
+      provider: modelConfig.provider,
+      modelId: modelConfig.modelId,
+      userPrompt,
+      systemPrompt: SYSTEM_PROMPT,
+      credentials,
+    });
   }
 
   collectedUsage.push(analysisResponse.usage);
