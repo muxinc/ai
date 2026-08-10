@@ -57,6 +57,8 @@ export async function getThumbnailUrls(
     }
   }
 
+  timestamps = [...new Set(timestamps)];
+
   // Apply maxSamples cap if specified and we have more timestamps than the limit
   if (maxSamples !== undefined && timestamps.length > maxSamples) {
     const newTimestamps: number[] = [];

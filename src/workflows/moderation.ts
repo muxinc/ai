@@ -748,8 +748,8 @@ async function getThumbnailUrlsFromTimestamps(
   const { width, shouldSign, credentials } = options;
   const baseUrl = getMuxThumbnailBaseUrl(playbackId);
 
-  const urlPromises = timestampsMs.map(async (tsMs) => {
-    const time = toThumbnailTimeSeconds(tsMs);
+  const times = [...new Set(timestampsMs.map(toThumbnailTimeSeconds))];
+  const urlPromises = times.map(async (time) => {
     const url = shouldSign ?
         await signUrl(baseUrl, playbackId, "thumbnail", { time, width }, credentials) :
       `${baseUrl}?time=${time}&width=${width}`;
