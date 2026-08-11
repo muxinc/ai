@@ -106,3 +106,12 @@ describe("model pricing", () => {
     expect(calculateModelCost("gpt-5.6-luna", 272_001, 10_000, 20_000, 10_000)).toBeCloseTo(0.1206004, 10);
   });
 });
+
+describe("model config resolution", () => {
+  it("falls back to the provider default when model is an empty string", () => {
+    expect(resolveLanguageModelConfig({ provider: "openai", model: "" })).toEqual({
+      provider: "openai",
+      modelId: DEFAULT_LANGUAGE_MODELS.openai,
+    });
+  });
+});

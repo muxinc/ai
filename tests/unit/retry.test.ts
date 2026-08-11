@@ -1,4 +1,4 @@
-import { DownloadError } from "ai";
+import { DownloadError, NoOutputGeneratedError } from "ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { withRetry } from "../../src/lib/retry";
@@ -136,4 +136,46 @@ describe("withRetry", () => {
 
     expect(attempts).toBe(1);
   });
+
+  it("retries when the model generated no output", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    let attempts = 0;
+
+    const result = await withRetry(async () => {
+      attempts++;
+      if (attempts === 1) {
+        throw new NoOutputGeneratedError({});
+      }
+      return "generated";
+    }, {
+      maxRetries: 1,
+      baseDelay: 0,
+      maxDelay: 0,
+    });
+
+    expect(result).toBe("generated");
+    expect(attempts).toBe(2);
+  });
+
+  it.each(["AI_NoOutputGeneratedError", "AI_NoObjectGeneratedError"])(
+    "retries a serialized %s from a workflow step",
+    async (name) => {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      const error = Object.assign(new Error("No output generated."), { name });
+      let attempts = 0;
+
+      await withRetry(async () => {
+        attempts++;
+        if (attempts === 1) {
+          throw error;
+        }
+      }, {
+        maxRetries: 1,
+        baseDelay: 0,
+        maxDelay: 0,
+      });
+
+      expect(attempts).toBe(2);
+    },
+  );
 });

@@ -31,7 +31,7 @@ Every eval in this library measures workflows against three dimensions:
 - How do costs compare for equivalent quality?
 - Where are opportunities for prompt optimization?
 
-This framework enables systematic evaluation of default model selections across all supported providers and helps users understand the tradeoffs between OpenAI, Anthropic, and Google.
+This framework enables systematic evaluation of default model selections across the currently evaluated providers and helps users understand the tradeoffs between OpenAI, Anthropic, and Google. Baseten and generic OpenAI-compatible endpoints serve user-deployed models, so they are supported at runtime but intentionally excluded from eval model iteration.
 
 ### Practical Application
 
@@ -64,6 +64,8 @@ By default, evals run against provider default models only:
 - `openai:gpt-5.6-luna` (medium reasoning)
 - `anthropic:claude-sonnet-4-5`
 - `google:gemini-3-flash-preview`
+
+Baseten and OpenAI-compatible endpoints are intentionally skipped by eval model selection. `MUX_AI_EVAL_MODEL_SET=default|all` does not include them, and explicit `MUX_AI_EVAL_MODELS=baseten:...` or `openai-compatible:...` entries are filtered out before evals run.
 
 To run all configured models in `LANGUAGE_MODELS`:
 

@@ -35,9 +35,9 @@ Analyzes a Mux video or audio asset and returns AI-generated metadata.
 
 **Options:**
 
-- `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
+- `provider?: 'openai' | 'anthropic' | 'google' | 'baseten' | 'openai-compatible'` - AI provider (default: 'openai')
 - `tone?: 'neutral' | 'playful' | 'professional'` - Analysis tone (default: 'neutral')
-- `model?: string` - AI model to use (defaults: `gpt-5.6-luna` at medium reasoning, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
+- `model?: string` - AI model to use. Defaults per provider: `gpt-5.6-luna` at medium reasoning (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google). Baseten and OpenAI-compatible endpoints have no default — pass `model` or set the `BASETEN_MODEL` / `OPENAI_COMPATIBLE_MODEL` environment variable.
 - `languageCode?: string` - Language code for transcript track selection (e.g., 'en', 'fr'). When omitted, prefers English if available.
 - `outputLanguageCode?: string` - BCP 47 language code (e.g., 'en', 'fr', 'ja') for the generated title, description, and tags. When omitted or set to `'auto'`, auto-detects from the selected transcript track's language. Falls back to unconstrained (LLM decides) if no language metadata is available.
 - `includeTranscript?: boolean` - Include transcript in analysis (default: true)
@@ -151,8 +151,8 @@ Analyzes video frames to detect burned-in captions (hardcoded subtitles) that ar
 
 **Options:**
 
-- `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
-- `model?: string` - AI model to use (defaults: `gpt-5.6-luna` at medium reasoning, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
+- `provider?: 'openai' | 'anthropic' | 'google' | 'baseten' | 'openai-compatible'` - AI provider (default: 'openai')
+- `model?: string` - AI model to use. Defaults per provider: `gpt-5.6-luna` at medium reasoning (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google). Baseten and OpenAI-compatible endpoints have no default — pass `model` or set the `BASETEN_MODEL` / `OPENAI_COMPATIBLE_MODEL` environment variable.
 - `imageSubmissionMode?: 'url' | 'base64'` - How to submit storyboard to AI providers (default: 'url')
 - `imageDownloadOptions?: object` - Options for image download when using base64 mode
   - `timeout?: number` - Request timeout in milliseconds (default: 10000)
@@ -203,8 +203,8 @@ Answer questions about asset content by analyzing storyboard frames and optional
 
 **Options:**
 
-- `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
-- `model?: string` - AI model to use (defaults: `gpt-5.6-luna` at medium reasoning, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
+- `provider?: 'openai' | 'anthropic' | 'google' | 'baseten' | 'openai-compatible'` - AI provider (default: 'openai')
+- `model?: string` - AI model to use. Defaults per provider: `gpt-5.6-luna` at medium reasoning (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google). Baseten and OpenAI-compatible endpoints have no default — pass `model` or set the `BASETEN_MODEL` / `OPENAI_COMPATIBLE_MODEL` environment variable.
 - `languageCode?: string` - Language code for transcript track selection (e.g., 'en', 'fr'). When omitted, prefers English if available.
 - `includeTranscript?: boolean` - Include transcript in analysis (default: true, required for audio-only assets)
 - `cleanTranscript?: boolean` - Remove VTT timestamps and formatting from transcript (default: true)
@@ -310,8 +310,8 @@ Generate AI-powered insights explaining viewer engagement patterns by analyzing 
 
 **Options:**
 
-- `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
-- `model?: string` - AI model to use (defaults: `gpt-5.6-luna` at medium reasoning, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
+- `provider?: 'openai' | 'anthropic' | 'google' | 'baseten' | 'openai-compatible'` - AI provider (default: 'openai')
+- `model?: string` - AI model to use. Defaults per provider: `gpt-5.6-luna` at medium reasoning (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google). Baseten and OpenAI-compatible endpoints have no default — pass `model` or set the `BASETEN_MODEL` / `OPENAI_COMPATIBLE_MODEL` environment variable.
 - `hotspotLimit?: number` - Number of engagement moments to analyze per direction (default: 5, range: 1-10). Note: actual moment count may be up to 2x this value since both peaks and valleys are fetched.
 - `timeframe?: string` - Engagement data timeframe (default: '7:days')
   - Examples: `'60:minutes'`, `'24:hours'`, `'7:days'`, `'30:days'`
@@ -393,7 +393,7 @@ Translates existing captions from one language to another and optionally adds th
 
 **Options:**
 
-- `provider: 'openai' | 'anthropic' | 'google'` - AI provider (required)
+- `provider: 'openai' | 'anthropic' | 'google' | 'baseten' | 'openai-compatible'` - AI provider (required)
 - `model?: string` - Model to use (defaults to the provider's chat model if omitted)
 - `uploadToMux?: boolean` - Whether to upload translated track to Mux (default: true)
 - `s3Endpoint?: string` - S3-compatible storage endpoint
@@ -449,7 +449,7 @@ Edits a caption track using LLM-powered profanity censorship, static find/replac
 
 **Options:**
 
-- `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (required when `autoCensorProfanity` is set)
+- `provider?: 'openai' | 'anthropic' | 'google' | 'baseten' | 'openai-compatible'` - AI provider (required when `autoCensorProfanity` is set)
 - `model?: string` - Model to use (defaults to the provider's chat model if omitted)
 - `autoCensorProfanity?: object` - LLM-powered profanity censorship (optional)
   - `mode?: 'blank' | 'remove' | 'mask'` - Replacement strategy (default: 'blank')
@@ -510,8 +510,8 @@ Generates AI-powered chapter markers by analyzing video or audio transcripts. Cr
 
 - `languageCode?: string` - Language code for captions (e.g., 'en', 'es', 'fr'). When omitted, prefers English if available.
 - `outputLanguageCode?: string` - BCP 47 language code (e.g., 'en', 'fr', 'ja') for the generated chapter titles. When omitted or set to `'auto'`, auto-detects from the selected transcript track's language. Falls back to unconstrained (LLM decides) if no language metadata is available.
-- `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
-- `model?: string` - AI model to use (defaults: `gpt-5.6-luna` at medium reasoning, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
+- `provider?: 'openai' | 'anthropic' | 'google' | 'baseten' | 'openai-compatible'` - AI provider (default: 'openai')
+- `model?: string` - AI model to use. Defaults per provider: `gpt-5.6-luna` at medium reasoning (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google). Baseten and OpenAI-compatible endpoints have no default — pass `model` or set the `BASETEN_MODEL` / `OPENAI_COMPATIBLE_MODEL` environment variable.
 - `promptOverrides?: object` - Override specific sections of the chaptering prompt
   - `task?: string` - Override the main task instruction
   - `outputFormat?: string` - Override the expected output format description
@@ -611,8 +611,8 @@ Generate vector embeddings for transcript chunks from video or audio assets for 
 
 **Options:**
 
-- `provider?: 'openai' | 'google'` - Embedding provider (default: 'openai')
-- `model?: string` - Model to use (defaults: `text-embedding-3-small` for OpenAI, `gemini-embedding-001` for Google)
+- `provider?: 'openai' | 'google' | 'baseten' | 'openai-compatible'` - Embedding provider (default: 'openai')
+- `model?: string` - Embedding model to use. Defaults per provider: `text-embedding-3-small` (OpenAI), `gemini-embedding-001` (Google). Baseten and OpenAI-compatible endpoints have no default — pass `model` or set the `BASETEN_EMBEDDING_MODEL` / `OPENAI_COMPATIBLE_EMBEDDING_MODEL` environment variable.
 - `chunkingStrategy?: object` - How to chunk the transcript
   - `type: 'token' | 'vtt'` - Chunking method
   - `maxTokens?: number` - Maximum tokens per chunk (default: 500)

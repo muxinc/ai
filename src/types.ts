@@ -91,6 +91,18 @@ export interface WorkflowCredentials {
   muxPrivateKey?: string;
   /** Optional direct OpenAI API key for per-request credential injection. */
   openaiApiKey?: string;
+  /** Optional direct Baseten API key for per-request credential injection. */
+  basetenApiKey?: string;
+  /** Optional direct Baseten language endpoint URL (dedicated /sync/v1 deployment or shared OpenAI-compatible base URL). */
+  basetenUrl?: string;
+  /** Optional direct Baseten dedicated embedding deployment URL (/sync or /sync/v1). */
+  basetenEmbeddingUrl?: string;
+  /** Optional direct API key for OpenAI-compatible endpoints. */
+  openaiCompatibleApiKey?: string;
+  /** Optional direct base URL of an OpenAI-compatible API. */
+  openaiCompatibleBaseUrl?: string;
+  /** Optional direct embedding-specific OpenAI-compatible base URL. */
+  openaiCompatibleEmbeddingBaseUrl?: string;
   /** Optional direct Anthropic API key for per-request credential injection. */
   anthropicApiKey?: string;
   /** Optional direct Google API key for per-request credential injection. */
