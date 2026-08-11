@@ -330,9 +330,8 @@ evalite("Caption Translation", {
       model,
       uploadToS3: false, // Don't upload during evals
       uploadToMux: false,
-      // "Mux" appears three times in the source transcript; the
-      // never-translate-compliance scorer verifies it survives verbatim.
-      neverTranslate: ["Mux"],
+      neverTranslate: ["Mux"], // Scored by never-translate-compliance
+
     });
     const latencyMs = performance.now() - startTime;
 

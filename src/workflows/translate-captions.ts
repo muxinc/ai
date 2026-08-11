@@ -101,11 +101,9 @@ export interface TranslationResult {
    */
   safety?: SafetyReport;
   /**
-   * Present when `neverTranslate` terms were supplied. Reports whether
-   * each term survived translation verbatim. Enforcement is prompt-based,
-   * so compliance is verified rather than guaranteed; `violations` lists
-   * terms that appear fewer times in the translated output than in the
-   * source. No automatic repair is attempted.
+   * Present when `neverTranslate` terms were supplied. Enforcement is
+   * prompt-based, so compliance is verified rather than guaranteed;
+   * violations are reported, never repaired.
    */
   neverTranslate?: NeverTranslateReport;
 }
@@ -121,9 +119,7 @@ export interface NeverTranslateViolation {
 
 /** Compliance report for the `neverTranslate` option. */
 export interface NeverTranslateReport {
-  /** The validated terms that were sent with the translation request. */
   terms: string[];
-  /** Terms whose verbatim occurrence count dropped during translation. */
   violations: NeverTranslateViolation[];
 }
 
@@ -164,13 +160,9 @@ export interface TranslationOptions<P extends SupportedProvider = SupportedProvi
    */
   chunking?: TranslationChunkingOptions;
   /**
-   * Terms (brand names, product names, proper nouns) that must be
-   * preserved verbatim in the translated output. At most 100 terms of
-   * up to 100 characters each. Enforcement is prompt-based; compliance
-   * is verified after translation and reported on
-   * `TranslationResult.neverTranslate`. Partly trusted input — terms
-   * reach the model prompt, so apply your own sanitisation before
-   * populating this from end-user input (see docs/SECURITY.md).
+   * Terms (brand names, proper nouns) to preserve verbatim in the
+   * translated output. Max 100 terms of 100 characters each. Terms reach
+   * the model prompt — partly trusted input, see docs/SECURITY.md.
    */
   neverTranslate?: string[];
 }
@@ -267,11 +259,8 @@ const MAX_NEVER_TRANSLATE_TERMS = 100;
 const MAX_NEVER_TRANSLATE_TERM_CHARS = 100;
 
 /**
- * Validates and normalises `neverTranslate` terms at the workflow
- * boundary. Terms reach the model prompt, so the caps bound how much
- * attacker-controlled text a compromised term list can inject — the
- * same "partly trusted" posture as `askQuestions` question text.
- * Returns trimmed terms with exact duplicates removed.
+ * Trims, dedupes, and caps `neverTranslate` terms. The caps bound the
+ * prompt-injection surface (see docs/SECURITY.md).
  */
 export function validateNeverTranslateTerms(terms: string[]): string[] {
   if (terms.length > MAX_NEVER_TRANSLATE_TERMS) {
@@ -306,12 +295,8 @@ export function validateNeverTranslateTerms(terms: string[]): string[] {
   return validated;
 }
 
-/**
- * Renders the `<never_translate>` user-message section, or an empty
- * string when no terms are supplied. Terms go through `renderSection`
- * so `<`, `>`, and `&` are XML-escaped — a term cannot close the
- * section and forge instructions outside it.
- */
+// renderSection XML-escapes each term so it cannot close the section
+// and forge instructions outside it.
 function buildNeverTranslateSection(terms: string[] | undefined): string {
   if (!terms || terms.length === 0) {
     return "";
@@ -319,13 +304,8 @@ function buildNeverTranslateSection(terms: string[] | undefined): string {
   return `\n\n${renderSection({ tag: "never_translate", content: terms.join("\n") })}`;
 }
 
-/**
- * Counts non-overlapping occurrences of `term` in `text`. Substring
- * matching (no word boundaries) so it behaves consistently for scripts
- * without word delimiters (CJK); "Mux" therefore also counts inside
- * "Muxing" — acceptable because both sides of the comparison count the
- * same way.
- */
+// Substring matching, no word boundaries: consistent for scripts
+// without word delimiters (CJK), and both sides count the same way.
 function countTermOccurrences(text: string, term: string): number {
   if (term.length === 0) {
     return 0;
@@ -334,13 +314,8 @@ function countTermOccurrences(text: string, term: string): number {
 }
 
 /**
- * Verifies that each `neverTranslate` term survived translation.
- * Expected counts come from the source cue text matched
- * case-insensitively (the source may case the term differently);
- * found counts require the verbatim term in the translated cue text,
- * since verbatim preservation is the contract. Comparison is over
- * extracted cue text only, so matches inside timestamps, headers, or
- * metadata blocks never count.
+ * Compares extracted cue text only: expected counts match the source
+ * case-insensitively, found counts require the verbatim term.
  */
 export function verifyNeverTranslateTerms(
   terms: string[],
@@ -1342,10 +1317,7 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
     scrubbedFields,
   };
 
-  // Verify neverTranslate compliance. Enforcement is prompt-based, so
-  // this is a deterministic audit of the model's output rather than a
-  // guarantee; violations are reported, never auto-repaired, because we
-  // cannot know what the model rendered a term as.
+  // Audit only, no repair — we can't know what the model rendered a term as.
   let neverTranslateReport: NeverTranslateReport | undefined;
   if (neverTranslateTerms.length > 0) {
     neverTranslateReport = verifyNeverTranslateTerms(neverTranslateTerms, vttContent, translatedVtt);

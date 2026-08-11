@@ -331,9 +331,7 @@ describe("verifyNeverTranslateTerms", () => {
   });
 
   it("counts occurrences in cue text only, not timestamps", () => {
-    // "02" appears in the timestamps of both files; only the single cue
-    // text occurrence in the source should drive the expected count, and
-    // the translated file's timestamps must not satisfy it.
+    // "02" appears in the timestamps of both files but only one cue text.
     const numericSourceVtt = [
       "WEBVTT",
       "",
