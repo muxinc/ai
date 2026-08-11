@@ -6,11 +6,14 @@ import {
 } from "ai";
 import { describe, expect, it } from "vitest";
 
+import { MuxAiError } from "../../src/lib/mux-ai-error";
 import type { TokenUsage } from "../../src/types";
 import {
   aggregateTokenUsage,
   normalizeTranslatedVtt,
   shouldSplitChunkTranslationError,
+  validateNeverTranslateTerms,
+  verifyNeverTranslateTerms,
 } from "../../src/workflows/translate-captions";
 
 describe("aggregateTokenUsage", () => {
@@ -217,5 +220,140 @@ describe("normalizeTranslatedVtt", () => {
 
   it("returns an empty string unchanged", () => {
     expect(normalizeTranslatedVtt("")).toBe("");
+  });
+});
+
+describe("validateNeverTranslateTerms", () => {
+  it("trims terms and removes exact duplicates", () => {
+    expect(validateNeverTranslateTerms([" Mux ", "Mux", "GIF"])).toEqual(["Mux", "GIF"]);
+  });
+
+  it("keeps terms that differ only by case", () => {
+    expect(validateNeverTranslateTerms(["Mux", "MUX"])).toEqual(["Mux", "MUX"]);
+  });
+
+  it("rejects more than 100 terms", () => {
+    const terms = Array.from({ length: 101 }, (_, i) => `term-${i}`);
+    expect(() => validateNeverTranslateTerms(terms)).toThrow(MuxAiError);
+  });
+
+  it("rejects empty and whitespace-only terms", () => {
+    expect(() => validateNeverTranslateTerms([""])).toThrow(MuxAiError);
+    expect(() => validateNeverTranslateTerms(["   "])).toThrow(MuxAiError);
+  });
+
+  it("rejects terms longer than 100 characters", () => {
+    expect(() => validateNeverTranslateTerms(["x".repeat(101)])).toThrow(MuxAiError);
+  });
+
+  it("accepts a term of exactly 100 characters", () => {
+    const term = "x".repeat(100);
+    expect(validateNeverTranslateTerms([term])).toEqual([term]);
+  });
+});
+
+describe("verifyNeverTranslateTerms", () => {
+  const sourceVtt = [
+    "WEBVTT",
+    "",
+    "1",
+    "00:00:01.000 --> 00:00:02.000",
+    "Video is fun with Mux.",
+    "",
+    "2",
+    "00:00:03.000 --> 00:00:04.000",
+    "mux makes thumbnails easy.",
+    "",
+  ].join("\n");
+
+  it("reports no violations when every occurrence survives verbatim", () => {
+    const translatedVtt = [
+      "WEBVTT",
+      "",
+      "1",
+      "00:00:01.000 --> 00:00:02.000",
+      "El video es divertido con Mux.",
+      "",
+      "2",
+      "00:00:03.000 --> 00:00:04.000",
+      "Mux facilita las miniaturas.",
+      "",
+    ].join("\n");
+
+    const report = verifyNeverTranslateTerms(["Mux"], sourceVtt, translatedVtt);
+    expect(report.terms).toEqual(["Mux"]);
+    expect(report.violations).toEqual([]);
+  });
+
+  it("reports a violation when verbatim occurrences drop", () => {
+    const translatedVtt = [
+      "WEBVTT",
+      "",
+      "1",
+      "00:00:01.000 --> 00:00:02.000",
+      "El video es divertido con Múx.",
+      "",
+      "2",
+      "00:00:03.000 --> 00:00:04.000",
+      "Mux facilita las miniaturas.",
+      "",
+    ].join("\n");
+
+    const report = verifyNeverTranslateTerms(["Mux"], sourceVtt, translatedVtt);
+    expect(report.violations).toEqual([
+      { term: "Mux", expectedCount: 2, foundCount: 1 },
+    ]);
+  });
+
+  it("requires the verbatim casing in the translated output", () => {
+    const translatedVtt = [
+      "WEBVTT",
+      "",
+      "1",
+      "00:00:01.000 --> 00:00:02.000",
+      "El video es divertido con MUX.",
+      "",
+      "2",
+      "00:00:03.000 --> 00:00:04.000",
+      "MUX facilita las miniaturas.",
+      "",
+    ].join("\n");
+
+    const report = verifyNeverTranslateTerms(["Mux"], sourceVtt, translatedVtt);
+    expect(report.violations).toEqual([
+      { term: "Mux", expectedCount: 2, foundCount: 0 },
+    ]);
+  });
+
+  it("skips terms that never appear in the source", () => {
+    const report = verifyNeverTranslateTerms(["Jeff"], sourceVtt, sourceVtt);
+    expect(report.violations).toEqual([]);
+  });
+
+  it("counts occurrences in cue text only, not timestamps", () => {
+    // "02" appears in the timestamps of both files; only the single cue
+    // text occurrence in the source should drive the expected count, and
+    // the translated file's timestamps must not satisfy it.
+    const numericSourceVtt = [
+      "WEBVTT",
+      "",
+      "1",
+      "00:00:01.000 --> 00:00:02.000",
+      "Room 02 is ready.",
+      "",
+    ].join("\n");
+    const numericTranslatedVtt = [
+      "WEBVTT",
+      "",
+      "1",
+      "00:00:01.000 --> 00:00:02.000",
+      "La sala está lista.",
+      "",
+    ].join("\n");
+
+    const report = verifyNeverTranslateTerms(["02"], numericSourceVtt, numericTranslatedVtt);
+    expect(report.violations).toEqual([
+      { term: "02", expectedCount: 1, foundCount: 0 },
+    ]);
   });
 });

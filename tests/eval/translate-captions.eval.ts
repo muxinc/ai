@@ -330,6 +330,9 @@ evalite("Caption Translation", {
       model,
       uploadToS3: false, // Don't upload during evals
       uploadToMux: false,
+      // "Mux" appears three times in the source transcript; the
+      // never-translate-compliance scorer verifies it survives verbatim.
+      neverTranslate: ["Mux"],
     });
     const latencyMs = performance.now() - startTime;
 
@@ -617,6 +620,33 @@ evalite("Caption Translation", {
         return {
           score: passedCount / checks.length,
           metadata: failedChecks.length > 0 ? { failedChecks } : undefined,
+        };
+      },
+    },
+
+    // NEVER TRANSLATE COMPLIANCE: Terms must survive translation verbatim
+    {
+      name: "never-translate-compliance",
+      description: "Validates that neverTranslate terms appear verbatim in the translated output as often as in the source.",
+      scorer: ({ output }: { output: EvalOutput }) => {
+        const report = output.neverTranslate;
+        if (!report) {
+          return 0; // Report missing despite terms being supplied
+        }
+        if (report.violations.length === 0) {
+          return 1;
+        }
+
+        // Partial credit: fraction of expected occurrences that survived.
+        let expected = 0;
+        let found = 0;
+        for (const violation of report.violations) {
+          expected += violation.expectedCount;
+          found += violation.foundCount;
+        }
+        return {
+          score: expected > 0 ? found / expected : 0,
+          metadata: { violations: report.violations },
         };
       },
     },
