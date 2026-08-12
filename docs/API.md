@@ -408,7 +408,7 @@ Translates existing captions from one language to another and optionally adds th
   - `maxConcurrentTranslations?: number` - Max number of concurrent translation requests when chunking (default: `4`)
   - `maxCuesPerChunk?: number` - Hard cap for cues included in a single AI translation chunk (default: `80`)
   - `maxCueTextTokensPerChunk?: number` - Approximate cap for cue text tokens included in a single AI translation chunk (default: `2000`)
-- `neverTranslate?: string[]` - Terms (brand names, proper nouns) to preserve verbatim in the translated output; max 100 terms of 100 characters each. Compliance is verified and reported on `result.neverTranslate`, not guaranteed.
+- `neverTranslate?: string[]` - Terms (brand names, proper nouns) to preserve verbatim in the translated output; max 100 terms of 100 characters each, `<` and `>` not allowed. Compliance is verified and reported on `result.neverTranslate`, not guaranteed.
 
 **Returns:**
 

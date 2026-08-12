@@ -228,8 +228,17 @@ describe("validateNeverTranslateTerms", () => {
     expect(validateNeverTranslateTerms([" Mux ", "Mux", "GIF"])).toEqual(["Mux", "GIF"]);
   });
 
-  it("keeps terms that differ only by case", () => {
-    expect(validateNeverTranslateTerms(["Mux", "MUX"])).toEqual(["Mux", "MUX"]);
+  it("dedupes case variants, keeping the first casing", () => {
+    expect(validateNeverTranslateTerms(["Mux", "MUX"])).toEqual(["Mux"]);
+  });
+
+  it("rejects terms containing angle brackets", () => {
+    expect(() => validateNeverTranslateTerms(["<Mux"])).toThrow(MuxAiError);
+    expect(() => validateNeverTranslateTerms(["Mux>"])).toThrow(MuxAiError);
+  });
+
+  it("accepts terms containing ampersands", () => {
+    expect(validateNeverTranslateTerms(["AT&T"])).toEqual(["AT&T"]);
   });
 
   it("rejects more than 100 terms", () => {

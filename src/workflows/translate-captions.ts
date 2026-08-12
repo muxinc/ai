@@ -27,7 +27,6 @@ import {
   scrubFreeTextField,
 } from "../lib/output-safety.ts";
 import type { LeakReason, SafetyReport } from "../lib/output-safety.ts";
-import { renderSection } from "../lib/prompt-builder.ts";
 import {
   CANARY_TRIPWIRE,
   NON_DISCLOSURE_CONSTRAINT,
@@ -286,8 +285,18 @@ export function validateNeverTranslateTerms(terms: string[]): string[] {
         { type: "validation_error" },
       );
     }
-    if (!seen.has(trimmed)) {
-      seen.add(trimmed);
+    if (trimmed.includes("<") || trimmed.includes(">")) {
+      throw new MuxAiError(
+        "neverTranslate terms must not contain '<' or '>'.",
+        { type: "validation_error" },
+      );
+    }
+    // Case-insensitive dedupe: expected counts are case-insensitive, so
+    // case variants of the same term would demand the same source
+    // occurrences verbatim in two casings at once — unsatisfiable.
+    const key = trimmed.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
       validated.push(trimmed);
     }
   }
@@ -295,13 +304,14 @@ export function validateNeverTranslateTerms(terms: string[]): string[] {
   return validated;
 }
 
-// renderSection XML-escapes each term so it cannot close the section
-// and forge instructions outside it.
+// Terms are injected without XML escaping so the prompt spelling matches
+// what verifyNeverTranslateTerms counts ("AT&T", not "AT&amp;T").
+// Breakout is prevented by validation instead: terms cannot contain < or >.
 function buildNeverTranslateSection(terms: string[] | undefined): string {
   if (!terms || terms.length === 0) {
     return "";
   }
-  return `\n\n${renderSection({ tag: "never_translate", content: terms.join("\n") })}`;
+  return `\n\n<never_translate>\n${terms.join("\n")}\n</never_translate>`;
 }
 
 // Substring matching, no word boundaries: consistent for scripts
