@@ -262,105 +262,24 @@ describe("validateNeverTranslateTerms", () => {
 });
 
 describe("verifyNeverTranslateTerms", () => {
-  const sourceVtt = [
-    "WEBVTT",
-    "",
-    "1",
-    "00:00:01.000 --> 00:00:02.000",
-    "Video is fun with Mux.",
-    "",
-    "2",
-    "00:00:03.000 --> 00:00:04.000",
-    "mux makes thumbnails easy.",
-    "",
-  ].join("\n");
+  const vtt = (...cueLines: string[]) =>
+    `WEBVTT\n\n${cueLines.map((text, i) => `${i + 1}\n00:00:0${i}.000 --> 00:00:0${i + 1}.000\n${text}`).join("\n\n")}\n`;
 
-  it("reports no violations when every occurrence survives verbatim", () => {
-    const translatedVtt = [
-      "WEBVTT",
-      "",
-      "1",
-      "00:00:01.000 --> 00:00:02.000",
-      "El video es divertido con Mux.",
-      "",
-      "2",
-      "00:00:03.000 --> 00:00:04.000",
-      "Mux facilita las miniaturas.",
-      "",
-    ].join("\n");
+  const sourceVtt = vtt("Video is fun with Mux.", "mux makes thumbnails easy.");
 
-    const report = verifyNeverTranslateTerms(["Mux"], sourceVtt, translatedVtt);
-    expect(report.terms).toEqual(["Mux"]);
-    expect(report.violations).toEqual([]);
+  it("passes when every occurrence survives verbatim, counting the source case-insensitively", () => {
+    const translatedVtt = vtt("El video es divertido con Mux.", "Mux facilita las miniaturas.");
+    expect(verifyNeverTranslateTerms(["Mux"], sourceVtt, translatedVtt)).toBe(true);
   });
 
-  it("reports a violation when verbatim occurrences drop", () => {
-    const translatedVtt = [
-      "WEBVTT",
-      "",
-      "1",
-      "00:00:01.000 --> 00:00:02.000",
-      "El video es divertido con Múx.",
-      "",
-      "2",
-      "00:00:03.000 --> 00:00:04.000",
-      "Mux facilita las miniaturas.",
-      "",
-    ].join("\n");
-
-    const report = verifyNeverTranslateTerms(["Mux"], sourceVtt, translatedVtt);
-    expect(report.violations).toEqual([
-      { term: "Mux", expectedCount: 2, foundCount: 1 },
-    ]);
+  it("fails when verbatim occurrences drop, including case changes", () => {
+    expect(verifyNeverTranslateTerms(["Mux"], sourceVtt, vtt("El video es divertido con Múx.", "Mux facilita las miniaturas."))).toBe(false);
+    expect(verifyNeverTranslateTerms(["Mux"], sourceVtt, vtt("El video es divertido con MUX.", "MUX facilita las miniaturas."))).toBe(false);
   });
 
-  it("requires the verbatim casing in the translated output", () => {
-    const translatedVtt = [
-      "WEBVTT",
-      "",
-      "1",
-      "00:00:01.000 --> 00:00:02.000",
-      "El video es divertido con MUX.",
-      "",
-      "2",
-      "00:00:03.000 --> 00:00:04.000",
-      "MUX facilita las miniaturas.",
-      "",
-    ].join("\n");
-
-    const report = verifyNeverTranslateTerms(["Mux"], sourceVtt, translatedVtt);
-    expect(report.violations).toEqual([
-      { term: "Mux", expectedCount: 2, foundCount: 0 },
-    ]);
-  });
-
-  it("skips terms that never appear in the source", () => {
-    const report = verifyNeverTranslateTerms(["Jeff"], sourceVtt, sourceVtt);
-    expect(report.violations).toEqual([]);
-  });
-
-  it("counts occurrences in cue text only, not timestamps", () => {
-    // "02" appears in the timestamps of both files but only one cue text.
-    const numericSourceVtt = [
-      "WEBVTT",
-      "",
-      "1",
-      "00:00:01.000 --> 00:00:02.000",
-      "Room 02 is ready.",
-      "",
-    ].join("\n");
-    const numericTranslatedVtt = [
-      "WEBVTT",
-      "",
-      "1",
-      "00:00:01.000 --> 00:00:02.000",
-      "La sala está lista.",
-      "",
-    ].join("\n");
-
-    const report = verifyNeverTranslateTerms(["02"], numericSourceVtt, numericTranslatedVtt);
-    expect(report.violations).toEqual([
-      { term: "02", expectedCount: 1, foundCount: 0 },
-    ]);
+  it("ignores terms absent from the source and matches inside timestamps", () => {
+    expect(verifyNeverTranslateTerms(["Jeff"], sourceVtt, vtt("Sin cambios.", "Nada."))).toBe(true);
+    // "02" appears in both files' timestamps but only the source cue text.
+    expect(verifyNeverTranslateTerms(["02"], vtt("Room 02 is ready."), vtt("La sala está lista."))).toBe(false);
   });
 });

@@ -529,15 +529,12 @@ const result = await translateCaptions("your-mux-asset-id", "your-track-id", "es
   neverTranslate: ["Mux", "GIF"],
 });
 
-// Compliance is verified after translation and reported on the result
-if (result.neverTranslate?.violations.length) {
-  for (const { term, expectedCount, foundCount } of result.neverTranslate.violations) {
-    console.warn(`"${term}" survived ${foundCount}/${expectedCount} occurrences`);
-  }
+if (result.neverTranslateTermsPreserved === false) {
+  // At least one term did not survive translation verbatim
 }
 ```
 
-Enforcement is prompt-based: the terms are passed to the model with an instruction to preserve them verbatim, then each term's occurrence count in the source is compared against the translated output. Shortfalls are reported as `violations` — the library never rewrites the translation to repair them.
+Enforcement is prompt-based: the terms are passed to the model with an instruction to preserve them verbatim, then each term's occurrence count in the source is compared against the translated output. Shortfalls set `neverTranslateTermsPreserved` to `false` — the library never rewrites the translation to repair them.
 
 ### S3-Compatible Storage Requirements
 

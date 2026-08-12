@@ -408,7 +408,7 @@ Translates existing captions from one language to another and optionally adds th
   - `maxConcurrentTranslations?: number` - Max number of concurrent translation requests when chunking (default: `4`)
   - `maxCuesPerChunk?: number` - Hard cap for cues included in a single AI translation chunk (default: `80`)
   - `maxCueTextTokensPerChunk?: number` - Approximate cap for cue text tokens included in a single AI translation chunk (default: `2000`)
-- `neverTranslate?: string[]` - Terms (brand names, proper nouns) to preserve verbatim in the translated output; max 100 terms of 100 characters each, `<` and `>` not allowed. Compliance is verified and reported on `result.neverTranslate`, not guaranteed.
+- `neverTranslate?: string[]` - Terms (brand names, proper nouns) to preserve verbatim in the translated output; max 100 terms of 100 characters each, `<` and `>` not allowed. Compliance is verified and reported on `result.neverTranslateTermsPreserved`, not guaranteed.
 
 **Returns:**
 
@@ -425,16 +425,7 @@ interface TranslationResult {
   uploadedTrackId?: string; // Mux track ID (if uploaded)
   presignedUrl?: string; // S3 presigned URL (default expiry: 24 hours)
   usage?: TokenUsage; // Token usage from the AI provider
-  neverTranslate?: NeverTranslateReport; // Present when neverTranslate terms were supplied
-}
-
-interface NeverTranslateReport {
-  terms: string[]; // Validated terms sent with the request
-  violations: Array<{
-    term: string;
-    expectedCount: number; // Occurrences in the source cue text (case-insensitive)
-    foundCount: number; // Verbatim occurrences in the translated cue text
-  }>;
+  neverTranslateTermsPreserved?: boolean; // Present when neverTranslate terms were supplied; false if any term was not preserved verbatim
 }
 ```
 

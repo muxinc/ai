@@ -100,26 +100,11 @@ export interface TranslationResult {
    */
   safety?: SafetyReport;
   /**
-   * Present when `neverTranslate` terms were supplied. Enforcement is
-   * prompt-based, so compliance is verified rather than guaranteed;
-   * violations are reported, never repaired.
+   * Present when `neverTranslate` terms were supplied; `false` when any
+   * term appears fewer times verbatim in the translated cue text than in
+   * the source. Enforcement is prompt-based — verified, not guaranteed.
    */
-  neverTranslate?: NeverTranslateReport;
-}
-
-/** A `neverTranslate` term that did not fully survive translation verbatim. */
-export interface NeverTranslateViolation {
-  term: string;
-  /** Occurrences of the term in the source cue text (case-insensitive). */
-  expectedCount: number;
-  /** Verbatim (case-sensitive) occurrences in the translated cue text. */
-  foundCount: number;
-}
-
-/** Compliance report for the `neverTranslate` option. */
-export interface NeverTranslateReport {
-  terms: string[];
-  violations: NeverTranslateViolation[];
+  neverTranslateTermsPreserved?: boolean;
 }
 
 /** Configuration accepted by `translateCaptions`. */
@@ -291,9 +276,8 @@ export function validateNeverTranslateTerms(terms: string[]): string[] {
         { type: "validation_error" },
       );
     }
-    // Case-insensitive dedupe: expected counts are case-insensitive, so
-    // case variants of the same term would demand the same source
-    // occurrences verbatim in two casings at once — unsatisfiable.
+    // Case-insensitive dedupe: case variants would double-demand the
+    // same source occurrences during verification.
     const key = trimmed.toLowerCase();
     if (!seen.has(key)) {
       seen.add(key);
@@ -324,30 +308,19 @@ function countTermOccurrences(text: string, term: string): number {
 }
 
 /**
- * Compares extracted cue text only: expected counts match the source
- * case-insensitively, found counts require the verbatim term.
+ * Compares extracted cue text only: source occurrences count
+ * case-insensitively, translated occurrences must be verbatim.
  */
 export function verifyNeverTranslateTerms(
   terms: string[],
   sourceVtt: string,
   translatedVtt: string,
-): NeverTranslateReport {
+): boolean {
   const sourceText = extractTextFromVTT(sourceVtt).toLowerCase();
   const translatedText = extractTextFromVTT(translatedVtt);
-
-  const violations: NeverTranslateViolation[] = [];
-  for (const term of terms) {
-    const expectedCount = countTermOccurrences(sourceText, term.toLowerCase());
-    if (expectedCount === 0) {
-      continue;
-    }
-    const foundCount = countTermOccurrences(translatedText, term);
-    if (foundCount < expectedCount) {
-      violations.push({ term, expectedCount, foundCount });
-    }
-  }
-
-  return { terms, violations };
+  return terms.every(term =>
+    countTermOccurrences(translatedText, term) >= countTermOccurrences(sourceText, term.toLowerCase()),
+  );
 }
 
 const DEFAULT_TRANSLATION_CHUNKING: Required<TranslationChunkingOptions> = {
@@ -1328,13 +1301,11 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
   };
 
   // Audit only, no repair — we can't know what the model rendered a term as.
-  let neverTranslateReport: NeverTranslateReport | undefined;
+  let neverTranslateTermsPreserved: boolean | undefined;
   if (neverTranslateTerms.length > 0) {
-    neverTranslateReport = verifyNeverTranslateTerms(neverTranslateTerms, vttContent, translatedVtt);
-    for (const violation of neverTranslateReport.violations) {
-      console.warn(
-        `[@mux/ai] neverTranslate term "${violation.term}" appears ${violation.foundCount} time(s) in the translated output but ${violation.expectedCount} time(s) in the source.`,
-      );
+    neverTranslateTermsPreserved = verifyNeverTranslateTerms(neverTranslateTerms, vttContent, translatedVtt);
+    if (!neverTranslateTermsPreserved) {
+      console.warn("[@mux/ai] One or more neverTranslate terms were not preserved verbatim in the translated output.");
     }
   }
 
@@ -1404,6 +1375,6 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
     presignedUrl,
     usage: usageWithMetadata,
     safety,
-    neverTranslate: neverTranslateReport,
+    neverTranslateTermsPreserved,
   };
 }

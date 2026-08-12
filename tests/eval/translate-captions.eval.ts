@@ -627,27 +627,8 @@ evalite("Caption Translation", {
     {
       name: "never-translate-compliance",
       description: "Validates that neverTranslate terms appear verbatim in the translated output as often as in the source.",
-      scorer: ({ output }: { output: EvalOutput }) => {
-        const report = output.neverTranslate;
-        if (!report) {
-          return 0; // Report missing despite terms being supplied
-        }
-        if (report.violations.length === 0) {
-          return 1;
-        }
-
-        // Partial credit: fraction of expected occurrences that survived.
-        let expected = 0;
-        let found = 0;
-        for (const violation of report.violations) {
-          expected += violation.expectedCount;
-          found += violation.foundCount;
-        }
-        return {
-          score: expected > 0 ? found / expected : 0,
-          metadata: { violations: report.violations },
-        };
-      },
+      scorer: ({ output }: { output: EvalOutput }) =>
+        output.neverTranslateTermsPreserved === true ? 1 : 0,
     },
 
     // LANGUAGE CODE VALIDITY: Validate codes are recognized ISO standards
