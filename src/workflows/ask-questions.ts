@@ -21,6 +21,7 @@ import { createTranscriptSection, renderSection } from "../lib/prompt-builder.ts
 import {
   CANARY_TRIPWIRE,
   CONFIDENCE_SCORING_RUBRIC,
+  createLanguageGuidelines,
   METADATA_BOUNDARY_WARNING,
   NO_FABRICATION_CONSTRAINT,
   NON_DISCLOSURE_CONSTRAINT,
@@ -342,11 +343,9 @@ const SYSTEM_PROMPT = promptDedent`
   </constraints>
 
   <language_guidelines>
-    When explaining reasoning:
-    - Describe content directly, not the medium
-    - BAD: "The video shows a person running"
-    - GOOD: "A person runs through a park"
-    - Be specific and evidence-based
+    When explaining reasoning, be specific and evidence-based.
+
+    ${createLanguageGuidelines("video")}
   </language_guidelines>`;
 
 const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
@@ -440,11 +439,9 @@ const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
   </constraints>
 
   <language_guidelines>
-    When explaining reasoning:
-    - Describe content directly, not the medium
-    - BAD: "The audio says someone is running"
-    - GOOD: "The speaker describes running through a park"
-    - Be specific and evidence-based
+    When explaining reasoning, be specific and evidence-based.
+
+    ${createLanguageGuidelines("audio")}
   </language_guidelines>`;
 
 // Appended to the system prompt only when free-form mode is in use.
