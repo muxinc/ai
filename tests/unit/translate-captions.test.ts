@@ -279,7 +279,16 @@ describe("verifyNeverTranslateTerms", () => {
 
   it("ignores terms absent from the source and matches inside timestamps", () => {
     expect(verifyNeverTranslateTerms(["Jeff"], sourceVtt, vtt("Sin cambios.", "Nada."))).toBe(true);
-    // "02" appears in both files' timestamps but only the source cue text.
-    expect(verifyNeverTranslateTerms(["02"], vtt("Room 02 is ready."), vtt("La sala está lista."))).toBe(false);
+    // "02" appears in both files' timestamps but only the source cue text;
+    // the translated file's timestamps must not satisfy the count.
+    const timestamped = (text: string) => `WEBVTT\n\n1\n00:00:02.000 --> 00:00:03.000\n${text}\n`;
+    expect(verifyNeverTranslateTerms(["02"], timestamped("Room 02 is ready."), timestamped("La sala está lista."))).toBe(false);
+  });
+
+  it("normalizes terms into the same space as sanitized cue text", () => {
+    // Cue text is NFKC-normalized at parse time ("①" becomes "1"); an
+    // unnormalized term would count zero in the source and falsely pass.
+    expect(verifyNeverTranslateTerms(["①"], vtt("Chapter ① begins."), vtt("Comienza el capítulo."))).toBe(false);
+    expect(verifyNeverTranslateTerms(["①"], vtt("Chapter ① begins."), vtt("Comienza el capítulo 1."))).toBe(true);
   });
 });

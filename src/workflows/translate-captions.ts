@@ -49,9 +49,9 @@ import {
   buildTranscriptUrl,
   buildVttFromTranslatedCueBlocks,
   concatenateVttSegments,
-  extractTextFromVTT,
   getReadyTextTracks,
   parseVTTCues,
+  sanitizeUntrustedText,
   splitVttPreambleAndCueBlocks,
   stripVttMetadataBlocks,
 } from "../primitives/transcripts.ts";
@@ -308,17 +308,21 @@ function countTermOccurrences(text: string, term: string): number {
 }
 
 /**
- * Compares extracted cue text only: source occurrences count
- * case-insensitively, translated occurrences must be verbatim.
+ * Compares cue text only: source occurrences count case-insensitively,
+ * translated occurrences must be verbatim. Terms are sanitised
+ * (NFKC etc.) exactly like parseVTTCues sanitises cue text, so the
+ * comparison runs in the same space the model actually sees — an
+ * unsanitised term would count zero in the source and falsely pass.
  */
 export function verifyNeverTranslateTerms(
   terms: string[],
   sourceVtt: string,
   translatedVtt: string,
 ): boolean {
-  const sourceText = extractTextFromVTT(sourceVtt).toLowerCase();
-  const translatedText = extractTextFromVTT(translatedVtt);
-  return terms.every(term =>
+  const cueText = (vtt: string) => parseVTTCues(vtt).map(cue => cue.text).join("\n");
+  const sourceText = cueText(sourceVtt).toLowerCase();
+  const translatedText = cueText(translatedVtt);
+  return terms.map(sanitizeUntrustedText).every(term =>
     countTermOccurrences(translatedText, term) >= countTermOccurrences(sourceText, term.toLowerCase()),
   );
 }
