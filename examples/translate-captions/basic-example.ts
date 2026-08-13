@@ -23,12 +23,16 @@ program
   .option("-p, --provider <provider>", "AI provider (openai, anthropic, google, baseten)", "anthropic")
   .option("-m, --model <model>", "Model name (overrides default for provider)")
   .option("--no-upload", "Skip uploading translated captions to Mux (returns presigned URL only)")
+  .option("--never-translate <terms>", "Comma-separated terms to preserve verbatim (e.g. \"Mux,GIF\")")
+  .option("--print-vtt", "Print the translated VTT to stdout")
   .action(async (assetId: string, options: {
     track: string;
     to: string;
     provider: Provider;
     model?: string;
     upload: boolean;
+    neverTranslate?: string;
+    printVtt?: boolean;
   }) => {
     // Validate provider
     if (!["openai", "anthropic", "google", "baseten", "openai-compatible"].includes(options.provider)) {
@@ -37,11 +41,15 @@ program
     }
 
     const model = options.model || DEFAULT_MODELS[options.provider];
+    const neverTranslate = options.neverTranslate?.split(",").map(term => term.trim()).filter(Boolean);
 
     console.log(`Asset ID: ${assetId}`);
     console.log(`Track ID: ${options.track}`);
     console.log(`Target language: ${options.to}`);
     console.log(`Provider: ${options.provider} (${model})`);
+    if (neverTranslate?.length) {
+      console.log(`Never translate: ${neverTranslate.join(", ")}`);
+    }
     console.log(`Upload to Mux: ${options.upload}\n`);
 
     try {
@@ -51,6 +59,7 @@ program
         provider: options.provider,
         model,
         uploadToMux: options.upload,
+        neverTranslate,
       });
 
       console.log("\nTranslation Results:");
@@ -65,6 +74,14 @@ program
 
       if (result.presignedUrl) {
         console.log(`Presigned URL: ${result.presignedUrl.substring(0, 80)}...`);
+      }
+
+      if (result.neverTranslateTermsPreserved !== undefined) {
+        console.log(`Never-translate terms preserved: ${result.neverTranslateTermsPreserved}`);
+      }
+
+      if (options.printVtt) {
+        console.log(`\n${result.translatedVtt}`);
       }
 
       console.log("\nVTT translation completed successfully!");
