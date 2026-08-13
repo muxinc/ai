@@ -276,6 +276,15 @@ export function validateNeverTranslateTerms(terms: string[]): string[] {
         { type: "validation_error" },
       );
     }
+    // Cue text is NFKC-sanitised before the model sees it, so a term the
+    // sanitiser rewrites can never be preserved verbatim — reject it
+    // rather than verify in a space the caller didn't ask for.
+    if (sanitizeUntrustedText(trimmed) !== trimmed) {
+      throw new MuxAiError(
+        "neverTranslate terms must not contain invisible characters or characters altered by Unicode NFKC normalization.",
+        { type: "validation_error" },
+      );
+    }
     // Case-insensitive dedupe: case variants would double-demand the
     // same source occurrences during verification.
     const key = trimmed.toLowerCase();
@@ -309,10 +318,9 @@ function countTermOccurrences(text: string, term: string): number {
 
 /**
  * Compares cue text only: source occurrences count case-insensitively,
- * translated occurrences must be verbatim. Terms are sanitised
- * (NFKC etc.) exactly like parseVTTCues sanitises cue text, so the
- * comparison runs in the same space the model actually sees — an
- * unsanitised term would count zero in the source and falsely pass.
+ * translated occurrences must be verbatim. Validation guarantees terms
+ * are NFKC-stable, so they match identically in the sanitised cue text
+ * parseVTTCues produces — the same text the model sees.
  */
 export function verifyNeverTranslateTerms(
   terms: string[],
@@ -322,7 +330,7 @@ export function verifyNeverTranslateTerms(
   const cueText = (vtt: string) => parseVTTCues(vtt).map(cue => cue.text).join("\n");
   const sourceText = cueText(sourceVtt).toLowerCase();
   const translatedText = cueText(translatedVtt);
-  return terms.map(sanitizeUntrustedText).every(term =>
+  return terms.every(term =>
     countTermOccurrences(translatedText, term) >= countTermOccurrences(sourceText, term.toLowerCase()),
   );
 }

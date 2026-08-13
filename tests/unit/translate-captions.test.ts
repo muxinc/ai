@@ -241,6 +241,12 @@ describe("validateNeverTranslateTerms", () => {
     expect(validateNeverTranslateTerms(["AT&T"])).toEqual(["AT&T"]);
   });
 
+  it("rejects terms altered by Unicode NFKC normalization", () => {
+    expect(() => validateNeverTranslateTerms(["①"])).toThrow(MuxAiError);
+    expect(() => validateNeverTranslateTerms(["Mu​x"])).toThrow(MuxAiError);
+    expect(validateNeverTranslateTerms(["Müx"])).toEqual(["Müx"]);
+  });
+
   it("rejects more than 100 terms", () => {
     const terms = Array.from({ length: 101 }, (_, i) => `term-${i}`);
     expect(() => validateNeverTranslateTerms(terms)).toThrow(MuxAiError);
@@ -285,10 +291,10 @@ describe("verifyNeverTranslateTerms", () => {
     expect(verifyNeverTranslateTerms(["02"], timestamped("Room 02 is ready."), timestamped("La sala está lista."))).toBe(false);
   });
 
-  it("normalizes terms into the same space as sanitized cue text", () => {
-    // Cue text is NFKC-normalized at parse time ("①" becomes "1"); an
-    // unnormalized term would count zero in the source and falsely pass.
-    expect(verifyNeverTranslateTerms(["①"], vtt("Chapter ① begins."), vtt("Comienza el capítulo."))).toBe(false);
-    expect(verifyNeverTranslateTerms(["①"], vtt("Chapter ① begins."), vtt("Comienza el capítulo 1."))).toBe(true);
+  it("counts against sanitized cue text, matching what the model sees", () => {
+    // Cue text is NFKC-normalized at parse time, so "①" in the source
+    // counts as an occurrence of the (NFKC-stable) term "1".
+    expect(verifyNeverTranslateTerms(["1"], vtt("Chapter ① begins."), vtt("Comienza el capítulo."))).toBe(false);
+    expect(verifyNeverTranslateTerms(["1"], vtt("Chapter ① begins."), vtt("Comienza el capítulo 1."))).toBe(true);
   });
 });
