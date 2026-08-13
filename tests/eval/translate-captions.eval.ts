@@ -330,6 +330,8 @@ evalite("Caption Translation", {
       model,
       uploadToS3: false, // Don't upload during evals
       uploadToMux: false,
+      neverTranslate: ["Mux"], // Scored by never-translate-compliance
+
     });
     const latencyMs = performance.now() - startTime;
 
@@ -619,6 +621,14 @@ evalite("Caption Translation", {
           metadata: failedChecks.length > 0 ? { failedChecks } : undefined,
         };
       },
+    },
+
+    // NEVER TRANSLATE COMPLIANCE: Terms must survive translation verbatim
+    {
+      name: "never-translate-compliance",
+      description: "Validates that neverTranslate terms appear verbatim in the translated output as often as in the source.",
+      scorer: ({ output }: { output: EvalOutput }) =>
+        output.neverTranslateTermsPreserved === true ? 1 : 0,
     },
 
     // LANGUAGE CODE VALIDITY: Validate codes are recognized ISO standards

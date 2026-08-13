@@ -6,11 +6,14 @@ import {
 } from "ai";
 import { describe, expect, it } from "vitest";
 
+import { MuxAiError } from "../../src/lib/mux-ai-error";
 import type { TokenUsage } from "../../src/types";
 import {
   aggregateTokenUsage,
   normalizeTranslatedVtt,
   shouldSplitChunkTranslationError,
+  validateNeverTranslateTerms,
+  verifyNeverTranslateTerms,
 } from "../../src/workflows/translate-captions";
 
 describe("aggregateTokenUsage", () => {
@@ -217,5 +220,81 @@ describe("normalizeTranslatedVtt", () => {
 
   it("returns an empty string unchanged", () => {
     expect(normalizeTranslatedVtt("")).toBe("");
+  });
+});
+
+describe("validateNeverTranslateTerms", () => {
+  it("trims terms and removes exact duplicates", () => {
+    expect(validateNeverTranslateTerms([" Mux ", "Mux", "GIF"])).toEqual(["Mux", "GIF"]);
+  });
+
+  it("dedupes case variants, keeping the first casing", () => {
+    expect(validateNeverTranslateTerms(["Mux", "MUX"])).toEqual(["Mux"]);
+  });
+
+  it("rejects terms containing angle brackets", () => {
+    expect(() => validateNeverTranslateTerms(["<Mux"])).toThrow(MuxAiError);
+    expect(() => validateNeverTranslateTerms(["Mux>"])).toThrow(MuxAiError);
+  });
+
+  it("accepts terms containing ampersands", () => {
+    expect(validateNeverTranslateTerms(["AT&T"])).toEqual(["AT&T"]);
+  });
+
+  it("rejects terms altered by Unicode NFKC normalization", () => {
+    expect(() => validateNeverTranslateTerms(["①"])).toThrow(MuxAiError);
+    expect(() => validateNeverTranslateTerms(["Mu​x"])).toThrow(MuxAiError);
+    expect(validateNeverTranslateTerms(["Müx"])).toEqual(["Müx"]);
+  });
+
+  it("rejects more than 100 terms", () => {
+    const terms = Array.from({ length: 101 }, (_, i) => `term-${i}`);
+    expect(() => validateNeverTranslateTerms(terms)).toThrow(MuxAiError);
+  });
+
+  it("rejects empty and whitespace-only terms", () => {
+    expect(() => validateNeverTranslateTerms([""])).toThrow(MuxAiError);
+    expect(() => validateNeverTranslateTerms(["   "])).toThrow(MuxAiError);
+  });
+
+  it("rejects terms longer than 100 characters", () => {
+    expect(() => validateNeverTranslateTerms(["x".repeat(101)])).toThrow(MuxAiError);
+  });
+
+  it("accepts a term of exactly 100 characters", () => {
+    const term = "x".repeat(100);
+    expect(validateNeverTranslateTerms([term])).toEqual([term]);
+  });
+});
+
+describe("verifyNeverTranslateTerms", () => {
+  const vtt = (...cueLines: string[]) =>
+    `WEBVTT\n\n${cueLines.map((text, i) => `${i + 1}\n00:00:0${i}.000 --> 00:00:0${i + 1}.000\n${text}`).join("\n\n")}\n`;
+
+  const sourceVtt = vtt("Video is fun with Mux.", "mux makes thumbnails easy.");
+
+  it("passes when every occurrence survives verbatim, counting the source case-insensitively", () => {
+    const translatedVtt = vtt("El video es divertido con Mux.", "Mux facilita las miniaturas.");
+    expect(verifyNeverTranslateTerms(["Mux"], sourceVtt, translatedVtt)).toBe(true);
+  });
+
+  it("fails when verbatim occurrences drop, including case changes", () => {
+    expect(verifyNeverTranslateTerms(["Mux"], sourceVtt, vtt("El video es divertido con Múx.", "Mux facilita las miniaturas."))).toBe(false);
+    expect(verifyNeverTranslateTerms(["Mux"], sourceVtt, vtt("El video es divertido con MUX.", "MUX facilita las miniaturas."))).toBe(false);
+  });
+
+  it("ignores terms absent from the source and matches inside timestamps", () => {
+    expect(verifyNeverTranslateTerms(["Jeff"], sourceVtt, vtt("Sin cambios.", "Nada."))).toBe(true);
+    // "02" appears in both files' timestamps but only the source cue text;
+    // the translated file's timestamps must not satisfy the count.
+    const timestamped = (text: string) => `WEBVTT\n\n1\n00:00:02.000 --> 00:00:03.000\n${text}\n`;
+    expect(verifyNeverTranslateTerms(["02"], timestamped("Room 02 is ready."), timestamped("La sala está lista."))).toBe(false);
+  });
+
+  it("counts against sanitized cue text, matching what the model sees", () => {
+    // Cue text is NFKC-normalized at parse time, so "①" in the source
+    // counts as an occurrence of the (NFKC-stable) term "1".
+    expect(verifyNeverTranslateTerms(["1"], vtt("Chapter ① begins."), vtt("Comienza el capítulo."))).toBe(false);
+    expect(verifyNeverTranslateTerms(["1"], vtt("Chapter ① begins."), vtt("Comienza el capítulo 1."))).toBe(true);
   });
 });

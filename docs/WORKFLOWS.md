@@ -521,6 +521,21 @@ const result = await translateCaptions("your-mux-asset-id", "your-track-id", "es
 
 Set `chunking.enabled` to `false` if you want to force a single structured translation request for the full caption file.
 
+Use `neverTranslate` to keep brand names, product names, or other proper nouns verbatim in the translated output:
+
+```typescript
+const result = await translateCaptions("your-mux-asset-id", "your-track-id", "es", {
+  provider: "openai",
+  neverTranslate: ["Mux", "GIF"],
+});
+
+if (result.neverTranslateTermsPreserved === false) {
+  // At least one term did not survive translation verbatim
+}
+```
+
+Enforcement is prompt-based: the terms are passed to the model with an instruction to preserve them verbatim, then each term's occurrence count in the source is compared against the translated output. Shortfalls set `neverTranslateTermsPreserved` to `false` — the library never rewrites the translation to repair them.
+
 ### S3-Compatible Storage Requirements
 
 Caption translation requires S3-compatible storage to host VTT files for Mux ingestion.
