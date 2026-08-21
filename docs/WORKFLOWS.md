@@ -731,7 +731,7 @@ console.log(result.presignedUrl); // S3 audio file URL
 
 ### Requirements
 
-- Asset must have an `audio.m4a` static rendition
+- Asset must have an `audio.m4a` static rendition (auto-requested if missing; a rendition the workflow creates is deleted afterwards by default, configurable via `staticRenditionCleanup: "delete" | "keep"`)
 - ElevenLabs API key with Creator plan or higher
 - S3-compatible storage (same as caption translation)
 
@@ -741,7 +741,7 @@ ElevenLabs supports 32+ languages with automatic language name detection via `In
 
 ### Audio Dubbing Workflow
 
-1. Checks asset has audio.m4a static rendition
+1. Checks asset has audio.m4a static rendition (requests one if missing)
 2. Downloads default audio track from Mux
 3. Creates ElevenLabs dubbing job (source language auto-detected unless `fromLanguageCode` is set)
 4. Polls for completion (up to 30 minutes)
@@ -750,6 +750,10 @@ ElevenLabs supports 32+ languages with automatic language name detection via `In
 7. Generates presigned URL (default 24-hour expiry, configurable via `s3SignedUrlExpirySeconds`)
 8. Adds new audio track to Mux asset
 9. Track name: "{Language} (auto-dubbed)"
+10. Deletes the static rendition if this run created it (default; set `staticRenditionCleanup: "keep"` to retain it). Runs on failure paths too, and the outcome is reported in `result.staticRenditionCleanup`.
+
+> [!WARNING]
+> Concurrent `translateAudio` runs on the same asset share one static rendition, and the run that created it deletes it without knowing about its peers — the delete can race another run's ElevenLabs source fetch and fail that dub. When dubbing multiple languages concurrently, either create the `audio.m4a` rendition before fanning out (a pre-existing rendition is never deleted) or pass `staticRenditionCleanup: "keep"` and clean up after the batch.
 
 ## Multi-Provider Support
 

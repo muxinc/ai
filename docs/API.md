@@ -575,6 +575,7 @@ Creates AI-dubbed audio tracks from existing media content using ElevenLabs voic
 - `storageAdapter?: StorageAdapter` - Optional adapter with `putObject` and `createPresignedGetUrl` methods
 - `s3SignedUrlExpirySeconds?: number` - Expiry duration in seconds for S3 presigned GET URLs (default: 86400 / 24 hours)
 - `dubbingPollTimeoutSeconds?: number` - Max time to wait for ElevenLabs to finish dubbing before timing out (default: 7200 / 2 hours). Raise for long-form content or when jobs queue behind the concurrency limit.
+- `staticRenditionCleanup?: 'delete' | 'keep'` - What to do with an `audio.m4a` static rendition the workflow created as dubbing input (default: 'delete'). A rendition that already existed on the asset is never deleted. When dubbing multiple languages concurrently on one asset, create the rendition before fanning out or pass 'keep' — the creating run's delete can otherwise race a concurrent run's source fetch.
 
 **Returns:**
 
@@ -586,13 +587,15 @@ interface TranslateAudioResult {
   dubbingId: string; // ElevenLabs dubbing job ID
   uploadedTrackId?: string; // Mux audio track ID (if uploaded)
   presignedUrl?: string; // S3 presigned URL (default expiry: 24 hours)
+  createdStaticRenditionId?: string; // Static rendition ID this run created (undefined if one already existed)
+  staticRenditionCleanup: "deleted" | "delete_failed" | "kept" | "not_created";
   usage?: TokenUsage; // Workflow usage metadata
 }
 ```
 
 **Requirements:**
 
-- Asset must have an `audio.m4a` static rendition (auto-requested if missing)
+- Asset must have an `audio.m4a` static rendition (auto-requested if missing, and deleted again afterwards by default — see `staticRenditionCleanup`)
 - ElevenLabs API key with Creator plan or higher
 - S3-compatible storage for Mux ingestion
 
