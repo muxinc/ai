@@ -752,6 +752,9 @@ ElevenLabs supports 32+ languages with automatic language name detection via `In
 9. Track name: "{Language} (auto-dubbed)"
 10. Deletes the static rendition if this run created it (default; set `staticRenditionCleanup: "keep"` to retain it). Runs on failure paths too, and the outcome is reported in `result.staticRenditionCleanup`.
 
+> [!WARNING]
+> Concurrent `translateAudio` runs on the same asset share one static rendition, and the run that created it deletes it without knowing about its peers — the delete can race another run's ElevenLabs source fetch and fail that dub. When dubbing multiple languages concurrently, either create the `audio.m4a` rendition before fanning out (a pre-existing rendition is never deleted) or pass `staticRenditionCleanup: "keep"` and clean up after the batch.
+
 ## Multi-Provider Support
 
 All workflows support multiple AI providers with consistent interfaces.

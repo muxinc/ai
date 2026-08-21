@@ -97,6 +97,13 @@ export interface AudioTranslationOptions extends MuxAIOptions {
    * dubbing input. `"delete"` (default) removes it once the workflow finishes,
    * on both success and failure. `"keep"` leaves it on the asset. A rendition
    * that already existed on the asset is never deleted regardless of this setting.
+   *
+   * Concurrent runs on the same asset share one rendition, and the run that
+   * created it deletes it without knowing about its peers — the delete can race
+   * a peer's ElevenLabs source fetch and fail that dub. When dubbing multiple
+   * languages concurrently, either create the rendition before fanning out
+   * (a pre-existing rendition is never deleted) or pass `"keep"` and clean up
+   * after the batch.
    */
   staticRenditionCleanup?: "delete" | "keep";
   /** Optional storage adapter override for upload + presign operations. */

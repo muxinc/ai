@@ -575,7 +575,7 @@ Creates AI-dubbed audio tracks from existing media content using ElevenLabs voic
 - `storageAdapter?: StorageAdapter` - Optional adapter with `putObject` and `createPresignedGetUrl` methods
 - `s3SignedUrlExpirySeconds?: number` - Expiry duration in seconds for S3 presigned GET URLs (default: 86400 / 24 hours)
 - `dubbingPollTimeoutSeconds?: number` - Max time to wait for ElevenLabs to finish dubbing before timing out (default: 7200 / 2 hours). Raise for long-form content or when jobs queue behind the concurrency limit.
-- `staticRenditionCleanup?: 'delete' | 'keep'` - What to do with an `audio.m4a` static rendition the workflow created as dubbing input (default: 'delete'). A rendition that already existed on the asset is never deleted.
+- `staticRenditionCleanup?: 'delete' | 'keep'` - What to do with an `audio.m4a` static rendition the workflow created as dubbing input (default: 'delete'). A rendition that already existed on the asset is never deleted. When dubbing multiple languages concurrently on one asset, create the rendition before fanning out or pass 'keep' — the creating run's delete can otherwise race a concurrent run's source fetch.
 
 **Returns:**
 
