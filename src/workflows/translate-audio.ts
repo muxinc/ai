@@ -93,17 +93,11 @@ export interface AudioTranslationOptions extends MuxAIOptions {
    */
   uploadCaptionsToMux?: boolean;
   /**
-   * What to do with an audio-only static rendition this workflow created as
-   * dubbing input. `"delete"` (default) removes it once the workflow finishes,
-   * on both success and failure. `"keep"` leaves it on the asset. A rendition
-   * that already existed on the asset is never deleted regardless of this setting.
-   *
-   * Concurrent runs on the same asset share one rendition, and the run that
-   * created it deletes it without knowing about its peers — the delete can race
-   * a peer's ElevenLabs source fetch and fail that dub. When dubbing multiple
-   * languages concurrently, either create the rendition before fanning out
-   * (a pre-existing rendition is never deleted) or pass `"keep"` and clean up
-   * after the batch.
+   * Cleanup for the audio-only static rendition this run created as dubbing
+   * input: `"delete"` (default) removes it when the workflow finishes, success
+   * or failure; `"keep"` leaves it. A pre-existing rendition is never deleted.
+   * Concurrent dubs of one asset share a rendition, so create it up front or
+   * pass `"keep"` — one run's delete can race a peer's source fetch.
    */
   staticRenditionCleanup?: "delete" | "keep";
   /** Optional storage adapter override for upload + presign operations. */
