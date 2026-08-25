@@ -70,6 +70,7 @@ beforeEach(() => {
   } as any);
   vi.mocked(extractTimestampedTranscript).mockReturnValue("[0s] Introduction");
   vi.mocked(generateText).mockResolvedValue({
+    finishReason: "stop",
     output: { chapters: [{ startTime: 0, title: "Introduction" }] },
     text: JSON.stringify({ chapters: [{ startTime: 0, title: "Introduction" }] }),
     usage: {

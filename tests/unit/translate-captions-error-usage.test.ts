@@ -119,6 +119,7 @@ describe("translateCaptions error-path token usage", () => {
       const cueCount = Number(/Return exactly (\d+) translated/.exec(userContent)?.[1] ?? 0);
       const translations = Array.from({ length: cueCount }, (_, i) => `hola ${i}`);
       return {
+        finishReason: "stop",
         output: { translations },
         text: JSON.stringify({ translations }),
         usage: CHUNK_USAGE,

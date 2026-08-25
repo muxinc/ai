@@ -6,6 +6,8 @@ import { z } from "zod";
 import {
   extractContentPolicyBlock,
   getGeneratedOutputWithContentPolicyHandling,
+  IncompleteGenerationError,
+  isIncompleteGenerationError,
   rethrowContentPolicyError,
   withContentPolicyAwareRetry,
   withContentPolicyErrorHandling,
@@ -347,6 +349,58 @@ describe("content policy errors", () => {
       retryable: false,
       usage: response.usage,
     });
+  });
+
+  it("throws a finish-reason error instead of reading unresolved output", () => {
+    let outputRead = false;
+    const response = {
+      finishReason: "length",
+      rawFinishReason: "MAX_TOKENS",
+      usage: { inputTokens: 23182, outputTokens: 65521, totalTokens: 88703 },
+      get output(): never {
+        outputRead = true;
+        throw new Error("structured output getter should not be read");
+      },
+    };
+
+    const error = captureThrown(() => getGeneratedOutputWithContentPolicyHandling(response));
+
+    expect(outputRead).toBe(false);
+    expect(error).toBeInstanceOf(IncompleteGenerationError);
+    expect(isIncompleteGenerationError(error)).toBe(true);
+    expect(error).toMatchObject({
+      name: "FatalError",
+      publicType: "processing_error",
+      publicMessage: "The model reached its output limit before producing a complete response (finish reason: MAX_TOKENS).",
+      retryable: false,
+      finishReason: "length",
+      rawFinishReason: "MAX_TOKENS",
+      usage: response.usage,
+    });
+  });
+
+  it("marks non-length incomplete generations as retryable and ignores unsafe raw reasons", () => {
+    const error = captureThrown(() => getGeneratedOutputWithContentPolicyHandling({
+      finishReason: "error",
+      rawFinishReason: "<script>alert(1)</script>",
+      output: undefined,
+    }));
+
+    expect(error).toMatchObject({
+      publicMessage: "The model stopped before producing a complete response (finish reason: error).",
+      retryable: true,
+      finishReason: "error",
+      rawFinishReason: undefined,
+    });
+  });
+
+  it("returns structured output for a normal stop", () => {
+    const output = getGeneratedOutputWithContentPolicyHandling({
+      finishReason: "stop",
+      output: { translation: "hola" },
+    });
+
+    expect(output).toEqual({ translation: "hola" });
   });
 
   it("preserves content policy metadata across a serialized workflow step boundary", () => {

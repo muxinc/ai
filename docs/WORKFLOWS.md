@@ -502,7 +502,7 @@ console.log(result.presignedUrl); // S3 file URL
 console.log(result.translatedVtt); // Translated VTT content
 ```
 
-By default, `translateCaptions` uses VTT-aware chunking for longer assets. It prefers a single request for shorter media, then splits larger translations by cue-aligned chunks and rebuilds the final VTT locally.
+By default, `translateCaptions` uses VTT-aware chunking. Every asset is split into cue-aligned chunks bounded by `maxCuesPerChunk` and `maxCueTextTokensPerChunk`; assets longer than `minimumAssetDurationSeconds` are additionally grouped into duration-based chunks. The final VTT is rebuilt locally.
 
 ```typescript
 // Override chunking behavior for large assets
