@@ -59,6 +59,37 @@ export interface ContentPolicyBlock {
   category?: string;
 }
 
+/**
+ * Thrown when the model stopped for a reason other than a normal `stop`
+ * (e.g. `length` when the output token limit was reached) so the structured
+ * output was never parsed. The AI SDK would otherwise surface a metadata-free
+ * `NoOutputGeneratedError`. Own properties survive workflow step
+ * serialization; detect it with {@link isIncompleteGenerationError}.
+ */
+export class IncompleteGenerationError extends MuxAiError {
+  readonly finishReason: string;
+  readonly rawFinishReason?: string;
+  readonly usage?: TokenUsage;
+
+  constructor(finishReason: string, rawFinishReason?: string, usage?: TokenUsage) {
+    const reason = rawFinishReason ?? finishReason;
+    const message = finishReason === "length" ?
+      `The model reached its output limit before producing a complete response (finish reason: ${reason}).` :
+      `The model stopped before producing a complete response (finish reason: ${reason}).`;
+    super(message, {
+      type: "processing_error",
+      retryable: finishReason !== "length",
+    });
+    this.finishReason = finishReason;
+    this.rawFinishReason = rawFinishReason;
+    this.usage = usage;
+  }
+}
+
+export function isIncompleteGenerationError(error: unknown): error is IncompleteGenerationError {
+  return MuxAiError.is(error) && typeof (error as { finishReason?: unknown }).finishReason === "string";
+}
+
 interface GeneratedOutput<T> {
   finishReason: string;
   rawFinishReason?: string;
@@ -99,10 +130,13 @@ export function rethrowContentPolicyError(error: unknown): never {
 }
 
 /**
- * Reads structured output only after checking for a successful provider
- * response that stopped because of a content policy. AI SDK intentionally
- * leaves output unresolved for non-`stop` finishes, so accessing `output`
- * first would throw a metadata-free `NoOutputGeneratedError`.
+ * Reads structured output only after checking the finish reason. AI SDK
+ * intentionally leaves output unresolved for non-`stop` finishes, so
+ * accessing `output` first would throw a metadata-free
+ * `NoOutputGeneratedError`. Content-policy stops become a
+ * `content_policy_error`; every other non-`stop` finish (`length`, `error`,
+ * `other`, ...) becomes an {@link IncompleteGenerationError} that keeps the
+ * finish reason and token usage.
  */
 export function getGeneratedOutputWithContentPolicyHandling<T>(response: GeneratedOutput<T>): T {
   if (response.finishReason === "content-filter") {
@@ -112,6 +146,15 @@ export function getGeneratedOutputWithContentPolicyHandling<T>(response: Generat
       "CONTENT_FILTER";
 
     throwContentPolicyError({ reason }, getErrorTokenUsage(response));
+  }
+
+  if (response.finishReason !== "stop") {
+    const rawReason = PolicyTokenSchema.safeParse(response.rawFinishReason);
+    throw new IncompleteGenerationError(
+      response.finishReason,
+      rawReason.success ? rawReason.data : undefined,
+      getErrorTokenUsage(response),
+    );
   }
 
   return response.output;

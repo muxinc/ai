@@ -1,11 +1,13 @@
 import {
   APICallError,
   NoObjectGeneratedError,
+  NoOutputGeneratedError,
   RetryError,
   TypeValidationError,
 } from "ai";
 import { describe, expect, it } from "vitest";
 
+import { IncompleteGenerationError } from "../../src/lib/content-policy-error";
 import { MuxAiError } from "../../src/lib/mux-ai-error";
 import type { TokenUsage } from "../../src/types";
 import {
@@ -150,6 +152,20 @@ describe("shouldSplitChunkTranslationError", () => {
     });
 
     expect(shouldSplitChunkTranslationError(error)).toBe(false);
+  });
+
+  it("allows splitting when the SDK left structured output unresolved", () => {
+    expect(shouldSplitChunkTranslationError(new NoOutputGeneratedError())).toBe(true);
+  });
+
+  it("allows splitting when the model hit its output limit", () => {
+    const error = new IncompleteGenerationError("length", "MAX_TOKENS");
+    expect(shouldSplitChunkTranslationError(error)).toBe(true);
+  });
+
+  it("allows splitting for a serialized incomplete generation error", () => {
+    const serialized = JSON.parse(JSON.stringify(new IncompleteGenerationError("length", "MAX_TOKENS")));
+    expect(shouldSplitChunkTranslationError(serialized)).toBe(true);
   });
 
   it("allows splitting for schema validation failures", () => {

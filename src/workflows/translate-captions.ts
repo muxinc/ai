@@ -2,6 +2,7 @@ import {
   APICallError,
   generateText,
   NoObjectGeneratedError,
+  NoOutputGeneratedError,
   Output,
   RetryError,
   TypeValidationError,
@@ -11,6 +12,7 @@ import { z } from "zod";
 import env from "../env.ts";
 import {
   getGeneratedOutputWithContentPolicyHandling,
+  isIncompleteGenerationError,
   withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
 import { getLanguageCodePair, getLanguageName } from "../lib/language-codes.ts";
@@ -154,7 +156,10 @@ export interface TranslationOptions<P extends SupportedProvider = SupportedProvi
 export interface TranslationChunkingOptions {
   /** Set to false to translate all cues in a single structured request. Defaults to true. */
   enabled?: boolean;
-  /** Prefer a single request until the asset is at least this long. Defaults to 30 minutes. */
+  /**
+   * Skip duration-based chunking until the asset is at least this long. Defaults to 30 minutes.
+   * Shorter assets are still split by `maxCuesPerChunk` and `maxCueTextTokensPerChunk`.
+   */
   minimumAssetDurationSeconds?: number;
   /** Soft target for chunk duration once chunking starts. Defaults to 30 minutes. */
   targetChunkDurationSeconds?: number;
@@ -394,7 +399,9 @@ export function shouldSplitChunkTranslationError(error: unknown): boolean {
 
   return (
     NoObjectGeneratedError.isInstance(error) ||
+    NoOutputGeneratedError.isInstance(error) ||
     TypeValidationError.isInstance(error) ||
+    isIncompleteGenerationError(error) ||
     isTranslationChunkValidationError(error)
   );
 }
@@ -528,15 +535,23 @@ function buildTranslationChunkRequests(
     };
   }
 
+  // Short assets skip duration-based chunking but still honour the cue and
+  // token budgets: a single request for hundreds of cues can push a model
+  // past its output token limit (observed with repetitive transcripts),
+  // which fails the whole translation instead of one bounded chunk.
   if (
     typeof assetDurationSeconds !== "number" ||
     assetDurationSeconds < resolvedChunking.minimumAssetDurationSeconds
   ) {
     return {
       preamble,
-      chunks: [
-        createTranslationChunkRequest("chunk-0", cues, cueBlocks),
-      ],
+      chunks: splitTranslationChunkRequestByBudget(
+        "chunk-0",
+        cues,
+        cueBlocks,
+        resolvedChunking.maxCuesPerChunk,
+        resolvedChunking.maxCueTextTokensPerChunk,
+      ),
     };
   }
 
@@ -978,7 +993,7 @@ async function translateChunkWithFallback({
 
     const [leftChunk, rightChunk] = splitTranslationChunkAtMidpoint(chunk);
     // The failed whole-chunk attempt burned tokens too; fold its usage into
-    // the error if the split halves also fail.
+    // the result, or into the error if the split halves also fail.
     const failedAttemptUsage = getErrorTokenUsage(error);
     const [leftResult, rightResult] = collectSettledTranslationsOrRethrow(
       await Promise.allSettled([
@@ -1006,7 +1021,11 @@ async function translateChunkWithFallback({
 
     return {
       translatedVtt: concatenateVttSegments([leftResult.translatedVtt, rightResult.translatedVtt]),
-      usage: aggregateTokenUsage([leftResult.usage, rightResult.usage]),
+      usage: aggregateTokenUsage([
+        ...(failedAttemptUsage ? [failedAttemptUsage] : []),
+        leftResult.usage,
+        rightResult.usage,
+      ]),
       scrubbedCueCounts: mergeScrubbedCueCounts(
         leftResult.scrubbedCueCounts,
         rightResult.scrubbedCueCounts,
