@@ -566,7 +566,7 @@ export async function translateAudio(
   }
 
   // Fetch asset data and playback ID from Mux
-  const { asset: initialAsset, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
+  const { asset: initialAsset, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials, options.assetSnapshot);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(initialAsset);
 
   // Check for audio-only static rendition. Requesting creation happens here

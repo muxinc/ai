@@ -408,7 +408,7 @@ async function generateChaptersInternal(
     provider: provider as SupportedProvider,
   });
   // Fetch asset and transcript
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials, options.assetSnapshot);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
   const effectiveScope = hasWorkflowScopeBoundaries(scope) ? scope : undefined;
   const resolvedScope = effectiveScope ?

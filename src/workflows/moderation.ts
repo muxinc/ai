@@ -794,7 +794,7 @@ export async function getModerationScores(
   } = options;
   const credentials = providedCredentials;
   // Fetch asset data and playback ID from Mux via helper
-  const { asset, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
+  const { asset, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials, options.assetSnapshot);
   const videoTrackDurationSeconds = getVideoTrackDurationSecondsFromAsset(asset);
   const videoTrackFps = getVideoTrackMaxFrameRateFromAsset(asset);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(asset);

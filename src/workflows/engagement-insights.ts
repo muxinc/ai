@@ -680,7 +680,7 @@ async function generateEngagementInsightsInternal(
   });
 
   // Step 1: Fetch asset metadata
-  const { asset, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
+  const { asset, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials, options.assetSnapshot);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(asset);
 
   if (!assetDurationSeconds) {

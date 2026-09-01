@@ -373,7 +373,7 @@ async function hasBurnedInCaptionsInternal(
     model,
     provider: provider as SupportedProvider,
   });
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials, options.assetSnapshot);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
   const storyboardScope = resolveRenderableVideoScope(
     scope,
