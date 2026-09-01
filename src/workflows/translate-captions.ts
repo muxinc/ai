@@ -1224,7 +1224,7 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
   }
 
   // Fetch asset data and playback ID from Mux
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials, options.assetSnapshot);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
 
   // Resolve signing context for signed playback IDs

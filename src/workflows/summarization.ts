@@ -748,7 +748,7 @@ async function getSummaryAndTagsInternal(
   const workflowCredentials = credentials;
 
   // Fetch asset data from Mux and grab playback/transcript details
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, workflowCredentials);
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, workflowCredentials, options?.assetSnapshot);
 
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
   // Detect if asset is audio-only

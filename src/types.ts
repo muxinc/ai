@@ -44,6 +44,12 @@ export interface MuxAIOptions {
   /** Optional timeout (ms) for helper utilities that support request limits. */
   timeout?: number;
   /**
+   * Optional asset snapshot to reuse instead of retrieving the asset from Mux.
+   * The snapshot must belong to `assetId`; callers should capture it immediately
+   * before starting the workflow.
+   */
+  assetSnapshot?: MuxAsset;
+  /**
    * Optional credentials for workflow execution.
    * Use encryptForWorkflow when running in Workflow Dev Kit environments.
    */

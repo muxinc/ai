@@ -170,7 +170,7 @@ async function generateEmbeddingsInternal(
 
   const embeddingModel = resolveEmbeddingModelConfig({ ...options, provider, model });
   // Fetch asset and playback ID
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials, options.assetSnapshot);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
   const effectiveScope = hasWorkflowScopeBoundaries(scope) ? scope : undefined;
   if (effectiveScope) {
