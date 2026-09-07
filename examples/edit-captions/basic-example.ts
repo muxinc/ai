@@ -67,6 +67,8 @@ program
       : [];
 
     const useProfanity = options.profanity;
+    const trackNameSuffix = options.trackNameSuffix
+      ?? (options.upload && !options.replaceExisting ? "edited" : undefined);
 
     if (!useProfanity && replacements.length === 0) {
       console.error("At least one of --profanity or --replacements must be provided.");
@@ -81,6 +83,7 @@ program
     }
     console.log(`Upload to Mux: ${options.upload}`);
     console.log(`Replace existing: ${options.replaceExisting ?? false}`);
+    if (trackNameSuffix) console.log(`Track name suffix: ${trackNameSuffix}`);
     if (useProfanity && alwaysCensor.length) console.log(`Always censor: ${alwaysCensor.join(", ")}`);
     if (useProfanity && neverCensor.length) console.log(`Never censor: ${neverCensor.join(", ")}`);
     if (replacements.length) console.log(`Replacements: ${replacements.map(r => `${r.find} -> ${r.replace}`).join(", ")}`);
@@ -104,7 +107,7 @@ program
         ...(replacements.length > 0 ? { replacements } : {}),
         uploadToMux: options.upload,
         replaceExisting: options.replaceExisting,
-        trackNameSuffix: options.trackNameSuffix,
+        trackNameSuffix,
       });
 
       console.log("Results:");
