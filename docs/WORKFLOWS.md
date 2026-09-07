@@ -592,7 +592,7 @@ All ISO 639-1 language codes are automatically supported using `Intl.DisplayName
 
 ## Caption Editing
 
-Edit existing captions with LLM-powered profanity censorship, static find/replace, or both. Optionally upload the edited track to Mux.
+Edit existing captions with LLM-powered profanity censorship, static find/replace, speaker-label replacement, or a combination of these operations. Optionally upload the edited track to Mux.
 
 ```typescript
 import { editCaptions } from "@mux/ai/workflows";
@@ -603,6 +603,10 @@ const result = await editCaptions("your-mux-asset-id", "track-id", {
   replacements: [
     { find: "Mucks", replace: "Mux" },
   ],
+  speakerReplacements: [
+    { find: "speaker_0", replace: "Alice" },
+  ],
+  replaceExisting: true,
 });
 
 console.log(result.totalReplacementCount); // Total replacements across all operations
@@ -632,6 +636,7 @@ Fine-tune what gets censored with `alwaysCensor` and `neverCensor`:
 ```typescript
 const result = await editCaptions(assetId, trackId, {
   provider: "openai",
+  trackNameSuffix: "edited",
   autoCensorProfanity: {
     mode: "mask",
     alwaysCensor: ["brandname", "competitor"], // Always censor these, even if LLM doesn't flag them
@@ -648,6 +653,7 @@ Apply deterministic find/replace pairs without an LLM. No `provider` needed when
 
 ```typescript
 const result = await editCaptions(assetId, trackId, {
+  trackNameSuffix: "edited",
   replacements: [
     { find: "Mucks", replace: "Mux" },
     { find: "gonna", replace: "going to" },
@@ -659,6 +665,7 @@ Replacements use word-boundary matching and are case-sensitive by default. Set `
 
 ```typescript
 const result = await editCaptions(assetId, trackId, {
+  trackNameSuffix: "edited",
   replacements: [
     { find: "Mucks", replace: "Mux" }, // case-sensitive (default)
     { find: "gonna", replace: "going to", caseSensitive: false }, // matches "Gonna", "GONNA", etc.
@@ -666,10 +673,26 @@ const result = await editCaptions(assetId, trackId, {
 });
 ```
 
+### Speaker Replacements
+
+Rename bracketed speaker labels without replacing matching text elsewhere in a cue:
+
+```typescript
+const result = await editCaptions(assetId, trackId, {
+  speakerReplacements: [
+    { find: "speaker_0", replace: "Alice" },
+  ],
+  replaceExisting: true,
+});
+```
+
+The `find` and `replace` values omit the surrounding brackets. For example, the configuration above changes a leading `[speaker_0]` cue label to `[Alice]`.
+
 ### Application Order
 
 1. `autoCensorProfanity` applied first (LLM analyses original text, censorship applied to VTT)
-2. Static `replacements` applied second (deterministic, operates on the post-censorship VTT)
+2. `speakerReplacements` applied second and only to bracketed labels at the start of cues
+3. Static `replacements` applied last (deterministic, operates on the post-censorship VTT)
 
 ### How It Works
 
@@ -678,9 +701,9 @@ const result = await editCaptions(assetId, trackId, {
 3. The LLM returns a list of profane words (not a rewritten VTT) — this guarantees format preservation
 4. Merges `alwaysCensor` and filters `neverCensor` from the detected list
 5. Applies profanity censorship to the VTT
-6. Applies static replacements (if provided) using word-boundary regex
+6. Applies speaker-label replacements and static replacements (if provided)
 7. Uploads the edited VTT to S3 and creates a new track on Mux
-8. Deletes the original track (configurable)
+8. Replaces the original track when `replaceExisting` is true
 
 ### S3-Compatible Storage Requirements
 
@@ -700,10 +723,16 @@ const result = await editCaptions(assetId, trackId, {
   replacements: [ // Static find/replace pairs
     { find: "Mucks", replace: "Mux" },
   ],
+  speakerReplacements: [ // Leading bracketed speaker-label replacements
+    { find: "speaker_0", replace: "Alice" },
+  ],
   uploadToMux: true, // Upload edited track to Mux (default: true)
-  deleteOriginalTrack: true, // Delete original after upload (default: true)
+  replaceExisting: true, // Explicitly replace the source track (default: false)
+  // trackNameSuffix: "edited", // Optional; omit to preserve the source name
 });
 ```
+
+When `uploadToMux` is true and `replaceExisting` is false, `trackNameSuffix` is required because Mux track names must be unique. When `replaceExisting` is true and no suffix is supplied, the edited VTT is stored before the source track is deleted and recreated with the original name. A failure while creating that replacement can temporarily leave the asset without a caption track; the stored VTT remains available for recovery.
 
 ## Audio Dubbing
 

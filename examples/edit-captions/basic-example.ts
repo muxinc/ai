@@ -30,7 +30,8 @@ program
   .option("--replacements <pairs>", "Comma-separated find:replace pairs (e.g., 'Mucks:Mux,gonna:going to')", "")
   .option("--no-profanity", "Skip LLM-powered profanity censorship (use with --replacements)")
   .option("--no-upload", "Skip uploading edited captions to Mux")
-  .option("--no-delete", "Keep the original track after uploading the edited one")
+  .option("--replace-existing", "Replace the original track after editing")
+  .option("--track-name-suffix <suffix>", "Suffix for a new track when preserving the original")
   .action(async (assetId: string, trackId: string, options: {
     provider: Provider;
     model?: string;
@@ -40,7 +41,8 @@ program
     replacements: string;
     profanity: boolean;
     upload: boolean;
-    delete: boolean;
+    replaceExisting?: boolean;
+    trackNameSuffix?: string;
   }) => {
     if (!["openai", "anthropic", "google", "baseten", "openai-compatible"].includes(options.provider)) {
       console.error("Unsupported provider. Choose from: openai, anthropic, google, baseten");
@@ -78,7 +80,7 @@ program
       console.log(`Censor mode: ${options.mode}`);
     }
     console.log(`Upload to Mux: ${options.upload}`);
-    console.log(`Delete original: ${options.delete}`);
+    console.log(`Replace existing: ${options.replaceExisting ?? false}`);
     if (useProfanity && alwaysCensor.length) console.log(`Always censor: ${alwaysCensor.join(", ")}`);
     if (useProfanity && neverCensor.length) console.log(`Never censor: ${neverCensor.join(", ")}`);
     if (replacements.length) console.log(`Replacements: ${replacements.map(r => `${r.find} -> ${r.replace}`).join(", ")}`);
@@ -101,7 +103,8 @@ program
           : {}),
         ...(replacements.length > 0 ? { replacements } : {}),
         uploadToMux: options.upload,
-        deleteOriginalTrack: options.delete,
+        replaceExisting: options.replaceExisting,
+        trackNameSuffix: options.trackNameSuffix,
       });
 
       console.log("Results:");

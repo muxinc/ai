@@ -60,6 +60,13 @@ export interface CaptionReplacement {
   caseSensitive?: boolean;
 }
 
+export interface SpeakerReplacement {
+  /** Current speaker label, without the surrounding square brackets. */
+  find: string;
+  /** New speaker label, without the surrounding square brackets. */
+  replace: string;
+}
+
 export interface ReplacementRecord {
   cueStartTime: number;
   before: string;
@@ -76,7 +83,15 @@ export interface EditCaptionsOptions<P extends SupportedProvider = SupportedProv
   autoCensorProfanity?: AutoCensorProfanityOptions;
   /** Static find/replace pairs (no LLM needed). */
   replacements?: CaptionReplacement[];
-  /** Delete the original track after creating the edited one. Defaults to true. */
+  /** Replacements applied only to bracketed speaker labels at the start of cues. */
+  speakerReplacements?: SpeakerReplacement[];
+  /**
+   * Replace the source track when uploading to Mux. Defaults to false.
+   * When no trackNameSuffix is provided, the source must be deleted before the
+   * same-named replacement can be created.
+   */
+  replaceExisting?: boolean;
+  /** @deprecated Use replaceExisting instead. */
   deleteOriginalTrack?: boolean;
   /**
    * When `true` the edited VTT is uploaded to the configured
@@ -98,7 +113,10 @@ export interface EditCaptionsOptions<P extends SupportedProvider = SupportedProv
   s3Region?: string;
   /** Bucket that will store edited VTT files. */
   s3Bucket?: string;
-  /** Suffix appended to the original track name, e.g. "edited" produces "Subtitles (edited)". Defaults to "edited". */
+  /**
+   * Optional suffix appended to the original track name, e.g. "edited" produces
+   * "Subtitles (edited)". When omitted, the replacement keeps the original name.
+   */
   trackNameSuffix?: string;
   /** Expiry duration in seconds for S3 presigned GET URLs. Defaults to 86400 (24 hours). */
   s3SignedUrlExpirySeconds?: number;
@@ -117,6 +135,11 @@ export interface EditCaptionsResult {
   replacements?: {
     replacements: ReplacementRecord[];
   };
+  speakerReplacements?: {
+    replacements: ReplacementRecord[];
+  };
+  /** Source track ID when replaceExisting removed it. */
+  replacedTrackId?: string;
   uploadedTrackId?: string;
   presignedUrl?: string;
   usage?: TokenUsage;
@@ -421,6 +444,40 @@ export function applyReplacements(
   return { editedVtt, replacements: records };
 }
 
+/**
+ * Replaces bracketed speaker labels only when they appear at the start of a cue.
+ * Spoken text that happens to contain the same value is left unchanged.
+ */
+export function applySpeakerReplacements(
+  rawVtt: string,
+  speakerReplacements: SpeakerReplacement[],
+): { editedVtt: string; replacements: ReplacementRecord[] } {
+  const replacementsByLabel = new Map(
+    speakerReplacements
+      .filter(replacement => replacement.find.length > 0)
+      .map(replacement => [replacement.find, replacement.replace]),
+  );
+  if (replacementsByLabel.size === 0) {
+    return { editedVtt: rawVtt, replacements: [] };
+  }
+
+  const records: ReplacementRecord[] = [];
+  const editedVtt = transformCueTextBlocks(rawVtt, (cueText, cueStartTime) => {
+    return cueText.replace(/^(\s*)\[([^\]\r\n]+)\](?=\s|$)/, (marker, leadingWhitespace: string, label: string) => {
+      const replacement = replacementsByLabel.get(label);
+      if (replacement === undefined)
+        return marker;
+
+      const before = `[${label}]`;
+      const after = `[${replacement}]`;
+      records.push({ cueStartTime, before, after });
+      return `${leadingWhitespace}${after}`;
+    });
+  });
+
+  return { editedVtt, replacements: records };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Step functions
 // ─────────────────────────────────────────────────────────────────────────────
@@ -577,7 +634,9 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
     model,
     autoCensorProfanity: autoCensorOption,
     replacements: replacementsOption,
-    deleteOriginalTrack,
+    speakerReplacements: speakerReplacementsOption,
+    replaceExisting: replaceExistingOption,
+    deleteOriginalTrack: deleteOriginalTrackOption,
     uploadToS3: uploadToS3Option,
     uploadToMux: uploadToMuxOption,
     s3Endpoint: providedS3Endpoint,
@@ -591,17 +650,43 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
   // Validation
   const hasAutoCensor = !!autoCensorOption;
   const hasReplacements = !!replacementsOption && replacementsOption.length > 0;
-  if (!hasAutoCensor && !hasReplacements) {
-    throw new MuxAiError("At least one of autoCensorProfanity or replacements must be provided.", { type: "validation_error" });
+  const hasSpeakerReplacements = !!speakerReplacementsOption && speakerReplacementsOption.length > 0;
+  if (!hasAutoCensor && !hasReplacements && !hasSpeakerReplacements) {
+    throw new MuxAiError("At least one of autoCensorProfanity, replacements, or speakerReplacements must be provided.", { type: "validation_error" });
   }
 
   if (autoCensorOption && !provider) {
     throw new MuxAiError("provider is required when using autoCensorProfanity.", { type: "validation_error" });
   }
 
-  const deleteOriginal = deleteOriginalTrack !== false;
   const uploadToMux = uploadToMuxOption !== false; // Default to true
   const uploadToS3 = uploadToS3Option || uploadToMux; // Defaults to uploadToMux; uploadToMux: true forces S3 upload
+  if (replaceExistingOption !== undefined && deleteOriginalTrackOption !== undefined && replaceExistingOption !== deleteOriginalTrackOption) {
+    throw new MuxAiError("replaceExisting and deprecated deleteOriginalTrack must match when both are provided.", { type: "validation_error" });
+  }
+  const replaceExisting = replaceExistingOption ?? deleteOriginalTrackOption ?? false;
+  if (replaceExisting && !uploadToMux) {
+    throw new MuxAiError("replaceExisting cannot be true when uploadToMux is false.", { type: "validation_error" });
+  }
+  if (trackNameSuffix === "") {
+    throw new MuxAiError("trackNameSuffix must not be empty when provided.", { type: "validation_error" });
+  }
+  if (uploadToMux && !replaceExisting && trackNameSuffix === undefined) {
+    throw new MuxAiError(
+      "trackNameSuffix is required when uploadToMux is true and replaceExisting is false.",
+      { type: "validation_error" },
+    );
+  }
+  for (const replacement of speakerReplacementsOption ?? []) {
+    const hasInvalidFindCharacter = replacement.find.includes("[") || replacement.find.includes("]") || /[\r\n]/.test(replacement.find);
+    const hasInvalidReplaceCharacter = replacement.replace.includes("[") || replacement.replace.includes("]") || /[\r\n]/.test(replacement.replace);
+    if (!replacement.find || !replacement.replace || hasInvalidFindCharacter || hasInvalidReplaceCharacter) {
+      throw new MuxAiError(
+        "Speaker replacement labels must be non-empty and must not contain square brackets or newlines.",
+        { type: "validation_error" },
+      );
+    }
+  }
 
   // S3 configuration
   const s3Endpoint = providedS3Endpoint ?? env.S3_ENDPOINT;
@@ -723,7 +808,19 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
     autoCensorResult = { replacements: censorReplacements };
   }
 
-  // 2. Static replacements applied after censorship
+  // 2. Speaker replacements are constrained to leading bracketed cue labels.
+  let speakerReplacementsResult: { replacements: ReplacementRecord[] } | undefined;
+  if (speakerReplacementsOption && speakerReplacementsOption.length > 0) {
+    const { editedVtt: afterSpeakerReplacements, replacements: speakerReplacements } = applySpeakerReplacements(
+      editedVtt,
+      speakerReplacementsOption,
+    );
+    editedVtt = afterSpeakerReplacements;
+    totalReplacementCount += speakerReplacements.length;
+    speakerReplacementsResult = { replacements: speakerReplacements };
+  }
+
+  // 3. Static replacements applied after speaker-label replacement
   let replacementsResult: { replacements: ReplacementRecord[] } | undefined;
   if (replacementsOption && replacementsOption.length > 0) {
     const { editedVtt: afterReplacements, replacements: staticReplacements } = applyReplacements(editedVtt, replacementsOption);
@@ -744,6 +841,7 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
   // Upload edited VTT to S3-compatible storage
   let presignedUrl: string | undefined;
   let uploadedTrackId: string | undefined;
+  let replacedTrackId: string | undefined;
 
   if (uploadToS3) {
     try {
@@ -763,10 +861,22 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
 
     // Add edited track to Mux asset (only when uploadToMux is true)
     if (uploadToMux) {
+      const shouldDeleteBeforeCreate = replaceExisting && trackNameSuffix === undefined;
+      if (shouldDeleteBeforeCreate) {
+        try {
+          await deleteTrackOnMux(assetId, trackId, credentials);
+          replacedTrackId = trackId;
+        } catch (error) {
+          wrapError(error, "Failed to delete original track");
+        }
+      }
+
       try {
         const languageCode = sourceTrack.language_code || "en";
-        const suffix = trackNameSuffix ?? "edited";
-        const trackName = `${sourceTrack.name || "Subtitles"} (${suffix})`;
+        const originalTrackName = sourceTrack.name || "Subtitles";
+        const trackName = trackNameSuffix === undefined ?
+          originalTrackName :
+          `${originalTrackName} (${trackNameSuffix})`;
 
         uploadedTrackId = await createTextTrackOnMux(
           assetId,
@@ -779,10 +889,11 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
         wrapError(error, "Failed to add edited track to Mux asset");
       }
 
-      // Delete original track only if the replacement track was created
-      if (deleteOriginal && uploadedTrackId) {
+      // A suffixed replacement can be created before deleting the source track.
+      if (replaceExisting && uploadedTrackId && !shouldDeleteBeforeCreate) {
         try {
           await deleteTrackOnMux(assetId, trackId, credentials);
+          replacedTrackId = trackId;
         } catch (error) {
           wrapError(error, "Failed to delete original track");
         }
@@ -798,6 +909,8 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
     totalReplacementCount,
     autoCensorProfanity: autoCensorResult,
     replacements: replacementsResult,
+    speakerReplacements: speakerReplacementsResult,
+    replacedTrackId,
     uploadedTrackId,
     presignedUrl,
     usage: usageWithMetadata,

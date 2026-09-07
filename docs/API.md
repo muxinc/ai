@@ -441,7 +441,7 @@ All ISO 639-1 language codes are automatically supported using `Intl.DisplayName
 
 ## `editCaptions(assetId, trackId, options)`
 
-Edits a caption track using LLM-powered profanity censorship, static find/replace, or both. Optionally uploads the edited track to Mux.
+Edits a caption track using LLM-powered profanity censorship, static find/replace, speaker-label replacement, or a combination of these operations. Optionally uploads the edited track to Mux.
 
 **Parameters:**
 
@@ -461,16 +461,18 @@ Edits a caption track using LLM-powered profanity censorship, static find/replac
   - `alwaysCensor?: string[]` - Words to always censor regardless of LLM output
   - `neverCensor?: string[]` - Words to never censor even if the LLM flags them (takes precedence over `alwaysCensor`)
 - `replacements?: Array<{ find: string; replace: string; caseSensitive?: boolean }>` - Static find/replace pairs (optional, no LLM needed). Each entry matches case-sensitively by default; set `caseSensitive: false` to match regardless of case.
+- `speakerReplacements?: Array<{ find: string; replace: string }>` - Replaces bracketed speaker labels at the start of cues without changing matching words in spoken caption content.
 - `uploadToMux?: boolean` - Whether to upload edited track to Mux (default: true)
-- `deleteOriginalTrack?: boolean` - Whether to delete the original track after uploading the edited one (default: true)
+- `replaceExisting?: boolean` - Whether to replace the source track (default: false). When false, `trackNameSuffix` is required so Mux can create a uniquely named track.
+- `deleteOriginalTrack?: boolean` - Deprecated compatibility alias for `replaceExisting`. If both are supplied, their values must match.
 - `s3Endpoint?: string` - S3-compatible storage endpoint
 - `s3Region?: string` - S3 region (default: 'auto')
 - `s3Bucket?: string` - S3 bucket name
-- `trackNameSuffix?: string` - Suffix appended to the original track name in parentheses (default: 'edited', e.g. "Subtitles (edited)")
+- `trackNameSuffix?: string` - Optional suffix appended to the original track name in parentheses (e.g. "Subtitles (edited)"). When omitted with `replaceExisting: true`, the replacement keeps the original name and the source is deleted before the replacement is created.
 - `storageAdapter?: StorageAdapter` - Optional adapter with `putObject` and `createPresignedGetUrl` methods
 - `s3SignedUrlExpirySeconds?: number` - Expiry duration in seconds for S3 presigned GET URLs (default: 86400 / 24 hours)
 
-At least one of `autoCensorProfanity` or `replacements` must be provided.
+At least one of `autoCensorProfanity`, `replacements`, or `speakerReplacements` must be provided.
 
 **Returns:**
 
@@ -493,6 +495,10 @@ interface EditCaptionsResult {
   replacements?: { // Present when replacements were used
     replacements: ReplacementRecord[]; // Each static replacement with cue timing
   };
+  speakerReplacements?: { // Present when speakerReplacements were used
+    replacements: ReplacementRecord[]; // Each speaker-label replacement with cue timing
+  };
+  replacedTrackId?: string; // Source track ID when replaceExisting removed it
   uploadedTrackId?: string; // Mux track ID (if uploaded)
   presignedUrl?: string; // S3 presigned URL (default expiry: 24 hours)
   usage?: TokenUsage; // Token usage (only present if LLM was used)
