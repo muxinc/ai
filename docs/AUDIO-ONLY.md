@@ -91,7 +91,6 @@ import { editCaptions } from "@mux/ai/workflows";
 const result = await editCaptions("your-audio-only-asset-id", "track-id", {
   provider: "anthropic",
   autoCensorProfanity: { mode: "blank" },
-  replaceExisting: true,
 });
 ```
 

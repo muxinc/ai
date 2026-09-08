@@ -85,13 +85,7 @@ export interface EditCaptionsOptions<P extends SupportedProvider = SupportedProv
   replacements?: CaptionReplacement[];
   /** Replacements applied only to bracketed speaker labels at the start of cues. */
   speakerReplacements?: SpeakerReplacement[];
-  /**
-   * Replace the source track when uploading to Mux. Defaults to false.
-   * When no trackNameSuffix is provided, the source must be deleted before the
-   * same-named replacement can be created.
-   */
-  replaceExisting?: boolean;
-  /** @deprecated Use replaceExisting instead. */
+  /** Delete the original track after creating the edited one. Defaults to true. */
   deleteOriginalTrack?: boolean;
   /**
    * When `true` the edited VTT is uploaded to the configured
@@ -113,10 +107,7 @@ export interface EditCaptionsOptions<P extends SupportedProvider = SupportedProv
   s3Region?: string;
   /** Bucket that will store edited VTT files. */
   s3Bucket?: string;
-  /**
-   * Optional suffix appended to the original track name, e.g. "edited" produces
-   * "Subtitles (edited)". When omitted, the replacement keeps the original name.
-   */
+  /** Suffix appended to the original track name, e.g. "edited" produces "Subtitles (edited)". Defaults to "edited". */
   trackNameSuffix?: string;
   /** Expiry duration in seconds for S3 presigned GET URLs. Defaults to 86400 (24 hours). */
   s3SignedUrlExpirySeconds?: number;
@@ -138,8 +129,6 @@ export interface EditCaptionsResult {
   speakerReplacements?: {
     replacements: ReplacementRecord[];
   };
-  /** Source track ID when replaceExisting removed it. */
-  replacedTrackId?: string;
   uploadedTrackId?: string;
   presignedUrl?: string;
   usage?: TokenUsage;
@@ -635,8 +624,7 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
     autoCensorProfanity: autoCensorOption,
     replacements: replacementsOption,
     speakerReplacements: speakerReplacementsOption,
-    replaceExisting: replaceExistingOption,
-    deleteOriginalTrack: deleteOriginalTrackOption,
+    deleteOriginalTrack,
     uploadToS3: uploadToS3Option,
     uploadToMux: uploadToMuxOption,
     s3Endpoint: providedS3Endpoint,
@@ -659,24 +647,9 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
     throw new MuxAiError("provider is required when using autoCensorProfanity.", { type: "validation_error" });
   }
 
+  const deleteOriginal = deleteOriginalTrack !== false;
   const uploadToMux = uploadToMuxOption !== false; // Default to true
   const uploadToS3 = uploadToS3Option || uploadToMux; // Defaults to uploadToMux; uploadToMux: true forces S3 upload
-  if (replaceExistingOption !== undefined && deleteOriginalTrackOption !== undefined && replaceExistingOption !== deleteOriginalTrackOption) {
-    throw new MuxAiError("replaceExisting and deprecated deleteOriginalTrack must match when both are provided.", { type: "validation_error" });
-  }
-  const replaceExisting = replaceExistingOption ?? deleteOriginalTrackOption ?? false;
-  if (replaceExisting && !uploadToMux) {
-    throw new MuxAiError("replaceExisting cannot be true when uploadToMux is false.", { type: "validation_error" });
-  }
-  if (trackNameSuffix === "") {
-    throw new MuxAiError("trackNameSuffix must not be empty when provided.", { type: "validation_error" });
-  }
-  if (uploadToMux && !replaceExisting && trackNameSuffix === undefined) {
-    throw new MuxAiError(
-      "trackNameSuffix is required when uploadToMux is true and replaceExisting is false.",
-      { type: "validation_error" },
-    );
-  }
   for (const replacement of speakerReplacementsOption ?? []) {
     const hasInvalidFindCharacter = replacement.find.includes("[") || replacement.find.includes("]") || /[\r\n]/.test(replacement.find);
     const hasInvalidReplaceCharacter = replacement.replace.includes("[") || replacement.replace.includes("]") || /[\r\n]/.test(replacement.replace);
@@ -841,7 +814,6 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
   // Upload edited VTT to S3-compatible storage
   let presignedUrl: string | undefined;
   let uploadedTrackId: string | undefined;
-  let replacedTrackId: string | undefined;
 
   if (uploadToS3) {
     try {
@@ -861,22 +833,10 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
 
     // Add edited track to Mux asset (only when uploadToMux is true)
     if (uploadToMux) {
-      const shouldDeleteBeforeCreate = replaceExisting && trackNameSuffix === undefined;
-      if (shouldDeleteBeforeCreate) {
-        try {
-          await deleteTrackOnMux(assetId, trackId, credentials);
-          replacedTrackId = trackId;
-        } catch (error) {
-          wrapError(error, "Failed to delete original track");
-        }
-      }
-
       try {
         const languageCode = sourceTrack.language_code || "en";
-        const originalTrackName = sourceTrack.name || "Subtitles";
-        const trackName = trackNameSuffix === undefined ?
-          originalTrackName :
-          `${originalTrackName} (${trackNameSuffix})`;
+        const suffix = trackNameSuffix ?? "edited";
+        const trackName = `${sourceTrack.name || "Subtitles"} (${suffix})`;
 
         uploadedTrackId = await createTextTrackOnMux(
           assetId,
@@ -889,11 +849,10 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
         wrapError(error, "Failed to add edited track to Mux asset");
       }
 
-      // A suffixed replacement can be created before deleting the source track.
-      if (replaceExisting && uploadedTrackId && !shouldDeleteBeforeCreate) {
+      // Delete original track only if the replacement track was created
+      if (deleteOriginal && uploadedTrackId) {
         try {
           await deleteTrackOnMux(assetId, trackId, credentials);
-          replacedTrackId = trackId;
         } catch (error) {
           wrapError(error, "Failed to delete original track");
         }
@@ -910,7 +869,6 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
     autoCensorProfanity: autoCensorResult,
     replacements: replacementsResult,
     speakerReplacements: speakerReplacementsResult,
-    replacedTrackId,
     uploadedTrackId,
     presignedUrl,
     usage: usageWithMetadata,

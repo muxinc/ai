@@ -145,8 +145,7 @@ Options that are safe to populate from untrusted input:
   `tagCount`, `minChaptersPerHour`, `maxChaptersPerHour`,
   `storyboardWidth`, `s3SignedUrlExpirySeconds` — numeric / bounded.
 - `imageSubmissionMode`, `cleanTranscript`, `includeTranscript`,
-  `uploadToMux`, `uploadToS3`, `replaceExisting`, `deleteOriginalTrack`,
-  `skipShots` —
+  `uploadToMux`, `uploadToS3`, `deleteOriginalTrack`, `skipShots` —
   boolean or enum.
 - `assetId`, `trackId` — Mux identifiers; never reach the prompt.
 

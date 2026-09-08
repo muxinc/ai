@@ -693,35 +693,4 @@ describe("editCaptions validation", () => {
       } as any),
     ).rejects.toThrow("provider is required when using autoCensorProfanity.");
   });
-
-  it("requires a suffix when preserving the source Mux track", async () => {
-    const { editCaptions } = await import("../../src/workflows/edit-captions");
-    await expect(
-      editCaptions("asset-id", "track-id", {
-        speakerReplacements: [{ find: "speaker_0", replace: "Alice" }],
-      }),
-    ).rejects.toThrow("trackNameSuffix is required when uploadToMux is true and replaceExisting is false.");
-  });
-
-  it("rejects conflicting replacement lifecycle options", async () => {
-    const { editCaptions } = await import("../../src/workflows/edit-captions");
-    await expect(
-      editCaptions("asset-id", "track-id", {
-        replacements: [{ find: "Mucks", replace: "Mux" }],
-        replaceExisting: true,
-        deleteOriginalTrack: false,
-      }),
-    ).rejects.toThrow("replaceExisting and deprecated deleteOriginalTrack must match");
-  });
-
-  it("rejects replaceExisting when no Mux track is uploaded", async () => {
-    const { editCaptions } = await import("../../src/workflows/edit-captions");
-    await expect(
-      editCaptions("asset-id", "track-id", {
-        replacements: [{ find: "Mucks", replace: "Mux" }],
-        replaceExisting: true,
-        uploadToMux: false,
-      }),
-    ).rejects.toThrow("replaceExisting cannot be true when uploadToMux is false");
-  });
 });
