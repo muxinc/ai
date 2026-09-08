@@ -46,7 +46,7 @@ describe("ask Questions Integration Tests", () => {
     expect(answer.reasoning.length).toBeGreaterThan(0);
   });
 
-  it("should answer a series yes/no content-test question with OpenAI", async () => {
+  it("should answer a series of yes/no content-test question with OpenAI", async () => {
     const result = await askQuestions(testAssetId, [
       { question: "Is this about glasses?" },
       { question: "Is someone speaking on camera?" },
