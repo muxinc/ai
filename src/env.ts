@@ -43,6 +43,10 @@ const EnvSchema = z.object({
     "Override for Mux stream base URL (defaults to https://stream.mux.com).",
     "Mux stream URL override",
   ),
+  MUX_BASE_URL: optionalString(
+    "Override for the Mux API base URL (defaults to https://api.mux.com).",
+    "Mux API base URL override",
+  ),
   // The canary is substring-matched against every LLM output via
   // `detectLeakReason` ("canary" reason). A too-short override (e.g. a
   // 3-letter test value like "mux" or "the") would match legitimate
