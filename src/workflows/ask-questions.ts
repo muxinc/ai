@@ -281,7 +281,7 @@ const SYSTEM_PROMPT = promptDedent`
     - For questions with <answer_format>: follow the format specification exactly (e.g. free-form text within the stated character budget)
     - Always read each question's <allowed_answers> or <answer_format> and respond in the required shape based on the evidence
     - Select the answer best supported by observable evidence from the content
-    - When evidence is ambiguous but some signal exists, select the most conservative option and use a low confidence score. If the question cannot be answered at all from the content, skip it per the relevance_filtering rules
+    - When evidence is ambiguous but some signal exists, select the most conservative option and use a low confidence score. Only skip a question if it meets the skip criteria in relevance_filtering — never skip merely because the queried subject is absent from the content; absence is itself an answerable observation
     - Confidence should reflect the clarity and strength of evidence:
       ${CONFIDENCE_SCORING_RUBRIC}
     - Reasoning should cite specific visual or audio evidence
@@ -386,7 +386,7 @@ const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
     - For questions with <answer_format>: follow the format specification exactly (e.g. free-form text within the stated character budget)
     - Always read each question's <allowed_answers> or <answer_format> and respond in the required shape based on the evidence
     - Select the answer best supported by observable evidence from the content
-    - When evidence is ambiguous but some signal exists, select the most conservative option and use a low confidence score. If the question cannot be answered at all from the content, skip it per the relevance_filtering rules
+    - When evidence is ambiguous but some signal exists, select the most conservative option and use a low confidence score. Only skip a question if it meets the skip criteria in relevance_filtering — never skip merely because the queried subject is absent from the content; absence is itself an answerable observation
     - Confidence should reflect the clarity and strength of evidence:
       ${CONFIDENCE_SCORING_RUBRIC}
     - Reasoning should cite specific transcript evidence
@@ -597,7 +597,9 @@ function buildUserPrompt({
     Answer each question in the <questions> block below about the ${contentDescriptor}.
     ${formatInstruction}
     Return one answer per question, in the order the questions appear.
-    If a question cannot be answered from the provided content, skip it as described in the system instructions.`;
+    Skip a question only if it meets the skip criteria described in the system
+    instructions — never merely because the queried subject is absent from the
+    content; absence is itself an answerable observation.`;
   const taskSection = `<task>\n${taskContent}\n</task>`;
 
   const questionBlocks = questions
