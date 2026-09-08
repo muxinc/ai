@@ -46,6 +46,55 @@ describe("ask Questions Integration Tests", () => {
     expect(answer.reasoning.length).toBeGreaterThan(0);
   });
 
+  it("should answer a series yes/no content-test question with OpenAI", async () => {
+    const result = await askQuestions(testAssetId, [
+      { question: "Is this about glasses?" },
+      { question: "Is someone speaking on camera?" },
+      { question: "Is this about video contribution protocols?" },
+    ]);
+
+    expect(result).toBeDefined();
+    expect(result).toHaveProperty("assetId", testAssetId);
+    expect(result).toHaveProperty("answers");
+    expect(result.answers).toHaveLength(3);
+
+    const answer0 = result.answers[0];
+    expect(answer0).toHaveProperty("question", "Is this about glasses?");
+    expect(answer0).toHaveProperty("answer");
+    expect(["yes", "no"]).toContain(answer0.answer);
+    expect(answer0.answer).toBe("yes");
+    expect(answer0).toHaveProperty("confidence");
+    expect(answer0.confidence).toBeGreaterThanOrEqual(0);
+    expect(answer0.confidence).toBeLessThanOrEqual(1);
+    expect(answer0).toHaveProperty("reasoning");
+    expect(typeof answer0.reasoning).toBe("string");
+    expect(answer0.reasoning.length).toBeGreaterThan(0);
+
+    const answer1 = result.answers[1];
+    expect(answer1).toHaveProperty("question", "Is someone speaking on camera?");
+    expect(answer1).toHaveProperty("answer");
+    expect(["yes", "no"]).toContain(answer1.answer);
+    expect(answer1.answer).toBe("no");
+    expect(answer1).toHaveProperty("confidence");
+    expect(answer1.confidence).toBeGreaterThanOrEqual(0);
+    expect(answer1.confidence).toBeLessThanOrEqual(1);
+    expect(answer1).toHaveProperty("reasoning");
+    expect(typeof answer1.reasoning).toBe("string");
+    expect(answer1.reasoning.length).toBeGreaterThan(0);
+
+    const answer2 = result.answers[2];
+    expect(answer2).toHaveProperty("question", "Is this about video contribution protocols?");
+    expect(answer2).toHaveProperty("answer");
+    expect(["yes", "no"]).toContain(answer2.answer);
+    expect(answer2.answer).toBe("no");
+    expect(answer2).toHaveProperty("confidence");
+    expect(answer2.confidence).toBeGreaterThanOrEqual(0);
+    expect(answer2.confidence).toBeLessThanOrEqual(1);
+    expect(answer2).toHaveProperty("reasoning");
+    expect(typeof answer2.reasoning).toBe("string");
+    expect(answer2.reasoning.length).toBeGreaterThan(0);
+  });
+
   it("should answer multiple questions in a single call", async () => {
     const questions = [
       { question: "Is this video about glasses?" },
