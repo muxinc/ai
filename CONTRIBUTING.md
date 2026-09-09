@@ -10,6 +10,7 @@ Thank you for your interest in contributing to `@mux/ai`! We welcome contributio
 - [Testing](#testing)
 - [Code Style](#code-style)
 - [Submitting Changes](#submitting-changes)
+- [Releasing (Maintainers)](#releasing-maintainers)
 - [Reporting Issues](#reporting-issues)
 
 ## Getting Started
@@ -286,6 +287,12 @@ We loosely follow [Conventional Commits](https://www.conventionalcommits.org/).
 - A maintainer will review your PR
 - Address any feedback or requested changes
 - Once approved, a maintainer will merge your PR
+
+## Releasing (Maintainers)
+
+Cutting a new release is a maintainer-only step, done after a PR is merged —
+not something contributors need to do. See [docs/RELEASING.md](docs/RELEASING.md)
+for the full process.
 
 ## Reporting Issues
 
