@@ -28,6 +28,9 @@ build/
 .cursor/*
 /branch-explained.md
 
+#codex
+.codex/config.toml
+
 # OS generated files
 .DS_Store
 .DS_Store?
