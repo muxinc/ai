@@ -60,6 +60,13 @@ export interface CaptionReplacement {
   caseSensitive?: boolean;
 }
 
+export interface SpeakerReplacement {
+  /** Current speaker label, without the surrounding square brackets. */
+  find: string;
+  /** New speaker label, without the surrounding square brackets. */
+  replace: string;
+}
+
 export interface ReplacementRecord {
   cueStartTime: number;
   before: string;
@@ -76,6 +83,8 @@ export interface EditCaptionsOptions<P extends SupportedProvider = SupportedProv
   autoCensorProfanity?: AutoCensorProfanityOptions;
   /** Static find/replace pairs (no LLM needed). */
   replacements?: CaptionReplacement[];
+  /** Replacements applied only to bracketed speaker labels at the start of cues. */
+  speakerReplacements?: SpeakerReplacement[];
   /** Delete the original track after creating the edited one. Defaults to true. */
   deleteOriginalTrack?: boolean;
   /**
@@ -115,6 +124,9 @@ export interface EditCaptionsResult {
     replacements: ReplacementRecord[];
   };
   replacements?: {
+    replacements: ReplacementRecord[];
+  };
+  speakerReplacements?: {
     replacements: ReplacementRecord[];
   };
   uploadedTrackId?: string;
@@ -421,6 +433,40 @@ export function applyReplacements(
   return { editedVtt, replacements: records };
 }
 
+/**
+ * Replaces bracketed speaker labels only when they appear at the start of a cue.
+ * Spoken text that happens to contain the same value is left unchanged.
+ */
+export function applySpeakerReplacements(
+  rawVtt: string,
+  speakerReplacements: SpeakerReplacement[],
+): { editedVtt: string; replacements: ReplacementRecord[] } {
+  const replacementsByLabel = new Map(
+    speakerReplacements
+      .filter(replacement => replacement.find.length > 0)
+      .map(replacement => [replacement.find, replacement.replace]),
+  );
+  if (replacementsByLabel.size === 0) {
+    return { editedVtt: rawVtt, replacements: [] };
+  }
+
+  const records: ReplacementRecord[] = [];
+  const editedVtt = transformCueTextBlocks(rawVtt, (cueText, cueStartTime) => {
+    return cueText.replace(/^(\s*)\[([^\]\r\n]+)\](?=\s|$)/, (marker, leadingWhitespace: string, label: string) => {
+      const replacement = replacementsByLabel.get(label);
+      if (replacement === undefined)
+        return marker;
+
+      const before = `[${label}]`;
+      const after = `[${replacement}]`;
+      records.push({ cueStartTime, before, after });
+      return `${leadingWhitespace}${after}`;
+    });
+  });
+
+  return { editedVtt, replacements: records };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Step functions
 // ─────────────────────────────────────────────────────────────────────────────
@@ -577,6 +623,7 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
     model,
     autoCensorProfanity: autoCensorOption,
     replacements: replacementsOption,
+    speakerReplacements: speakerReplacementsOption,
     deleteOriginalTrack,
     uploadToS3: uploadToS3Option,
     uploadToMux: uploadToMuxOption,
@@ -591,8 +638,9 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
   // Validation
   const hasAutoCensor = !!autoCensorOption;
   const hasReplacements = !!replacementsOption && replacementsOption.length > 0;
-  if (!hasAutoCensor && !hasReplacements) {
-    throw new MuxAiError("At least one of autoCensorProfanity or replacements must be provided.", { type: "validation_error" });
+  const hasSpeakerReplacements = !!speakerReplacementsOption && speakerReplacementsOption.length > 0;
+  if (!hasAutoCensor && !hasReplacements && !hasSpeakerReplacements) {
+    throw new MuxAiError("At least one of autoCensorProfanity, replacements, or speakerReplacements must be provided.", { type: "validation_error" });
   }
 
   if (autoCensorOption && !provider) {
@@ -602,6 +650,16 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
   const deleteOriginal = deleteOriginalTrack !== false;
   const uploadToMux = uploadToMuxOption !== false; // Default to true
   const uploadToS3 = uploadToS3Option || uploadToMux; // Defaults to uploadToMux; uploadToMux: true forces S3 upload
+  for (const replacement of speakerReplacementsOption ?? []) {
+    const hasInvalidFindCharacter = replacement.find.includes("[") || replacement.find.includes("]") || /[\r\n]/.test(replacement.find);
+    const hasInvalidReplaceCharacter = replacement.replace.includes("[") || replacement.replace.includes("]") || /[\r\n]/.test(replacement.replace);
+    if (!replacement.find || !replacement.replace || hasInvalidFindCharacter || hasInvalidReplaceCharacter) {
+      throw new MuxAiError(
+        "Speaker replacement labels must be non-empty and must not contain square brackets or newlines.",
+        { type: "validation_error" },
+      );
+    }
+  }
 
   // S3 configuration
   const s3Endpoint = providedS3Endpoint ?? env.S3_ENDPOINT;
@@ -723,7 +781,19 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
     autoCensorResult = { replacements: censorReplacements };
   }
 
-  // 2. Static replacements applied after censorship
+  // 2. Speaker replacements are constrained to leading bracketed cue labels.
+  let speakerReplacementsResult: { replacements: ReplacementRecord[] } | undefined;
+  if (speakerReplacementsOption && speakerReplacementsOption.length > 0) {
+    const { editedVtt: afterSpeakerReplacements, replacements: speakerReplacements } = applySpeakerReplacements(
+      editedVtt,
+      speakerReplacementsOption,
+    );
+    editedVtt = afterSpeakerReplacements;
+    totalReplacementCount += speakerReplacements.length;
+    speakerReplacementsResult = { replacements: speakerReplacements };
+  }
+
+  // 3. Static replacements applied after speaker-label replacement
   let replacementsResult: { replacements: ReplacementRecord[] } | undefined;
   if (replacementsOption && replacementsOption.length > 0) {
     const { editedVtt: afterReplacements, replacements: staticReplacements } = applyReplacements(editedVtt, replacementsOption);
@@ -798,6 +868,7 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
     totalReplacementCount,
     autoCensorProfanity: autoCensorResult,
     replacements: replacementsResult,
+    speakerReplacements: speakerReplacementsResult,
     uploadedTrackId,
     presignedUrl,
     usage: usageWithMetadata,

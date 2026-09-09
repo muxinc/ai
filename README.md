@@ -124,6 +124,9 @@ const result = await editCaptions("your-asset-id", "track-id", {
   replacements: [
     { find: "Mucks", replace: "Mux" },
   ],
+  speakerReplacements: [
+    { find: "speaker_0", replace: "Alice" },
+  ],
 });
 
 console.log(result.totalReplacementCount); // 8
