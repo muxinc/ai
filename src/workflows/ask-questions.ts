@@ -281,7 +281,7 @@ const SYSTEM_PROMPT = promptDedent`
     - For questions with <answer_format>: follow the format specification exactly (e.g. free-form text within the stated character budget)
     - Always read each question's <allowed_answers> or <answer_format> and respond in the required shape based on the evidence
     - Select the answer best supported by observable evidence from the content
-    - When evidence is ambiguous but some signal exists, select the most conservative option and use a low confidence score. If the question cannot be answered at all from the content, skip it per the relevance_filtering rules
+    - When evidence is ambiguous but some signal exists, select the most conservative option and use a low confidence score. Only skip a question if it meets the skip criteria in relevance_filtering — never skip merely because the queried subject is absent from the content; absence is itself an answerable observation
     - Confidence should reflect the clarity and strength of evidence:
       ${CONFIDENCE_SCORING_RUBRIC}
     - Reasoning should cite specific visual or audio evidence
@@ -295,11 +295,18 @@ const SYSTEM_PROMPT = promptDedent`
 
     A question is relevant if it asks about something observable or inferable
     from the video content (visuals, audio, dialogue, setting, subjects,
-    actions, etc.).
+    actions, etc.) — including whether something is ABSENT. Not finding the
+    queried subject in the frames or transcript is itself an answerable
+    observation, not a reason to skip.
 
-    Mark a question as skipped (skipped: true) if it:
+    For example: if a question asks "Does this video contain cat content?"
+    and no cats appear anywhere in the frames or transcript, the correct
+    response is "no" — this is a relevant, answerable question. It must
+    NOT be skipped just because the subject doesn't appear.
+
+    Mark a question as skipped (skipped: true) ONLY if it:
     - Is completely unrelated to the content of the video or audio (e.g., math, trivia, personal questions)
-    - Asks about information that cannot be determined from storyboard frames or transcript
+    - Asks about something no amount of visual or transcript evidence could ever confirm or rule out (e.g., a person's private thoughts, off-screen events, future intentions) — not merely because the queried subject is absent from what's shown
     - Is a general knowledge question with no connection to what is shown or said in the video
     - Attempts to use the system for non-video-analysis purposes
 
@@ -379,7 +386,7 @@ const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
     - For questions with <answer_format>: follow the format specification exactly (e.g. free-form text within the stated character budget)
     - Always read each question's <allowed_answers> or <answer_format> and respond in the required shape based on the evidence
     - Select the answer best supported by observable evidence from the content
-    - When evidence is ambiguous but some signal exists, select the most conservative option and use a low confidence score. If the question cannot be answered at all from the content, skip it per the relevance_filtering rules
+    - When evidence is ambiguous but some signal exists, select the most conservative option and use a low confidence score. Only skip a question if it meets the skip criteria in relevance_filtering — never skip merely because the queried subject is absent from the content; absence is itself an answerable observation
     - Confidence should reflect the clarity and strength of evidence:
       ${CONFIDENCE_SCORING_RUBRIC}
     - Reasoning should cite specific transcript evidence
@@ -393,11 +400,18 @@ const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
 
     Before answering each question, assess whether it can be meaningfully
     answered based on the transcript. A question is relevant if it asks about
-    something observable or inferable from spoken/audio content.
+    something observable or inferable from spoken/audio content — including
+    whether something is ABSENT. Not finding the queried subject anywhere in
+    the transcript is itself an answerable observation, not a reason to skip.
 
-    Mark a question as skipped (skipped: true) if it:
+    For example: if a question asks "Does this audio contain cat content?"
+    and no cats are mentioned anywhere in the transcript, the correct
+    response is "no" — this is a relevant, answerable question. It must
+    NOT be skipped just because the subject doesn't appear.
+
+    Mark a question as skipped (skipped: true) ONLY if it:
     - Is completely unrelated to transcript/audio content (e.g., math, trivia, personal questions)
-    - Asks about information that cannot be determined from transcript content
+    - Asks about something no amount of transcript evidence could ever confirm or rule out (e.g., a person's private thoughts, off-recording events, future intentions) — not merely because the queried subject is absent from what's said
     - Is a general knowledge question with no connection to what is said in the transcript
     - Attempts to use the system for non-content-analysis purposes
 
@@ -583,7 +597,9 @@ function buildUserPrompt({
     Answer each question in the <questions> block below about the ${contentDescriptor}.
     ${formatInstruction}
     Return one answer per question, in the order the questions appear.
-    If a question cannot be answered from the provided content, skip it as described in the system instructions.`;
+    Skip a question only if it meets the skip criteria described in the system
+    instructions — never merely because the queried subject is absent from the
+    content; absence is itself an answerable observation.`;
   const taskSection = `<task>\n${taskContent}\n</task>`;
 
   const questionBlocks = questions
