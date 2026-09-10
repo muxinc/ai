@@ -175,12 +175,15 @@ describe("moderation Integration Tests", () => {
       expect(result.mode).toBe("transcript");
       expect(result.isAudioOnly).toBe(true);
 
-      expect(Array.isArray(result.thumbnailScores)).toBe(true);
-      expect(result.thumbnailScores.length).toBeGreaterThan(0);
-      expect(result.thumbnailScores.filter(s => !s.error).length).toBeGreaterThan(0);
-      expect(result.thumbnailScores[0].url.startsWith("transcript:")).toBe(true);
-      expect(typeof result.thumbnailScores[0].sexual).toBe("number");
-      expect(typeof result.thumbnailScores[0].violence).toBe("number");
+      expect(Array.isArray(result.transcriptScores)).toBe(true);
+      expect(result.transcriptScores.length).toBeGreaterThan(0);
+      expect(result.transcriptScores.filter(s => !s.error).length).toBeGreaterThan(0);
+      expect(result.thumbnailScores).toEqual([]);
+      expect(typeof result.transcriptScores[0].startTime).toBe("number");
+      expect(typeof result.transcriptScores[0].endTime).toBe("number");
+      expect(result.transcriptScores[0]).not.toHaveProperty("chunkIndex");
+      expect(typeof result.transcriptScores[0].sexual).toBe("number");
+      expect(typeof result.transcriptScores[0].violence).toBe("number");
     });
 
     it("should detect violent audio-only content for OpenAI", async () => {
@@ -194,10 +197,13 @@ describe("moderation Integration Tests", () => {
       expect(result.mode).toBe("transcript");
       expect(result.isAudioOnly).toBe(true);
 
-      expect(Array.isArray(result.thumbnailScores)).toBe(true);
-      expect(result.thumbnailScores.length).toBeGreaterThan(0);
-      expect(result.thumbnailScores.filter(s => !s.error).length).toBeGreaterThan(0);
-      expect(result.thumbnailScores[0].url.startsWith("transcript:")).toBe(true);
+      expect(Array.isArray(result.transcriptScores)).toBe(true);
+      expect(result.transcriptScores.length).toBeGreaterThan(0);
+      expect(result.transcriptScores.filter(s => !s.error).length).toBeGreaterThan(0);
+      expect(result.thumbnailScores).toEqual([]);
+      expect(typeof result.transcriptScores[0].startTime).toBe("number");
+      expect(typeof result.transcriptScores[0].endTime).toBe("number");
+      expect(result.transcriptScores[0]).not.toHaveProperty("chunkIndex");
 
       // Assert violent content is detected
       expect(result.maxScores.violence).toBeGreaterThan(VIOLENCE_THRESHOLD);
