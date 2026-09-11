@@ -74,6 +74,7 @@ Workflows are high-level functions that handle complete media AI tasks end-to-en
 | [`askQuestions`](./docs/WORKFLOWS.md#ask-questions) | Answer yes/no questions about asset content | OpenAI, Anthropic, Google, Baseten, OpenAI-compatible | Yes |
 | [`generateChapters`](./docs/WORKFLOWS.md#chapter-generation) | Create chapter markers from transcripts | OpenAI, Anthropic, Google, Baseten, OpenAI-compatible | Yes |
 | [`generateEmbeddings`](./docs/WORKFLOWS.md#embeddings) | Generate vector embeddings for semantic search | OpenAI, Google, Baseten, OpenAI-compatible | Yes |
+| [`generateText`](./docs/WORKFLOWS.md#text-generation) | Write source-grounded posts and articles from a transcript | OpenAI, Anthropic, Google, Baseten, OpenAI-compatible | Yes |
 | [`translateCaptions`](./docs/WORKFLOWS.md#caption-translation) | Translate captions into other languages | OpenAI, Anthropic, Google, Baseten, OpenAI-compatible | Yes |
 | [`editCaptions`](./docs/WORKFLOWS.md#caption-editing) | Edit captions: censor profanity and/or apply static replacements | OpenAI, Anthropic, Google, Baseten, OpenAI-compatible | Yes |
 | [`translateAudio`](./docs/WORKFLOWS.md#audio-dubbing) | Create AI-dubbed audio tracks | ElevenLabs | Yes |

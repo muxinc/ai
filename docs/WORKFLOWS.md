@@ -27,7 +27,7 @@ const result = await getSummaryAndTags(assetId, {
 
 Either boundary can be omitted. Scoped execution is available for
 summarization, moderation, burned-in caption detection, question answering,
-chapter generation, and embeddings. Visual workflows request a scoped
+chapter generation, embeddings, and text generation. Visual workflows request a scoped
 storyboard or scoped thumbnails, and transcript-based workflows include only
 cues that overlap the range. Returned timestamps remain relative to the full
 asset.
@@ -478,6 +478,70 @@ const vttResult = await generateEmbeddings("your-mux-asset-id", {
   }
 });
 ```
+
+## Text Generation
+
+Write a set of source-grounded short- and long-form text artifacts (social posts, blog posts, newsletter entries) from a video or audio asset. One editorial brief is extracted from the transcript first, and every requested artifact is written from that shared brief, so the whole set stays coherent and grounded in what the source actually says.
+
+```typescript
+import { generateText } from "@mux/ai/workflows";
+
+const result = await generateText("your-mux-asset-id", {
+  provider: "openai",
+  variants: [
+    { key: "product_led", instructions: "Use a promotional, product-led angle." },
+    { key: "insight_led" }, // an independent take on the same brief
+  ],
+  artifacts: [
+    { key: "x_post", kind: "short_form", channel: "x" },
+    { key: "blog_post", kind: "long_form", maxLength: { unit: "words", value: 800 } },
+  ],
+  audience: "Video developers",
+  voice: "conversational",
+  callToAction: "soft",
+  brandTerms: ["Mux"],
+});
+
+for (const variant of result.variants) {
+  for (const artifact of variant.artifacts) {
+    console.log(variant.key, artifact.key, artifact.content);
+  }
+}
+```
+
+### Requirements
+
+- Asset must have a ready caption/transcript track. The transcript is the authoritative source for names, claims, and meaning.
+- Video assets attach a scoped storyboard to the brief as visual context. Audio-only assets write from the transcript alone.
+
+### Artifacts and Variants
+
+- `artifacts` (1-5, unique snake_case keys) are the deliverables. `kind: "short_form"` accepts an optional `channel` (`generic`, `x`, `linkedin`, `facebook`, `instagram`, `tiktok`, `youtube`) whose conventions guide the writing and set a default length cap. `kind: "long_form"` produces developed prose. Either kind accepts `maxLength` as a hard cap and optional bounded `instructions`.
+- `variants` (1-5, unique keys) each receive the complete artifact set. A variant key is only an identifier. Omit `instructions` for an independent take on the same brief, or supply them for a deliberate angle. When `variants` is omitted a single `default` variant is written.
+- Length caps are enforced after generation. An artifact that exceeds its cap fails the workflow with a non-retryable `processing_error`. `x` artifacts are additionally held to 280 characters regardless of the unit used for `maxLength`.
+
+| Channel | Default cap |
+| --- | --- |
+| `generic` | 150 words |
+| `x` | 280 characters (hard ceiling) |
+| `linkedin` | 300 words |
+| `facebook` | 250 words |
+| `instagram` | 1500 characters |
+| `tiktok` | 100 words |
+| `youtube` | 250 words |
+| `long_form` | 1200 words |
+
+### Steering
+
+`audience`, `voice`, `callToAction`, and `brandTerms` apply to every artifact and are best-effort guidance. They are bounded (audience 160 characters; up to 10 brand terms of 40 characters, 240 combined) and are rendered into dedicated prompt sections, so they cannot override the grounding and safety rules.
+
+### Shot Frames
+
+Set `useShots: true` on a video asset to generate or reuse Mux shots and attach an evenly distributed sample of up to 24 shot frames alongside the storyboard. Shot generation can take several minutes on first use, so leave this off for latency-sensitive paths. Not supported for audio-only assets.
+
+### Output Safety
+
+Every artifact passes through the output-safety scrubber. A suppressed artifact is returned with empty `content`, and `result.safety.scrubbedFields` names it, so callers can retry or fall back rather than publish a leaked prompt.
 
 ## Caption Translation
 

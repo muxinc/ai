@@ -4,6 +4,7 @@ export * from "./chapters.ts";
 export * from "./edit-captions.ts";
 export * from "./embeddings.ts";
 export * from "./engagement-insights.ts";
+export * from "./generate-text.ts";
 export * from "./moderation.ts";
 export * from "./summarization.ts";
 export * from "./translate-audio.ts";
