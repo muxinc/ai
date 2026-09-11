@@ -54,7 +54,6 @@ const {
   generateText,
   measureGenerateTextLength,
   resolveGenerateTextLengthLimit,
-  resolveGenerateTextMaxOutputTokens,
   resolveGenerateTextOptions,
   selectGenerateTextShotFrames,
 } = await import("../../src/workflows/generate-text");
@@ -296,6 +295,25 @@ describe("generateText", () => {
     });
   });
 
+  it("never sets an output token budget and trims over-long brief arrays after parsing", async () => {
+    const mock = vi.mocked(generateTextWithModel);
+    mock.mockResolvedValueOnce(modelResponse({
+      ...BRIEF,
+      keyPoints: Array.from({ length: 12 }, (_, index) => `point ${index}`),
+    }, 100));
+    mock.mockResolvedValueOnce(modelResponse({ content: "hello" }, 10));
+
+    await generateText("asset-123", {
+      artifacts: [{ key: "post", kind: "short_form" }],
+    });
+
+    for (const call of mock.mock.calls) {
+      expect((call[0] as any).maxOutputTokens).toBeUndefined();
+    }
+    const brief = JSON.parse(userMessage(1).content.match(/<source_brief format="json">\n([\s\S]*?)\n<\/source_brief>/)![1]);
+    expect(brief.keyPoints).toHaveLength(8);
+  });
+
   it("fails when the scoped transcript has no usable content", async () => {
     vi.mocked(fetchTranscriptForAsset).mockResolvedValue({ transcriptText: "   ", track: {} } as any);
 
@@ -361,13 +379,6 @@ describe("length policy", () => {
     expect(measureGenerateTextLength("  one two\nthree ", "words")).toBe(3);
     expect(measureGenerateTextLength("", "words")).toBe(0);
     expect(measureGenerateTextLength("héllo👋", "characters")).toBe(6);
-  });
-
-  it("clamps the output token budget", () => {
-    expect(resolveGenerateTextMaxOutputTokens({ unit: "characters", value: 10 })).toBe(512);
-    expect(resolveGenerateTextMaxOutputTokens({ unit: "words", value: 300 })).toBe(856);
-    expect(resolveGenerateTextMaxOutputTokens({ unit: "words", value: 3000 })).toBe(6256);
-    expect(resolveGenerateTextMaxOutputTokens({ unit: "characters", value: 50000 })).toBe(8192);
   });
 });
 

@@ -352,18 +352,6 @@ export function measureGenerateTextLength(content: string, unit: GenerateTextLen
 }
 
 /**
- * Output token budget for one artifact: roughly two tokens per word or half a
- * token per character, plus headroom for the JSON envelope, clamped to a sane
- * band so a tiny cap still lets the model finish its envelope.
- */
-export function resolveGenerateTextMaxOutputTokens(limit: GenerateTextLengthLimit): number {
-  const estimated = limit.unit === "words" ?
-      (limit.value * 2) + 256 :
-    Math.ceil(limit.value / 2) + 256;
-  return Math.min(8192, Math.max(512, estimated));
-}
-
-/**
  * Schema ceiling for one artifact's `content` field. This is a mechanical
  * exfiltration bound, not the user-facing cap: the exact cap is enforced
  * after parsing via {@link measureGenerateTextLength}.
@@ -420,18 +408,41 @@ export function selectGenerateTextShotFrames(
  * zod's default `.strip()` so extra keys the model emits are dropped; the
  * call site surfaces them through the safety report as `unexpected_key`.
  * String caps bound the exfiltration channel of each free-text field.
+ *
+ * Array lengths are deliberately unbounded here: Anthropic's structured
+ * output rejects `maxItems`. {@link clampBriefArrays} trims them after
+ * parsing instead.
  */
 const briefSchema = z.object({
   centralIdea: z.string().max(500),
   readerValue: z.string().max(500),
-  keyPoints: z.array(z.string().max(500)).max(8),
-  sourceSpecifics: z.array(z.string().max(500)).max(10),
-  visualContext: z.array(z.string().max(500)).max(8),
-  voiceSignals: z.array(z.string().max(300)).max(6),
-  claimsToQualify: z.array(z.string().max(500)).max(6),
+  keyPoints: z.array(z.string().max(500)),
+  sourceSpecifics: z.array(z.string().max(500)),
+  visualContext: z.array(z.string().max(500)),
+  voiceSignals: z.array(z.string().max(300)),
+  claimsToQualify: z.array(z.string().max(500)),
 });
 
 type GenerateTextBrief = z.infer<typeof briefSchema>;
+
+const BRIEF_ARRAY_LIMITS: Record<Exclude<keyof GenerateTextBrief, "centralIdea" | "readerValue">, number> = {
+  keyPoints: 8,
+  sourceSpecifics: 10,
+  visualContext: 8,
+  voiceSignals: 6,
+  claimsToQualify: 6,
+};
+
+function clampBriefArrays(brief: GenerateTextBrief): GenerateTextBrief {
+  return {
+    ...brief,
+    keyPoints: brief.keyPoints.slice(0, BRIEF_ARRAY_LIMITS.keyPoints),
+    sourceSpecifics: brief.sourceSpecifics.slice(0, BRIEF_ARRAY_LIMITS.sourceSpecifics),
+    visualContext: brief.visualContext.slice(0, BRIEF_ARRAY_LIMITS.visualContext),
+    voiceSignals: brief.voiceSignals.slice(0, BRIEF_ARRAY_LIMITS.voiceSignals),
+    claimsToQualify: brief.claimsToQualify.slice(0, BRIEF_ARRAY_LIMITS.claimsToQualify),
+  };
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Prompts
@@ -675,7 +686,6 @@ async function extractBriefWithModel(args: {
   const response = await withContentPolicyAwareRetry(() => generateTextWithModel({
     model,
     maxRetries: 0,
-    maxOutputTokens: 2048,
     output: Output.object({
       name: "editorial_brief",
       description: "Source-grounded editorial brief used to write every requested artifact.",
@@ -699,7 +709,7 @@ async function extractBriefWithModel(args: {
   }
 
   return {
-    brief: briefSchema.parse(output),
+    brief: clampBriefArrays(briefSchema.parse(output)),
     usage: readUsage(response),
     unexpectedKeys: detectUnexpectedKeysFromRawText(response.text, briefSchema.keyof().options),
   };
@@ -710,7 +720,6 @@ async function generateArtifactWithModel(args: {
   modelId: string;
   systemPrompt: string;
   userPrompt: string;
-  maxOutputTokens: number;
   maxContentChars: number;
   credentials?: WorkflowCredentialsInput;
 }): Promise<{ content: string; usage: TokenUsage; unexpectedKeys: string[] }> {
@@ -721,7 +730,6 @@ async function generateArtifactWithModel(args: {
   const response = await withContentPolicyAwareRetry(() => generateTextWithModel({
     model,
     maxRetries: 0,
-    maxOutputTokens: args.maxOutputTokens,
     output: Output.object({
       name: "generated_text",
       description: "One finished artifact written from the editorial brief.",
@@ -904,7 +912,6 @@ async function generateTextInternal(
           hasOutputLanguage: Boolean(languageName),
         }),
         userPrompt: buildArtifactUserPrompt({ brief: briefStep.brief, artifact, variant, languageName }),
-        maxOutputTokens: resolveGenerateTextMaxOutputTokens(limit),
         maxContentChars: resolveContentSchemaMaxChars(limit),
         credentials,
       });

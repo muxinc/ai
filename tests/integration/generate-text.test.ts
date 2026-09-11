@@ -54,10 +54,10 @@ describe("generateText Integration Tests", () => {
     const result = await generateText(testAssetId, {
       provider: "openai",
       artifacts: [{ key: "post", kind: "short_form" }],
-      scope: { startTime: 0, endTime: 60 },
+      scope: { startTime: 0, endTime: 20 },
     });
 
-    expect(result.storyboardUrl).toContain("asset_end_time=60");
+    expect(result.storyboardUrl).toContain("asset_end_time=20");
     expect(result.variants[0].artifacts[0].content.length).toBeGreaterThan(0);
   });
 
