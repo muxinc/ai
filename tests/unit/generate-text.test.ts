@@ -54,6 +54,7 @@ const {
   generateText,
   measureGenerateTextLength,
   resolveGenerateTextLengthLimit,
+  resolveGenerateTextLengthLimits,
   resolveGenerateTextOptions,
   selectGenerateTextShotFrames,
 } = await import("../../src/workflows/generate-text");
@@ -281,6 +282,18 @@ describe("generateText", () => {
     });
   });
 
+  it("enforces the 280-character x ceiling even when the caller capped in words", async () => {
+    queueGenerations([`${"word ".repeat(9)}${"x".repeat(240)}`]);
+
+    await expect(generateText("asset-123", {
+      artifacts: [{ key: "x_post", kind: "short_form", channel: "x", maxLength: { unit: "words", value: 50 } }],
+    })).rejects.toMatchObject({
+      publicType: "processing_error",
+      publicMessage: "Generated text for variants[default].artifacts[x_post] exceeded the 280 characters limit (285 returned).",
+    });
+    expect(systemPrompt(1)).toContain("at or below 50 words and at or below 280 characters");
+  });
+
   it("suppresses artifacts that leak the prompt canary and reports them", async () => {
     queueGenerations([`Great post. ${SYSTEM_PROMPT_CANARY}`]);
 
@@ -373,6 +386,17 @@ describe("length policy", () => {
     expect(resolveGenerateTextLengthLimit({ key: "a", kind: "long_form" })).toEqual({ unit: "words", value: 1200 });
     expect(resolveGenerateTextLengthLimit({ key: "a", kind: "long_form", maxLength: { unit: "words", value: 400 } }))
       .toEqual({ unit: "words", value: 400 });
+  });
+
+  it("adds the x character ceiling only when the requested cap does not already cover it", () => {
+    expect(resolveGenerateTextLengthLimits({ key: "a", kind: "short_form", channel: "x" }))
+      .toEqual([{ unit: "characters", value: 280 }]);
+    expect(resolveGenerateTextLengthLimits({ key: "a", kind: "short_form", channel: "x", maxLength: { unit: "characters", value: 200 } }))
+      .toEqual([{ unit: "characters", value: 200 }]);
+    expect(resolveGenerateTextLengthLimits({ key: "a", kind: "short_form", channel: "x", maxLength: { unit: "words", value: 50 } }))
+      .toEqual([{ unit: "words", value: 50 }, { unit: "characters", value: 280 }]);
+    expect(resolveGenerateTextLengthLimits({ key: "a", kind: "short_form", channel: "linkedin", maxLength: { unit: "words", value: 50 } }))
+      .toEqual([{ unit: "words", value: 50 }]);
   });
 
   it("measures words and code points", () => {

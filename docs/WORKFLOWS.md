@@ -518,7 +518,7 @@ for (const variant of result.variants) {
 
 - `artifacts` (1-5, unique snake_case keys) are the deliverables. `kind: "short_form"` accepts an optional `channel` (`generic`, `x`, `linkedin`, `facebook`, `instagram`, `tiktok`, `youtube`) whose conventions guide the writing and set a default length cap. `kind: "long_form"` produces developed prose. Either kind accepts `maxLength` as a hard cap and optional bounded `instructions`.
 - `variants` (1-5, unique keys) each receive the complete artifact set. A variant key is only an identifier. Omit `instructions` for an independent take on the same brief, or supply them for a deliberate angle. When `variants` is omitted a single `default` variant is written.
-- Length caps are enforced after generation. An artifact that exceeds its cap fails the workflow with a non-retryable `processing_error`.
+- Length caps are enforced after generation. An artifact that exceeds its cap fails the workflow with a non-retryable `processing_error`. `x` artifacts are additionally held to 280 characters regardless of the unit used for `maxLength`.
 
 | Channel | Default cap |
 | --- | --- |
