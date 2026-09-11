@@ -518,7 +518,8 @@ for (const variant of result.variants) {
 
 - `artifacts` (1-5, unique snake_case keys) are the deliverables. `kind: "short_form"` accepts an optional `channel` (`generic`, `x`, `linkedin`, `facebook`, `instagram`, `tiktok`, `youtube`) whose conventions guide the writing and set a default length cap. `kind: "long_form"` produces developed prose. Either kind accepts `maxLength` as a hard cap and optional bounded `instructions`.
 - `variants` (1-5, unique keys) each receive the complete artifact set. A variant key is only an identifier. Omit `instructions` for an independent take on the same brief, or supply them for a deliberate angle. When `variants` is omitted a single `default` variant is written.
-- Length caps are enforced after generation. An artifact that exceeds its cap fails the workflow with a non-retryable `processing_error`. `x` artifacts are additionally held to 280 characters regardless of the unit used for `maxLength`.
+- Length caps are enforced after generation. Words are counted with locale-aware segmentation, so Markdown syntax is not counted and scripts without spaces are measured correctly. A draft that is empty or over a cap gets one corrective rewrite with the measured overshoot fed back; if the rewrite still misses, the workflow fails with a retryable `processing_error`. `x` artifacts are additionally held to 280 characters regardless of the unit used for `maxLength`.
+- Artifacts are written in parallel batches of five, and token usage from every completed call is preserved on the error when one fails.
 
 | Channel | Default cap |
 | --- | --- |
@@ -537,11 +538,13 @@ for (const variant of result.variants) {
 
 ### Shot Frames
 
-Set `useShots: true` on a video asset to generate or reuse Mux shots and attach an evenly distributed sample of up to 24 shot frames alongside the storyboard. Shot generation can take several minutes on first use, so leave this off for latency-sensitive paths. Not supported for audio-only assets.
+Set `useShots: true` on a video asset to attach an evenly distributed sample of up to 24 shot frames alongside the storyboard. Existing shots are reused; generation is requested only when the asset has none. Shot generation can take several minutes on first use, so leave this off for latency-sensitive paths, or raise `shotPolling.maxAttempts` above the default of 150 (about five minutes at the 2-second interval). Not supported for audio-only assets.
 
 ### Output Safety
 
-Every artifact passes through the output-safety scrubber. A suppressed artifact is returned with empty `content`, and `result.safety.scrubbedFields` names it, so callers can retry or fall back rather than publish a leaked prompt.
+The editorial brief is scrubbed before any artifact is written: leaked list entries are dropped and a leaked headline field fails the run with a retryable `processing_error`, so a transcript-borne injection is caught after one model call rather than multiplied across the set. Every artifact then passes through the same scrubber. A suppressed artifact is returned with empty `content`, and `result.safety.scrubbedFields` names it, so callers can retry or fall back rather than publish a leaked prompt.
+
+`audience`, `voice`, `callToAction`, `brandTerms`, and per-item `instructions` are rendered into the user turn in dedicated sections, never into the system prompt, and `languageCode` / `outputLanguageCode` must be well-formed BCP 47 tags.
 
 ## Caption Translation
 
