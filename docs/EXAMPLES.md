@@ -36,6 +36,9 @@ npm run example:ask-questions <asset-id> "<question>"
 npm run example:ask-questions:multiple <asset-id> "<question1>" "<question2>" ...
 npm run example:ask-questions:audio-only [audio-only-asset-id] ["<question>"]
 
+# Text Generation (posts and articles)
+npm run example:generate-text <asset-id> [-- --provider provider --audience "..." --voice voice]
+
 # Summarization
 npm run example:summarization <asset-id> [provider]
 npm run example:summarization:compare <asset-id>
