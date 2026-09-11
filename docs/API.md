@@ -569,7 +569,7 @@ Writes a set of source-grounded short- and long-form text artifacts from a video
 **Options:**
 
 - `artifacts: GenerateTextArtifact[]` - Deliverables to write for every variant (1-5, unique lowercase snake_case keys). Each artifact accepts optional `instructions` (up to 500 characters).
-  - `{ key, kind: "short_form", channel?, maxLength?, instructions? }` - `channel` is one of `generic` (default), `x`, `linkedin`, `facebook`, `instagram`, `tiktok`, `youtube`. `maxLength` is `{ unit: "characters", value: 10-5000 }` or `{ unit: "words", value: 5-500 }`; `x` artifacts are capped at 280 characters.
+  - `{ key, kind: "short_form", channel?, maxLength?, instructions? }` - `channel` is one of `generic` (default), `x`, `linkedin`, `facebook`, `instagram`, `tiktok`, `youtube`. `maxLength` is `{ unit: "characters", value: 10-5000 }` or `{ unit: "words", value: 5-500 }`; `x` artifacts are always held to 280 characters, even when `maxLength` is expressed in words.
   - `{ key, kind: "long_form", maxLength?, instructions? }` - `maxLength` is `{ unit: "words", value: 100-3000 }` (default 1200).
 - `variants?: Array<{ key: string; instructions?: string }>` - Named versions of the complete artifact set (1-5, unique keys). Defaults to `[{ key: "default" }]`. Omit `instructions` for an independent take on the same brief.
 - `provider?: 'openai' | 'anthropic' | 'google' | 'baseten' | 'openai-compatible'` - AI provider (default: 'openai')

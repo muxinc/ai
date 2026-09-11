@@ -342,6 +342,30 @@ export function resolveGenerateTextLengthLimit(artifact: GenerateTextArtifact): 
   return SHORT_FORM_DEFAULT_LIMITS[artifact.channel ?? "generic"];
 }
 
+/**
+ * Channel ceilings that apply on top of the requested cap. An `x` post is
+ * never allowed past 280 characters even when the caller capped it in words.
+ */
+export function resolveGenerateTextChannelCeiling(artifact: GenerateTextArtifact): GenerateTextLengthLimit | undefined {
+  if (artifact.kind === "short_form" && artifact.channel === "x") {
+    return { unit: "characters", value: X_MAX_CHARACTERS };
+  }
+  return undefined;
+}
+
+/**
+ * Every limit a generated artifact must satisfy: the requested (or default)
+ * cap plus any channel ceiling, deduplicated when they coincide.
+ */
+export function resolveGenerateTextLengthLimits(artifact: GenerateTextArtifact): GenerateTextLengthLimit[] {
+  const limit = resolveGenerateTextLengthLimit(artifact);
+  const ceiling = resolveGenerateTextChannelCeiling(artifact);
+  if (!ceiling || (ceiling.unit === limit.unit && ceiling.value >= limit.value)) {
+    return [limit];
+  }
+  return [limit, ceiling];
+}
+
 /** Measures text in the unit of a length limit (code points for characters). */
 export function measureGenerateTextLength(content: string, unit: GenerateTextLengthLimit["unit"]): number {
   if (unit === "characters") {
@@ -552,7 +576,7 @@ function buildSteeringGuidance(options: SteeringOptions): string {
 function buildArtifactSystemPrompt(args: {
   artifact: GenerateTextArtifact;
   variant: GenerateTextVariant;
-  limit: GenerateTextLengthLimit;
+  limits: GenerateTextLengthLimit[];
   steering: SteeringOptions;
   hasOutputLanguage: boolean;
 }): string {
@@ -589,7 +613,7 @@ function buildArtifactSystemPrompt(args: {
 
     <artifact_guidance>
       ${artifactGuidance}
-      Keep the finished text at or below ${args.limit.value} ${args.limit.unit}.
+      Keep the finished text at or below ${args.limits.map(limit => `${limit.value} ${limit.unit}`).join(" and at or below ")}.
       Unless a section below specifies otherwise:
       - Write for an informed general audience.
       - Prefer natural, conversational phrasing over polished corporate language.
@@ -907,7 +931,7 @@ async function generateTextInternal(
         systemPrompt: buildArtifactSystemPrompt({
           artifact,
           variant,
-          limit,
+          limits: resolveGenerateTextLengthLimits(artifact),
           steering,
           hasOutputLanguage: Boolean(languageName),
         }),
@@ -930,13 +954,14 @@ async function generateTextInternal(
       safety.record(`${field}.${key}`, "unexpected_key");
     }
 
-    const limit = resolveGenerateTextLengthLimit(artifact);
-    const actual = measureGenerateTextLength(item.content, limit.unit);
-    if (actual > limit.value) {
-      throw new MuxAiError(
-        `Generated text for ${field} exceeded the ${limit.value} ${limit.unit} limit (${actual} returned).`,
-        { type: "processing_error" },
-      );
+    for (const limit of resolveGenerateTextLengthLimits(artifact)) {
+      const actual = measureGenerateTextLength(item.content, limit.unit);
+      if (actual > limit.value) {
+        throw new MuxAiError(
+          `Generated text for ${field} exceeded the ${limit.value} ${limit.unit} limit (${actual} returned).`,
+          { type: "processing_error" },
+        );
+      }
     }
 
     return {
