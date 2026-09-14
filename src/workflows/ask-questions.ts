@@ -65,6 +65,15 @@ import type { ImageSubmissionMode, ScopedMuxAIOptions, TokenUsage, WorkflowCrede
 export const ASK_QUESTIONS_MAX_QUESTION_LENGTH = 600;
 
 /**
+ * Maximum number of questions allowed in a single call. Not configurable.
+ *
+ * Exported so API layers wrapping this workflow can mirror the limit in
+ * their own request validation instead of surfacing it as an
+ * asynchronous job failure.
+ */
+export const ASK_QUESTIONS_MAX_QUESTIONS_PER_CALL = 50;
+
+/**
  * Default for {@link AskQuestionsOptions.maxAnswerOptionLength}.
  *
  * Answer options are meant to be short labels ("yes", "no", "low",
@@ -837,6 +846,13 @@ async function askQuestionsInternal(
   // Validate questions array is non-empty
   if (!questions || questions.length === 0) {
     throw new MuxAiError("At least one question must be provided.", { type: "validation_error" });
+  }
+
+  if (questions.length > ASK_QUESTIONS_MAX_QUESTIONS_PER_CALL) {
+    throw new MuxAiError(
+      `Too many questions: received ${questions.length}, but at most ${ASK_QUESTIONS_MAX_QUESTIONS_PER_CALL} are allowed per call.`,
+      { type: "validation_error" },
+    );
   }
 
   // Validate each question has valid text and enforce the length ceiling
