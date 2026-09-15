@@ -39,9 +39,14 @@ export type TextTrackReplacementPlan =
   { kind: "blocked"; reason: string; tracks: TextTrackSummary[] } |
   { kind: "replace"; toDelete: TextTrackSummary[] };
 
+/**
+ * Every variant carries `deleted`: a `blocked` result can follow deletes when a
+ * conflicting track appears between the first pass and the duplicate-name retry,
+ * so callers must check it before assuming nothing was removed.
+ */
 export type ReplaceAndCreateTextTrackResult =
   { kind: "created"; trackId: string; deleted: TextTrackSummary[] } |
-  { kind: "blocked"; reason: string; tracks: TextTrackSummary[] } |
+  { kind: "blocked"; reason: string; tracks: TextTrackSummary[]; deleted: TextTrackSummary[] } |
   { kind: "create_failed"; reason: string; deleted: TextTrackSummary[] };
 
 /** Mux caps track `passthrough` at 255 characters. */
@@ -280,11 +285,11 @@ export async function replaceAndCreateTextTrack(input: ReplaceAndCreateTextTrack
   const mux = await muxClient.createClient();
   const deleted: TextTrackSummary[] = [];
 
-  const clearConflicts = async (): Promise<{ kind: "blocked"; reason: string; tracks: TextTrackSummary[] } | undefined> => {
+  const clearConflicts = async (): Promise<Extract<ReplaceAndCreateTextTrackResult, { kind: "blocked" }> | undefined> => {
     const asset = await mux.video.assets.retrieve(input.assetId);
     const plan = planTextTrackReplacement(asset, input.target, input.policy, { keepTrackIds: input.keepTrackIds });
     if (plan.kind === "blocked") {
-      return plan;
+      return { ...plan, deleted };
     }
     if (plan.kind === "replace") {
       for (const track of plan.toDelete) {

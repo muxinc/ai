@@ -145,7 +145,7 @@ describe("translateCaptions text track replacement", () => {
   });
 
   it("fails the workflow instead of swallowing a blocked or failed create", async () => {
-    vi.mocked(replaceAndCreateTextTrack).mockResolvedValueOnce({ kind: "blocked", reason: "late conflict", tracks: [] });
+    vi.mocked(replaceAndCreateTextTrack).mockResolvedValueOnce({ kind: "blocked", reason: "late conflict", tracks: [], deleted: [] });
     const blocked = await captureRejection(translateCaptions("asset-1", "track-en", "es", OPTIONS));
     expect(blocked.message).toContain("late conflict");
 
@@ -255,6 +255,29 @@ describe("editCaptions text track replacement", () => {
       expect.objectContaining({ body: VTT, key: expect.stringContaining("-original-") }),
       undefined,
     );
+    expect(vi.mocked(createTextTrackOnMux)).toHaveBeenCalledWith(
+      "asset-1",
+      "en",
+      "English",
+      "https://s3.example.test/presigned.vtt",
+      undefined,
+      { closedCaptions: true, passthrough: "customer-tag" },
+    );
+  });
+
+  it("restores the source when the retry is blocked after the source was already deleted", async () => {
+    vi.mocked(replaceAndCreateTextTrack).mockResolvedValue({
+      kind: "blocked",
+      reason: "an uploaded track appeared",
+      tracks: [{ id: "late", name: "English", languageCode: "en", textSource: "uploaded" }],
+      deleted: [{ id: "track-en", name: "English", languageCode: "en" }],
+    });
+    vi.mocked(createTextTrackOnMux).mockResolvedValue("track-en-restored");
+
+    const error = await captureRejection(editCaptions("asset-1", "track-en", { ...OPTIONS, replaceExistingTracks: "replace_all" }));
+
+    expect(error.message).toContain("an uploaded track appeared");
+    expect(error.message).toContain("restored as track-en-restored");
     expect(vi.mocked(createTextTrackOnMux)).toHaveBeenCalledWith(
       "asset-1",
       "en",

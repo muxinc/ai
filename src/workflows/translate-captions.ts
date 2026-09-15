@@ -1423,7 +1423,10 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
         wrapError(error, "Failed to add translated track to Mux asset");
       }
       if (outcome.kind === "blocked") {
-        throw new MuxAiError(outcome.reason, { type: "validation_error" });
+        const deletedNote = outcome.deleted.length > 0 ?
+          ` Tracks already deleted before the conflict appeared: ${outcome.deleted.map(track => `${track.name ?? track.id} (${track.id})`).join(", ")}.` :
+          "";
+        throw new MuxAiError(`${outcome.reason}${deletedNote}`, { type: "validation_error" });
       }
       if (outcome.kind === "create_failed") {
         throw new Error(`Failed to add translated track to Mux asset: ${outcome.reason}`);

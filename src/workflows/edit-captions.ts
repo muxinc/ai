@@ -947,13 +947,11 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
       } catch (error) {
         wrapError(error, "Failed to add edited track to Mux asset");
       }
-      if (outcome.kind === "blocked") {
-        throw new MuxAiError(outcome.reason, { type: "validation_error" });
-      }
-      if (outcome.kind === "create_failed") {
+      if (outcome.kind !== "created") {
         // In-place replacement deletes the source before creating the edited
-        // track. If the create then fails, put the source back from the VTT we
-        // fetched so the asset is not left without captions.
+        // track. If the create then fails, or a conflict appears on the retry
+        // after deletes, put the source back from the VTT we fetched so the
+        // asset is not left without captions.
         const sourceWasDeleted = outcome.deleted.some(track => track.id === trackId);
         let restoreNote = "";
         if (sourceWasDeleted) {
@@ -971,6 +969,9 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
           } catch (restoreError) {
             restoreNote = ` Restoring the source track also failed: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}.`;
           }
+        }
+        if (outcome.kind === "blocked") {
+          throw new MuxAiError(`${outcome.reason}${restoreNote}`, { type: "validation_error" });
         }
         throw new Error(`Failed to add edited track to Mux asset: ${outcome.reason}.${restoreNote}`);
       }
