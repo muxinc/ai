@@ -15,6 +15,7 @@ import {
   buildMuxAiTrackPassthrough,
   createTextTrackOnMux,
   fetchVttFromMux,
+  normalizeTrackName,
   planTextTrackReplacement,
   replaceAndCreateTextTrack,
   validateTrackPassthrough,
@@ -765,6 +766,12 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
   // Under `fail` the source track stays and is not a conflict; under the
   // replace policies it is in the same-language set and gets deleted.
   const keepTrackIds = replaceExistingTracks === "fail" ? [trackId] : [];
+  if (replaceExistingTracks === "fail" && normalizeTrackName(outputTrack.name) === normalizeTrackName(sourceName)) {
+    throw new MuxAiError(
+      `trackName "${outputTrack.name}" matches the source track's name. Mux track names must be unique; choose a different trackName or use replaceExistingTracks: "replace_all" to replace the source.`,
+      { type: "validation_error" },
+    );
+  }
   // Check against the asset we already have so a blocked policy rejects before
   // any tokens are spent. The create step re-plans against a fresh asset.
   if (uploadToMux && !legacyTrackNaming) {

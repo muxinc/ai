@@ -198,6 +198,13 @@ describe("editCaptions text track replacement", () => {
     }));
   });
 
+  it("rejects fail with a trackName equal to the source name, ignoring case and whitespace", async () => {
+    const error = await captureRejection(editCaptions("asset-1", "track-en", { ...OPTIONS, replaceExistingTracks: "fail", trackName: " english " }));
+    expect(error.message).toContain("matches the source track's name");
+    expect(vi.mocked(generateText)).not.toHaveBeenCalled();
+    expect(vi.mocked(replaceAndCreateTextTrack)).not.toHaveBeenCalled();
+  });
+
   it("rejects before editing when fail would collide with another track", async () => {
     mockAsset([SOURCE_TRACK, { ...ASR_ES_TRACK, id: "track-en-cc", language_code: "en", name: "English CC" }]);
 
