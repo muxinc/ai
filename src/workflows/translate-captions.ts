@@ -22,7 +22,14 @@ import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
 } from "../lib/mux-assets.ts";
-import { createTextTrackOnMux, fetchVttFromMux } from "../lib/mux-tracks.ts";
+import {
+  buildMuxAiTrackPassthrough,
+  fetchVttFromMux,
+  planTextTrackReplacement,
+  replaceAndCreateTextTrack,
+  validateTrackPassthrough,
+} from "../lib/mux-tracks.ts";
+import type { ReplaceExistingTracksPolicy, TextTrackSummary, TextTrackTarget } from "../lib/mux-tracks.ts";
 import {
   detectLeakReason,
   detectUnexpectedKeysFromRawText,
@@ -89,6 +96,8 @@ export interface TranslationResult {
   originalVtt: string;
   translatedVtt: string;
   uploadedTrackId?: string;
+  /** Existing text tracks deleted before the translated track was created. */
+  replacedTracks?: TextTrackSummary[];
   presignedUrl?: string;
   /** Token usage from the AI provider (for efficiency/cost analysis). */
   usage?: TokenUsage;
@@ -135,6 +144,19 @@ export interface TranslationOptions<P extends SupportedProvider = SupportedProvi
    * required for track creation.
    */
   uploadToMux?: boolean;
+  /**
+   * What to do when the asset already has a text track in the target language
+   * or with the target name. Defaults to `"fail"`, which rejects before any
+   * translation happens.
+   */
+  replaceExistingTracks?: ReplaceExistingTracksPolicy;
+  /** Name for the created Mux text track. Defaults to "<Language> (Auto-translated)", e.g. "Spanish (Auto-translated)". */
+  trackName?: string;
+  /**
+   * `passthrough` written on the created Mux text track. Defaults to a JSON
+   * audit tag identifying this workflow. Max 255 characters.
+   */
+  trackPassthrough?: string;
   /** Optional storage adapter override for upload + presign operations. */
   storageAdapter?: StorageAdapter;
   /** Expiry duration in seconds for S3 presigned GET URLs. Defaults to 86400 (24 hours). */
@@ -1191,12 +1213,16 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
     credentials: providedCredentials,
     chunking,
     neverTranslate: neverTranslateOption,
+    replaceExistingTracks = "fail",
+    trackName: providedTrackName,
+    trackPassthrough: providedTrackPassthrough,
   } = options;
   const credentials = providedCredentials;
   const effectiveStorageAdapter = storageAdapter;
   const neverTranslateTerms = neverTranslateOption ?
       validateNeverTranslateTerms(neverTranslateOption) :
       [];
+  const trackPassthrough = validateTrackPassthrough(providedTrackPassthrough) ?? buildMuxAiTrackPassthrough("translate-captions");
 
   // S3 configuration
   const s3Endpoint = providedS3Endpoint ?? env.S3_ENDPOINT;
@@ -1251,6 +1277,19 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
       `Track ${trackId} is missing language metadata. Cannot determine source language for translation.`,
       { type: "validation_error" },
     );
+  }
+
+  const outputTrack: TextTrackTarget = {
+    languageCode: toLanguageCode,
+    name: providedTrackName ?? `${getLanguageName(toLanguageCode) ?? toLanguageCode.toUpperCase()} (Auto-translated)`,
+  };
+  // Check against the asset we already have so a `fail` policy rejects before
+  // any tokens are spent. The create step re-plans against a fresh asset.
+  if (uploadToMux) {
+    const plan = planTextTrackReplacement(assetData, outputTrack, replaceExistingTracks);
+    if (plan.kind === "blocked") {
+      throw new MuxAiError(plan.reason, { type: "validation_error" });
+    }
   }
 
   // Fetch the VTT file content (signed if needed)
@@ -1350,6 +1389,7 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
   // Upload translated VTT to S3-compatible storage
   let presignedUrl: string | undefined;
   let uploadedTrackId: string | undefined;
+  let replacedTracks: TextTrackSummary[] | undefined;
 
   if (uploadToS3) {
     try {
@@ -1368,22 +1408,28 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
       wrapError(error, "Failed to upload VTT to S3");
     }
 
-    // Add translated track to Mux asset (only when uploadToMux is true)
     if (uploadToMux) {
+      let outcome: Awaited<ReturnType<typeof replaceAndCreateTextTrack>>;
       try {
-        const languageName = getLanguageName(toLanguageCode) ?? toLanguageCode.toUpperCase();
-        const trackName = `${languageName} (auto-translated)`;
-
-        uploadedTrackId = await createTextTrackOnMux(
+        outcome = await replaceAndCreateTextTrack({
           assetId,
-          toLanguageCode,
-          trackName,
+          target: outputTrack,
+          policy: replaceExistingTracks,
           presignedUrl,
+          passthrough: trackPassthrough,
           credentials,
-        );
+        });
       } catch (error) {
-        console.warn(`Failed to add track to Mux asset: ${error instanceof Error ? error.message : "Unknown error"}`);
+        wrapError(error, "Failed to add translated track to Mux asset");
       }
+      if (outcome.kind === "blocked") {
+        throw new MuxAiError(outcome.reason, { type: "validation_error" });
+      }
+      if (outcome.kind === "create_failed") {
+        throw new Error(`Failed to add translated track to Mux asset: ${outcome.reason}`);
+      }
+      uploadedTrackId = outcome.trackId;
+      replacedTracks = outcome.deleted;
     }
   }
 
@@ -1397,6 +1443,7 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
     originalVtt: vttContent,
     translatedVtt,
     uploadedTrackId,
+    replacedTracks,
     presignedUrl,
     usage: usageWithMetadata,
     safety,

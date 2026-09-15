@@ -219,7 +219,7 @@ npm run aws-sdk-adapter <your-asset-id> -- --s3-bucket <bucket-name>
 4. Uploads translated VTT to S3-compatible storage
 5. Generates presigned URL (1-hour expiry)
 6. Adds new subtitle track to Mux asset
-7. Track name: "{Language} (auto-translated)"
+7. Track name: "{Language} (Auto-translated)"
 
 > **💡 Tip:** After translation completes, verify your new subtitle tracks at `https://player.mux.com/{PLAYBACK_ID}`
 
@@ -283,7 +283,7 @@ npm run dubbing-only <your-asset-id> fr
 6. Uploads to S3-compatible storage
 7. Generates presigned URL (1-hour expiry)
 8. Adds new audio track to Mux asset
-9. Track name: "{Language} (auto-dubbed)"
+9. Track name: "{Language} (Auto-dubbed)"
 
 > **💡 Tip:** After dubbing completes, listen to your new audio tracks at `https://player.mux.com/{PLAYBACK_ID}`
 

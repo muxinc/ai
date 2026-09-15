@@ -396,6 +396,9 @@ Translates existing captions from one language to another and optionally adds th
 - `provider: 'openai' | 'anthropic' | 'google' | 'baseten' | 'openai-compatible'` - AI provider (required)
 - `model?: string` - Model to use (defaults to the provider's chat model if omitted)
 - `uploadToMux?: boolean` - Whether to upload translated track to Mux (default: true)
+- `replaceExistingTracks?: 'fail' | 'replace_all' | 'replace_generated'` - What to do when the asset already has a text track in the target language or with the target name (default: `'fail'`, which rejects before any translation runs). `'replace_all'` deletes every such track first; `'replace_generated'` deletes only Mux-generated (ASR) tracks and rejects if anything else is in the way.
+- `trackName?: string` - Name for the created Mux text track (default: "<Language> (Auto-translated)", e.g. "Spanish (Auto-translated)")
+- `trackPassthrough?: string` - `passthrough` written on the created track, max 255 characters (default: `{"mux_ai":{"workflow":"translate-captions"}}`)
 - `s3Endpoint?: string` - S3-compatible storage endpoint
 - `s3Region?: string` - S3 region (default: 'auto')
 - `s3Bucket?: string` - S3 bucket name
@@ -423,6 +426,7 @@ interface TranslationResult {
   originalVtt: string; // Original VTT content
   translatedVtt: string; // Translated VTT content
   uploadedTrackId?: string; // Mux track ID (if uploaded)
+  replacedTracks?: TextTrackSummary[]; // Existing tracks deleted before the upload ({ id, name, languageCode, status, textSource, passthrough })
   presignedUrl?: string; // S3 presigned URL (default expiry: 24 hours)
   usage?: TokenUsage; // Token usage from the AI provider
   neverTranslateTermsPreserved?: boolean; // Present when neverTranslate terms were supplied; false if any term was not preserved verbatim
@@ -463,11 +467,14 @@ Edits a caption track using LLM-powered profanity censorship, static find/replac
 - `replacements?: Array<{ find: string; replace: string; caseSensitive?: boolean }>` - Static find/replace pairs (optional, no LLM needed). Each entry matches case-sensitively by default; set `caseSensitive: false` to match regardless of case.
 - `speakerReplacements?: Array<{ find: string; replace: string }>` - Replaces bracketed speaker labels at the start of cues without changing matching words in spoken caption content.
 - `uploadToMux?: boolean` - Whether to upload edited track to Mux (default: true)
-- `deleteOriginalTrack?: boolean` - Whether to delete the original track after uploading the edited one (default: true)
+- `replaceExistingTracks?: 'fail' | 'replace_all' | 'replace_generated'` - What to do with the source track and any other text track in the same language or with the same name as the edited one (default: `'replace_all'`, so the edited track takes the source's place under the source's name). `'replace_generated'` does the same only when everything in the way is Mux-generated (ASR). `'fail'` keeps the source, requires `trackName`, and rejects if that name or language is already taken by another track.
+- `trackName?: string` - Name for the edited Mux text track (default: the source track's name)
+- `trackPassthrough?: string` - `passthrough` written on the edited track, max 255 characters (default: `{"mux_ai":{"workflow":"edit-captions"}}`)
+- `deleteOriginalTrack?: boolean` - **Deprecated**, use `replaceExistingTracks`. When set, the previous behaviour applies: create `<source name> (<trackNameSuffix>)`, then delete the source if `true`. Cannot be combined with `replaceExistingTracks` or `trackName`.
+- `trackNameSuffix?: string` - **Deprecated**, use `trackName`. Selects the previous naming scheme (default suffix 'edited', e.g. "Subtitles (edited)"). Cannot be combined with `replaceExistingTracks` or `trackName`.
 - `s3Endpoint?: string` - S3-compatible storage endpoint
 - `s3Region?: string` - S3 region (default: 'auto')
 - `s3Bucket?: string` - S3 bucket name
-- `trackNameSuffix?: string` - Suffix appended to the original track name in parentheses (default: 'edited', e.g. "Subtitles (edited)")
 - `storageAdapter?: StorageAdapter` - Optional adapter with `putObject` and `createPresignedGetUrl` methods
 - `s3SignedUrlExpirySeconds?: number` - Expiry duration in seconds for S3 presigned GET URLs (default: 86400 / 24 hours)
 
@@ -498,6 +505,7 @@ interface EditCaptionsResult {
     replacements: ReplacementRecord[]; // Each speaker-label replacement with cue timing
   };
   uploadedTrackId?: string; // Mux track ID (if uploaded)
+  replacedTracks?: TextTrackSummary[]; // Existing tracks deleted before the upload, including the source when replaced in place
   presignedUrl?: string; // S3 presigned URL (default expiry: 24 hours)
   usage?: TokenUsage; // Token usage (only present if LLM was used)
 }
@@ -604,7 +612,7 @@ interface TranslateAudioResult {
 - S3-compatible storage for Mux ingestion
 
 **Supported Languages:**
-ElevenLabs supports 32+ languages with automatic language name detection via `Intl.DisplayNames`. Supported languages include English, Spanish, French, German, Italian, Portuguese, Polish, Japanese, Korean, Chinese, Russian, Arabic, Hindi, Thai, and many more. Track names are automatically generated (e.g., "Polish (auto-dubbed)").
+ElevenLabs supports 32+ languages with automatic language name detection via `Intl.DisplayNames`. Supported languages include English, Spanish, French, German, Italian, Portuguese, Polish, Japanese, Korean, Chinese, Russian, Arabic, Hindi, Thai, and many more. Track names are automatically generated (e.g., "Polish (Auto-dubbed)").
 
 ## `generateEmbeddings(assetId, options?)`
 

@@ -10,9 +10,10 @@ vi.mock("../../src/lib/mux-assets", () => ({
   getPlaybackIdForAsset: vi.fn(),
 }));
 
-vi.mock("../../src/lib/mux-tracks", () => ({
-  createTextTrackOnMux: vi.fn(),
+vi.mock("../../src/lib/mux-tracks", async importOriginal => ({
+  ...(await importOriginal<object>()),
   fetchVttFromMux: vi.fn(),
+  replaceAndCreateTextTrack: vi.fn(),
 }));
 
 vi.mock("../../src/lib/workflow-credentials", () => ({
