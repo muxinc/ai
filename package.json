@@ -133,7 +133,7 @@
   "devDependencies": {
     "@antfu/eslint-config": "^6.2.0",
     "@types/node": "^20.0.0",
-    "@vitest/ui": "^4.0.13",
+    "@vitest/ui": "^4.1.11",
     "commander": "^14.0.2",
     "eslint": "^9.39.1",
     "eslint-plugin-format": "^1.0.2",
@@ -145,7 +145,21 @@
     "tsconfig-paths": "^4.2.0",
     "tsup": "^8.5.0",
     "typescript": "^5.0.0",
-    "vitest": "^4.0.13",
+    "vitest": "^4.1.11",
     "workflow": "^4.2.4"
+  },
+  "overrides": {
+    "@workflow/core": {
+      "nanoid": "^5.1.16"
+    },
+    "@workflow/world-local": {
+      "undici": "^7.29.0"
+    },
+    "@workflow/world-vercel": {
+      "undici": "^7.29.0"
+    },
+    "evalite": {
+      "@fastify/static": "^10.1.2"
+    }
   }
 }
