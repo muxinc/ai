@@ -291,11 +291,8 @@ async function scoreTranslationFaithfulness({
   const response = await generateText({
     model: openai("gpt-5.1"),
     output: Output.object({ schema: faithfulnessScoreSchema }),
+    system: systemPrompt,
     messages: [
-      {
-        role: "system",
-        content: systemPrompt,
-      },
       {
         role: "user",
         content: `Original English transcript:\n${ORIGINAL_TRANSCRIPT}\n\n` +

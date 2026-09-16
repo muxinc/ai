@@ -501,11 +501,8 @@ async function identifyProfanityWithAI({
     model,
     maxRetries: 0,
     output: Output.object({ schema: profanityDetectionSchema }),
+    system: SYSTEM_PROMPT,
     messages: [
-      {
-        role: "system",
-        content: SYSTEM_PROMPT,
-      },
       {
         role: "user",
         content:

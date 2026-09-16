@@ -550,11 +550,8 @@ async function generateInsightsWithAI(
     maxRetries: 0,
     output: Output.object({ schema: engagementInsightsSchema }),
     experimental_telemetry: { isEnabled: true },
+    system: systemPrompt,
     messages: [
-      {
-        role: "system",
-        content: systemPrompt,
-      },
       {
         role: "user",
         content: [

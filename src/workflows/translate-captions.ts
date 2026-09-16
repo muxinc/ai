@@ -742,11 +742,8 @@ async function translateVttWithAI({
     model,
     maxRetries: 0,
     output: Output.object({ schema: translationSchema }),
+    system: SYSTEM_PROMPT,
     messages: [
-      {
-        role: "system",
-        content: SYSTEM_PROMPT,
-      },
       {
         role: "user",
         content: `Translate from ${fromLanguageCode} to ${toLanguageCode}:${buildNeverTranslateSection(neverTranslate)}\n\n${sanitisedVttContent}`,
@@ -855,11 +852,8 @@ async function translateCueChunkWithAI({
     model,
     maxRetries: 0,
     output: Output.object({ schema }),
+    system: CUE_TRANSLATION_SYSTEM_PROMPT,
     messages: [
-      {
-        role: "system",
-        content: CUE_TRANSLATION_SYSTEM_PROMPT,
-      },
       {
         role: "user",
         content: `Translate from ${fromLanguageCode} to ${toLanguageCode}.\nReturn exactly ${cues.length} translated cues in the same order as the input.${buildNeverTranslateSection(neverTranslate)}\n\n${JSON.stringify(cuePayload, null, 2)}`,
