@@ -561,11 +561,8 @@ async function analyzeStoryboard(
       description: "Structured summary with title, description, and keywords.",
       schema,
     }),
+    system: systemPrompt,
     messages: [
-      {
-        role: "system",
-        content: systemPrompt,
-      },
       {
         role: "user",
         content: [
@@ -625,11 +622,8 @@ async function analyzeAudioOnly(
       description: "Structured summary with title, description, and keywords.",
       schema,
     }),
+    system: systemPrompt,
     messages: [
-      {
-        role: "system",
-        content: systemPrompt,
-      },
       {
         role: "user",
         content: userPrompt,

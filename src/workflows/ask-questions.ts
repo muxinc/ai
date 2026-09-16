@@ -725,11 +725,8 @@ async function analyzeQuestions({
     maxRetries: 0,
     output: Output.object({ schema: responseSchema }),
     experimental_telemetry: { isEnabled: true },
+    system: systemPrompt,
     messages: [
-      {
-        role: "system",
-        content: systemPrompt,
-      },
       {
         role: "user",
         content: imageDataUrl ?

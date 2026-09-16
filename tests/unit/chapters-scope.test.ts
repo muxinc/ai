@@ -91,8 +91,8 @@ describe("generateChapters scope handling", () => {
     expect(vi.mocked(fetchTranscriptForAsset).mock.calls[0][2].scope).toBeUndefined();
     expect(vi.mocked(fetchTranscriptForAsset).mock.calls[1][2].scope).toBeUndefined();
 
-    const omittedPrompt = vi.mocked(generateText).mock.calls[0][0].messages[1].content;
-    const emptyPrompt = vi.mocked(generateText).mock.calls[1][0].messages[1].content;
+    const omittedPrompt = vi.mocked(generateText).mock.calls[0][0].messages[0].content;
+    const emptyPrompt = vi.mocked(generateText).mock.calls[1][0].messages[0].content;
     expect(emptyPrompt).toBe(omittedPrompt);
     expect(emptyResult.chapters).toEqual(omittedResult.chapters);
   });
