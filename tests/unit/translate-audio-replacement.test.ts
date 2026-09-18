@@ -195,6 +195,16 @@ describe("translateAudio track replacement", () => {
     expect(error.message).toContain("https://s3.example.test/presigned");
   });
 
+  it("keeps the staged URL when the replacement step itself throws", async () => {
+    stubElevenLabsFetch();
+    vi.mocked(replaceAndCreateTrack).mockRejectedValueOnce(Object.assign(new Error("forbidden"), { status: 403 }));
+
+    const error = await captureRejection(translateAudio(ASSET_ID, "es"));
+
+    expect(error.message).toContain("forbidden");
+    expect(error.message).toContain("https://s3.example.test/presigned");
+  });
+
   it("soft-fails the captions track so a paid dub still completes", async () => {
     stubElevenLabsFetch();
     vi.mocked(replaceAndCreateTrack)

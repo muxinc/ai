@@ -749,7 +749,7 @@ export async function translateAudio(
             credentials,
           });
         } catch (error) {
-          wrapError(error, "Failed to add dubbed audio track to Mux asset");
+          wrapError(error, `Failed to add dubbed audio track to Mux asset (dubbed audio is staged at: ${presignedUrl})`);
         }
         if (outcome.kind === "blocked") {
           throw new MuxAiError(`${outcome.reason} Dubbed audio is staged at: ${presignedUrl}`, { type: "validation_error" });
