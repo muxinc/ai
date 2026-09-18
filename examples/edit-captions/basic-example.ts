@@ -30,7 +30,7 @@ program
   .option("--replacements <pairs>", "Comma-separated find:replace pairs (e.g., 'Mucks:Mux,gonna:going to')", "")
   .option("--no-profanity", "Skip LLM-powered profanity censorship (use with --replacements)")
   .option("--no-upload", "Skip uploading edited captions to Mux")
-  .option("--no-delete", "Keep the original track after uploading the edited one")
+  .option("--keep-original <track-name>", "Keep the original track and upload the edited one under this name")
   .action(async (assetId: string, trackId: string, options: {
     provider: Provider;
     model?: string;
@@ -40,7 +40,7 @@ program
     replacements: string;
     profanity: boolean;
     upload: boolean;
-    delete: boolean;
+    keepOriginal?: string;
   }) => {
     if (!["openai", "anthropic", "google", "baseten", "openai-compatible"].includes(options.provider)) {
       console.error("Unsupported provider. Choose from: openai, anthropic, google, baseten");
@@ -78,7 +78,7 @@ program
       console.log(`Censor mode: ${options.mode}`);
     }
     console.log(`Upload to Mux: ${options.upload}`);
-    console.log(`Delete original: ${options.delete}`);
+    console.log(options.keepOriginal ? `Keep original, new track name: ${options.keepOriginal}` : "Replace original in place");
     if (useProfanity && alwaysCensor.length) console.log(`Always censor: ${alwaysCensor.join(", ")}`);
     if (useProfanity && neverCensor.length) console.log(`Never censor: ${neverCensor.join(", ")}`);
     if (replacements.length) console.log(`Replacements: ${replacements.map(r => `${r.find} -> ${r.replace}`).join(", ")}`);
@@ -101,7 +101,9 @@ program
           : {}),
         ...(replacements.length > 0 ? { replacements } : {}),
         uploadToMux: options.upload,
-        deleteOriginalTrack: options.delete,
+        ...(options.keepOriginal
+          ? { replaceExistingTracks: "fail" as const, trackName: options.keepOriginal }
+          : {}),
       });
 
       console.log("Results:");
@@ -119,6 +121,10 @@ program
 
       if (result.uploadedTrackId) {
         console.log(`  New track ID: ${result.uploadedTrackId}`);
+      }
+
+      if (result.replacedTracks?.length) {
+        console.log(`  Replaced tracks: ${result.replacedTracks.map(t => `${t.name} (${t.id})`).join(", ")}`);
       }
 
       if (result.usage) {

@@ -509,7 +509,7 @@ async function createAudioTrackOnMux(
   const muxClient = await resolveMuxClient(credentials);
   const mux = await muxClient.createClient();
   const languageName = new Intl.DisplayNames(["en"], { type: "language" }).of(languageCode) || languageCode.toUpperCase();
-  const trackName = `${languageName} (auto-dubbed)`;
+  const trackName = `${languageName} (Auto-dubbed)`;
 
   const trackResponse = await mux.video.assets.createTrack(assetId, {
     type: "audio",
@@ -715,7 +715,7 @@ export async function translateAudio(
         try {
           uploadedTrackId = await createAudioTrackOnMux(assetId, muxLangCode, presignedUrl!, credentials);
           const languageName = new Intl.DisplayNames(["en"], { type: "language" }).of(muxLangCode) || muxLangCode.toUpperCase();
-          const trackName = `${languageName} (auto-dubbed)`;
+          const trackName = `${languageName} (Auto-dubbed)`;
           console.warn(`✅ Track added to Mux asset with ID: ${uploadedTrackId}`);
           console.warn(`📋 Track name: "${trackName}"`);
         } catch (error) {
@@ -750,7 +750,7 @@ export async function translateAudio(
           captionsTrackId = await createTextTrackOnMux(
             assetId,
             muxLangCode,
-            `${languageName} (auto-dubbed)`,
+            `${languageName} (Auto-dubbed)`,
             captionsPresignedUrl,
             credentials,
           );

@@ -23,7 +23,8 @@ vi.mock("../../src/lib/client-factory", () => ({
   getMuxClientFromEnv: vi.fn(),
 }));
 
-vi.mock("../../src/lib/mux-tracks", () => ({
+vi.mock("../../src/lib/mux-tracks", async importOriginal => ({
+  ...(await importOriginal<object>()),
   createTextTrackOnMux: vi.fn(),
 }));
 

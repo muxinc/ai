@@ -536,6 +536,22 @@ if (result.neverTranslateTermsPreserved === false) {
 
 Enforcement is prompt-based: the terms are passed to the model with an instruction to preserve them verbatim, then each term's occurrence count in the source is compared against the translated output. Shortfalls set `neverTranslateTermsPreserved` to `false` — the library never rewrites the translation to repair them.
 
+### Replacing Existing Tracks
+
+Mux requires text track names to be unique on an asset (case-insensitive), and a track that is still `preparing` or has `errored` holds its name. By default `translateCaptions` rejects before translating if the asset already has a subtitles track in the target language or a text track with the target name. Use `replaceExistingTracks` to replace them instead:
+
+```typescript
+const result = await translateCaptions("your-mux-asset-id", "your-track-id", "es", {
+  provider: "openai",
+  replaceExistingTracks: "replace_generated", // or "replace_all"
+  trackName: "Español", // optional, defaults to "Spanish (Auto-translated)"
+});
+
+console.log(result.replacedTracks); // Tracks deleted to make room for the new one
+```
+
+`"replace_generated"` only removes Mux-generated (ASR) tracks and rejects if a human-uploaded track is in the way; `"replace_all"` removes everything in the same language or with the same name. The check runs against a fresh copy of the asset immediately before the track is created. Language matching ignores region subtags, so `en-US` and `en` are treated as the same language.
+
 ### S3-Compatible Storage Requirements
 
 Caption translation requires S3-compatible storage to host VTT files for Mux ingestion.
@@ -697,8 +713,30 @@ The `find` and `replace` values omit the surrounding brackets. For example, the 
 4. Merges `alwaysCensor` and filters `neverCensor` from the detected list
 5. Applies profanity censorship to the VTT
 6. Applies speaker-label replacements and static replacements (if provided)
-7. Uploads the edited VTT to S3 and creates a new track on Mux
-8. Deletes the original track (configurable)
+7. Uploads the edited VTT to S3
+8. Replaces the source track on Mux with the edited one, under the same name and language (configurable, see below)
+
+### Replacing or Keeping the Source Track
+
+By default the edited track takes the source track's place: the source (and any other text track in the same language or with the same name) is deleted and the edited track is created under the source's name, language, and `closed_captions` flag. If Mux rejects the new track after the source was deleted, the source is restored from the VTT that was fetched.
+
+```typescript
+// Keep the source and add a cleaned copy alongside it. trackName is required.
+const kept = await editCaptions(assetId, trackId, {
+  replacements: [{ find: "Mucks", replace: "Mux" }],
+  replaceExistingTracks: "fail",
+  trackName: "English (clean)",
+});
+
+// Only replace if everything in the way is Mux-generated (ASR) captions.
+const upgraded = await editCaptions(assetId, trackId, {
+  provider: "anthropic",
+  autoCensorProfanity: { mode: "blank" },
+  replaceExistingTracks: "replace_generated",
+});
+```
+
+`deleteOriginalTrack` and `trackNameSuffix` are deprecated. Setting either keeps the previous behaviour (create `<source name> (edited)`, then delete the source) and cannot be combined with `replaceExistingTracks` or `trackName`.
 
 ### S3-Compatible Storage Requirements
 
@@ -722,7 +760,8 @@ const result = await editCaptions(assetId, trackId, {
     { find: "speaker_0", replace: "Alice" },
   ],
   uploadToMux: true, // Upload edited track to Mux (default: true)
-  deleteOriginalTrack: true, // Delete original after upload (default: true)
+  replaceExistingTracks: "replace_all", // "replace_all" (default), "replace_generated", or "fail"
+  trackName: "English", // Defaults to the source track's name
 });
 ```
 
@@ -758,7 +797,7 @@ console.log(result.presignedUrl); // S3 audio file URL
 
 ### Supported Languages
 
-ElevenLabs supports 32+ languages with automatic language name detection via `Intl.DisplayNames`. Supported languages include English, Spanish, French, German, Italian, Portuguese, Polish, Japanese, Korean, Chinese, Russian, Arabic, Hindi, Thai, and many more. Track names are automatically generated (e.g., "Polish (auto-dubbed)").
+ElevenLabs supports 32+ languages with automatic language name detection via `Intl.DisplayNames`. Supported languages include English, Spanish, French, German, Italian, Portuguese, Polish, Japanese, Korean, Chinese, Russian, Arabic, Hindi, Thai, and many more. Track names are automatically generated (e.g., "Polish (Auto-dubbed)").
 
 ### Audio Dubbing Workflow
 
@@ -770,7 +809,7 @@ ElevenLabs supports 32+ languages with automatic language name detection via `In
 6. Uploads to S3-compatible storage
 7. Generates presigned URL (default 24-hour expiry, configurable via `s3SignedUrlExpirySeconds`)
 8. Adds new audio track to Mux asset
-9. Track name: "{Language} (auto-dubbed)"
+9. Track name: "{Language} (Auto-dubbed)"
 10. Deletes the static rendition if this run created it (default; set `staticRenditionCleanup: "keep"` to retain it). Runs on failure paths too, and the outcome is reported in `result.staticRenditionCleanup`.
 
 > [!WARNING]
