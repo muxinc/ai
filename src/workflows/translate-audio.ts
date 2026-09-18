@@ -2,11 +2,17 @@ import { sleep } from "workflow";
 
 import env from "../env.ts";
 import { getApiKeyFromEnv } from "../lib/client-factory.ts";
-import { getLanguageCodePair, toISO639_1, toISO639_3 } from "../lib/language-codes.ts";
+import { getLanguageCodePair, getLanguageName, toISO639_1, toISO639_3 } from "../lib/language-codes.ts";
 import type { LanguageCodePair, SupportedISO639_1 } from "../lib/language-codes.ts";
 import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "../lib/mux-assets.ts";
-import { createTextTrackOnMux } from "../lib/mux-tracks.ts";
+import {
+  buildMuxAiTrackPassthrough,
+  planTextTrackReplacement,
+  replaceAndCreateTrack,
+  validateTrackPassthrough,
+} from "../lib/mux-tracks.ts";
+import type { ReplaceExistingTracksPolicy, TextTrackSummary, TextTrackTarget } from "../lib/mux-tracks.ts";
 import { getMuxStreamOrigin } from "../lib/mux-url.ts";
 import {
   createPresignedGetUrlWithStorageAdapter,
@@ -41,6 +47,11 @@ export interface AudioTranslationResult {
   dubbingId: string;
   uploadedTrackId?: string;
   presignedUrl?: string;
+  /**
+   * Existing tracks deleted before the dubbed audio track and, when enabled, the
+   * captions track were created. Each entry's `type` says which group it came from.
+   */
+  replacedTracks?: TextTrackSummary[];
   /** Mux text track ID for the dubbed captions, present when `uploadCaptionsToMux` is true and the upload succeeded. */
   captionsTrackId?: string;
   /** Presigned URL for the dub's translated transcript (WebVTT) staged to S3. */
@@ -88,10 +99,28 @@ export interface AudioTranslationOptions extends MuxAIOptions {
   /**
    * When true the dub's translated transcript (the same translation that was
    * voiced) is attached as a subtitles text track on the Mux asset. Implies
-   * `uploadToS3: true`. Defaults to false. The SDK does not check for existing
-   * text tracks — callers decide conflict semantics before enabling this.
+   * `uploadToS3: true`. Defaults to false. Existing text tracks are handled
+   * according to `replaceExistingTracks`, checked before dubbing starts.
    */
   uploadCaptionsToMux?: boolean;
+  /**
+   * What to do when the asset already has an audio track (or, with
+   * `uploadCaptionsToMux`, a text track) in the target language or with the
+   * target name. Defaults to `"fail"`, which rejects before dubbing starts.
+   * The asset's primary audio track is never deleted under any policy.
+   */
+  replaceExistingTracks?: ReplaceExistingTracksPolicy;
+  /**
+   * Name for the created Mux tracks. Audio and text tracks are separate name
+   * groups, so the same name is used for both. Defaults to
+   * "<Language> (Auto-dubbed)", e.g. "Spanish (Auto-dubbed)".
+   */
+  trackName?: string;
+  /**
+   * `passthrough` written on the created Mux tracks. Defaults to a JSON audit
+   * tag identifying this workflow. Max 255 characters.
+   */
+  trackPassthrough?: string;
   /**
    * Cleanup for the audio-only static rendition this run created as dubbing
    * input: `"delete"` (default) removes it when the workflow finishes, success
@@ -499,32 +528,6 @@ async function downloadAndUploadDubTranscript({
   return presignedUrl;
 }
 
-async function createAudioTrackOnMux(
-  assetId: string,
-  languageCode: string,
-  presignedUrl: string,
-  credentials?: WorkflowCredentialsInput,
-): Promise<string> {
-  "use step";
-  const muxClient = await resolveMuxClient(credentials);
-  const mux = await muxClient.createClient();
-  const languageName = new Intl.DisplayNames(["en"], { type: "language" }).of(languageCode) || languageCode.toUpperCase();
-  const trackName = `${languageName} (Auto-dubbed)`;
-
-  const trackResponse = await mux.video.assets.createTrack(assetId, {
-    type: "audio",
-    language_code: languageCode,
-    name: trackName,
-    url: presignedUrl,
-  });
-
-  if (!trackResponse.id) {
-    throw new Error("Failed to create audio track: no track ID returned from Mux");
-  }
-
-  return trackResponse.id;
-}
-
 export async function translateAudio(
   assetId: string,
   toLanguageCode: string,
@@ -542,6 +545,9 @@ export async function translateAudio(
     staticRenditionCleanup: staticRenditionCleanupOption = "delete",
     storageAdapter,
     credentials: providedCredentials,
+    replaceExistingTracks = "fail",
+    trackName: providedTrackName,
+    trackPassthrough: providedTrackPassthrough,
   } = options;
 
   if (provider !== "elevenlabs") {
@@ -550,9 +556,16 @@ export async function translateAudio(
 
   const credentials = providedCredentials;
   const effectiveStorageAdapter = storageAdapter;
+  const trackPassthrough = validateTrackPassthrough(providedTrackPassthrough) ?? buildMuxAiTrackPassthrough("translate-audio");
 
   const uploadToMux = uploadToMuxOption !== false; // Default to true
   const uploadToS3 = uploadToS3Option || uploadToMux || uploadCaptionsToMux; // Defaults to uploadToMux; Mux uploads force S3 staging
+
+  // Mux uses ISO 639-1 (2-letter) codes for track language_code
+  const muxLangCode = toISO639_1(toLanguageCode);
+  const trackName = providedTrackName ?? `${getLanguageName(muxLangCode) ?? muxLangCode.toUpperCase()} (Auto-dubbed)`;
+  const audioTrackTarget: TextTrackTarget = { type: "audio", languageCode: muxLangCode, name: trackName };
+  const captionsTrackTarget: TextTrackTarget = { type: "text", languageCode: muxLangCode, name: trackName };
 
   // S3 configuration
   const s3Endpoint = options.s3Endpoint ?? env.S3_ENDPOINT;
@@ -568,6 +581,19 @@ export async function translateAudio(
   // Fetch asset data and playback ID from Mux
   const { asset: initialAsset, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials, options.assetSnapshot);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(initialAsset);
+
+  // Check both target tracks against the asset we already have so a blocked
+  // policy rejects before ElevenLabs is asked to do anything. The create step
+  // re-plans against a fresh asset.
+  for (const target of [
+    ...(uploadToMux ? [audioTrackTarget] : []),
+    ...(uploadCaptionsToMux ? [captionsTrackTarget] : []),
+  ]) {
+    const plan = planTextTrackReplacement(initialAsset, target, replaceExistingTracks);
+    if (plan.kind === "blocked") {
+      throw new MuxAiError(plan.reason, { type: "validation_error" });
+    }
+  }
 
   // Check for audio-only static rendition. Requesting creation happens here
   // (not inside the poll helper) so the created rendition's ID is captured
@@ -591,6 +617,7 @@ export async function translateAudio(
   let dubbingId!: string;
   let presignedUrl: string | undefined;
   let uploadedTrackId: string | undefined;
+  let replacedTracks: TextTrackSummary[] | undefined;
   let captionsPresignedUrl: string | undefined;
   let captionsTrackId: string | undefined;
 
@@ -706,28 +733,40 @@ export async function translateAudio(
         wrapError(error, "Failed to download and upload dubbed audio");
       }
 
-      // Add translated audio track to Mux asset (only when uploadToMux is true)
+      // Add translated audio track to Mux asset (only when uploadToMux is true).
+      // The audio track is the product, so a failure here fails the workflow; the
+      // presigned URL is in the error so the caller can still attach it manually.
       if (uploadToMux) {
         console.warn("📹 Adding dubbed audio track to Mux asset...");
-        // Mux uses ISO 639-1 (2-letter) codes for track language_code
-        const muxLangCode = toISO639_1(toLanguageCode);
-
+        let outcome: Awaited<ReturnType<typeof replaceAndCreateTrack>>;
         try {
-          uploadedTrackId = await createAudioTrackOnMux(assetId, muxLangCode, presignedUrl!, credentials);
-          const languageName = new Intl.DisplayNames(["en"], { type: "language" }).of(muxLangCode) || muxLangCode.toUpperCase();
-          const trackName = `${languageName} (Auto-dubbed)`;
-          console.warn(`✅ Track added to Mux asset with ID: ${uploadedTrackId}`);
-          console.warn(`📋 Track name: "${trackName}"`);
+          outcome = await replaceAndCreateTrack({
+            assetId,
+            target: audioTrackTarget,
+            policy: replaceExistingTracks,
+            presignedUrl: presignedUrl!,
+            passthrough: trackPassthrough,
+            credentials,
+          });
         } catch (error) {
-          console.warn(`⚠️ Failed to add audio track to Mux asset: ${error instanceof Error ? error.message : "Unknown error"}`);
-          console.warn("🔗 You can manually add the track using this presigned URL:");
-          console.warn(presignedUrl);
+          wrapError(error, "Failed to add dubbed audio track to Mux asset");
         }
+        if (outcome.kind === "blocked") {
+          throw new MuxAiError(`${outcome.reason} Dubbed audio is staged at: ${presignedUrl}`, { type: "validation_error" });
+        }
+        if (outcome.kind === "create_failed") {
+          throw new Error(`Failed to add dubbed audio track to Mux asset: ${outcome.reason}. Dubbed audio is staged at: ${presignedUrl}`);
+        }
+        uploadedTrackId = outcome.trackId;
+        replacedTracks = outcome.deleted;
+        console.warn(`✅ Track added to Mux asset with ID: ${uploadedTrackId}`);
+        console.warn(`📋 Track name: "${trackName}"`);
       }
 
       // The dub's translated transcript is the same translation that was voiced, and
       // fetching it costs nothing extra. Soft-fail everything here: a transcript problem
-      // must never fail a completed, paid-for dub.
+      // must never fail a completed, paid-for dub. Conflicts were checked before dubbing,
+      // so a blocked result here is a race with another writer and is logged, not thrown.
       try {
         console.warn("📥 Downloading dub transcript from ElevenLabs and staging to S3...");
         captionsPresignedUrl = await downloadAndUploadDubTranscript({
@@ -745,15 +784,21 @@ export async function translateAudio(
 
         if (uploadCaptionsToMux) {
           console.warn("📹 Adding dubbed captions track to Mux asset...");
-          const muxLangCode = toISO639_1(toLanguageCode);
-          const languageName = new Intl.DisplayNames(["en"], { type: "language" }).of(muxLangCode) || muxLangCode.toUpperCase();
-          captionsTrackId = await createTextTrackOnMux(
+          const captionsOutcome = await replaceAndCreateTrack({
             assetId,
-            muxLangCode,
-            `${languageName} (Auto-dubbed)`,
-            captionsPresignedUrl,
+            target: captionsTrackTarget,
+            policy: replaceExistingTracks,
+            presignedUrl: captionsPresignedUrl,
+            passthrough: trackPassthrough,
             credentials,
-          );
+          });
+          if (captionsOutcome.deleted.length > 0) {
+            replacedTracks = [...(replacedTracks ?? []), ...captionsOutcome.deleted];
+          }
+          if (captionsOutcome.kind !== "created") {
+            throw new Error(captionsOutcome.reason);
+          }
+          captionsTrackId = captionsOutcome.trackId;
           console.warn(`✅ Captions track added to Mux asset with ID: ${captionsTrackId}`);
         }
       } catch (error) {
@@ -787,6 +832,7 @@ export async function translateAudio(
     dubbingId,
     uploadedTrackId,
     presignedUrl,
+    replacedTracks,
     captionsTrackId,
     captionsPresignedUrl,
     createdStaticRenditionId,

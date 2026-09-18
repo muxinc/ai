@@ -808,9 +808,24 @@ ElevenLabs supports 32+ languages with automatic language name detection via `In
 5. Downloads dubbed audio file
 6. Uploads to S3-compatible storage
 7. Generates presigned URL (default 24-hour expiry, configurable via `s3SignedUrlExpirySeconds`)
-8. Adds new audio track to Mux asset
-9. Track name: "{Language} (Auto-dubbed)"
+8. Adds new audio track to Mux asset, replacing existing same-language or same-name audio tracks according to `replaceExistingTracks`
+9. Track name: "{Language} (Auto-dubbed)", or `trackName`
 10. Deletes the static rendition if this run created it (default; set `staticRenditionCleanup: "keep"` to retain it). Runs on failure paths too, and the outcome is reported in `result.staticRenditionCleanup`.
+
+### Replacing Existing Tracks
+
+By default `translateAudio` rejects before dubbing starts if the asset already has an audio track in the target language or with the target name, so a re-dub never pays ElevenLabs only to fail at Mux. Pass `replaceExistingTracks: "replace_all"` to delete the old dub first. The asset's primary audio track is never deleted, under any policy. With `uploadCaptionsToMux`, the same policy applies to the dubbed captions text track, which lives in its own name group.
+
+```typescript
+const result = await translateAudio(assetId, "es", {
+  replaceExistingTracks: "replace_all",
+  uploadCaptionsToMux: true,
+});
+
+console.log(result.replacedTracks); // [{ id, type: "audio", name: "Spanish (Auto-dubbed)", ... }, ...]
+```
+
+A failure creating the audio track fails the workflow, with the staged S3 URL in the error so the track can be attached manually. The captions track stays best-effort: a paid dub is never failed over its transcript.
 
 > [!WARNING]
 > Concurrent `translateAudio` runs on the same asset share one static rendition, and the run that created it deletes it without knowing about its peers — the delete can race another run's ElevenLabs source fetch and fail that dub. When dubbing multiple languages concurrently, either create the `audio.m4a` rendition before fanning out (a pre-existing rendition is never deleted) or pass `staticRenditionCleanup: "keep"` and clean up after the batch.

@@ -34,16 +34,21 @@ export {
   normalizeTrackName,
   planTextTrackReplacement,
   replaceAndCreateTextTrack,
+  replaceAndCreateTrack,
   summarizeTextTrack,
   validateTrackPassthrough,
 } from "./lib/mux-tracks.ts";
 export type {
+  ReplaceableTrackType,
   ReplaceAndCreateTextTrackInput,
   ReplaceAndCreateTextTrackResult,
+  ReplaceAndCreateTrackInput,
   ReplaceExistingTracksPolicy,
   TextTrackReplacementPlan,
   TextTrackSummary,
   TextTrackTarget,
+  TrackSummary,
+  TrackTarget,
 } from "./lib/mux-tracks.ts";
 
 // Workflow credential utilities

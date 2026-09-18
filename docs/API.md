@@ -581,6 +581,10 @@ Creates AI-dubbed audio tracks from existing media content using ElevenLabs voic
 - `fromLanguageCode?: string` - Optional source language code passed to ElevenLabs `source_lang` (ISO 639-1 or ISO 639-3, default: auto-detect)
 - `numSpeakers?: number` - Number of speakers (default: 0 for auto-detect)
 - `uploadToMux?: boolean` - Whether to upload dubbed track to Mux (default: true)
+- `uploadCaptionsToMux?: boolean` - Also attach the dub's translated transcript as a subtitles text track (default: false)
+- `replaceExistingTracks?: 'fail' | 'replace_all' | 'replace_generated'` - What to do when the asset already has an audio track (or, with `uploadCaptionsToMux`, a text track) in the target language or with the target name (default: `'fail'`, which rejects before dubbing starts). `'replace_all'` deletes them first. Audio tracks are never Mux-generated, so `'replace_generated'` only ever removes ASR captions. The asset's primary audio track is never deleted under any policy.
+- `trackName?: string` - Name for the created Mux tracks; audio and text tracks are separate name groups so both get the same name (default: `"<Language> (Auto-dubbed)"`)
+- `trackPassthrough?: string` - `passthrough` written on the created tracks, max 255 characters (default: `{"mux_ai":{"workflow":"translate-audio"}}`)
 - `s3Endpoint?: string` - S3-compatible storage endpoint
 - `s3Region?: string` - S3 region (default: 'auto')
 - `s3Bucket?: string` - S3 bucket name
@@ -599,6 +603,9 @@ interface TranslateAudioResult {
   dubbingId: string; // ElevenLabs dubbing job ID
   uploadedTrackId?: string; // Mux audio track ID (if uploaded)
   presignedUrl?: string; // S3 presigned URL (default expiry: 24 hours)
+  replacedTracks?: TextTrackSummary[]; // Existing audio/text tracks deleted before the uploads; `type` says which group
+  captionsTrackId?: string; // Mux text track ID for the dubbed captions (when uploadCaptionsToMux is true)
+  captionsPresignedUrl?: string; // S3 presigned URL for the dub transcript VTT
   createdStaticRenditionId?: string; // Static rendition ID this run created (undefined if one already existed)
   staticRenditionCleanup: "deleted" | "delete_failed" | "kept" | "not_created";
   usage?: TokenUsage; // Workflow usage metadata

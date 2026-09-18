@@ -125,6 +125,7 @@ describe("planTextTrackReplacement", () => {
       expect(plan.toDelete.map(t => t.id)).toEqual(["a", "b", "d", "c"]);
       expect(plan.toDelete[1]).toEqual({
         id: "b",
+        type: "text",
         name: "English CC",
         languageCode: "en",
         status: "ready",
@@ -176,6 +177,42 @@ describe("planTextTrackReplacement", () => {
     ];
     expect(planTextTrackReplacement(asset(tracks), { languageCode: "en", name: "English (clean)" }, "fail", { keepTrackIds: ["source"] }).kind).toBe("blocked");
     expect(planTextTrackReplacement(asset([tracks[0]]), { languageCode: "en", name: "English (clean)" }, "fail", { keepTrackIds: ["source"] })).toEqual({ kind: "clear" });
+  });
+
+  describe("audio targets", () => {
+    const AUDIO_TARGET = { type: "audio" as const, languageCode: "es", name: "Spanish (Auto-dubbed)" };
+    const primaryAudio = track({ id: "primary", type: "audio", text_type: undefined, text_source: undefined, status: undefined, language_code: "en", name: "English", primary: true });
+    const dubbedEs = track({ id: "dub-es", type: "audio", text_type: undefined, text_source: undefined, status: undefined, language_code: "es", name: "Spanish (Auto-dubbed)" });
+    const textEs = track({ id: "text-es", language_code: "es", name: "Spanish (Auto-dubbed)" });
+
+    it("matches only audio tracks, so a same-named text track is not a conflict and vice versa", () => {
+      expect(planTextTrackReplacement(asset([textEs]), AUDIO_TARGET, "fail")).toEqual({ kind: "clear" });
+      expect(planTextTrackReplacement(asset([dubbedEs]), { ...AUDIO_TARGET, type: "text" }, "fail")).toEqual({ kind: "clear" });
+    });
+
+    it("replaces a previous dub under replace_all and reports its type", () => {
+      const plan = planTextTrackReplacement(asset([primaryAudio, dubbedEs]), AUDIO_TARGET, "replace_all");
+      expect(plan).toEqual({ kind: "replace", toDelete: [expect.objectContaining({ id: "dub-es", type: "audio", primary: false })] });
+    });
+
+    it("never deletes the primary audio track, under any policy", () => {
+      for (const policy of ["replace_all", "replace_generated"] as const) {
+        const plan = planTextTrackReplacement(asset([primaryAudio]), { type: "audio", languageCode: "en", name: "Other" }, policy);
+        expect(plan.kind).toBe("blocked");
+        if (plan.kind === "blocked") {
+          expect(plan.reason).toContain("primary audio");
+          expect(plan.tracks).toEqual([expect.objectContaining({ id: "primary", primary: true })]);
+        }
+      }
+    });
+
+    it("blocks under replace_generated because audio tracks are never Mux-generated", () => {
+      const plan = planTextTrackReplacement(asset([dubbedEs]), AUDIO_TARGET, "replace_generated");
+      expect(plan.kind).toBe("blocked");
+      if (plan.kind === "blocked") {
+        expect(plan.reason).toContain("Audio track(s) that are not Mux-generated");
+      }
+    });
   });
 
   it("ignores tracks without an id", () => {

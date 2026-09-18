@@ -5,7 +5,7 @@ vi.mock("../../src/lib/workflow-credentials", () => ({
 }));
 
 const { resolveMuxClient } = await import("../../src/lib/workflow-credentials");
-const { replaceAndCreateTextTrack } = await import("../../src/lib/mux-tracks");
+const { replaceAndCreateTextTrack, replaceAndCreateTrack } = await import("../../src/lib/mux-tracks");
 
 const ASR_EN = { id: "asr-en", type: "text", text_type: "subtitles", status: "ready", language_code: "en", name: "English CC", text_source: "generated_vod" };
 const UPLOADED_EN = { id: "up-en", type: "text", text_type: "subtitles", status: "ready", language_code: "en", name: "English", text_source: "uploaded" };
@@ -118,6 +118,25 @@ describe("replaceAndCreateTextTrack", () => {
 
     expect(result).toEqual({ kind: "create_failed", reason: "url unreachable", deleted: [expect.objectContaining({ id: "up-en" })] });
     expect(createTrack).toHaveBeenCalledTimes(1);
+  });
+
+  it("creates an audio track without text-only fields and only deletes audio conflicts", async () => {
+    const primary = { id: "primary", type: "audio", language_code: "en", name: "English", primary: true };
+    const oldDub = { id: "old-dub", type: "audio", language_code: "es", name: "Spanish (Auto-dubbed)" };
+    const sameNameText = { id: "text-es", type: "text", text_type: "subtitles", status: "ready", language_code: "es", name: "Spanish (Auto-dubbed)" };
+    retrieve.mockResolvedValue({ id: "asset-1", tracks: [primary, oldDub, sameNameText] });
+    createTrack.mockResolvedValue({ id: "new-dub" });
+
+    const result = await replaceAndCreateTrack({
+      ...INPUT,
+      target: { type: "audio", languageCode: "es", name: "Spanish (Auto-dubbed)" },
+      policy: "replace_all",
+      closedCaptions: true,
+    });
+
+    expect(result).toEqual({ kind: "created", trackId: "new-dub", deleted: [expect.objectContaining({ id: "old-dub", type: "audio" })] });
+    expect(deleteTrack).toHaveBeenCalledTimes(1);
+    expect(createTrack).toHaveBeenCalledWith("asset-1", { type: "audio", language_code: "es", name: "Spanish (Auto-dubbed)", url: INPUT.presignedUrl, passthrough: INPUT.passthrough });
   });
 
   it("returns create_failed with the deletions so far when a later delete fails", async () => {
