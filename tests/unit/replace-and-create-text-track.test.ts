@@ -120,11 +120,34 @@ describe("replaceAndCreateTextTrack", () => {
     expect(createTrack).toHaveBeenCalledTimes(1);
   });
 
-  it("propagates unexpected delete errors", async () => {
-    retrieve.mockResolvedValue({ id: "asset-1", tracks: [UPLOADED_EN] });
-    deleteTrack.mockRejectedValue(Object.assign(new Error("forbidden"), { status: 403 }));
+  it("returns create_failed with the deletions so far when a later delete fails", async () => {
+    retrieve.mockResolvedValue({ id: "asset-1", tracks: [ASR_EN, UPLOADED_EN] });
+    deleteTrack
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(Object.assign(new Error("forbidden"), { status: 403 }));
 
-    await expect(replaceAndCreateTextTrack({ ...INPUT, policy: "replace_all" })).rejects.toThrow("forbidden");
+    const result = await replaceAndCreateTextTrack({ ...INPUT, policy: "replace_all" });
+
+    expect(result).toEqual({ kind: "create_failed", reason: "forbidden", deleted: [expect.objectContaining({ id: "asr-en" })] });
+    expect(createTrack).not.toHaveBeenCalled();
+  });
+
+  it("returns create_failed with the deletions when the retry's asset fetch fails", async () => {
+    retrieve
+      .mockResolvedValueOnce({ id: "asset-1", tracks: [ASR_EN] })
+      .mockRejectedValueOnce(new Error("mux down"));
+    createTrack.mockRejectedValueOnce(duplicateNameError("English"));
+
+    const result = await replaceAndCreateTextTrack({ ...INPUT, policy: "replace_all" });
+
+    expect(result).toEqual({ kind: "create_failed", reason: "mux down", deleted: [expect.objectContaining({ id: "asr-en" })] });
+  });
+
+  it("still throws when the first asset fetch fails, since nothing has been deleted", async () => {
+    retrieve.mockRejectedValue(new Error("mux down"));
+
+    await expect(replaceAndCreateTextTrack({ ...INPUT, policy: "replace_all" })).rejects.toThrow("mux down");
+    expect(deleteTrack).not.toHaveBeenCalled();
     expect(createTrack).not.toHaveBeenCalled();
   });
 });

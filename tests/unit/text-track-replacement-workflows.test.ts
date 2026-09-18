@@ -152,6 +152,20 @@ describe("translateCaptions text track replacement", () => {
     vi.mocked(replaceAndCreateTextTrack).mockResolvedValueOnce({ kind: "create_failed", reason: "boom", deleted: [] });
     const failed = await captureRejection(translateCaptions("asset-1", "track-en", "es", OPTIONS));
     expect(failed.message).toContain("boom");
+    expect(failed.message).not.toContain("already deleted");
+  });
+
+  it("names the tracks already deleted when the create fails after deletions", async () => {
+    vi.mocked(replaceAndCreateTextTrack).mockResolvedValueOnce({
+      kind: "create_failed",
+      reason: "boom",
+      deleted: [{ id: "track-es-asr", name: "Spanish CC", languageCode: "es", textSource: "generated_vod" }],
+    });
+
+    const failed = await captureRejection(translateCaptions("asset-1", "track-en", "es", { ...OPTIONS, replaceExistingTracks: "replace_generated" }));
+
+    expect(failed.message).toContain("boom");
+    expect(failed.message).toContain("Spanish CC (track-es-asr)");
   });
 
   it("rejects an over-long trackPassthrough before doing any work", async () => {

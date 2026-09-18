@@ -1422,14 +1422,16 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
       } catch (error) {
         wrapError(error, "Failed to add translated track to Mux asset");
       }
-      if (outcome.kind === "blocked") {
+      if (outcome.kind !== "created") {
+        // Nothing to restore here: only target-language tracks are ever deleted
+        // and the translation has no copy of them. Name what was lost instead.
         const deletedNote = outcome.deleted.length > 0 ?
-          ` Tracks already deleted before the conflict appeared: ${outcome.deleted.map(track => `${track.name ?? track.id} (${track.id})`).join(", ")}.` :
+          ` Tracks already deleted before the failure: ${outcome.deleted.map(track => `${track.name ?? track.id} (${track.id})`).join(", ")}.` :
           "";
-        throw new MuxAiError(`${outcome.reason}${deletedNote}`, { type: "validation_error" });
-      }
-      if (outcome.kind === "create_failed") {
-        throw new Error(`Failed to add translated track to Mux asset: ${outcome.reason}`);
+        if (outcome.kind === "blocked") {
+          throw new MuxAiError(`${outcome.reason}${deletedNote}`, { type: "validation_error" });
+        }
+        throw new Error(`Failed to add translated track to Mux asset: ${outcome.reason}.${deletedNote}`);
       }
       uploadedTrackId = outcome.trackId;
       replacedTracks = outcome.deleted;

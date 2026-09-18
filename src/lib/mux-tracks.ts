@@ -273,7 +273,12 @@ export interface ReplaceAndCreateTextTrackInput {
  * Fetches the asset fresh, deletes whatever `policy` allows, then creates the
  * new text track. Known outcomes come back as discriminated results rather than
  * throws so callers can react (Workflow DevKit turns repeated step throws into
- * a FatalError). Unexpected Mux failures during the fetch or deletes still throw.
+ * a FatalError).
+ *
+ * The only throw is a failed asset fetch before anything has been deleted,
+ * which is safe to retry. Once a track has been deleted every failure, Mux or
+ * otherwise, is returned as `create_failed` with the `deleted` list so the
+ * caller can restore what was removed.
  *
  * A duplicate-name rejection on create is retried once after re-planning
  * against a fresh asset, which covers a track appearing between the plan and
@@ -285,8 +290,22 @@ export async function replaceAndCreateTextTrack(input: ReplaceAndCreateTextTrack
   const mux = await muxClient.createClient();
   const deleted: TextTrackSummary[] = [];
 
-  const clearConflicts = async (): Promise<Extract<ReplaceAndCreateTextTrackResult, { kind: "blocked" }> | undefined> => {
-    const asset = await mux.video.assets.retrieve(input.assetId);
+  const failed = (error: unknown): Extract<ReplaceAndCreateTextTrackResult, { kind: "create_failed" }> => ({
+    kind: "create_failed",
+    reason: error instanceof Error ? error.message : String(error),
+    deleted,
+  });
+
+  const clearConflicts = async (): Promise<Exclude<ReplaceAndCreateTextTrackResult, { kind: "created" }> | undefined> => {
+    let asset: MuxAsset;
+    try {
+      asset = await mux.video.assets.retrieve(input.assetId);
+    } catch (error) {
+      if (deleted.length === 0) {
+        throw error;
+      }
+      return failed(error);
+    }
     const plan = planTextTrackReplacement(asset, input.target, input.policy, { keepTrackIds: input.keepTrackIds });
     if (plan.kind === "blocked") {
       return { ...plan, deleted };
@@ -298,7 +317,7 @@ export async function replaceAndCreateTextTrack(input: ReplaceAndCreateTextTrack
           deleted.push(track);
         } catch (error) {
           if (!isNotFoundError(error)) {
-            throw error;
+            return failed(error);
           }
         }
       }
@@ -322,9 +341,9 @@ export async function replaceAndCreateTextTrack(input: ReplaceAndCreateTextTrack
     return track.id;
   };
 
-  const blocked = await clearConflicts();
-  if (blocked) {
-    return blocked;
+  const stopped = await clearConflicts();
+  if (stopped) {
+    return stopped;
   }
 
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -332,17 +351,13 @@ export async function replaceAndCreateTextTrack(input: ReplaceAndCreateTextTrack
       return { kind: "created", trackId: await create(), deleted };
     } catch (error) {
       if (isDuplicateTrackNameError(error) && attempt === 0) {
-        const blockedOnRetry = await clearConflicts();
-        if (blockedOnRetry) {
-          return blockedOnRetry;
+        const stoppedOnRetry = await clearConflicts();
+        if (stoppedOnRetry) {
+          return stoppedOnRetry;
         }
         continue;
       }
-      return {
-        kind: "create_failed",
-        reason: error instanceof Error ? error.message : String(error),
-        deleted,
-      };
+      return failed(error);
     }
   }
 
