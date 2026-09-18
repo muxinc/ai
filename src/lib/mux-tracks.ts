@@ -9,30 +9,42 @@ import { resolveMuxClient } from "./workflow-credentials.ts";
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * How a workflow treats text tracks that already exist on the asset when it
- * is about to create a new one.
+ * How a workflow treats tracks that already exist on the asset when it is
+ * about to create a new one.
  *
  * - `fail`: stop before doing any work if a same-language or same-name track exists.
  * - `replace_all`: delete every same-language and same-name track first.
  * - `replace_generated`: delete Mux-generated (ASR) tracks; stop if any other track is in the way.
+ *   Audio tracks are never Mux-generated, so for audio this behaves like `fail`.
  */
 export type ReplaceExistingTracksPolicy = "fail" | "replace_all" | "replace_generated";
 
-/** The `(language_code, name)` pair a workflow is about to write to Mux. */
+/** Mux track types that share a name-uniqueness group among themselves. */
+export type ReplaceableTrackType = "text" | "audio";
+
+/** The `(type, language_code, name)` a workflow is about to write to Mux. `type` defaults to `text`. */
 export interface TextTrackTarget {
   languageCode: string;
   name: string;
+  type?: ReplaceableTrackType;
 }
 
-/** Serializable description of a text track, safe to return across step boundaries. */
+export type TrackTarget = TextTrackTarget;
+
+/** Serializable description of a track, safe to return across step boundaries. */
 export interface TextTrackSummary {
   id: string;
+  type?: ReplaceableTrackType;
   name?: string;
   languageCode?: string;
   status?: string;
   textSource?: string;
   passthrough?: string;
+  /** Audio only: the asset's original audio, which Mux refuses to delete. */
+  primary?: boolean;
 }
+
+export type TrackSummary = TextTrackSummary;
 
 export type TextTrackReplacementPlan =
   { kind: "clear" } |
@@ -84,54 +96,69 @@ export function isMuxGeneratedTextTrack(track: AssetTextTrack): boolean {
     track.text_source === "generated_live_final";
 }
 
-function listTextTracks(asset: MuxAsset): AssetTextTrack[] {
-  return (asset.tracks ?? []).filter(track => track.type === "text" && track.status !== "deleted" && !!track.id);
+function targetType(target: TextTrackTarget): ReplaceableTrackType {
+  return target.type ?? "text";
+}
+
+function listTracks(asset: MuxAsset, type: ReplaceableTrackType): AssetTextTrack[] {
+  return (asset.tracks ?? []).filter(track => track.type === type && track.status !== "deleted" && !!track.id);
 }
 
 export function summarizeTextTrack(track: AssetTextTrack): TextTrackSummary {
   return {
     id: track.id!,
+    type: track.type === "audio" ? "audio" : "text",
     name: track.name,
     languageCode: track.language_code,
     status: track.status,
     textSource: track.text_source,
     passthrough: track.passthrough,
+    ...(track.type === "audio" ? { primary: track.primary === true } : {}),
   };
 }
 
-/** Subtitles tracks whose language matches the target's, in any status but `deleted`. */
+/**
+ * Tracks of the target's type whose language matches the target's, in any
+ * status but `deleted`. Text tracks must be subtitles; audio tracks match on
+ * language alone.
+ */
 export function findSameLanguageTextTracks(asset: MuxAsset, target: TextTrackTarget): AssetTextTrack[] {
   const targetLanguage = normalizeTrackLanguageCode(target.languageCode);
   if (!targetLanguage) {
     return [];
   }
-  return listTextTracks(asset).filter(track =>
-    track.text_type === "subtitles" && normalizeTrackLanguageCode(track.language_code) === targetLanguage,
+  const type = targetType(target);
+  return listTracks(asset, type).filter(track =>
+    (type === "audio" || track.text_type === "subtitles") &&
+    normalizeTrackLanguageCode(track.language_code) === targetLanguage,
   );
 }
 
-/** Text tracks whose name collides with the target's under Mux's uniqueness rule. */
+/** Tracks of the target's type whose name collides with the target's under Mux's uniqueness rule. */
 export function findNameCollisionTextTracks(asset: MuxAsset, target: TextTrackTarget): AssetTextTrack[] {
   const targetName = normalizeTrackName(target.name);
   if (!targetName) {
     return [];
   }
-  return listTextTracks(asset).filter(track => normalizeTrackName(track.name) === targetName);
+  return listTracks(asset, targetType(target)).filter(track => normalizeTrackName(track.name) === targetName);
 }
 
 function describeTracks(tracks: AssetTextTrack[]): string {
   return tracks
-    .map(track => `${track.name ?? "(unnamed)"} [${track.language_code ?? "?"}, ${track.text_source ?? "unknown source"}, ${track.status ?? "unknown status"}]`)
+    .map(track => `${track.name ?? "(unnamed)"} [${track.language_code ?? "?"}, ${track.type === "audio" ? (track.primary ? "primary audio" : "audio") : (track.text_source ?? "unknown source")}, ${track.status ?? "ready"}]`)
     .join("; ");
 }
 
 /**
- * Decides which existing text tracks stand in the way of `target` and what
- * `policy` says to do about them. Pure: pass the freshest asset you have.
+ * Decides which existing tracks stand in the way of `target` and what `policy`
+ * says to do about them. Pure: pass the freshest asset you have.
  *
  * `keepTrackIds` marks tracks that are allowed to coexist with the new one and
  * are never treated as conflicts. edit-captions uses it under `fail` to keep
  * the source track it is editing.
+ *
+ * A conflicting primary audio track always blocks: Mux refuses to delete it and
+ * it is the customer's original audio.
  */
 export function planTextTrackReplacement(
   asset: MuxAsset,
@@ -139,6 +166,7 @@ export function planTextTrackReplacement(
   policy: ReplaceExistingTracksPolicy,
   options: { keepTrackIds?: string[] } = {},
 ): TextTrackReplacementPlan {
+  const label = targetType(target) === "audio" ? "Audio" : "Text";
   const keep = new Set(options.keepTrackIds ?? []);
   const conflicts = new Map<string, AssetTextTrack>();
   for (const track of [...findSameLanguageTextTracks(asset, target), ...findNameCollisionTextTracks(asset, target)]) {
@@ -155,17 +183,26 @@ export function planTextTrackReplacement(
   if (policy === "fail") {
     return {
       kind: "blocked",
-      reason: `Text track(s) already exist for language '${target.languageCode}' or name '${target.name}': ${describeTracks(conflicting)}. Set replaceExistingTracks to replace them.`,
+      reason: `${label} track(s) already exist for language '${target.languageCode}' or name '${target.name}': ${describeTracks(conflicting)}. Set replaceExistingTracks to replace them.`,
       tracks: conflicting.map(summarizeTextTrack),
     };
   }
 
+  const primary = conflicting.filter(track => track.type === "audio" && track.primary === true);
+  if (primary.length > 0) {
+    return {
+      kind: "blocked",
+      reason: `The asset's primary audio track is in the way for language '${target.languageCode}' or name '${target.name}': ${describeTracks(primary)}. Primary audio cannot be replaced; choose a different trackName.`,
+      tracks: primary.map(summarizeTextTrack),
+    };
+  }
+
   if (policy === "replace_generated") {
-    const notGenerated = conflicting.filter(track => !isMuxGeneratedTextTrack(track));
+    const notGenerated = conflicting.filter(track => track.type !== "text" || !isMuxGeneratedTextTrack(track));
     if (notGenerated.length > 0) {
       return {
         kind: "blocked",
-        reason: `Text track(s) that are not Mux-generated exist for language '${target.languageCode}' or name '${target.name}': ${describeTracks(notGenerated)}. Use replaceExistingTracks: "replace_all" to replace them.`,
+        reason: `${label} track(s) that are not Mux-generated exist for language '${target.languageCode}' or name '${target.name}': ${describeTracks(notGenerated)}. Use replaceExistingTracks: "replace_all" to replace them.`,
         tracks: notGenerated.map(summarizeTextTrack),
       };
     }
@@ -262,6 +299,7 @@ export interface ReplaceAndCreateTextTrackInput {
   target: TextTrackTarget;
   policy: ReplaceExistingTracksPolicy;
   presignedUrl: string;
+  /** Text tracks only. */
   closedCaptions?: boolean;
   passthrough?: string;
   /** Tracks that may coexist with the new one; see `planTextTrackReplacement`. */
@@ -269,11 +307,13 @@ export interface ReplaceAndCreateTextTrackInput {
   credentials?: WorkflowCredentialsInput;
 }
 
+export type ReplaceAndCreateTrackInput = ReplaceAndCreateTextTrackInput;
+
 /**
  * Fetches the asset fresh, deletes whatever `policy` allows, then creates the
- * new text track. Known outcomes come back as discriminated results rather than
- * throws so callers can react (Workflow DevKit turns repeated step throws into
- * a FatalError).
+ * new track of `target.type` (default `text`). Known outcomes come back as
+ * discriminated results rather than throws so callers can react (Workflow
+ * DevKit turns repeated step throws into a FatalError).
  *
  * The only throw is a failed asset fetch before anything has been deleted,
  * which is safe to retry. Once a track has been deleted every failure, Mux or
@@ -284,10 +324,11 @@ export interface ReplaceAndCreateTextTrackInput {
  * against a fresh asset, which covers a track appearing between the plan and
  * the create.
  */
-export async function replaceAndCreateTextTrack(input: ReplaceAndCreateTextTrackInput): Promise<ReplaceAndCreateTextTrackResult> {
+export async function replaceAndCreateTrack(input: ReplaceAndCreateTextTrackInput): Promise<ReplaceAndCreateTextTrackResult> {
   "use step";
   const muxClient = await resolveMuxClient(input.credentials);
   const mux = await muxClient.createClient();
+  const type = targetType(input.target);
   const deleted: TextTrackSummary[] = [];
 
   const failed = (error: unknown): Extract<ReplaceAndCreateTextTrackResult, { kind: "create_failed" }> => ({
@@ -327,16 +368,15 @@ export async function replaceAndCreateTextTrack(input: ReplaceAndCreateTextTrack
 
   const create = async (): Promise<string> => {
     const track = await mux.video.assets.createTrack(input.assetId, {
-      type: "text",
-      text_type: "subtitles",
+      type,
+      ...(type === "text" ? { text_type: "subtitles", closed_captions: input.closedCaptions } : {}),
       language_code: input.target.languageCode,
       name: input.target.name.trim(),
       url: input.presignedUrl,
-      closed_captions: input.closedCaptions,
       passthrough: input.passthrough,
     });
     if (!track.id) {
-      throw new Error("Failed to create text track: no track ID returned from Mux");
+      throw new Error(`Failed to create ${type} track: no track ID returned from Mux`);
     }
     return track.id;
   };
@@ -362,4 +402,10 @@ export async function replaceAndCreateTextTrack(input: ReplaceAndCreateTextTrack
   }
 
   return { kind: "create_failed", reason: "Mux rejected the track name as not unique after retrying.", deleted };
+}
+
+/** `replaceAndCreateTrack` pinned to text tracks. */
+export async function replaceAndCreateTextTrack(input: ReplaceAndCreateTextTrackInput): Promise<ReplaceAndCreateTextTrackResult> {
+  "use step";
+  return replaceAndCreateTrack({ ...input, target: { ...input.target, type: "text" } });
 }
