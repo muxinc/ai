@@ -99,6 +99,7 @@
     "example:moderation:compare": "npx tsx examples/moderation/provider-comparison.ts",
     "example:moderation:scoped": "npx tsx examples/moderation/scoped-execution.ts",
     "example:embeddings": "npx tsx examples/embeddings/basic-example.ts",
+    "example:generate-text": "npx tsx examples/generate-text/basic-example.ts",
     "example:embeddings:scoped": "npx tsx examples/embeddings/scoped-execution.ts",
     "example:edit-captions": "npx tsx examples/edit-captions/basic-example.ts",
     "example:translate-captions": "npx tsx examples/translate-captions/basic-example.ts",
