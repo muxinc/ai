@@ -31,7 +31,7 @@ Every eval in this library measures workflows against three dimensions:
 - How do costs compare for equivalent quality?
 - Where are opportunities for prompt optimization?
 
-This framework enables systematic evaluation of default model selections across all supported providers and helps users understand the tradeoffs between OpenAI, Anthropic, and Google.
+This framework enables systematic evaluation of default model selections across the currently evaluated providers and helps users understand the tradeoffs between OpenAI, Anthropic, and Google. Baseten and generic OpenAI-compatible endpoints serve user-deployed models, so they are supported at runtime but intentionally excluded from eval model iteration.
 
 ### Practical Application
 
@@ -61,9 +61,11 @@ This runs all `*.eval.ts` files in one pass and opens the Evalite UI at `http://
 
 By default, evals run against provider default models only:
 
-- `openai:gpt-5.1`
+- `openai:gpt-5.6-luna` (medium reasoning)
 - `anthropic:claude-sonnet-4-5`
 - `google:gemini-3-flash-preview`
+
+Baseten and OpenAI-compatible endpoints are intentionally skipped by eval model selection. `MUX_AI_EVAL_MODEL_SET=default|all` does not include them, and explicit `MUX_AI_EVAL_MODELS=baseten:...` or `openai-compatible:...` entries are filtered out before evals run.
 
 To run all configured models in `LANGUAGE_MODELS`:
 
@@ -74,7 +76,7 @@ npx tsx scripts/export-evalite-results.ts --model-set all
 To run an explicit list:
 
 ```bash
-npx tsx scripts/export-evalite-results.ts --models openai:gpt-5.1,openai:gpt-5-mini,google:gemini-2.5-flash
+npx tsx scripts/export-evalite-results.ts --models openai:gpt-5.6-luna,openai:gpt-5-mini,google:gemini-2.5-flash
 ```
 
 The same behavior is available via env vars:
@@ -246,16 +248,19 @@ This enables side-by-side comparison of:
 
 Evals calculate estimated costs using per-model pricing for all supported models:
 
-| Provider | Model | Input (per 1M tokens) | Output (per 1M tokens) |
-|----------|-------|----------------------|------------------------|
-| OpenAI | gpt-5.1 (default) | $1.25 | $10.00 |
-| OpenAI | gpt-5-mini | $0.25 | $2.00 |
-| Anthropic | claude-sonnet-4-5 (default) | $3.00 | $15.00 |
-| Google | gemini-3-flash-preview (default) | $0.50 | $3.00 |
-| Google | gemini-2.5-flash | $0.30 | $2.50 |
+| Provider | Model | Input (per 1M tokens) | Cached input (per 1M tokens) | Output (per 1M tokens) |
+|----------|-------|----------------------|-----------------------------|------------------------|
+| OpenAI | gpt-5.6-luna (default, medium reasoning) | $0.20 | $0.02 | $1.20 |
+| OpenAI | gpt-5.1 (deprecated; sunset 2026-10-01) | $1.25 | $0.125 | $10.00 |
+| OpenAI | gpt-5-mini | $0.25 | $0.025 | $2.00 |
+| Anthropic | claude-sonnet-4-5 (default) | $3.00 | $0.30 | $15.00 |
+| Google | gemini-3-flash-preview (default) | $0.50 | $0.05 | $3.00 |
+| Google | gemini-2.5-flash | $0.30 | $0.03 | $2.50 |
+
+GPT-5.6 Luna cache writes cost $0.25 per 1M tokens. Above 272K input tokens, the full request uses long-context rates of $0.40 input, $0.04 cached input, $0.50 cache writes, and $1.80 output per 1M tokens.
 
 Pricing sources (verify periodically):
-- [OpenAI Pricing](https://openai.com/api/pricing)
+- [OpenAI Pricing](https://developers.openai.com/api/docs/pricing)
 - [Anthropic Pricing](https://www.anthropic.com/pricing)
 - [Google AI Pricing](https://ai.google.dev/gemini-api/docs/pricing)
 

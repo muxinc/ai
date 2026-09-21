@@ -22,6 +22,35 @@ export type {
 export { MuxAiError, wrapError } from "./lib/mux-ai-error.ts";
 export type { MuxAiErrorType } from "./lib/mux-ai-error.ts";
 
+// Mux text track replacement
+export {
+  buildMuxAiTrackPassthrough,
+  findNameCollisionTextTracks,
+  findSameLanguageTextTracks,
+  isDuplicateTrackNameError,
+  isMuxGeneratedTextTrack,
+  MUX_TRACK_PASSTHROUGH_MAX_CHARS,
+  normalizeTrackLanguageCode,
+  normalizeTrackName,
+  planTextTrackReplacement,
+  replaceAndCreateTextTrack,
+  replaceAndCreateTrack,
+  summarizeTextTrack,
+  validateTrackPassthrough,
+} from "./lib/mux-tracks.ts";
+export type {
+  ReplaceableTrackType,
+  ReplaceAndCreateTextTrackInput,
+  ReplaceAndCreateTextTrackResult,
+  ReplaceAndCreateTrackInput,
+  ReplaceExistingTracksPolicy,
+  TextTrackReplacementPlan,
+  TextTrackSummary,
+  TextTrackTarget,
+  TrackSummary,
+  TrackTarget,
+} from "./lib/mux-tracks.ts";
+
 // Workflow credential utilities
 export { setWorkflowCredentialsProvider } from "./lib/workflow-credentials.ts";
 export type { WorkflowCredentialsProvider } from "./lib/workflow-credentials.ts";

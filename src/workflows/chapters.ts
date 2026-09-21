@@ -2,6 +2,10 @@ import { generateText, Output } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
+import {
+  getGeneratedOutputWithContentPolicyHandling,
+  withContentPolicyAwareRetry,
+} from "../lib/content-policy-error.ts";
 import { getLanguageName } from "../lib/language-codes.ts";
 import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import {
@@ -20,15 +24,16 @@ import {
 } from "../lib/prompt-fragments.ts";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
-import { withRetry } from "../lib/retry.ts";
+import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
+import { hasWorkflowScopeBoundaries, resolveWorkflowScope } from "../lib/workflow-scope.ts";
 import {
   extractTimestampedTranscript,
   fetchTranscriptForAsset,
   getReadyTextTracks,
   getReliableLanguageCode,
 } from "../primitives/transcripts.ts";
-import type { MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "../types.ts";
+import type { ScopedMuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "../types.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -107,7 +112,7 @@ export type ChaptersPromptSections =
 export type ChaptersPromptOverrides = PromptOverrides<ChaptersPromptSections>;
 
 /** Configuration accepted by `generateChapters`. */
-export interface ChaptersOptions extends MuxAIOptions {
+export interface ChaptersOptions extends ScopedMuxAIOptions {
   /** BCP 47 language code of the caption track to use (e.g. "en", "fr"). When omitted, prefers English if available. */
   languageCode?: string;
   /** AI provider used to interpret the transcript (defaults to 'openai'). */
@@ -165,22 +170,19 @@ async function generateChaptersWithAI({
 
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
 
-  const response = await withRetry(() =>
-    generateText({
-      model,
-      output: Output.object({ schema: chaptersSchema }),
-      messages: [
-        {
-          role: "system",
-          content: systemPrompt,
-        },
-        {
-          role: "user",
-          content: userPrompt,
-        },
-      ],
-    }),
-  );
+  const response = await withContentPolicyAwareRetry(() => generateText({
+    model,
+    maxRetries: 0,
+    output: Output.object({ schema: chaptersSchema }),
+    system: systemPrompt,
+    messages: [
+      {
+        role: "user",
+        content: userPrompt,
+      },
+    ],
+  }));
+  const output = getGeneratedOutputWithContentPolicyHandling(response);
 
   // Detect schema-smuggling. response.output has already been stripped;
   // re-parse response.text to see what the model actually emitted.
@@ -205,13 +207,14 @@ async function generateChaptersWithAI({
   }
 
   return {
-    chapters: response.output,
+    chapters: output,
     usage: {
       inputTokens: response.usage.inputTokens,
       outputTokens: response.usage.outputTokens,
       totalTokens: response.usage.totalTokens,
       reasoningTokens: response.usage.reasoningTokens,
       cachedInputTokens: response.usage.cachedInputTokens,
+      cacheWriteTokens: response.usage.inputTokenDetails?.cacheWriteTokens,
     },
     unexpectedRootKeys,
     unexpectedChapterKeys,
@@ -328,12 +331,14 @@ function buildUserPrompt({
   minChaptersPerHour = 3,
   maxChaptersPerHour = 8,
   languageName,
+  scope,
 }: {
   timestampedTranscript: string;
   promptOverrides?: ChaptersPromptOverrides;
   minChaptersPerHour?: number;
   maxChaptersPerHour?: number;
   languageName?: string;
+  scope?: { startTime: number; endTime: number };
 }): string {
   const contextSections: PromptSection[] = [
     {
@@ -351,6 +356,7 @@ function buildUserPrompt({
   const dynamicChapterGuidelines = dedent`
     - Create at least ${minChaptersPerHour} and at most ${maxChaptersPerHour} chapters per hour of content
     - Use start times in seconds (not HH:MM:SS)
+    ${scope ? `- Analyze only the range from ${scope.startTime}s (inclusive) to ${scope.endTime}s (exclusive)\n- The first chapter must start at ${scope.startTime}s` : ""}
     - Chapter start times should be non-decreasing
     - Do not include text before or after the JSON`;
 
@@ -368,6 +374,19 @@ export async function generateChapters(
   options: ChaptersOptions = {},
 ): Promise<ChaptersResult> {
   "use workflow";
+  const collectedUsage: TokenUsage[] = [];
+  try {
+    return await generateChaptersInternal(assetId, options, collectedUsage);
+  } catch (error) {
+    rethrowWithTokenUsage(error, collectedUsage);
+  }
+}
+
+async function generateChaptersInternal(
+  assetId: string,
+  options: ChaptersOptions,
+  collectedUsage: TokenUsage[],
+): Promise<ChaptersResult> {
   const {
     languageCode,
     provider = "openai",
@@ -377,6 +396,7 @@ export async function generateChapters(
     maxChaptersPerHour,
     credentials,
     outputLanguageCode,
+    scope,
   } = options;
 
   const modelConfig = resolveLanguageModelConfig({
@@ -385,8 +405,12 @@ export async function generateChapters(
     provider: provider as SupportedProvider,
   });
   // Fetch asset and transcript
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials, options.assetSnapshot);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
+  const effectiveScope = hasWorkflowScopeBoundaries(scope) ? scope : undefined;
+  const resolvedScope = effectiveScope ?
+      resolveWorkflowScope(effectiveScope, assetDurationSeconds) :
+    undefined;
   const isAudioOnly = isAudioOnlyAsset(assetData);
 
   // Resolve signing context for signed playback IDs
@@ -405,6 +429,7 @@ export async function generateChapters(
     cleanTranscript: false, // keep timestamps for chapter segmentation
     shouldSign: policy === "signed",
     credentials,
+    scope: effectiveScope,
   });
 
   if (!transcriptResult.track || !transcriptResult.transcriptText) {
@@ -436,6 +461,7 @@ export async function generateChapters(
     minChaptersPerHour,
     maxChaptersPerHour,
     languageName,
+    scope: resolvedScope,
   });
 
   // Generate chapters using AI SDK
@@ -456,6 +482,10 @@ export async function generateChapters(
     wrapError(error, `Failed to generate chapters with ${provider}`);
   }
 
+  if (chaptersData) {
+    collectedUsage.push(chaptersData.usage);
+  }
+
   if (!chaptersData || !chaptersData.chapters) {
     throw new MuxAiError(`Failed to generate chapters for asset ${assetId}.`);
   }
@@ -464,6 +494,12 @@ export async function generateChapters(
   const { chapters: chaptersPayload, usage } = chaptersData;
   const validChapters = chaptersPayload.chapters
     .filter(chapter => typeof chapter.startTime === "number" && typeof chapter.title === "string")
+    .filter(chapter =>
+      resolvedScope ?
+        chapter.startTime >= resolvedScope.startTime &&
+        chapter.startTime < resolvedScope.endTime :
+        true,
+    )
     .sort((a, b) => a.startTime - b.startTime);
 
   if (validChapters.length === 0) {
@@ -522,9 +558,10 @@ export async function generateChapters(
     throw new MuxAiError(`Failed to generate valid chapters for asset ${assetId}.`);
   }
 
-  // Ensure first chapter starts at 0
-  if (scrubbedChapters[0].startTime !== 0) {
-    scrubbedChapters[0].startTime = 0;
+  // Ensure the first chapter starts at the beginning of the analyzed range.
+  const firstChapterStartTime = resolvedScope?.startTime ?? 0;
+  if (scrubbedChapters[0].startTime !== firstChapterStartTime) {
+    scrubbedChapters[0].startTime = firstChapterStartTime;
   }
 
   const usageWithMetadata: TokenUsage = {

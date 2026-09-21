@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isAudioOnlyAsset } from "../../src/lib/mux-assets";
+import { getPlaybackIdForAsset, isAudioOnlyAsset } from "../../src/lib/mux-assets";
 import type { MuxAsset } from "../../src/types";
 
 describe("isAudioOnlyAsset", () => {
@@ -91,5 +91,27 @@ describe("isAudioOnlyAsset", () => {
     };
 
     expect(isAudioOnlyAsset(audioTextAsset as MuxAsset)).toBe(true);
+  });
+});
+
+describe("getPlaybackIdForAsset", () => {
+  const asset = {
+    id: "asset-123",
+    playback_ids: [{ id: "playback-123", policy: "public" }],
+  } as MuxAsset;
+
+  it("uses a supplied asset snapshot", async () => {
+    await expect(getPlaybackIdForAsset("asset-123", undefined, asset)).resolves.toEqual({
+      asset,
+      playbackId: "playback-123",
+      policy: "public",
+    });
+  });
+
+  it("rejects a snapshot for a different asset", async () => {
+    const promise = getPlaybackIdForAsset("asset-other", undefined, asset);
+    await expect(promise).rejects.toThrow(
+      "Asset snapshot does not match the requested asset ID",
+    );
   });
 });

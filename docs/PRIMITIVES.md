@@ -53,6 +53,7 @@ console.log(result.track); // Mux track metadata
 
 - `languageCode?: string` - Language code (defaults to first available track)
 - `cleanTranscript?: boolean` - Remove VTT timestamps and formatting (default: true)
+- `scope?: { startTime?: number; endTime?: number }` - Keep only cues overlapping this asset-relative range
 - `shouldSign?: boolean` - For signed playback policies
 
 ### `extractTextFromVTT(vttContent)`
@@ -112,7 +113,7 @@ const timestamped = extractTimestampedTranscript(vttContent);
 
 ## Image Primitives
 
-### `getStoryboardUrl(playbackId, width?, shouldSign?)`
+### `getStoryboardUrl(playbackId, width?, shouldSign?, credentials?, scope?)`
 
 Generates a Mux storyboard URL (sprite sheet of video frames).
 
@@ -128,6 +129,8 @@ const storyboardUrl = await getStoryboardUrl("playback-id", 640);
 - `playbackId: string` - Mux playback ID
 - `width?: number` - Storyboard width in pixels (default: 640)
 - `shouldSign?: boolean` - For signed playback policies
+- `credentials?: WorkflowCredentialsInput` - Optional workflow credentials used for signing
+- `scope?: { startTime?: number; endTime?: number }` - Restrict tiles to an asset-relative range
 
 ### `getThumbnailUrls(playbackId, duration, options?)`
 
@@ -155,6 +158,7 @@ interface ThumbnailOptions {
   interval?: number; // Seconds between thumbnails (default: 10)
   width?: number; // Thumbnail width in pixels (default: 640)
   shouldSign?: boolean; // For signed playback
+  scope?: { startTime?: number; endTime?: number }; // Asset-relative range
 }
 ```
 
@@ -385,7 +389,7 @@ async function customVideoAnalysis(assetId: string) {
 
   // Build custom prompt
   const result = await generateText({
-    model: openai("gpt-5.1"),
+    model: openai("gpt-5.6-luna"),
     messages: [
       {
         role: "user",
@@ -457,7 +461,7 @@ export async function customTranscriptAnalysis(assetId: string) {
 
   // Build your custom AI prompt
   const result = await generateText({
-    model: openai("gpt-5.1"),
+    model: openai("gpt-5.6-luna"),
     messages: [
       {
         role: "user",
@@ -546,7 +550,7 @@ export async function analyzeSentiment(
   );
 
   const result = await generateText({
-    model: openai("gpt-5.1", {
+    model: openai("gpt-5.6-luna", {
       apiKey: process.env.OPENAI_API_KEY
     }),
     messages: [

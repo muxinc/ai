@@ -172,11 +172,21 @@ Supported credential fields:
 | `muxSigningKey` | Mux signing key ID (for signed playback) |
 | `muxPrivateKey` | Mux private key (for signed playback) |
 | `openaiApiKey` | OpenAI API key |
+| `basetenApiKey` | Baseten API key |
+| `basetenUrl` | Baseten language endpoint URL (dedicated `/sync/v1` deployment or shared base URL; omit for Model APIs) |
+| `basetenEmbeddingUrl` | Baseten dedicated embedding deployment URL (`/sync` or `/sync/v1`) |
+| `openaiCompatibleApiKey` | API key for OpenAI-compatible endpoints (optional for keyless endpoints) |
+| `openaiCompatibleBaseUrl` | Base URL of an OpenAI-compatible API |
+| `openaiCompatibleEmbeddingBaseUrl` | Embedding-specific OpenAI-compatible base URL |
 | `anthropicApiKey` | Anthropic API key |
 | `googleApiKey` | Google Generative AI API key |
 | `googleVisionApiKey` | Google Vision API key (SafeSearch moderation) |
 | `hiveApiKey` | Hive API key |
 | `elevenLabsApiKey` | ElevenLabs API key |
+
+Baseten language workflows use Baseten Model APIs when no URL is set, or a dedicated OpenAI-compatible `/sync/v1` deployment URL via `BASETEN_URL`/`basetenUrl`. Baseten embeddings require a dedicated `/sync` or `/sync/v1` deployment URL, configured with `BASETEN_EMBEDDING_URL` or `basetenEmbeddingUrl`.
+
+Generic OpenAI-compatible endpoints (vLLM, Ollama, Together AI, Fireworks, self-hosted gateways) are configured with `OPENAI_COMPATIBLE_BASE_URL` or `openaiCompatibleBaseUrl`. The API key is optional for endpoints that don't require authentication. Embeddings use `OPENAI_COMPATIBLE_EMBEDDING_BASE_URL`/`openaiCompatibleEmbeddingBaseUrl` when set, falling back to the shared base URL.
 
 ### Global credentials provider
 
@@ -239,6 +249,15 @@ MUX_PRIVATE_KEY=your_base64_encoded_private_key
 
 # AI Providers (configure only what you need)
 OPENAI_API_KEY=your_openai_api_key
+BASETEN_API_KEY=your_baseten_api_key
+BASETEN_MODEL=your-baseten-language-model
+BASETEN_URL=https://model-id.api.baseten.co/environments/production/sync/v1
+BASETEN_EMBEDDING_MODEL=your-baseten-embedding-model
+BASETEN_EMBEDDING_URL=https://model-id.api.baseten.co/environments/production/sync
+OPENAI_COMPATIBLE_BASE_URL=https://my-endpoint.example.com/v1
+OPENAI_COMPATIBLE_API_KEY=optional-api-key
+OPENAI_COMPATIBLE_MODEL=your-language-model-id
+OPENAI_COMPATIBLE_EMBEDDING_MODEL=your-embedding-model-id
 ANTHROPIC_API_KEY=your_anthropic_api_key
 GOOGLE_GENERATIVE_AI_API_KEY=your_google_api_key
 ELEVENLABS_API_KEY=your_elevenlabs_api_key

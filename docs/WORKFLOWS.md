@@ -12,6 +12,26 @@ Internally, every workflow is composed from [primitives](./PRIMITIVES.md) - the 
 
 Workflows in this project are exported with the `"use workflow"` directive, which makes them compatible with [Workflow DevKit](https://useworkflow.dev). See the [Workflow DevKit guide](./WORKFLOW-DEVKIT.md) for integration details.
 
+## Scoped Execution
+
+Content-analysis workflows can be limited to an asset-relative time range:
+
+```typescript
+const result = await getSummaryAndTags(assetId, {
+  scope: {
+    startTime: 30, // Inclusive, in seconds
+    endTime: 90, // Exclusive, in seconds
+  },
+});
+```
+
+Either boundary can be omitted. Scoped execution is available for
+summarization, moderation, burned-in caption detection, question answering,
+chapter generation, and embeddings. Visual workflows request a scoped
+storyboard or scoped thumbnails, and transcript-based workflows include only
+cues that overlap the range. Returned timestamps remain relative to the full
+asset.
+
 ## Video Summarization
 
 Generate AI-powered titles, descriptions, and tags from video content.
@@ -204,8 +224,8 @@ const result = await askQuestions(assetId, [
 
 ```typescript
 const result = await askQuestions(assetId, questions, {
-  provider: "openai", // "openai", "anthropic", or "google" (default: "openai")
-  model: "gpt-5.1", // Override default model
+  provider: "openai", // "openai", "anthropic", "google", "baseten", or "openai-compatible" (default: "openai")
+  model: "gpt-5-mini", // Override default model
   includeTranscript: true, // Include transcript (default: true)
   cleanTranscript: true, // Remove timestamps/markup (default: true)
   imageSubmissionMode: "url", // "url" or "base64" (default: "url")
@@ -319,7 +339,7 @@ console.log("Trends:", result.overallInsight.trends);
 
 ```typescript
 const result = await generateEngagementInsights(assetId, {
-  provider: "openai", // "openai", "anthropic", or "google"
+  provider: "openai", // "openai", "anthropic", "google", "baseten", or "openai-compatible"
   hotspotLimit: 5, // Moments per direction (1-10, default: 5). Up to 2x total.
   timeframe: "7:days", // "1:hour", "24:hours", "7:days", "30:days"
   skipShots: false, // Skip shots polling, use thumbnails (default: false)
@@ -482,7 +502,7 @@ console.log(result.presignedUrl); // S3 file URL
 console.log(result.translatedVtt); // Translated VTT content
 ```
 
-By default, `translateCaptions` uses VTT-aware chunking for longer assets. It prefers a single request for shorter media, then splits larger translations by cue-aligned chunks and rebuilds the final VTT locally.
+By default, `translateCaptions` uses VTT-aware chunking. Every asset is split into cue-aligned chunks bounded by `maxCuesPerChunk` and `maxCueTextTokensPerChunk`; assets longer than `minimumAssetDurationSeconds` are additionally grouped into duration-based chunks. The final VTT is rebuilt locally.
 
 ```typescript
 // Override chunking behavior for large assets
@@ -500,6 +520,37 @@ const result = await translateCaptions("your-mux-asset-id", "your-track-id", "es
 ```
 
 Set `chunking.enabled` to `false` if you want to force a single structured translation request for the full caption file.
+
+Use `neverTranslate` to keep brand names, product names, or other proper nouns verbatim in the translated output:
+
+```typescript
+const result = await translateCaptions("your-mux-asset-id", "your-track-id", "es", {
+  provider: "openai",
+  neverTranslate: ["Mux", "GIF"],
+});
+
+if (result.neverTranslateTermsPreserved === false) {
+  // At least one term did not survive translation verbatim
+}
+```
+
+Enforcement is prompt-based: the terms are passed to the model with an instruction to preserve them verbatim, then each term's occurrence count in the source is compared against the translated output. Shortfalls set `neverTranslateTermsPreserved` to `false` — the library never rewrites the translation to repair them.
+
+### Replacing Existing Tracks
+
+Mux requires text track names to be unique on an asset (case-insensitive), and a track that is still `preparing` or has `errored` holds its name. By default `translateCaptions` rejects before translating if the asset already has a subtitles track in the target language or a text track with the target name. Use `replaceExistingTracks` to replace them instead:
+
+```typescript
+const result = await translateCaptions("your-mux-asset-id", "your-track-id", "es", {
+  provider: "openai",
+  replaceExistingTracks: "replace_generated", // or "replace_all"
+  trackName: "Español", // optional, defaults to "Spanish (Auto-translated)"
+});
+
+console.log(result.replacedTracks); // Tracks deleted to make room for the new one
+```
+
+`"replace_generated"` only removes Mux-generated (ASR) tracks and rejects if a human-uploaded track is in the way; `"replace_all"` removes everything in the same language or with the same name. The check runs against a fresh copy of the asset immediately before the track is created. Language matching ignores region subtags, so `en-US` and `en` are treated as the same language.
 
 ### S3-Compatible Storage Requirements
 
@@ -557,7 +608,7 @@ All ISO 639-1 language codes are automatically supported using `Intl.DisplayName
 
 ## Caption Editing
 
-Edit existing captions with LLM-powered profanity censorship, static find/replace, or both. Optionally upload the edited track to Mux.
+Edit existing captions with LLM-powered profanity censorship, static find/replace, speaker-label replacement, or a combination of these operations. Optionally upload the edited track to Mux.
 
 ```typescript
 import { editCaptions } from "@mux/ai/workflows";
@@ -567,6 +618,9 @@ const result = await editCaptions("your-mux-asset-id", "track-id", {
   autoCensorProfanity: { mode: "blank" },
   replacements: [
     { find: "Mucks", replace: "Mux" },
+  ],
+  speakerReplacements: [
+    { find: "speaker_0", replace: "Alice" },
   ],
 });
 
@@ -631,10 +685,25 @@ const result = await editCaptions(assetId, trackId, {
 });
 ```
 
+### Speaker Replacements
+
+Rename bracketed speaker labels without replacing matching text elsewhere in a cue:
+
+```typescript
+const result = await editCaptions(assetId, trackId, {
+  speakerReplacements: [
+    { find: "speaker_0", replace: "Alice" },
+  ],
+});
+```
+
+The `find` and `replace` values omit the surrounding brackets. For example, the configuration above changes a leading `[speaker_0]` cue label to `[Alice]`.
+
 ### Application Order
 
 1. `autoCensorProfanity` applied first (LLM analyses original text, censorship applied to VTT)
-2. Static `replacements` applied second (deterministic, operates on the post-censorship VTT)
+2. `speakerReplacements` applied second and only to bracketed labels at the start of cues
+3. Static `replacements` applied last (deterministic, operates on the post-censorship VTT)
 
 ### How It Works
 
@@ -643,9 +712,31 @@ const result = await editCaptions(assetId, trackId, {
 3. The LLM returns a list of profane words (not a rewritten VTT) — this guarantees format preservation
 4. Merges `alwaysCensor` and filters `neverCensor` from the detected list
 5. Applies profanity censorship to the VTT
-6. Applies static replacements (if provided) using word-boundary regex
-7. Uploads the edited VTT to S3 and creates a new track on Mux
-8. Deletes the original track (configurable)
+6. Applies speaker-label replacements and static replacements (if provided)
+7. Uploads the edited VTT to S3
+8. Replaces the source track on Mux with the edited one, under the same name and language (configurable, see below)
+
+### Replacing or Keeping the Source Track
+
+By default the edited track takes the source track's place: the source (and any other text track in the same language or with the same name) is deleted and the edited track is created under the source's name, language, and `closed_captions` flag. If Mux rejects the new track after the source was deleted, the source is restored from the VTT that was fetched.
+
+```typescript
+// Keep the source and add a cleaned copy alongside it. trackName is required.
+const kept = await editCaptions(assetId, trackId, {
+  replacements: [{ find: "Mucks", replace: "Mux" }],
+  replaceExistingTracks: "fail",
+  trackName: "English (clean)",
+});
+
+// Only replace if everything in the way is Mux-generated (ASR) captions.
+const upgraded = await editCaptions(assetId, trackId, {
+  provider: "anthropic",
+  autoCensorProfanity: { mode: "blank" },
+  replaceExistingTracks: "replace_generated",
+});
+```
+
+`deleteOriginalTrack` and `trackNameSuffix` are deprecated. Setting either keeps the previous behaviour (create `<source name> (edited)`, then delete the source) and cannot be combined with `replaceExistingTracks` or `trackName`.
 
 ### S3-Compatible Storage Requirements
 
@@ -665,8 +756,12 @@ const result = await editCaptions(assetId, trackId, {
   replacements: [ // Static find/replace pairs
     { find: "Mucks", replace: "Mux" },
   ],
+  speakerReplacements: [ // Leading bracketed speaker-label replacements
+    { find: "speaker_0", replace: "Alice" },
+  ],
   uploadToMux: true, // Upload edited track to Mux (default: true)
-  deleteOriginalTrack: true, // Delete original after upload (default: true)
+  replaceExistingTracks: "replace_all", // "replace_all" (default), "replace_generated", or "fail"
+  trackName: "English", // Defaults to the source track's name
 });
 ```
 
@@ -696,25 +791,44 @@ console.log(result.presignedUrl); // S3 audio file URL
 
 ### Requirements
 
-- Asset must have an `audio.m4a` static rendition
+- Asset must have an `audio.m4a` static rendition (auto-requested if missing; a rendition the workflow creates is deleted afterwards by default, configurable via `staticRenditionCleanup: "delete" | "keep"`)
 - ElevenLabs API key with Creator plan or higher
 - S3-compatible storage (same as caption translation)
 
 ### Supported Languages
 
-ElevenLabs supports 32+ languages with automatic language name detection via `Intl.DisplayNames`. Supported languages include English, Spanish, French, German, Italian, Portuguese, Polish, Japanese, Korean, Chinese, Russian, Arabic, Hindi, Thai, and many more. Track names are automatically generated (e.g., "Polish (auto-dubbed)").
+ElevenLabs supports 32+ languages with automatic language name detection via `Intl.DisplayNames`. Supported languages include English, Spanish, French, German, Italian, Portuguese, Polish, Japanese, Korean, Chinese, Russian, Arabic, Hindi, Thai, and many more. Track names are automatically generated (e.g., "Polish (Auto-dubbed)").
 
 ### Audio Dubbing Workflow
 
-1. Checks asset has audio.m4a static rendition
+1. Checks asset has audio.m4a static rendition (requests one if missing)
 2. Downloads default audio track from Mux
 3. Creates ElevenLabs dubbing job (source language auto-detected unless `fromLanguageCode` is set)
 4. Polls for completion (up to 30 minutes)
 5. Downloads dubbed audio file
 6. Uploads to S3-compatible storage
 7. Generates presigned URL (default 24-hour expiry, configurable via `s3SignedUrlExpirySeconds`)
-8. Adds new audio track to Mux asset
-9. Track name: "{Language} (auto-dubbed)"
+8. Adds new audio track to Mux asset, replacing existing same-language or same-name audio tracks according to `replaceExistingTracks`
+9. Track name: "{Language} (Auto-dubbed)", or `trackName`
+10. Deletes the static rendition if this run created it (default; set `staticRenditionCleanup: "keep"` to retain it). Runs on failure paths too, and the outcome is reported in `result.staticRenditionCleanup`.
+
+### Replacing Existing Tracks
+
+By default `translateAudio` rejects before dubbing starts if the asset already has an audio track in the target language or with the target name, so a re-dub never pays ElevenLabs only to fail at Mux. Pass `replaceExistingTracks: "replace_all"` to delete the old dub first. The asset's primary audio track is never deleted, under any policy. With `uploadCaptionsToMux`, the same policy applies to the dubbed captions text track, which lives in its own name group.
+
+```typescript
+const result = await translateAudio(assetId, "es", {
+  replaceExistingTracks: "replace_all",
+  uploadCaptionsToMux: true,
+});
+
+console.log(result.replacedTracks); // [{ id, type: "audio", name: "Spanish (Auto-dubbed)", ... }, ...]
+```
+
+A failure creating the audio track fails the workflow, with the staged S3 URL in the error so the track can be attached manually. The captions track stays best-effort: a paid dub is never failed over its transcript.
+
+> [!WARNING]
+> Concurrent `translateAudio` runs on the same asset share one static rendition, and the run that created it deletes it without knowing about its peers — the delete can race another run's ElevenLabs source fetch and fail that dub. When dubbing multiple languages concurrently, either create the `audio.m4a` rendition before fanning out (a pre-existing rendition is never deleted) or pass `staticRenditionCleanup: "keep"` and clean up after the batch.
 
 ## Multi-Provider Support
 
@@ -729,7 +843,7 @@ import { getSummaryAndTags } from "@mux/ai/workflows";
 
 const assetId = "your-mux-asset-id";
 
-// OpenAI analysis (default: gpt-5.1)
+// OpenAI analysis (default: gpt-5.6-luna at medium reasoning)
 const openaiResult = await getSummaryAndTags(assetId, {
   provider: "openai",
   tone: "professional"
@@ -747,10 +861,25 @@ const googleResult = await getSummaryAndTags(assetId, {
   tone: "professional"
 });
 
+// Baseten analysis (requires BASETEN_MODEL or explicit model)
+const basetenResult = await getSummaryAndTags(assetId, {
+  provider: "baseten",
+  tone: "professional"
+});
+
+// Any OpenAI-compatible endpoint, e.g. vLLM, Ollama, Together AI
+// (requires OPENAI_COMPATIBLE_BASE_URL and OPENAI_COMPATIBLE_MODEL or explicit model)
+const compatibleResult = await getSummaryAndTags(assetId, {
+  provider: "openai-compatible",
+  tone: "professional"
+});
+
 // Compare results
 console.log("OpenAI:", openaiResult.title);
 console.log("Anthropic:", anthropicResult.title);
 console.log("Google:", googleResult.title);
+console.log("Baseten:", basetenResult.title);
+console.log("OpenAI-compatible:", compatibleResult.title);
 ```
 
 Works with any workflow:
@@ -758,7 +887,7 @@ Works with any workflow:
 ```typescript
 import { generateChapters } from "@mux/ai/workflows";
 
-// OpenAI (default: gpt-5.1)
+// OpenAI (default: gpt-5.6-luna at medium reasoning)
 const openaiChapters = await generateChapters(assetId, {
   provider: "openai"
 });
@@ -772,6 +901,16 @@ const anthropicChapters = await generateChapters(assetId, {
 const googleChapters = await generateChapters(assetId, {
   provider: "google"
 });
+
+// Baseten (requires BASETEN_MODEL or explicit model)
+const basetenChapters = await generateChapters(assetId, {
+  provider: "baseten"
+});
+
+// Any OpenAI-compatible endpoint (requires OPENAI_COMPATIBLE_BASE_URL)
+const compatibleChapters = await generateChapters(assetId, {
+  provider: "openai-compatible"
+});
 ```
 
 ### Overriding Default Models
@@ -784,7 +923,7 @@ import { getSummaryAndTags } from "@mux/ai/workflows";
 // Use a more powerful model
 const result = await getSummaryAndTags(assetId, {
   provider: "openai",
-  model: "gpt-5.4" // Instead of default gpt-5.1
+  model: "gpt-5.4" // Instead of default gpt-5.6-luna
 });
 
 // Use a faster/cheaper model
@@ -794,4 +933,4 @@ const fastResult = await getSummaryAndTags(assetId, {
 });
 ```
 
-**Cost Optimization Tip:** The defaults (`gpt-5.1`, `claude-sonnet-4-5`, `gemini-3-flash-preview`) are optimized for cost/quality balance. Only upgrade to more powerful models when quality needs justify the higher cost.
+**Cost Optimization Tip:** The defaults (`gpt-5.6-luna` at medium reasoning, `claude-sonnet-4-5`, `gemini-3-flash-preview`) are optimized for cost/quality balance. Only upgrade to more powerful models when quality needs justify the higher cost.

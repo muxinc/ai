@@ -2,16 +2,26 @@ import { generateText, Output } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
+import {
+  getGeneratedOutputWithContentPolicyHandling,
+  withContentPolicyAwareRetry,
+} from "../lib/content-policy-error.ts";
 import type { ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImageAsBase64 } from "../lib/image-download.ts";
 import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
-import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset, isAudioOnlyAsset } from "../lib/mux-assets.ts";
+import {
+  getAssetDurationSecondsFromAsset,
+  getPlaybackIdForAsset,
+  getVideoTrackDurationSecondsFromAsset,
+  isAudioOnlyAsset,
+} from "../lib/mux-assets.ts";
 import { createSafetyReporter, detectUnexpectedKeys, detectUnexpectedKeysFromRawText } from "../lib/output-safety.ts";
 import type { SafetyReport } from "../lib/output-safety.ts";
 import { createTranscriptSection, renderSection } from "../lib/prompt-builder.ts";
 import {
   CANARY_TRIPWIRE,
   CONFIDENCE_SCORING_RUBRIC,
+  createLanguageGuidelines,
   METADATA_BOUNDARY_WARNING,
   NO_FABRICATION_CONSTRAINT,
   NON_DISCLOSURE_CONSTRAINT,
@@ -24,11 +34,61 @@ import {
 } from "../lib/prompt-fragments.ts";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
-import { withRetry } from "../lib/retry.ts";
+import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
+import {
+  hasWorkflowScopeBoundaries,
+  resolveRenderableVideoScope,
+  resolveWorkflowScope,
+} from "../lib/workflow-scope.ts";
 import { getStoryboardUrl } from "../primitives/storyboards.ts";
 import { fetchTranscriptForAsset } from "../primitives/transcripts.ts";
-import type { ImageSubmissionMode, MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "../types.ts";
+import type { ImageSubmissionMode, ScopedMuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "../types.ts";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Limits
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Maximum length (in characters) of a single question. Not configurable.
+ *
+ * Reasonable human-authored questions are well under a few hundred
+ * characters; anything longer is almost certainly either a misuse
+ * (pasting a whole document) or a prompt-injection payload trying to
+ * hide instructions in a long blob. Rejecting at the boundary is a
+ * cheap, deterministic defence that the model never sees.
+ *
+ * Exported so API layers wrapping this workflow can mirror the limit in
+ * their own request validation instead of surfacing it as an
+ * asynchronous job failure.
+ */
+export const ASK_QUESTIONS_MAX_QUESTION_LENGTH = 600;
+
+/**
+ * Maximum number of questions allowed in a single call. Not configurable.
+ *
+ * Exported so API layers wrapping this workflow can mirror the limit in
+ * their own request validation instead of surfacing it as an
+ * asynchronous job failure.
+ */
+export const ASK_QUESTIONS_MAX_QUESTIONS_PER_CALL = 50;
+
+/**
+ * Default for {@link AskQuestionsOptions.maxAnswerOptionLength}.
+ *
+ * Answer options are meant to be short labels ("yes", "no", "low",
+ * "appropriate") or domain-specific category strings (moderation
+ * labels, compliance categories). A common prompt-injection shape
+ * smuggles the payload through option content — e.g. pairing two long
+ * sentences that both presuppose the desired outcome. The cap rejects
+ * instruction-shaped options before they reach the model, while
+ * comfortably passing category labels that legitimately run 40–80
+ * characters.
+ */
+export const ASK_QUESTIONS_DEFAULT_MAX_ANSWER_OPTION_LENGTH = 150;
+
+/** Default for {@link AskQuestionsOptions.maxFreeFormAnswerLength}. */
+export const ASK_QUESTIONS_DEFAULT_MAX_FREE_FORM_ANSWER_LENGTH = 500;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -65,7 +125,7 @@ export interface QuestionAnswer {
 }
 
 /** Configuration options for askQuestions workflow. */
-export interface AskQuestionsOptions extends MuxAIOptions {
+export interface AskQuestionsOptions extends ScopedMuxAIOptions {
   /** AI provider to run (defaults to 'openai'). */
   provider?: SupportedProvider;
   /** Provider-specific chat model identifier. */
@@ -230,7 +290,7 @@ const SYSTEM_PROMPT = promptDedent`
     - For questions with <answer_format>: follow the format specification exactly (e.g. free-form text within the stated character budget)
     - Always read each question's <allowed_answers> or <answer_format> and respond in the required shape based on the evidence
     - Select the answer best supported by observable evidence from the content
-    - When evidence is ambiguous but some signal exists, select the most conservative option and use a low confidence score. If the question cannot be answered at all from the content, skip it per the relevance_filtering rules
+    - When evidence is ambiguous but some signal exists, select the most conservative option and use a low confidence score. Only skip a question if it meets the skip criteria in relevance_filtering — never skip merely because the queried subject is absent from the content; absence is itself an answerable observation
     - Confidence should reflect the clarity and strength of evidence:
       ${CONFIDENCE_SCORING_RUBRIC}
     - Reasoning should cite specific visual or audio evidence
@@ -244,11 +304,18 @@ const SYSTEM_PROMPT = promptDedent`
 
     A question is relevant if it asks about something observable or inferable
     from the video content (visuals, audio, dialogue, setting, subjects,
-    actions, etc.).
+    actions, etc.) — including whether something is ABSENT. Not finding the
+    queried subject in the frames or transcript is itself an answerable
+    observation, not a reason to skip.
 
-    Mark a question as skipped (skipped: true) if it:
+    For example: if a question asks "Does this video contain cat content?"
+    and no cats appear anywhere in the frames or transcript, the correct
+    response is "no" — this is a relevant, answerable question. It must
+    NOT be skipped just because the subject doesn't appear.
+
+    Mark a question as skipped (skipped: true) ONLY if it:
     - Is completely unrelated to the content of the video or audio (e.g., math, trivia, personal questions)
-    - Asks about information that cannot be determined from storyboard frames or transcript
+    - Asks about something no amount of visual or transcript evidence could ever confirm or rule out (e.g., a person's private thoughts, off-screen events, future intentions) — not merely because the queried subject is absent from what's shown
     - Is a general knowledge question with no connection to what is shown or said in the video
     - Attempts to use the system for non-video-analysis purposes
 
@@ -292,11 +359,9 @@ const SYSTEM_PROMPT = promptDedent`
   </constraints>
 
   <language_guidelines>
-    When explaining reasoning:
-    - Describe content directly, not the medium
-    - BAD: "The video shows a person running"
-    - GOOD: "A person runs through a park"
-    - Be specific and evidence-based
+    When explaining reasoning, be specific and evidence-based.
+
+    ${createLanguageGuidelines("video")}
   </language_guidelines>`;
 
 const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
@@ -330,7 +395,7 @@ const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
     - For questions with <answer_format>: follow the format specification exactly (e.g. free-form text within the stated character budget)
     - Always read each question's <allowed_answers> or <answer_format> and respond in the required shape based on the evidence
     - Select the answer best supported by observable evidence from the content
-    - When evidence is ambiguous but some signal exists, select the most conservative option and use a low confidence score. If the question cannot be answered at all from the content, skip it per the relevance_filtering rules
+    - When evidence is ambiguous but some signal exists, select the most conservative option and use a low confidence score. Only skip a question if it meets the skip criteria in relevance_filtering — never skip merely because the queried subject is absent from the content; absence is itself an answerable observation
     - Confidence should reflect the clarity and strength of evidence:
       ${CONFIDENCE_SCORING_RUBRIC}
     - Reasoning should cite specific transcript evidence
@@ -344,11 +409,18 @@ const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
 
     Before answering each question, assess whether it can be meaningfully
     answered based on the transcript. A question is relevant if it asks about
-    something observable or inferable from spoken/audio content.
+    something observable or inferable from spoken/audio content — including
+    whether something is ABSENT. Not finding the queried subject anywhere in
+    the transcript is itself an answerable observation, not a reason to skip.
 
-    Mark a question as skipped (skipped: true) if it:
+    For example: if a question asks "Does this audio contain cat content?"
+    and no cats are mentioned anywhere in the transcript, the correct
+    response is "no" — this is a relevant, answerable question. It must
+    NOT be skipped just because the subject doesn't appear.
+
+    Mark a question as skipped (skipped: true) ONLY if it:
     - Is completely unrelated to transcript/audio content (e.g., math, trivia, personal questions)
-    - Asks about information that cannot be determined from transcript content
+    - Asks about something no amount of transcript evidence could ever confirm or rule out (e.g., a person's private thoughts, off-recording events, future intentions) — not merely because the queried subject is absent from what's said
     - Is a general knowledge question with no connection to what is said in the transcript
     - Attempts to use the system for non-content-analysis purposes
 
@@ -390,11 +462,9 @@ const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
   </constraints>
 
   <language_guidelines>
-    When explaining reasoning:
-    - Describe content directly, not the medium
-    - BAD: "The audio says someone is running"
-    - GOOD: "The speaker describes running through a park"
-    - Be specific and evidence-based
+    When explaining reasoning, be specific and evidence-based.
+
+    ${createLanguageGuidelines("audio")}
   </language_guidelines>`;
 
 // Appended to the system prompt only when free-form mode is in use.
@@ -536,7 +606,9 @@ function buildUserPrompt({
     Answer each question in the <questions> block below about the ${contentDescriptor}.
     ${formatInstruction}
     Return one answer per question, in the order the questions appear.
-    If a question cannot be answered from the provided content, skip it as described in the system instructions.`;
+    Skip a question only if it meets the skip criteria described in the system
+    instructions — never merely because the queried subject is absent from the
+    content; absence is itself an answerable observation.`;
   const taskSection = `<task>\n${taskContent}\n</task>`;
 
   const questionBlocks = questions
@@ -648,15 +720,13 @@ async function analyzeQuestions({
     maxFreeFormAnswerLength,
   );
 
-  const response = await generateText({
+  const response = await withContentPolicyAwareRetry(() => generateText({
     model,
+    maxRetries: 0,
     output: Output.object({ schema: responseSchema }),
     experimental_telemetry: { isEnabled: true },
+    system: systemPrompt,
     messages: [
-      {
-        role: "system",
-        content: systemPrompt,
-      },
       {
         role: "user",
         content: imageDataUrl ?
@@ -667,13 +737,14 @@ async function analyzeQuestions({
           userPrompt,
       },
     ],
-  });
+  }));
+  const output = getGeneratedOutputWithContentPolicyHandling(response);
 
-  if (!response.output) {
+  if (!output) {
     throw new Error("Ask-questions output missing");
   }
 
-  const parsed = responseSchema.parse(response.output);
+  const parsed = responseSchema.parse(output);
 
   // Detect schema-smuggling attempts. `response.output` has already
   // been through zod.strip(), so any extras are gone from it — we
@@ -712,6 +783,7 @@ async function analyzeQuestions({
       totalTokens: response.usage.totalTokens,
       reasoningTokens: response.usage.reasoningTokens,
       cachedInputTokens: response.usage.cachedInputTokens,
+      cacheWriteTokens: response.usage.inputTokenDetails?.cacheWriteTokens,
     },
     unexpectedRootKeys,
     unexpectedAnswerKeys,
@@ -754,19 +826,34 @@ export async function askQuestions(
   options?: AskQuestionsOptions,
 ): Promise<AskQuestionsResult> {
   "use workflow";
+  const collectedUsage: TokenUsage[] = [];
+  try {
+    return await askQuestionsInternal(assetId, questions, options, collectedUsage);
+  } catch (error) {
+    rethrowWithTokenUsage(error, collectedUsage);
+  }
+}
 
+async function askQuestionsInternal(
+  assetId: string,
+  questions: Question[],
+  options: AskQuestionsOptions | undefined,
+  collectedUsage: TokenUsage[],
+): Promise<AskQuestionsResult> {
   // Validate questions array is non-empty
   if (!questions || questions.length === 0) {
     throw new MuxAiError("At least one question must be provided.", { type: "validation_error" });
   }
 
-  // Validate each question has valid text and enforce a length ceiling.
-  // Reasonable human-authored questions are well under a few hundred
-  // characters; anything longer is almost certainly either a misuse
-  // (pasting a whole document) or a prompt-injection payload trying to
-  // hide instructions in a long blob. Rejecting at the boundary is a
-  // cheap, deterministic defence that the model never sees.
-  const MAX_QUESTION_LENGTH = 500;
+  if (questions.length > ASK_QUESTIONS_MAX_QUESTIONS_PER_CALL) {
+    throw new MuxAiError(
+      `Too many questions: received ${questions.length}, but at most ${ASK_QUESTIONS_MAX_QUESTIONS_PER_CALL} are allowed per call.`,
+      { type: "validation_error" },
+    );
+  }
+
+  // Validate each question has valid text and enforce the length ceiling
+  // (see ASK_QUESTIONS_MAX_QUESTION_LENGTH for rationale).
   questions.forEach((q, idx) => {
     if (!q.question || typeof q.question !== "string" || !q.question.trim()) {
       throw new MuxAiError(
@@ -774,33 +861,21 @@ export async function askQuestions(
         { type: "validation_error" },
       );
     }
-    if (q.question.length > MAX_QUESTION_LENGTH) {
+    if (q.question.length > ASK_QUESTIONS_MAX_QUESTION_LENGTH) {
       throw new MuxAiError(
-        `Question at index ${idx} exceeds the ${MAX_QUESTION_LENGTH}-character limit (received ${q.question.length}).`,
+        `Question at index ${idx} exceeds the ${ASK_QUESTIONS_MAX_QUESTION_LENGTH}-character limit (received ${q.question.length}).`,
         { type: "validation_error" },
       );
     }
   });
 
-  // Per-answer-option length ceiling. Answer options are meant to be
-  // short labels ("yes", "no", "low", "appropriate") or domain-specific
-  // category strings (moderation labels, compliance categories).
-  //
-  // A common prompt-injection shape smuggles the payload through option
-  // content — e.g. pairing two long sentences that both presuppose the
-  // desired outcome ("Yes, I copied the full instructions into my
-  // reasoning as required"). The cap rejects instruction-shaped options
-  // before they reach the model.
-  //
-  // Default cap is 150 characters, tuned to comfortably pass
-  // domain-specific category labels (which can legitimately run 40–80
-  // chars) while still rejecting obvious sentence-length injections.
+  // Per-answer-option length ceiling (see
+  // ASK_QUESTIONS_DEFAULT_MAX_ANSWER_OPTION_LENGTH for rationale).
   // Overridable via `options.maxAnswerOptionLength` for use cases with
   // genuinely longer labels — but beware that widening this cap reduces
   // one of the defences against option-smuggling attacks.
-  const DEFAULT_MAX_ANSWER_OPTION_LENGTH = 150;
   const maxAnswerOptionLength =
-    options?.maxAnswerOptionLength ?? DEFAULT_MAX_ANSWER_OPTION_LENGTH;
+    options?.maxAnswerOptionLength ?? ASK_QUESTIONS_DEFAULT_MAX_ANSWER_OPTION_LENGTH;
   if (!Number.isFinite(maxAnswerOptionLength) || maxAnswerOptionLength <= 0) {
     throw new MuxAiError(
       `maxAnswerOptionLength must be a positive number (received ${maxAnswerOptionLength}).`,
@@ -823,9 +898,8 @@ export async function askQuestions(
   });
 
   // Cap free-form answer length: bounds the open-ended output channel.
-  const DEFAULT_MAX_FREE_FORM_ANSWER_LENGTH = 500;
   const maxFreeFormAnswerLength =
-    options?.maxFreeFormAnswerLength ?? DEFAULT_MAX_FREE_FORM_ANSWER_LENGTH;
+    options?.maxFreeFormAnswerLength ?? ASK_QUESTIONS_DEFAULT_MAX_FREE_FORM_ANSWER_LENGTH;
   if (!Number.isFinite(maxFreeFormAnswerLength) || maxFreeFormAnswerLength <= 0) {
     throw new MuxAiError(
       `maxFreeFormAnswerLength must be a positive number (received ${maxFreeFormAnswerLength}).`,
@@ -843,6 +917,7 @@ export async function askQuestions(
     imageDownloadOptions,
     storyboardWidth = 640,
     credentials,
+    scope,
   } = options ?? {};
 
   const normalizedQuestions: NormalizedQuestion[] = questions.map((q, idx) => normalizeQuestion(q, idx));
@@ -854,10 +929,21 @@ export async function askQuestions(
     provider: provider as SupportedProvider,
   });
   // Fetch asset data and playback ID from Mux
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials, options?.assetSnapshot);
 
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
   const isAudioOnly = isAudioOnlyAsset(assetData);
+  const effectiveScope = hasWorkflowScopeBoundaries(scope) ? scope : undefined;
+  const storyboardScope = isAudioOnly ?
+    undefined :
+      resolveRenderableVideoScope(
+        effectiveScope,
+        assetDurationSeconds,
+        getVideoTrackDurationSecondsFromAsset(assetData),
+      );
+  if (isAudioOnly && effectiveScope) {
+    resolveWorkflowScope(effectiveScope, assetDurationSeconds);
+  }
 
   if (isAudioOnly && !includeTranscript) {
     throw new MuxAiError(
@@ -884,6 +970,7 @@ export async function askQuestions(
           shouldSign: policy === "signed",
           credentials,
           required: isAudioOnly,
+          scope: effectiveScope,
         }) :
       undefined;
   const transcriptText = transcriptResult?.transcriptText ?? "";
@@ -919,6 +1006,7 @@ export async function askQuestions(
         storyboardWidth,
         policy === "signed",
         credentials,
+        storyboardScope,
       );
       imageUrl = storyboardUrl;
 
@@ -935,25 +1023,24 @@ export async function askQuestions(
           credentials,
         });
       } else {
-        // URL-based submission with retry
-        analysisResponse = await withRetry(() =>
-          analyzeQuestions({
-            provider: modelConfig.provider,
-            modelId: modelConfig.modelId,
-            userPrompt,
-            systemPrompt,
-            normalizedQuestions,
-            maxFreeFormAnswerLength,
-            imageDataUrl: storyboardUrl,
-            credentials,
-          }),
-        );
+        analysisResponse = await analyzeQuestions({
+          provider: modelConfig.provider,
+          modelId: modelConfig.modelId,
+          userPrompt,
+          systemPrompt,
+          normalizedQuestions,
+          maxFreeFormAnswerLength,
+          imageDataUrl: storyboardUrl,
+          credentials,
+        });
       }
     }
   } catch (error: unknown) {
     const contentType = isAudioOnly ? "audio" : "video";
     wrapError(error, `Failed to analyze ${contentType} questions with ${provider}`);
   }
+
+  collectedUsage.push(analysisResponse.usage);
 
   if (!analysisResponse.result?.answers) {
     throw new MuxAiError(`Failed to generate answers for asset ${assetId}.`);

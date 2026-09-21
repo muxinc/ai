@@ -43,6 +43,10 @@ const EnvSchema = z.object({
     "Override for Mux stream base URL (defaults to https://stream.mux.com).",
     "Mux stream URL override",
   ),
+  MUX_BASE_URL: optionalString(
+    "Override for the Mux API base URL (defaults to https://api.mux.com).",
+    "Mux API base URL override",
+  ),
   // The canary is substring-matched against every LLM output via
   // `detectLeakReason` ("canary" reason). A too-short override (e.g. a
   // 3-letter test value like "mux" or "the") would match legitimate
@@ -83,10 +87,47 @@ const EnvSchema = z.object({
 
   // Eval config
   MUX_AI_EVAL_MODEL_SET: optionalString("Eval model selection mode.", "Choose between 'default' (provider defaults only) or 'all' (all configured models)"),
-  MUX_AI_EVAL_MODELS: optionalString("Comma-separated eval model pairs.", "Comma-separated provider:model pairs (e.g. 'openai:gpt-5.1,anthropic:claude-sonnet-4-5,google:gemini-3-flash-preview')"),
+  MUX_AI_EVAL_MODELS: optionalString("Comma-separated eval model pairs.", "Comma-separated provider:model pairs (e.g. 'openai:gpt-5.6-luna,anthropic:claude-sonnet-4-5,google:gemini-3-flash-preview')"),
 
   // AI Providers
   OPENAI_API_KEY: optionalString("OpenAI API key for OpenAI-backed workflows.", "OpenAI API key"),
+  BASETEN_API_KEY: optionalString("Baseten API key for Baseten-backed workflows.", "Baseten API key"),
+  BASETEN_URL: optionalString(
+    "Optional Baseten language endpoint URL: a dedicated deployment's /sync/v1 URL (such as https://model-{MODEL_ID}.api.baseten.co/environments/production/sync/v1) or a shared OpenAI-compatible base URL. Omit to use Baseten Model APIs.",
+    "Baseten URL",
+  ),
+  BASETEN_EMBEDDING_URL: optionalString(
+    "Baseten dedicated embedding deployment URL, such as https://model-{MODEL_ID}.api.baseten.co/environments/production/sync. Required for Baseten embeddings.",
+    "Baseten embedding URL",
+  ),
+  BASETEN_MODEL: optionalString(
+    "Default Baseten language model identifier used when provider='baseten' and no explicit model is passed.",
+    "Baseten model",
+  ),
+  BASETEN_EMBEDDING_MODEL: optionalString(
+    "Default Baseten embedding model identifier used when provider='baseten' and no explicit model is passed.",
+    "Baseten embedding model",
+  ),
+  OPENAI_COMPATIBLE_API_KEY: optionalString(
+    "Optional API key for OpenAI-compatible endpoints. Some local or self-hosted endpoints do not require one.",
+    "OpenAI-compatible API key",
+  ),
+  OPENAI_COMPATIBLE_BASE_URL: optionalString(
+    "Base URL of an OpenAI-compatible API, such as https://my-endpoint.example.com/v1.",
+    "OpenAI-compatible base URL",
+  ),
+  OPENAI_COMPATIBLE_EMBEDDING_BASE_URL: optionalString(
+    "Optional embedding-specific OpenAI-compatible base URL. Falls back to OPENAI_COMPATIBLE_BASE_URL.",
+    "OpenAI-compatible embedding base URL",
+  ),
+  OPENAI_COMPATIBLE_MODEL: optionalString(
+    "Default language model identifier used when provider='openai-compatible' and no explicit model is passed.",
+    "OpenAI-compatible model",
+  ),
+  OPENAI_COMPATIBLE_EMBEDDING_MODEL: optionalString(
+    "Default embedding model identifier used when provider='openai-compatible' and no explicit model is passed.",
+    "OpenAI-compatible embedding model",
+  ),
   ANTHROPIC_API_KEY: optionalString("Anthropic API key for Claude-backed workflows.", "Anthropic API key"),
   GOOGLE_GENERATIVE_AI_API_KEY: optionalString("Google Generative AI API key for Gemini-backed workflows.", "Google Generative AI API key"),
 

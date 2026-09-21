@@ -4,7 +4,8 @@ import { isAudioOnlyAsset } from "../lib/mux-assets.ts";
 import { getMuxStreamOrigin } from "../lib/mux-url.ts";
 import { normalizeUntrustedUnicode } from "../lib/output-safety.ts";
 import { signUrl } from "../lib/url-signing.ts";
-import type { AssetTextTrack, MuxAsset, WorkflowCredentialsInput } from "../types.ts";
+import { hasWorkflowScopeBoundaries, timeRangesOverlap } from "../lib/workflow-scope.ts";
+import type { AssetTextTrack, MuxAsset, WorkflowCredentialsInput, WorkflowScope } from "../types.ts";
 
 type TrackWithAutoLanguageConfidence = AssetTextTrack & {
   auto_language_confidence?: number;
@@ -20,6 +21,8 @@ export interface VTTCue {
 export interface TranscriptFetchOptions {
   languageCode?: string;
   cleanTranscript?: boolean;
+  /** Optional asset-relative time range used to filter transcript cues. */
+  scope?: WorkflowScope;
   /** Optional signing context for signed playback IDs */
   shouldSign?: boolean;
   credentials?: WorkflowCredentialsInput;
@@ -572,6 +575,39 @@ export function parseVTTCues(vttContent: string): VTTCue[] {
   return cues;
 }
 
+/**
+ * Keeps only VTT cues that overlap an asset-relative time range.
+ *
+ * Cue timestamps remain relative to the original asset; they are not rebased
+ * to the start of the scope.
+ */
+export function filterVttByScope(
+  vttContent: string,
+  scope: WorkflowScope | undefined,
+): string {
+  if (!scope || (scope.startTime === undefined && scope.endTime === undefined)) {
+    return vttContent;
+  }
+
+  const { preamble, cueBlocks } = splitVttPreambleAndCueBlocks(vttContent);
+  const scopedCueBlocks = cueBlocks
+    .filter((cueBlock) => {
+      const cue = parseVTTCues(cueBlock)[0];
+      return cue ?
+          timeRangesOverlap(cue.startTime, cue.endTime, scope) :
+        false;
+    })
+    .map((cueBlock, index) => {
+      const lines = cueBlock.split("\n");
+      if (/^\d+$/.test(lines[0]?.trim()) && lines[1]?.includes("-->")) {
+        lines[0] = String(index + 1);
+      }
+      return lines.join("\n");
+    });
+
+  return buildVttFromCueBlocks(scopedCueBlocks, preamble);
+}
+
 export function splitVttPreambleAndCueBlocks(vttContent: string): { preamble: string; cueBlocks: string[] } {
   const normalizedContent = normalizeLineEndings(vttContent).trim();
   if (!normalizedContent) {
@@ -738,6 +774,7 @@ export async function fetchTranscriptForAsset(
   const {
     languageCode,
     cleanTranscript = true,
+    scope,
     shouldSign,
     credentials,
     required = false,
@@ -777,10 +814,16 @@ export async function fetchTranscriptForAsset(
     }
 
     const rawVtt = await response.text();
-    const transcriptText = cleanTranscript ? extractTextFromVTT(rawVtt) : rawVtt;
+    const effectiveScope = hasWorkflowScopeBoundaries(scope) ? scope : undefined;
+    const scopedVtt = filterVttByScope(rawVtt, effectiveScope);
+    const transcriptText = cleanTranscript ? extractTextFromVTT(scopedVtt) : scopedVtt;
 
-    if (required && !transcriptText.trim()) {
-      throw new MuxAiError("Transcript is empty.", { type: "validation_error" });
+    const hasScopedCues = !effectiveScope || parseVTTCues(scopedVtt).length > 0;
+    if (required && (!transcriptText.trim() || !hasScopedCues)) {
+      throw new MuxAiError(
+        effectiveScope ? "Transcript has no cues in the requested scope." : "Transcript is empty.",
+        { type: "validation_error" },
+      );
     }
 
     return { transcriptText, transcriptUrl, track };

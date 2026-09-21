@@ -44,12 +44,38 @@ export interface MuxAIOptions {
   /** Optional timeout (ms) for helper utilities that support request limits. */
   timeout?: number;
   /**
+   * Optional asset snapshot to reuse instead of retrieving the asset from Mux.
+   * The snapshot must belong to `assetId`; callers should capture it immediately
+   * before starting the workflow.
+   */
+  assetSnapshot?: MuxAsset;
+  /**
    * Optional credentials for workflow execution.
    * Use encryptForWorkflow when running in Workflow Dev Kit environments.
    */
   credentials?: WorkflowCredentialsInput;
   /** Optional storage adapter for upload and presigning operations. */
   storageAdapter?: StorageAdapter;
+}
+
+/**
+ * Asset-relative time range used to limit workflow analysis.
+ *
+ * Times are expressed in seconds. The start is inclusive and the end is
+ * exclusive. Either boundary may be omitted to analyze from the beginning or
+ * through the end of the asset, respectively.
+ */
+export interface WorkflowScope {
+  /** Inclusive start offset from the beginning of the asset, in seconds. */
+  startTime?: number;
+  /** Exclusive end offset from the beginning of the asset, in seconds. */
+  endTime?: number;
+}
+
+/** Base options for workflows that can analyze a bounded part of an asset. */
+export interface ScopedMuxAIOptions extends MuxAIOptions {
+  /** Optional asset-relative time range to analyze. */
+  scope?: WorkflowScope;
 }
 
 /**
@@ -71,6 +97,18 @@ export interface WorkflowCredentials {
   muxPrivateKey?: string;
   /** Optional direct OpenAI API key for per-request credential injection. */
   openaiApiKey?: string;
+  /** Optional direct Baseten API key for per-request credential injection. */
+  basetenApiKey?: string;
+  /** Optional direct Baseten language endpoint URL (dedicated /sync/v1 deployment or shared OpenAI-compatible base URL). */
+  basetenUrl?: string;
+  /** Optional direct Baseten dedicated embedding deployment URL (/sync or /sync/v1). */
+  basetenEmbeddingUrl?: string;
+  /** Optional direct API key for OpenAI-compatible endpoints. */
+  openaiCompatibleApiKey?: string;
+  /** Optional direct base URL of an OpenAI-compatible API. */
+  openaiCompatibleBaseUrl?: string;
+  /** Optional direct embedding-specific OpenAI-compatible base URL. */
+  openaiCompatibleEmbeddingBaseUrl?: string;
   /** Optional direct Anthropic API key for per-request credential injection. */
   anthropicApiKey?: string;
   /** Optional direct Google API key for per-request credential injection. */
@@ -209,6 +247,8 @@ export interface TokenUsage {
   reasoningTokens?: number;
   /** Input tokens served from cache (reduces cost). */
   cachedInputTokens?: number;
+  /** Input tokens written to cache (may use a provider-specific rate). */
+  cacheWriteTokens?: number;
   /** Workflow metadata (asset duration, thumbnails, etc.). */
   metadata?: UsageMetadata;
 }

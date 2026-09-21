@@ -48,13 +48,17 @@ function toPlaybackAsset(asset: MuxAsset): PlaybackAsset {
 export async function getPlaybackIdForAsset(
   assetId: string,
   credentials?: WorkflowCredentialsInput,
+  assetSnapshot?: MuxAsset,
 ): Promise<PlaybackAsset> {
   "use step";
   // Centralize the Mux Video API fetch so callers can reuse the same asset payload
   // for playback IDs, duration, and other derived fields without double-hitting.
   // Note: getMuxAsset still resolves Mux token ID/secret from env or provided
   // credentials to preserve multi-tenant behavior.
-  const asset = await getMuxAsset(assetId, credentials);
+  const asset = assetSnapshot ?? await getMuxAsset(assetId, credentials);
+  if (asset.id !== assetId) {
+    throw new MuxAiError("Asset snapshot does not match the requested asset ID.", { type: "validation_error" });
+  }
   return toPlaybackAsset(asset);
 }
 

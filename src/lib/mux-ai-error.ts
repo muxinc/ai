@@ -1,6 +1,12 @@
-import { detectLeakReason } from "./output-safety.ts";
+import type { TokenUsage } from "../types.ts";
 
-export type MuxAiErrorType = "validation_error" | "processing_error" | "timeout_error";
+import { detectLeakReason } from "./output-safety.ts";
+import { getErrorTokenUsage } from "./token-usage.ts";
+
+export type MuxAiErrorType = "validation_error" |
+  "processing_error" |
+  "timeout_error" |
+  "content_policy_error";
 
 /**
  * An error whose message is safe to surface verbatim to the customer.
@@ -38,6 +44,15 @@ export class MuxAiError extends Error {
     this.publicMessage = message;
     this.retryable = opts?.retryable ?? false;
   }
+
+  static is(value: unknown): value is MuxAiError {
+    return (
+      typeof value === "object" &&
+      value !== null &&
+      "__robots_error" in value &&
+      value.__robots_error === true
+    );
+  }
 }
 
 /**
@@ -66,11 +81,36 @@ export class MuxAiError extends Error {
  * trigger the much stronger field-level scrubber on the preceding
  * model output.
  */
+/**
+ * Extract a human-readable detail from an unknown thrown value.
+ *
+ * An error thrown inside a Workflow DevKit step crosses a VM/serialization
+ * boundary before it reaches a workflow-level catch, arriving as a plain
+ * object that fails `instanceof Error` but still carries a `message` string.
+ * Duck-typing `message` avoids collapsing the real cause (e.g. "fetch failed")
+ * to "Unknown error".
+ */
+function extractErrorDetail(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  if (typeof error === "string" && error.length > 0) {
+    return error;
+  }
+  if (typeof error === "object" && error !== null) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && message.length > 0) {
+      return message;
+    }
+  }
+  return "Unknown error";
+}
+
 export function wrapError(error: unknown, message: string): never {
-  if (error instanceof MuxAiError) {
+  if (MuxAiError.is(error)) {
     throw error;
   }
-  const rawDetail = error instanceof Error ? error.message : "Unknown error";
+  const rawDetail = extractErrorDetail(error);
   const leakReason = detectLeakReason(rawDetail);
   const shouldSuppress = leakReason === "canary" || leakReason === "prompt_tag";
   const detail = shouldSuppress ?
@@ -79,5 +119,11 @@ export function wrapError(error: unknown, message: string): never {
   if (shouldSuppress) {
     console.warn(`[@mux/ai] Suppressed suspected prompt leak in wrapped error (context: ${message}, reason: ${leakReason}).`);
   }
-  throw new Error(`${message}: ${detail}`);
+  const wrapped = new Error(`${message}: ${detail}`);
+  // Carry `usage` through wrapping so failed workflows still report tokens burned.
+  const usage = getErrorTokenUsage(error);
+  if (usage) {
+    (wrapped as Error & { usage?: TokenUsage }).usage = usage;
+  }
+  throw wrapped;
 }

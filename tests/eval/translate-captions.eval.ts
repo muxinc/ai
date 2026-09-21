@@ -291,11 +291,8 @@ async function scoreTranslationFaithfulness({
   const response = await generateText({
     model: openai("gpt-5.1"),
     output: Output.object({ schema: faithfulnessScoreSchema }),
+    system: systemPrompt,
     messages: [
-      {
-        role: "system",
-        content: systemPrompt,
-      },
       {
         role: "user",
         content: `Original English transcript:\n${ORIGINAL_TRANSCRIPT}\n\n` +
@@ -330,6 +327,8 @@ evalite("Caption Translation", {
       model,
       uploadToS3: false, // Don't upload during evals
       uploadToMux: false,
+      neverTranslate: ["Mux"], // Scored by never-translate-compliance
+
     });
     const latencyMs = performance.now() - startTime;
 
@@ -339,6 +338,7 @@ evalite("Caption Translation", {
       usage.inputTokens ?? 0,
       usage.outputTokens ?? 0,
       usage.cachedInputTokens ?? 0,
+      usage.cacheWriteTokens ?? 0,
     );
 
     reportTrace({
@@ -618,6 +618,14 @@ evalite("Caption Translation", {
           metadata: failedChecks.length > 0 ? { failedChecks } : undefined,
         };
       },
+    },
+
+    // NEVER TRANSLATE COMPLIANCE: Terms must survive translation verbatim
+    {
+      name: "never-translate-compliance",
+      description: "Validates that neverTranslate terms appear verbatim in the translated output as often as in the source.",
+      scorer: ({ output }: { output: EvalOutput }) =>
+        output.neverTranslateTermsPreserved === true ? 1 : 0,
     },
 
     // LANGUAGE CODE VALIDITY: Validate codes are recognized ISO standards

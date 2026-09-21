@@ -155,6 +155,10 @@ Partly trusted (validated at the library boundary):
 - `askQuestions` `questions[].answerOptions[]` — max 150 chars each by
   default (overridable via the `maxAnswerOptionLength` option for
   domain-specific category labels that legitimately run longer).
+- `translateCaptions` `neverTranslate[]` — max 100 terms, 100 chars
+  each, and `<` / `>` are rejected, so a term cannot close the
+  `<never_translate>` prompt section and forge instructions outside it.
+  The text itself still reaches the model as content.
 
 If you expose any of the "partly trusted" options to end-users, your
 application boundary should still sanitise and rate-limit — the

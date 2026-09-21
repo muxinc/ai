@@ -2,6 +2,28 @@
 
 All workflows accept an optional `credentials` object for [runtime credential injection](./CREDENTIALS.md#runtime-credentials). This is inherited from the base `MuxAIOptions` interface and is not repeated for each workflow below.
 
+### Scoped execution
+
+Workflows that analyze asset content accept an optional asset-relative `scope`:
+
+```typescript
+interface WorkflowScope {
+  startTime?: number; // Inclusive, in seconds
+  endTime?: number; // Exclusive, in seconds
+}
+```
+
+Both boundaries are optional. `{ startTime: 30 }` analyzes from 30 seconds
+through the end of the asset, while `{ endTime: 90 }` analyzes from the
+beginning up to 90 seconds. Times remain relative to the original asset in
+workflow outputs.
+
+`scope` is supported by `getSummaryAndTags`, `getModerationScores`,
+`hasBurnedInCaptions`, `askQuestions`, `generateChapters`, and
+`generateEmbeddings`. It bounds storyboard or thumbnail selection and
+transcript cues as applicable. The workflow rejects negative, non-finite,
+empty, reversed, or out-of-asset ranges.
+
 ## `getSummaryAndTags(assetId, options?)`
 
 Analyzes a Mux video or audio asset and returns AI-generated metadata.
@@ -13,9 +35,9 @@ Analyzes a Mux video or audio asset and returns AI-generated metadata.
 
 **Options:**
 
-- `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
+- `provider?: 'openai' | 'anthropic' | 'google' | 'baseten' | 'openai-compatible'` - AI provider (default: 'openai')
 - `tone?: 'neutral' | 'playful' | 'professional'` - Analysis tone (default: 'neutral')
-- `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
+- `model?: string` - AI model to use. Defaults per provider: `gpt-5.6-luna` at medium reasoning (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google). Baseten and OpenAI-compatible endpoints have no default — pass `model` or set the `BASETEN_MODEL` / `OPENAI_COMPATIBLE_MODEL` environment variable.
 - `languageCode?: string` - Language code for transcript track selection (e.g., 'en', 'fr'). When omitted, prefers English if available.
 - `outputLanguageCode?: string` - BCP 47 language code (e.g., 'en', 'fr', 'ja') for the generated title, description, and tags. When omitted or set to `'auto'`, auto-detects from the selected transcript track's language. Falls back to unconstrained (LLM decides) if no language metadata is available.
 - `includeTranscript?: boolean` - Include transcript in analysis (default: true)
@@ -170,8 +192,8 @@ Analyzes video frames to detect burned-in captions (hardcoded subtitles) that ar
 
 **Options:**
 
-- `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
-- `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
+- `provider?: 'openai' | 'anthropic' | 'google' | 'baseten' | 'openai-compatible'` - AI provider (default: 'openai')
+- `model?: string` - AI model to use. Defaults per provider: `gpt-5.6-luna` at medium reasoning (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google). Baseten and OpenAI-compatible endpoints have no default — pass `model` or set the `BASETEN_MODEL` / `OPENAI_COMPATIBLE_MODEL` environment variable.
 - `imageSubmissionMode?: 'url' | 'base64'` - How to submit storyboard to AI providers (default: 'url')
 - `imageDownloadOptions?: object` - Options for image download when using base64 mode
   - `timeout?: number` - Request timeout in milliseconds (default: 10000)
@@ -222,8 +244,8 @@ Answer questions about asset content by analyzing storyboard frames and optional
 
 **Options:**
 
-- `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
-- `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
+- `provider?: 'openai' | 'anthropic' | 'google' | 'baseten' | 'openai-compatible'` - AI provider (default: 'openai')
+- `model?: string` - AI model to use. Defaults per provider: `gpt-5.6-luna` at medium reasoning (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google). Baseten and OpenAI-compatible endpoints have no default — pass `model` or set the `BASETEN_MODEL` / `OPENAI_COMPATIBLE_MODEL` environment variable.
 - `languageCode?: string` - Language code for transcript track selection (e.g., 'en', 'fr'). When omitted, prefers English if available.
 - `includeTranscript?: boolean` - Include transcript in analysis (default: true, required for audio-only assets)
 - `cleanTranscript?: boolean` - Remove VTT timestamps and formatting from transcript (default: true)
@@ -329,8 +351,8 @@ Generate AI-powered insights explaining viewer engagement patterns by analyzing 
 
 **Options:**
 
-- `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
-- `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
+- `provider?: 'openai' | 'anthropic' | 'google' | 'baseten' | 'openai-compatible'` - AI provider (default: 'openai')
+- `model?: string` - AI model to use. Defaults per provider: `gpt-5.6-luna` at medium reasoning (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google). Baseten and OpenAI-compatible endpoints have no default — pass `model` or set the `BASETEN_MODEL` / `OPENAI_COMPATIBLE_MODEL` environment variable.
 - `hotspotLimit?: number` - Number of engagement moments to analyze per direction (default: 5, range: 1-10). Note: actual moment count may be up to 2x this value since both peaks and valleys are fetched.
 - `timeframe?: string` - Engagement data timeframe (default: '7:days')
   - Examples: `'60:minutes'`, `'24:hours'`, `'7:days'`, `'30:days'`
@@ -412,9 +434,12 @@ Translates existing captions from one language to another and optionally adds th
 
 **Options:**
 
-- `provider: 'openai' | 'anthropic' | 'google'` - AI provider (required)
+- `provider: 'openai' | 'anthropic' | 'google' | 'baseten' | 'openai-compatible'` - AI provider (required)
 - `model?: string` - Model to use (defaults to the provider's chat model if omitted)
 - `uploadToMux?: boolean` - Whether to upload translated track to Mux (default: true)
+- `replaceExistingTracks?: 'fail' | 'replace_all' | 'replace_generated'` - What to do when the asset already has a text track in the target language or with the target name (default: `'fail'`, which rejects before any translation runs). `'replace_all'` deletes every such track first; `'replace_generated'` deletes only Mux-generated (ASR) tracks and rejects if anything else is in the way.
+- `trackName?: string` - Name for the created Mux text track (default: "<Language> (Auto-translated)", e.g. "Spanish (Auto-translated)")
+- `trackPassthrough?: string` - `passthrough` written on the created track, max 255 characters (default: `{"mux_ai":{"workflow":"translate-captions"}}`)
 - `s3Endpoint?: string` - S3-compatible storage endpoint
 - `s3Region?: string` - S3 region (default: 'auto')
 - `s3Bucket?: string` - S3 bucket name
@@ -427,6 +452,7 @@ Translates existing captions from one language to another and optionally adds th
   - `maxConcurrentTranslations?: number` - Max number of concurrent translation requests when chunking (default: `4`)
   - `maxCuesPerChunk?: number` - Hard cap for cues included in a single AI translation chunk (default: `80`)
   - `maxCueTextTokensPerChunk?: number` - Approximate cap for cue text tokens included in a single AI translation chunk (default: `2000`)
+- `neverTranslate?: string[]` - Terms (brand names, proper nouns) to preserve verbatim in the translated output; max 100 terms of 100 characters each, `<` and `>` not allowed. Compliance is verified and reported on `result.neverTranslateTermsPreserved`, not guaranteed.
 
 **Returns:**
 
@@ -441,8 +467,10 @@ interface TranslationResult {
   originalVtt: string; // Original VTT content
   translatedVtt: string; // Translated VTT content
   uploadedTrackId?: string; // Mux track ID (if uploaded)
+  replacedTracks?: TextTrackSummary[]; // Existing tracks deleted before the upload ({ id, name, languageCode, status, textSource, passthrough })
   presignedUrl?: string; // S3 presigned URL (default expiry: 24 hours)
   usage?: TokenUsage; // Token usage from the AI provider
+  neverTranslateTermsPreserved?: boolean; // Present when neverTranslate terms were supplied; false if any term was not preserved verbatim
 }
 ```
 
@@ -458,7 +486,7 @@ All ISO 639-1 language codes are automatically supported using `Intl.DisplayName
 
 ## `editCaptions(assetId, trackId, options)`
 
-Edits a caption track using LLM-powered profanity censorship, static find/replace, or both. Optionally uploads the edited track to Mux.
+Edits a caption track using LLM-powered profanity censorship, static find/replace, speaker-label replacement, or a combination of these operations. Optionally uploads the edited track to Mux.
 
 **Parameters:**
 
@@ -468,7 +496,7 @@ Edits a caption track using LLM-powered profanity censorship, static find/replac
 
 **Options:**
 
-- `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (required when `autoCensorProfanity` is set)
+- `provider?: 'openai' | 'anthropic' | 'google' | 'baseten' | 'openai-compatible'` - AI provider (required when `autoCensorProfanity` is set)
 - `model?: string` - Model to use (defaults to the provider's chat model if omitted)
 - `autoCensorProfanity?: object` - LLM-powered profanity censorship (optional)
   - `mode?: 'blank' | 'remove' | 'mask'` - Replacement strategy (default: 'blank')
@@ -478,16 +506,20 @@ Edits a caption track using LLM-powered profanity censorship, static find/replac
   - `alwaysCensor?: string[]` - Words to always censor regardless of LLM output
   - `neverCensor?: string[]` - Words to never censor even if the LLM flags them (takes precedence over `alwaysCensor`)
 - `replacements?: Array<{ find: string; replace: string; caseSensitive?: boolean }>` - Static find/replace pairs (optional, no LLM needed). Each entry matches case-sensitively by default; set `caseSensitive: false` to match regardless of case.
+- `speakerReplacements?: Array<{ find: string; replace: string }>` - Replaces bracketed speaker labels at the start of cues without changing matching words in spoken caption content.
 - `uploadToMux?: boolean` - Whether to upload edited track to Mux (default: true)
-- `deleteOriginalTrack?: boolean` - Whether to delete the original track after uploading the edited one (default: true)
+- `replaceExistingTracks?: 'fail' | 'replace_all' | 'replace_generated'` - What to do with the source track and any other text track in the same language or with the same name as the edited one (default: `'replace_all'`, so the edited track takes the source's place under the source's name). `'replace_generated'` does the same only when everything in the way is Mux-generated (ASR). `'fail'` keeps the source, requires `trackName`, and rejects if that name or language is already taken by another track.
+- `trackName?: string` - Name for the edited Mux text track (default: the source track's name)
+- `trackPassthrough?: string` - `passthrough` written on the edited track, max 255 characters (default: `{"mux_ai":{"workflow":"edit-captions"}}`)
+- `deleteOriginalTrack?: boolean` - **Deprecated**, use `replaceExistingTracks`. When set, the previous behaviour applies: create `<source name> (<trackNameSuffix>)`, then delete the source if `true`. Cannot be combined with `replaceExistingTracks` or `trackName`.
+- `trackNameSuffix?: string` - **Deprecated**, use `trackName`. Selects the previous naming scheme (default suffix 'edited', e.g. "Subtitles (edited)"). Cannot be combined with `replaceExistingTracks` or `trackName`.
 - `s3Endpoint?: string` - S3-compatible storage endpoint
 - `s3Region?: string` - S3 region (default: 'auto')
 - `s3Bucket?: string` - S3 bucket name
-- `trackNameSuffix?: string` - Suffix appended to the original track name in parentheses (default: 'edited', e.g. "Subtitles (edited)")
 - `storageAdapter?: StorageAdapter` - Optional adapter with `putObject` and `createPresignedGetUrl` methods
 - `s3SignedUrlExpirySeconds?: number` - Expiry duration in seconds for S3 presigned GET URLs (default: 86400 / 24 hours)
 
-At least one of `autoCensorProfanity` or `replacements` must be provided.
+At least one of `autoCensorProfanity`, `replacements`, or `speakerReplacements` must be provided.
 
 **Returns:**
 
@@ -510,7 +542,11 @@ interface EditCaptionsResult {
   replacements?: { // Present when replacements were used
     replacements: ReplacementRecord[]; // Each static replacement with cue timing
   };
+  speakerReplacements?: { // Present when speakerReplacements were used
+    replacements: ReplacementRecord[]; // Each speaker-label replacement with cue timing
+  };
   uploadedTrackId?: string; // Mux track ID (if uploaded)
+  replacedTracks?: TextTrackSummary[]; // Existing tracks deleted before the upload, including the source when replaced in place
   presignedUrl?: string; // S3 presigned URL (default expiry: 24 hours)
   usage?: TokenUsage; // Token usage (only present if LLM was used)
 }
@@ -529,8 +565,8 @@ Generates AI-powered chapter markers by analyzing video or audio transcripts. Cr
 
 - `languageCode?: string` - Language code for captions (e.g., 'en', 'es', 'fr'). When omitted, prefers English if available.
 - `outputLanguageCode?: string` - BCP 47 language code (e.g., 'en', 'fr', 'ja') for the generated chapter titles. When omitted or set to `'auto'`, auto-detects from the selected transcript track's language. Falls back to unconstrained (LLM decides) if no language metadata is available.
-- `provider?: 'openai' | 'anthropic' | 'google'` - AI provider (default: 'openai')
-- `model?: string` - AI model to use (defaults: `gpt-5.1`, `claude-sonnet-4-5`, or `gemini-3-flash-preview`)
+- `provider?: 'openai' | 'anthropic' | 'google' | 'baseten' | 'openai-compatible'` - AI provider (default: 'openai')
+- `model?: string` - AI model to use. Defaults per provider: `gpt-5.6-luna` at medium reasoning (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google). Baseten and OpenAI-compatible endpoints have no default — pass `model` or set the `BASETEN_MODEL` / `OPENAI_COMPATIBLE_MODEL` environment variable.
 - `promptOverrides?: object` - Override specific sections of the chaptering prompt
   - `task?: string` - Override the main task instruction
   - `outputFormat?: string` - Override the expected output format description
@@ -586,11 +622,17 @@ Creates AI-dubbed audio tracks from existing media content using ElevenLabs voic
 - `fromLanguageCode?: string` - Optional source language code passed to ElevenLabs `source_lang` (ISO 639-1 or ISO 639-3, default: auto-detect)
 - `numSpeakers?: number` - Number of speakers (default: 0 for auto-detect)
 - `uploadToMux?: boolean` - Whether to upload dubbed track to Mux (default: true)
+- `uploadCaptionsToMux?: boolean` - Also attach the dub's translated transcript as a subtitles text track (default: false)
+- `replaceExistingTracks?: 'fail' | 'replace_all' | 'replace_generated'` - What to do when the asset already has an audio track (or, with `uploadCaptionsToMux`, a text track) in the target language or with the target name (default: `'fail'`, which rejects before dubbing starts). `'replace_all'` deletes them first. Audio tracks are never Mux-generated, so `'replace_generated'` only ever removes ASR captions. The asset's primary audio track is never deleted under any policy.
+- `trackName?: string` - Name for the created Mux tracks; audio and text tracks are separate name groups so both get the same name (default: `"<Language> (Auto-dubbed)"`)
+- `trackPassthrough?: string` - `passthrough` written on the created tracks, max 255 characters (default: `{"mux_ai":{"workflow":"translate-audio"}}`)
 - `s3Endpoint?: string` - S3-compatible storage endpoint
 - `s3Region?: string` - S3 region (default: 'auto')
 - `s3Bucket?: string` - S3 bucket name
 - `storageAdapter?: StorageAdapter` - Optional adapter with `putObject` and `createPresignedGetUrl` methods
 - `s3SignedUrlExpirySeconds?: number` - Expiry duration in seconds for S3 presigned GET URLs (default: 86400 / 24 hours)
+- `dubbingPollTimeoutSeconds?: number` - Max time to wait for ElevenLabs to finish dubbing before timing out (default: 7200 / 2 hours). Raise for long-form content or when jobs queue behind the concurrency limit.
+- `staticRenditionCleanup?: 'delete' | 'keep'` - What to do with an `audio.m4a` static rendition the workflow created as dubbing input (default: 'delete'). A rendition that already existed on the asset is never deleted. When dubbing multiple languages concurrently on one asset, create the rendition before fanning out or pass 'keep' — the creating run's delete can otherwise race a concurrent run's source fetch.
 
 **Returns:**
 
@@ -602,18 +644,23 @@ interface TranslateAudioResult {
   dubbingId: string; // ElevenLabs dubbing job ID
   uploadedTrackId?: string; // Mux audio track ID (if uploaded)
   presignedUrl?: string; // S3 presigned URL (default expiry: 24 hours)
+  replacedTracks?: TextTrackSummary[]; // Existing audio/text tracks deleted before the uploads; `type` says which group
+  captionsTrackId?: string; // Mux text track ID for the dubbed captions (when uploadCaptionsToMux is true)
+  captionsPresignedUrl?: string; // S3 presigned URL for the dub transcript VTT
+  createdStaticRenditionId?: string; // Static rendition ID this run created (undefined if one already existed)
+  staticRenditionCleanup: "deleted" | "delete_failed" | "kept" | "not_created";
   usage?: TokenUsage; // Workflow usage metadata
 }
 ```
 
 **Requirements:**
 
-- Asset must have an `audio.m4a` static rendition (auto-requested if missing)
+- Asset must have an `audio.m4a` static rendition (auto-requested if missing, and deleted again afterwards by default — see `staticRenditionCleanup`)
 - ElevenLabs API key with Creator plan or higher
 - S3-compatible storage for Mux ingestion
 
 **Supported Languages:**
-ElevenLabs supports 32+ languages with automatic language name detection via `Intl.DisplayNames`. Supported languages include English, Spanish, French, German, Italian, Portuguese, Polish, Japanese, Korean, Chinese, Russian, Arabic, Hindi, Thai, and many more. Track names are automatically generated (e.g., "Polish (auto-dubbed)").
+ElevenLabs supports 32+ languages with automatic language name detection via `Intl.DisplayNames`. Supported languages include English, Spanish, French, German, Italian, Portuguese, Polish, Japanese, Korean, Chinese, Russian, Arabic, Hindi, Thai, and many more. Track names are automatically generated (e.g., "Polish (Auto-dubbed)").
 
 ## `generateEmbeddings(assetId, options?)`
 
@@ -629,8 +676,8 @@ Generate vector embeddings for transcript chunks from video or audio assets for 
 
 **Options:**
 
-- `provider?: 'openai' | 'google'` - Embedding provider (default: 'openai')
-- `model?: string` - Model to use (defaults: `text-embedding-3-small` for OpenAI, `gemini-embedding-001` for Google)
+- `provider?: 'openai' | 'google' | 'baseten' | 'openai-compatible'` - Embedding provider (default: 'openai')
+- `model?: string` - Embedding model to use. Defaults per provider: `text-embedding-3-small` (OpenAI), `gemini-embedding-001` (Google). Baseten and OpenAI-compatible endpoints have no default — pass `model` or set the `BASETEN_EMBEDDING_MODEL` / `OPENAI_COMPATIBLE_EMBEDDING_MODEL` environment variable.
 - `chunkingStrategy?: object` - How to chunk the transcript
   - `type: 'token' | 'vtt'` - Chunking method
   - `maxTokens?: number` - Maximum tokens per chunk (default: 500)

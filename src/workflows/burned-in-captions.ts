@@ -2,9 +2,17 @@ import { generateText, Output } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
+import {
+  getGeneratedOutputWithContentPolicyHandling,
+  withContentPolicyAwareRetry,
+} from "../lib/content-policy-error.ts";
 import type { ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImageAsBase64 } from "../lib/image-download.ts";
-import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "../lib/mux-assets.ts";
+import {
+  getAssetDurationSecondsFromAsset,
+  getPlaybackIdForAsset,
+  getVideoTrackDurationSecondsFromAsset,
+} from "../lib/mux-assets.ts";
 import { createSafetyReporter, detectUnexpectedKeysFromRawText } from "../lib/output-safety.ts";
 import type { SafetyReport } from "../lib/output-safety.ts";
 import type { PromptOverrides } from "../lib/prompt-builder.ts";
@@ -21,10 +29,12 @@ import {
 } from "../lib/prompt-fragments.ts";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
+import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
+import { resolveRenderableVideoScope } from "../lib/workflow-scope.ts";
 import { getStoryboardUrl } from "../primitives/storyboards.ts";
 import type {
   ImageSubmissionMode,
-  MuxAIOptions,
+  ScopedMuxAIOptions,
   TokenUsage,
   WorkflowCredentialsInput,
 } from "../types.ts";
@@ -80,7 +90,7 @@ export type BurnedInCaptionsPromptSections =
 export type BurnedInCaptionsPromptOverrides = PromptOverrides<BurnedInCaptionsPromptSections>;
 
 /** Configuration accepted by `hasBurnedInCaptions`. */
-export interface BurnedInCaptionsOptions extends MuxAIOptions {
+export interface BurnedInCaptionsOptions extends ScopedMuxAIOptions {
   /** AI provider used for storyboard inspection (defaults to 'openai'). */
   provider?: SupportedProvider;
   /** Provider-specific model identifier. */
@@ -276,15 +286,13 @@ async function analyzeStoryboard({
 
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
 
-  const response = await generateText({
+  const response = await withContentPolicyAwareRetry(() => generateText({
     model,
+    maxRetries: 0,
     output: Output.object({ schema: burnedInCaptionsSchema }),
     experimental_telemetry: { isEnabled: true },
+    system: systemPrompt,
     messages: [
-      {
-        role: "system",
-        content: systemPrompt,
-      },
       {
         role: "user",
         content: [
@@ -293,7 +301,8 @@ async function analyzeStoryboard({
         ],
       },
     ],
-  });
+  }));
+  const output = getGeneratedOutputWithContentPolicyHandling(response);
 
   // Detect schema-smuggling attempts. `response.output` has already
   // been through zod.strip(), so any extras the model emitted are gone
@@ -309,8 +318,8 @@ async function analyzeStoryboard({
 
   return {
     result: {
-      ...response.output,
-      confidence: Math.min(1, Math.max(0, response.output.confidence)),
+      ...output,
+      confidence: Math.min(1, Math.max(0, output.confidence)),
     },
     usage: {
       inputTokens: response.usage.inputTokens,
@@ -318,6 +327,7 @@ async function analyzeStoryboard({
       totalTokens: response.usage.totalTokens,
       reasoningTokens: response.usage.reasoningTokens,
       cachedInputTokens: response.usage.cachedInputTokens,
+      cacheWriteTokens: response.usage.inputTokenDetails?.cacheWriteTokens,
     },
     unexpectedKeys,
   };
@@ -328,6 +338,19 @@ export async function hasBurnedInCaptions(
   options: BurnedInCaptionsOptions = {},
 ): Promise<BurnedInCaptionsResult> {
   "use workflow";
+  const collectedUsage: TokenUsage[] = [];
+  try {
+    return await hasBurnedInCaptionsInternal(assetId, options, collectedUsage);
+  } catch (error) {
+    rethrowWithTokenUsage(error, collectedUsage);
+  }
+}
+
+async function hasBurnedInCaptionsInternal(
+  assetId: string,
+  options: BurnedInCaptionsOptions,
+  collectedUsage: TokenUsage[],
+): Promise<BurnedInCaptionsResult> {
   const {
     provider = DEFAULT_PROVIDER,
     model,
@@ -335,6 +358,7 @@ export async function hasBurnedInCaptions(
     imageDownloadOptions,
     promptOverrides,
     credentials,
+    scope,
     ...config
   } = options;
 
@@ -346,10 +370,21 @@ export async function hasBurnedInCaptions(
     model,
     provider: provider as SupportedProvider,
   });
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials, options.assetSnapshot);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
+  const storyboardScope = resolveRenderableVideoScope(
+    scope,
+    assetDurationSeconds,
+    getVideoTrackDurationSecondsFromAsset(assetData),
+  );
 
-  const imageUrl = await getStoryboardUrl(playbackId, 640, policy === "signed", credentials);
+  const imageUrl = await getStoryboardUrl(
+    playbackId,
+    640,
+    policy === "signed",
+    credentials,
+    storyboardScope,
+  );
 
   let analysisResponse: AnalysisResponse;
 
@@ -373,6 +408,8 @@ export async function hasBurnedInCaptions(
       credentials,
     });
   }
+
+  collectedUsage.push(analysisResponse.usage);
 
   if (!analysisResponse.result) {
     throw new Error("No analysis result received from AI provider");

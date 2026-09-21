@@ -2,6 +2,10 @@ import { generateText, Output } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
+import {
+  getGeneratedOutputWithContentPolicyHandling,
+  withContentPolicyAwareRetry,
+} from "../lib/content-policy-error.ts";
 import type { ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImageAsBase64 } from "../lib/image-download.ts";
 import { getLanguageName } from "../lib/language-codes.ts";
@@ -10,6 +14,7 @@ import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
+  getVideoTrackDurationSecondsFromAsset,
   isAudioOnlyAsset,
 } from "../lib/mux-assets.ts";
 import { createSafetyReporter, detectUnexpectedKeysFromRawText } from "../lib/output-safety.ts";
@@ -38,15 +43,20 @@ import {
 } from "../lib/prompt-fragments.ts";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
-import { withRetry } from "../lib/retry.ts";
+import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import {
   resolveMuxSigningContext,
 } from "../lib/workflow-credentials.ts";
+import {
+  hasWorkflowScopeBoundaries,
+  resolveRenderableVideoScope,
+  resolveWorkflowScope,
+} from "../lib/workflow-scope.ts";
 import { getStoryboardUrl } from "../primitives/storyboards.ts";
 import { fetchTranscriptForAsset, getReadyTextTracks, getReliableLanguageCode } from "../primitives/transcripts.ts";
 import type {
   ImageSubmissionMode,
-  MuxAIOptions,
+  ScopedMuxAIOptions,
   TokenUsage,
   ToneType,
   WorkflowCredentialsInput,
@@ -172,7 +182,7 @@ export type SummarizationPromptSections =
 export type SummarizationPromptOverrides = PromptOverrides<SummarizationPromptSections>;
 
 /** Configuration accepted by `getSummaryAndTags`. */
-export interface SummarizationOptions extends MuxAIOptions {
+export interface SummarizationOptions extends ScopedMuxAIOptions {
   /** AI provider to run (defaults to 'openai'). */
   provider?: SupportedProvider;
   /** Provider-specific chat model identifier. */
@@ -543,18 +553,16 @@ async function analyzeStoryboard(
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
   const schema = buildSummarySchema(descriptionLength);
 
-  const response = await generateText({
+  const response = await withContentPolicyAwareRetry(() => generateText({
     model,
+    maxRetries: 0,
     output: Output.object({
       name: "summary_metadata",
       description: "Structured summary with title, description, and keywords.",
       schema,
     }),
+    system: systemPrompt,
     messages: [
-      {
-        role: "system",
-        content: systemPrompt,
-      },
       {
         role: "user",
         content: [
@@ -563,13 +571,15 @@ async function analyzeStoryboard(
         ],
       },
     ],
-  });
+  }));
 
-  if (!response.output) {
+  const output = getGeneratedOutputWithContentPolicyHandling(response);
+
+  if (!output) {
     throw new Error("Summarization output missing");
   }
 
-  const parsed = schema.parse(response.output);
+  const parsed = schema.parse(output);
 
   // Detect schema-smuggling. response.output has already been stripped;
   // re-parse response.text to see what the model actually emitted.
@@ -586,6 +596,7 @@ async function analyzeStoryboard(
       totalTokens: response.usage.totalTokens,
       reasoningTokens: response.usage.reasoningTokens,
       cachedInputTokens: response.usage.cachedInputTokens,
+      cacheWriteTokens: response.usage.inputTokenDetails?.cacheWriteTokens,
     },
     unexpectedKeys,
   };
@@ -603,30 +614,30 @@ async function analyzeAudioOnly(
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
   const schema = buildSummarySchema(descriptionLength);
 
-  const response = await generateText({
+  const response = await withContentPolicyAwareRetry(() => generateText({
     model,
+    maxRetries: 0,
     output: Output.object({
       name: "summary_metadata",
       description: "Structured summary with title, description, and keywords.",
       schema,
     }),
+    system: systemPrompt,
     messages: [
-      {
-        role: "system",
-        content: systemPrompt,
-      },
       {
         role: "user",
         content: userPrompt,
       },
     ],
-  });
+  }));
 
-  if (!response.output) {
+  const output = getGeneratedOutputWithContentPolicyHandling(response);
+
+  if (!output) {
     throw new Error("Summarization output missing");
   }
 
-  const parsed = schema.parse(response.output);
+  const parsed = schema.parse(output);
 
   // Detect schema-smuggling. response.output has already been stripped;
   // re-parse response.text to see what the model actually emitted.
@@ -643,6 +654,7 @@ async function analyzeAudioOnly(
       totalTokens: response.usage.totalTokens,
       reasoningTokens: response.usage.reasoningTokens,
       cachedInputTokens: response.usage.cachedInputTokens,
+      cacheWriteTokens: response.usage.inputTokenDetails?.cacheWriteTokens,
     },
     unexpectedKeys,
   };
@@ -683,6 +695,19 @@ export async function getSummaryAndTags(
   options?: SummarizationOptions,
 ): Promise<SummaryAndTagsResult> {
   "use workflow";
+  const collectedUsage: TokenUsage[] = [];
+  try {
+    return await getSummaryAndTagsInternal(assetId, options, collectedUsage);
+  } catch (error) {
+    rethrowWithTokenUsage(error, collectedUsage);
+  }
+}
+
+async function getSummaryAndTagsInternal(
+  assetId: string,
+  options: SummarizationOptions | undefined,
+  collectedUsage: TokenUsage[],
+): Promise<SummaryAndTagsResult> {
   const {
     provider = "openai",
     model,
@@ -698,6 +723,7 @@ export async function getSummaryAndTags(
     descriptionLength,
     tagCount,
     outputLanguageCode,
+    scope,
   } = options ?? {};
 
   // Validate tone parameter
@@ -716,12 +742,22 @@ export async function getSummaryAndTags(
   const workflowCredentials = credentials;
 
   // Fetch asset data from Mux and grab playback/transcript details
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, workflowCredentials);
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, workflowCredentials, options?.assetSnapshot);
 
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
-
   // Detect if asset is audio-only
   const isAudioOnly = isAudioOnlyAsset(assetData);
+  const effectiveScope = hasWorkflowScopeBoundaries(scope) ? scope : undefined;
+  const storyboardScope = isAudioOnly ?
+    undefined :
+      resolveRenderableVideoScope(
+        effectiveScope,
+        assetDurationSeconds,
+        getVideoTrackDurationSecondsFromAsset(assetData),
+      );
+  if (isAudioOnly && effectiveScope) {
+    resolveWorkflowScope(effectiveScope, assetDurationSeconds);
+  }
 
   // Audio-only assets require transcripts since there's no visual content
   if (isAudioOnly && !includeTranscript) {
@@ -749,6 +785,7 @@ export async function getSummaryAndTags(
           shouldSign: policy === "signed",
           credentials: workflowCredentials,
           required: isAudioOnly,
+          scope: effectiveScope,
         }) :
       undefined;
   const transcriptText = transcriptResult?.transcriptText ?? "";
@@ -797,7 +834,13 @@ export async function getSummaryAndTags(
       );
     } else {
       // Video analysis: fetch storyboard and analyze with visual content
-      const storyboardUrl = await getStoryboardUrl(playbackId, 640, policy === "signed", workflowCredentials);
+      const storyboardUrl = await getStoryboardUrl(
+        playbackId,
+        640,
+        policy === "signed",
+        workflowCredentials,
+        storyboardScope,
+      );
       imageUrl = storyboardUrl;
 
       if (imageSubmissionMode === "base64") {
@@ -812,23 +855,23 @@ export async function getSummaryAndTags(
           workflowCredentials,
         );
       } else {
-        // URL-based submission with retry logic
-        analysisResponse = await withRetry(() =>
-          analyzeStoryboard(
-            storyboardUrl,
-            modelConfig.provider,
-            modelConfig.modelId,
-            userPrompt,
-            systemPrompt,
-            effectiveDescriptionLength,
-            workflowCredentials,
-          ));
+        analysisResponse = await analyzeStoryboard(
+          storyboardUrl,
+          modelConfig.provider,
+          modelConfig.modelId,
+          userPrompt,
+          systemPrompt,
+          effectiveDescriptionLength,
+          workflowCredentials,
+        );
       }
     }
   } catch (error: unknown) {
     const contentType = isAudioOnly ? "audio" : "video";
     wrapError(error, `Failed to analyze ${contentType} content with ${provider}`);
   }
+
+  collectedUsage.push(analysisResponse.usage);
 
   if (!analysisResponse.result) {
     const contentType = isAudioOnly ? "audio" : "video";

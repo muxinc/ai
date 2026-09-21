@@ -18,7 +18,7 @@ program
     "Use \"|*\" (experimental) for a free-form prose reply, e.g. " +
     "\"Describe the subject.|*\"",
   )
-  .option("-p, --provider <provider>", "AI provider: openai, anthropic, google (default: openai)")
+  .option("-p, --provider <provider>", "AI provider: openai, anthropic, google, baseten (default: openai)")
   .option("-m, --model <model>", "Model name (default varies by provider)")
   .option("--no-transcript", "Exclude transcript from analysis")
   .option(

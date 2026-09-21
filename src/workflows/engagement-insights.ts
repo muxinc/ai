@@ -2,6 +2,10 @@ import { generateText, Output } from "ai";
 import dedent from "dedent";
 import { z } from "zod";
 
+import {
+  getGeneratedOutputWithContentPolicyHandling,
+  withContentPolicyAwareRetry,
+} from "../lib/content-policy-error.ts";
 import { MuxAiError } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
@@ -25,7 +29,7 @@ import {
 } from "../lib/prompt-fragments.ts";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
-import { withRetry } from "../lib/retry.ts";
+import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import { signUrl } from "../lib/url-signing.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
 import type { HeatmapResponse } from "../primitives/heatmap.ts";
@@ -541,28 +545,25 @@ async function generateInsightsWithAI(
 
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
 
-  const response = await withRetry(() =>
-    generateText({
-      model,
-      output: Output.object({ schema: engagementInsightsSchema }),
-      experimental_telemetry: { isEnabled: true },
-      messages: [
-        {
-          role: "system",
-          content: systemPrompt,
-        },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: userPrompt },
-            ...imageUrls.map(url => ({ type: "image" as const, image: url })),
-          ],
-        },
-      ],
-    }),
-  );
+  const response = await withContentPolicyAwareRetry(() => generateText({
+    model,
+    maxRetries: 0,
+    output: Output.object({ schema: engagementInsightsSchema }),
+    experimental_telemetry: { isEnabled: true },
+    system: systemPrompt,
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: userPrompt },
+          ...imageUrls.map(url => ({ type: "image" as const, image: url })),
+        ],
+      },
+    ],
+  }));
+  const output = getGeneratedOutputWithContentPolicyHandling(response);
 
-  if (!response.output) {
+  if (!output) {
     throw new Error("AI returned empty or unparseable response");
   }
 
@@ -596,13 +597,14 @@ async function generateInsightsWithAI(
   }
 
   return {
-    result: response.output,
+    result: output,
     usage: {
       inputTokens: response.usage.inputTokens,
       outputTokens: response.usage.outputTokens,
       totalTokens: response.usage.totalTokens,
       reasoningTokens: response.usage.reasoningTokens,
       cachedInputTokens: response.usage.cachedInputTokens,
+      cacheWriteTokens: response.usage.inputTokenDetails?.cacheWriteTokens,
     },
     unexpectedRootKeys,
     unexpectedMomentKeys,
@@ -642,7 +644,19 @@ export async function generateEngagementInsights(
   options: EngagementInsightsOptions = {},
 ): Promise<EngagementInsightsResult> {
   "use workflow";
+  const collectedUsage: TokenUsage[] = [];
+  try {
+    return await generateEngagementInsightsInternal(assetId, options, collectedUsage);
+  } catch (error) {
+    rethrowWithTokenUsage(error, collectedUsage);
+  }
+}
 
+async function generateEngagementInsightsInternal(
+  assetId: string,
+  options: EngagementInsightsOptions,
+  collectedUsage: TokenUsage[],
+): Promise<EngagementInsightsResult> {
   const {
     provider = "openai",
     model,
@@ -663,7 +677,7 @@ export async function generateEngagementInsights(
   });
 
   // Step 1: Fetch asset metadata
-  const { asset, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
+  const { asset, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials, options.assetSnapshot);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(asset);
 
   if (!assetDurationSeconds) {
@@ -819,6 +833,7 @@ export async function generateEngagementInsights(
     credentials,
   );
   const { result: aiInsights, usage } = aiStepResult;
+  collectedUsage.push(usage);
 
   if (!aiInsights.momentInsights || aiInsights.momentInsights.length === 0) {
     throw new MuxAiError(`Failed to generate insights for asset ${assetId}.`);

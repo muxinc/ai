@@ -49,6 +49,14 @@ describe("getThumbnailUrls", () => {
       // Short videos use special logic: 5 evenly spaced thumbnails
       expect(urls.length).toBe(5);
     });
+
+    it("deduplicates rounded timestamps for very short videos", async () => {
+      const urls = await getThumbnailUrls(testPlaybackId, 2, {
+        shouldSign: false,
+      });
+
+      expect(urls.map(entry => entry.time)).toEqual([0, 1, 2]);
+    });
   });
 
   describe("maxSamples parameter", () => {
@@ -174,6 +182,54 @@ describe("getThumbnailUrls", () => {
         const expected = (200 / (10 - 1)) * i;
         expect(timestamps[i]).toBeCloseTo(expected, 1);
       }
+    });
+  });
+
+  describe("scope parameter", () => {
+    it("treats an empty scope like an omitted scope", async () => {
+      const withoutScope = await getThumbnailUrls(testPlaybackId, 100, {
+        maxSamples: 4,
+        shouldSign: false,
+      });
+      const withEmptyScope = await getThumbnailUrls(testPlaybackId, 100, {
+        maxSamples: 4,
+        shouldSign: false,
+        scope: {},
+      });
+
+      expect(withEmptyScope).toEqual(withoutScope);
+    });
+
+    it("samples only within a bounded range", async () => {
+      const urls = await getThumbnailUrls(testPlaybackId, 100, {
+        interval: 10,
+        scope: { startTime: 25, endTime: 80 },
+        shouldSign: false,
+      });
+
+      expect(urls.map(entry => entry.time)).toEqual([25, 35, 45, 55, 65, 75]);
+    });
+
+    it("supports one-sided ranges", async () => {
+      const urls = await getThumbnailUrls(testPlaybackId, 100, {
+        interval: 20,
+        scope: { startTime: 60 },
+        shouldSign: false,
+      });
+
+      expect(urls.every(entry => entry.time >= 60 && entry.time < 100)).toBe(true);
+    });
+
+    it("keeps capped samples below the exclusive end", async () => {
+      const urls = await getThumbnailUrls(testPlaybackId, 100, {
+        maxSamples: 3,
+        scope: { startTime: 20, endTime: 80 },
+        shouldSign: false,
+      });
+
+      expect(urls).toHaveLength(3);
+      expect(urls[0].time).toBe(20);
+      expect(urls[2].time).toBeLessThan(80);
     });
   });
 

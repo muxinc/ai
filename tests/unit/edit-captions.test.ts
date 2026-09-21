@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyOverrideLists,
   applyReplacements,
+  applySpeakerReplacements,
   buildReplacementRegex,
   censorVttContent,
   createReplacer,
@@ -620,6 +621,56 @@ describe("applyReplacements", () => {
   });
 });
 
+describe("applySpeakerReplacements", () => {
+  const sampleVtt = [
+    "WEBVTT",
+    "",
+    "00:00:01.000 --> 00:00:04.000",
+    "[speaker_0] Welcome from speaker_0.",
+    "",
+    "00:00:05.000 --> 00:00:08.000",
+    "[Speaker 2] Hello there.",
+    "",
+  ].join("\n");
+
+  it("renames leading speaker labels without changing matching spoken text", () => {
+    const { editedVtt, replacements } = applySpeakerReplacements(sampleVtt, [
+      { find: "speaker_0", replace: "Alice" },
+    ]);
+
+    expect(editedVtt).toContain("[Alice] Welcome from speaker_0.");
+    expect(replacements).toEqual([{
+      cueStartTime: 1,
+      before: "[speaker_0]",
+      after: "[Alice]",
+    }]);
+  });
+
+  it("supports human-readable speaker labels", () => {
+    const { editedVtt, replacements } = applySpeakerReplacements(sampleVtt, [
+      { find: "Speaker 2", replace: "Bob" },
+    ]);
+
+    expect(editedVtt).toContain("[Bob] Hello there.");
+    expect(replacements).toHaveLength(1);
+  });
+
+  it("leaves non-leading bracketed text unchanged", () => {
+    const vtt = [
+      "WEBVTT",
+      "",
+      "00:00:01.000 --> 00:00:04.000",
+      "Someone said [speaker_0] aloud.",
+    ].join("\n");
+    const { editedVtt, replacements } = applySpeakerReplacements(vtt, [
+      { find: "speaker_0", replace: "Alice" },
+    ]);
+
+    expect(editedVtt).toBe(vtt);
+    expect(replacements).toHaveLength(0);
+  });
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // editCaptions validation
 // ─────────────────────────────────────────────────────────────────────────────
@@ -631,7 +682,7 @@ describe("editCaptions validation", () => {
     const { editCaptions } = await import("../../src/workflows/edit-captions");
     await expect(
       editCaptions("asset-id", "track-id", {} as any),
-    ).rejects.toThrow("At least one of autoCensorProfanity or replacements must be provided.");
+    ).rejects.toThrow("At least one of autoCensorProfanity, replacements, or speakerReplacements must be provided.");
   });
 
   it("requires provider when autoCensorProfanity is set", async () => {

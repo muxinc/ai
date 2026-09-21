@@ -1,20 +1,23 @@
 import { embed } from "ai";
 
+import { withContentPolicyAwareRetry } from "../lib/content-policy-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
 } from "../lib/mux-assets.ts";
 import type { EmbeddingModelIdByProvider, SupportedEmbeddingProvider } from "../lib/providers.ts";
 import { createEmbeddingModelFromConfig, resolveEmbeddingModelConfig } from "../lib/providers.ts";
-import { withRetry } from "../lib/retry.ts";
+import { getErrorTokenUsage, rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
+import { hasWorkflowScopeBoundaries, resolveWorkflowScope } from "../lib/workflow-scope.ts";
 import { chunkText, chunkVTTCues } from "../primitives/text-chunking.ts";
 import { fetchTranscriptForAsset, parseVTTCues } from "../primitives/transcripts.ts";
 import type {
   ChunkEmbedding,
   ChunkingStrategy,
-  MuxAIOptions,
+  ScopedMuxAIOptions,
   TextChunk,
+  TokenUsage,
   VideoEmbeddingsResult,
   WorkflowCredentialsInput,
 } from "../types.ts";
@@ -24,7 +27,7 @@ import type {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Configuration accepted by `generateEmbeddings`. */
-export interface EmbeddingsOptions extends MuxAIOptions {
+export interface EmbeddingsOptions extends ScopedMuxAIOptions {
   /** AI provider used to generate embeddings (defaults to 'openai'). */
   provider?: SupportedEmbeddingProvider;
   /** Provider-specific model identifier (defaults to text-embedding-3-small for OpenAI). */
@@ -91,25 +94,31 @@ async function generateSingleChunkEmbedding({
   provider: SupportedEmbeddingProvider;
   modelId: string;
   credentials?: WorkflowCredentialsInput;
-}): Promise<ChunkEmbedding> {
+}): Promise<{ chunk: ChunkEmbedding; usage?: TokenUsage }> {
   "use step";
 
   const model = await createEmbeddingModelFromConfig(provider, modelId, credentials);
-  const response = await withRetry(() =>
+  const response = await withContentPolicyAwareRetry(() =>
     embed({
       model,
+      maxRetries: 0,
       value: chunk.text,
     }),
   );
 
   return {
-    chunkId: chunk.id,
-    embedding: response.embedding,
-    metadata: {
-      startTime: chunk.startTime,
-      endTime: chunk.endTime,
-      tokenCount: chunk.tokenCount,
+    chunk: {
+      chunkId: chunk.id,
+      embedding: response.embedding,
+      metadata: {
+        startTime: chunk.startTime,
+        endTime: chunk.endTime,
+        tokenCount: chunk.tokenCount,
+      },
     },
+    usage: typeof response.usage?.tokens === "number" ?
+        { inputTokens: response.usage.tokens, totalTokens: response.usage.tokens } :
+      undefined,
   };
 }
 
@@ -146,7 +155,8 @@ async function generateSingleChunkEmbedding({
  */
 async function generateEmbeddingsInternal(
   assetId: string,
-  options: EmbeddingsOptions = {},
+  options: EmbeddingsOptions,
+  collectedUsage: TokenUsage[],
 ): Promise<EmbeddingsResult> {
   const {
     provider = "openai",
@@ -155,12 +165,17 @@ async function generateEmbeddingsInternal(
     chunkingStrategy = { type: "token", maxTokens: 500, overlap: 100 } as ChunkingStrategy,
     batchSize = 5,
     credentials,
+    scope,
   } = options;
 
   const embeddingModel = resolveEmbeddingModelConfig({ ...options, provider, model });
   // Fetch asset and playback ID
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials);
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials, options.assetSnapshot);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
+  const effectiveScope = hasWorkflowScopeBoundaries(scope) ? scope : undefined;
+  if (effectiveScope) {
+    resolveWorkflowScope(effectiveScope, assetDurationSeconds);
+  }
 
   // Resolve signing context for signed playback IDs
   const signingContext = await resolveMuxSigningContext(credentials);
@@ -179,6 +194,7 @@ async function generateEmbeddingsInternal(
     shouldSign: policy === "signed",
     credentials,
     required: true,
+    scope: effectiveScope,
   });
 
   const transcriptText = transcriptResult.transcriptText;
@@ -201,7 +217,7 @@ async function generateEmbeddingsInternal(
     for (let i = 0; i < chunks.length; i += batchSize) {
       const batch = chunks.slice(i, i + batchSize);
 
-      const batchResults = await Promise.all(
+      const batchOutcomes = await Promise.allSettled(
         batch.map(chunk =>
           generateSingleChunkEmbedding({
             chunk,
@@ -212,7 +228,26 @@ async function generateEmbeddingsInternal(
         ),
       );
 
-      chunkEmbeddings.push(...batchResults);
+      // The catch below replaces the error with a message-only Error, so
+      // usage from every settled call must be recorded here to survive.
+      const failures: unknown[] = [];
+      for (const outcome of batchOutcomes) {
+        if (outcome.status === "fulfilled") {
+          if (outcome.value.usage) {
+            collectedUsage.push(outcome.value.usage);
+          }
+          chunkEmbeddings.push(outcome.value.chunk);
+        } else {
+          const failureUsage = getErrorTokenUsage(outcome.reason);
+          if (failureUsage) {
+            collectedUsage.push(failureUsage);
+          }
+          failures.push(outcome.reason);
+        }
+      }
+      if (failures.length > 0) {
+        throw failures[0];
+      }
     }
   } catch (error) {
     throw new Error(
@@ -256,7 +291,12 @@ export async function generateEmbeddings(
   options: EmbeddingsOptions = {},
 ): Promise<EmbeddingsResult> {
   "use workflow";
-  return generateEmbeddingsInternal(assetId, options);
+  const collectedUsage: TokenUsage[] = [];
+  try {
+    return await generateEmbeddingsInternal(assetId, options, collectedUsage);
+  } catch (error) {
+    rethrowWithTokenUsage(error, collectedUsage);
+  }
 }
 
 /**
@@ -268,5 +308,10 @@ export async function generateVideoEmbeddings(
 ): Promise<EmbeddingsResult> {
   "use workflow";
   console.warn("generateVideoEmbeddings is deprecated. Use generateEmbeddings instead.");
-  return generateEmbeddingsInternal(assetId, options);
+  const collectedUsage: TokenUsage[] = [];
+  try {
+    return await generateEmbeddingsInternal(assetId, options, collectedUsage);
+  } catch (error) {
+    rethrowWithTokenUsage(error, collectedUsage);
+  }
 }
