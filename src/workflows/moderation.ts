@@ -257,8 +257,11 @@ const MIN_SUCCESSFUL_THUMBNAILS_FOR_CONFIDENT_THRESHOLDING = 3;
  *   stride         = max(windowSeconds - overlapSeconds, 1)
  *
  * Callers may override any of these via `ModerationOptions.transcriptWindowing`.
+ *
+ * Exported so callers can approximate window count from duration alone (e.g. for a
+ * pre-flight cost estimate before fetching/parsing the real transcript).
  */
-const DEFAULT_TRANSCRIPT_WINDOWING = {
+export const DEFAULT_TRANSCRIPT_WINDOWING = {
   targetWindowCount: 40,
   minWindowSeconds: 20,
   maxWindowSeconds: 120,
