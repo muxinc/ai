@@ -16,10 +16,11 @@ import { signUrl } from "../lib/url-signing.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
 import { hasWorkflowScopeBoundaries, resolveWorkflowScope } from "../lib/workflow-scope.ts";
 import { getThumbnailUrls } from "../primitives/thumbnails.ts";
-import type { VTTCue } from "../primitives/transcripts.ts";
+import type { TranscriptFetchOptions, TranscriptResult, VTTCue } from "../primitives/transcripts.ts";
 import { fetchTranscriptForAsset, getReadyTextTracks, parseVTTCues } from "../primitives/transcripts.ts";
 import type {
   ImageSubmissionMode,
+  MuxAsset,
   ScopedMuxAIOptions,
   TokenUsage,
   WorkflowCredentialsInput,
@@ -57,10 +58,7 @@ export interface TranscriptModerationScore {
  *
  * - `"no_cues"` — the VTT body was non-empty but had no parseable cues (e.g.
  *   header-only, all cues had blank text, or windowing produced zero
- *   windows). A legitimate "moderated, nothing to find" outcome, not a
- *   failure. A missing caption track or an empty transcript is a hard
- *   failure (throws) instead of a skip — see `includeTranscript` on
- *   {@link ModerationOptions}.
+ *   windows).
  */
 export type TranscriptModerationSkipReason = "no_cues";
 
@@ -198,8 +196,9 @@ export interface ModerationOptions extends ScopedMuxAIOptions {
    * When true, also moderate transcript text for video assets, in addition to thumbnails.
    * No effect on audio-only assets, which always moderate transcript text.
    * A missing caption track or an unreadable/empty transcript fetch is a hard failure
-   * (throws) — same contract as audio-only. A genuinely empty/cue-less transcript
-   * (`no_cues`) is not a failure: it's reported as skipped in
+   * when this option is enabled.
+   *
+   * A genuinely empty/cue-less transcript (`no_cues`) is not a failure: it's reported as skipped in
    * {@link ModerationResult.transcriptModeration} (with a machine-readable `skipReason`)
    * and the call still succeeds with thumbnails moderated.
    * Transcription is never triggered. Only supported with provider 'openai'.
@@ -1151,6 +1150,50 @@ async function getThumbnailUrlsFromTimestamps(
 }
 
 /**
+ * Fetches the transcript for an asset and enforces the "transcript
+ * moderation is mandatory here" contract shared by audio-only assets and
+ * video assets with `includeTranscript`: a missing caption track or an
+ * empty transcript throws; a transcript with no parseable cues does not
+ * (the caller decides how to report that as a skip).
+ *
+ * Deliberately calls `fetchTranscriptForAsset` with `required: false` and
+ * does the track/empty checks here instead, in workflow-body code, rather
+ * than passing `required: true` and letting the step itself throw. A throw
+ * from inside a `"use step"` function crosses a WDK step-boundary on a
+ * fatal failure, and only a plain string message survives that boundary —
+ * the thrown MuxAiError's customer-safe brand (`publicType`, etc.) is lost.
+ * Thrown from here instead, the same MuxAiError instance reaches the
+ * caller intact.
+ */
+async function fetchTranscriptOrThrow(
+  asset: MuxAsset,
+  playbackId: string,
+  fetchOptions: Omit<TranscriptFetchOptions, "required">,
+): Promise<TranscriptResult & { track: NonNullable<TranscriptResult["track"]> }> {
+  const transcriptResult = await fetchTranscriptForAsset(asset, playbackId, {
+    ...fetchOptions,
+    required: false,
+  });
+  if (!transcriptResult.track) {
+    const availableLanguages = getReadyTextTracks(asset)
+      .map(t => t.language_code)
+      .filter(Boolean)
+      .join(", ");
+    throw new MuxAiError(
+      `No caption track found${fetchOptions.languageCode ? ` for language ${fetchOptions.languageCode}` : ""}. Available languages: ${availableLanguages || "none"}.`,
+      { type: "validation_error" },
+    );
+  }
+  if (!transcriptResult.transcriptText.trim()) {
+    throw new MuxAiError(
+      "Caption track was empty; nothing to moderate.",
+      { type: "validation_error" },
+    );
+  }
+  return transcriptResult as TranscriptResult & { track: NonNullable<TranscriptResult["track"]> };
+}
+
+/**
  * Moderate a Mux asset.
  * - Video assets: moderates storyboard thumbnails (image moderation)
  * - Audio-only assets: moderates transcript text (text moderation)
@@ -1249,43 +1292,14 @@ export async function getModerationScores(
   if (isAudioOnly) {
     mode = "transcript";
     // Fetch the raw VTT (cleanTranscript: false) so we can parse per-cue
-    // timecodes and segment moderation by time window. Classified explicitly
-    // below (mirrors the includeTranscript branch) instead of using
-    // `required: true`: a genuinely empty/cue-less transcript is a legitimate
-    // "moderated, nothing to find" outcome (no_cues), not a failure, while a
-    // missing track or broken fetch means there's nothing to moderate at all
-    // for this audio-only asset and should fail the job. That failure is
-    // thrown here, in workflow-body code, rather than inside this step (which
-    // is why `required` is false) -- an error thrown from inside a `"use
-    // step"` function loses its customer-safe MuxAiError brand crossing the
-    // WDK step boundary on a fatal failure, collapsing into an opaque
-    // generic message for the caller. Thrown from here, it doesn't cross that
-    // boundary and reaches the caller intact.
-    const transcriptResult = await fetchTranscriptForAsset(asset, playbackId, {
+    // timecodes and segment moderation by time window.
+    const transcriptResult = await fetchTranscriptOrThrow(asset, playbackId, {
       languageCode,
       cleanTranscript: false,
       shouldSign: policy === "signed",
       credentials,
-      required: false,
       scope: effectiveScope,
     });
-
-    if (!transcriptResult.track) {
-      const availableLanguages = getReadyTextTracks(asset)
-        .map(t => t.language_code)
-        .filter(Boolean)
-        .join(", ");
-      throw new MuxAiError(
-        `No caption track found${languageCode ? ` for language ${languageCode}` : ""}. Available languages: ${availableLanguages || "none"}.`,
-        { type: "validation_error" },
-      );
-    }
-    if (!transcriptResult.transcriptText.trim()) {
-      throw new MuxAiError(
-        "Caption track was empty; nothing to moderate.",
-        { type: "validation_error" },
-      );
-    }
 
     if (provider === "hive") {
       throw new Error("Hive does not support transcript moderation in this workflow. Use provider: 'openai' for audio-only assets.");
@@ -1396,57 +1410,33 @@ export async function getModerationScores(
         // default; the throw ends the call before it matters.
         throw new Error("includeTranscript is only supported with provider 'openai'.");
       }
-      const transcriptResult = await fetchTranscriptForAsset(asset, playbackId, {
+      const transcriptResult = await fetchTranscriptOrThrow(asset, playbackId, {
         languageCode,
         cleanTranscript: false,
         shouldSign: policy === "signed",
         credentials,
-        required: false,
       });
-      // A missing track or empty transcript fetch is a hard failure here — same
-      // contract as audio-only — thrown from this workflow-body code (not from
-      // inside the step that fetched the transcript) so the thrown MuxAiError's
-      // customer-safe brand survives intact rather than collapsing at the WDK
-      // step boundary. A transcript that exists but has no parseable cues (or
-      // windows to zero) is different: that's "moderated, nothing to find," not
-      // a failure, so it's still reported as skipped ("no_cues") below.
-      if (!transcriptResult.track) {
-        const availableLanguages = getReadyTextTracks(asset)
-          .map(t => t.language_code)
-          .filter(Boolean)
-          .join(", ");
-        throw new MuxAiError(
-          `No caption track found${languageCode ? ` for language ${languageCode}` : ""}. Available languages: ${availableLanguages || "none"}.`,
-          { type: "validation_error" },
-        );
-      } else if (!transcriptResult.transcriptText.trim()) {
-        throw new MuxAiError(
-          "Caption track was empty; nothing to moderate.",
-          { type: "validation_error" },
-        );
+      const cues = parseVTTCues(transcriptResult.transcriptText);
+      const windows = cues.length === 0 ?
+          [] :
+          buildTranscriptWindows(cues, duration, windowingParams);
+      if (windows.length === 0) {
+        transcriptModeration = {
+          requested: true,
+          status: "skipped",
+          skipReason: "no_cues",
+          skipMessage: "Caption track had no parseable cues.",
+        };
       } else {
-        const cues = parseVTTCues(transcriptResult.transcriptText);
-        const windows = cues.length === 0 ?
-            [] :
-            buildTranscriptWindows(cues, duration, windowingParams);
-        if (windows.length === 0) {
-          transcriptModeration = {
-            requested: true,
-            status: "skipped",
-            skipReason: "no_cues",
-            skipMessage: "Caption track had no parseable cues.",
-          };
-        } else {
-          transcriptModeration = { requested: true, status: "completed" };
-          transcriptScores = await requestOpenAITranscriptModeration(
-            cues,
-            duration,
-            model || "omni-moderation-latest",
-            maxConcurrent,
-            credentials,
-            windowingParams,
-          );
-        }
+        transcriptModeration = { requested: true, status: "completed" };
+        transcriptScores = await requestOpenAITranscriptModeration(
+          cues,
+          duration,
+          model || "omni-moderation-latest",
+          maxConcurrent,
+          credentials,
+          windowingParams,
+        );
       }
     }
   }
