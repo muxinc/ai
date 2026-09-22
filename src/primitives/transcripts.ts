@@ -31,6 +31,18 @@ export interface TranscriptFetchOptions {
    * missing track id, fetch error, or empty transcript).
    *
    * Default behavior is non-fatal and returns an empty `transcriptText`.
+   *
+   * **Avoid this from workflow code** (a `"use workflow"` function calling this
+   * step, directly or transitively). `fetchTranscriptForAsset` is itself a
+   * `"use step"` function, so a throw here happens *inside* the step. When a
+   * step fails fatally, Workflow DevKit persists it via `StructuredErrorSchema`
+   * (`{message, stack?, code?}` — see `@workflow/world`), which is the only
+   * shape that survives crossing the step boundary. Any custom fields on a
+   * thrown error — `MuxAiError`'s `publicType`/`retryable`/customer-safe brand
+   * included — are silently dropped; the workflow only ever observes a
+   * generic reconstructed `Error`. Prefer `required: false` (the default) and
+   * do the check in workflow-body code instead — see
+   * {@link fetchRequiredTranscript} for a ready-made helper that does this.
    */
   required?: boolean;
 }
@@ -834,4 +846,61 @@ export async function fetchTranscriptForAsset(
     console.warn("Failed to fetch transcript:", error);
     return { transcriptText: "", transcriptUrl, track };
   }
+}
+
+/**
+ * Fetches a transcript and enforces "no usable transcript is a hard failure"
+ * from **workflow-body code**, not from inside `fetchTranscriptForAsset`
+ * itself — see the caveat on {@link TranscriptFetchOptions.required} for why
+ * that distinction matters. Callers that need a customer-safe error when a
+ * transcript is missing/empty (workflows treating transcript moderation or
+ * analysis as mandatory) should call this instead of passing
+ * `required: true` directly.
+ *
+ * Not a `"use step"` function: it must run in the calling workflow's own
+ * frame so a thrown `MuxAiError` reaches the caller intact, unmangled by the
+ * step-failure serialization boundary.
+ *
+ * Some detail is unavoidably lost relative to `required: true`'s messages —
+ * "missing track id" and "HTTP fetch failed" aren't distinguishable from
+ * "empty transcript" once the fetch has already returned as data rather than
+ * thrown, since `TranscriptResult` doesn't carry a separate failure reason.
+ * All of them are reported as one generic "caption track was empty" error.
+ */
+export async function fetchRequiredTranscript(
+  asset: MuxAsset,
+  playbackId: string,
+  options: Omit<TranscriptFetchOptions, "required"> = {},
+): Promise<TranscriptResult & { track: AssetTextTrack }> {
+  const result = await fetchTranscriptForAsset(asset, playbackId, { ...options, required: false });
+
+  if (!result.track) {
+    const availableLanguages = getReadyTextTracks(asset)
+      .map(t => t.language_code)
+      .filter(Boolean)
+      .join(", ");
+    throw new MuxAiError(
+      `No caption track found${options.languageCode ? ` for language ${options.languageCode}` : ""}. Available languages: ${availableLanguages || "none"}.`,
+      { type: "validation_error" },
+    );
+  }
+
+  // When cleanTranscript is left at its default (true), `transcriptText` is
+  // already extracted cue text — a scope that excludes every cue produces an
+  // empty string here too, so the plain emptiness check below already covers
+  // it. Only when the raw VTT is preserved (`cleanTranscript: false`) do we
+  // need to check cues explicitly: header/note text can remain non-empty
+  // even when no cues survive the requested scope.
+  const cleanTranscript = options.cleanTranscript ?? true;
+  const effectiveScope = hasWorkflowScopeBoundaries(options.scope) ? options.scope : undefined;
+  const hasScopedCues = cleanTranscript || !effectiveScope || parseVTTCues(result.transcriptText).length > 0;
+
+  if (!result.transcriptText.trim() || !hasScopedCues) {
+    throw new MuxAiError(
+      "Caption track was empty; nothing to moderate.",
+      { type: "validation_error" },
+    );
+  }
+
+  return result as TranscriptResult & { track: AssetTextTrack };
 }

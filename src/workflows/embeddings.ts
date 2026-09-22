@@ -11,7 +11,7 @@ import { getErrorTokenUsage, rethrowWithTokenUsage } from "../lib/token-usage.ts
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
 import { hasWorkflowScopeBoundaries, resolveWorkflowScope } from "../lib/workflow-scope.ts";
 import { chunkText, chunkVTTCues } from "../primitives/text-chunking.ts";
-import { fetchTranscriptForAsset, parseVTTCues } from "../primitives/transcripts.ts";
+import { fetchRequiredTranscript, parseVTTCues } from "../primitives/transcripts.ts";
 import type {
   ChunkEmbedding,
   ChunkingStrategy,
@@ -188,12 +188,11 @@ async function generateEmbeddingsInternal(
 
   // Fetch transcript (raw VTT for VTT strategy, cleaned text otherwise)
   const useVttChunking = chunkingStrategy.type === "vtt";
-  const transcriptResult = await fetchTranscriptForAsset(assetData, playbackId, {
+  const transcriptResult = await fetchRequiredTranscript(assetData, playbackId, {
     languageCode,
     cleanTranscript: !useVttChunking,
     shouldSign: policy === "signed",
     credentials,
-    required: true,
     scope: effectiveScope,
   });
 

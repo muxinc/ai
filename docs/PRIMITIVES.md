@@ -55,6 +55,20 @@ console.log(result.track); // Mux track metadata
 - `cleanTranscript?: boolean` - Remove VTT timestamps and formatting (default: true)
 - `scope?: { startTime?: number; endTime?: number }` - Keep only cues overlapping this asset-relative range
 - `shouldSign?: boolean` - For signed playback policies
+- `required?: boolean` - Throw if no usable transcript can be retrieved (default: false, returns an empty `transcriptText` instead). **Avoid this inside a custom Workflow DevKit `"use workflow"` function** — see `fetchRequiredTranscript` below.
+
+### `fetchRequiredTranscript(asset, playbackId, options?)`
+
+Same as `fetchTranscriptForAsset`, but throws a customer-safe `MuxAiError` when no usable transcript can be retrieved instead of returning an empty `transcriptText`. Use this instead of `fetchTranscriptForAsset({ required: true })` when calling from inside a `"use workflow"` function: `fetchTranscriptForAsset` is itself a `"use step"` function, and a throw from inside a step that fails fatally only preserves `{message, stack, code}` across the Workflow DevKit step boundary — any custom error fields are silently dropped. `fetchRequiredTranscript` does the check in your workflow's own call frame instead, so the thrown error reaches your workflow (and your callers) intact.
+
+```typescript
+import { fetchRequiredTranscript } from "@mux/ai/primitives";
+
+// Throws MuxAiError if there's no ready caption track or the transcript is empty.
+const result = await fetchRequiredTranscript(asset, playbackId, { languageCode: "en" });
+```
+
+Takes the same options as `fetchTranscriptForAsset` except `required` (which this function always enforces).
 
 ### `extractTextFromVTT(vttContent)`
 

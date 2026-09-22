@@ -24,7 +24,7 @@ vi.mock("../../src/primitives/text-chunking", () => ({
 }));
 
 vi.mock("../../src/primitives/transcripts", () => ({
-  fetchTranscriptForAsset: vi.fn(),
+  fetchRequiredTranscript: vi.fn(),
   parseVTTCues: vi.fn(),
 }));
 
@@ -33,7 +33,7 @@ const { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } = await import
 const { createEmbeddingModelFromConfig, resolveEmbeddingModelConfig } = await import("../../src/lib/providers");
 const { resolveMuxSigningContext } = await import("../../src/lib/workflow-credentials");
 const { chunkText } = await import("../../src/primitives/text-chunking");
-const { fetchTranscriptForAsset } = await import("../../src/primitives/transcripts");
+const { fetchRequiredTranscript } = await import("../../src/primitives/transcripts");
 const { generateEmbeddings } = await import("../../src/workflows/embeddings");
 
 beforeEach(() => {
@@ -51,7 +51,7 @@ beforeEach(() => {
     modelId: "text-embedding-3-small",
   } as any);
   vi.mocked(createEmbeddingModelFromConfig).mockResolvedValue({} as any);
-  vi.mocked(fetchTranscriptForAsset).mockResolvedValue({
+  vi.mocked(fetchRequiredTranscript).mockResolvedValue({
     transcriptText: "A short transcript",
   } as any);
   vi.mocked(chunkText).mockReturnValue([{
@@ -69,6 +69,6 @@ describe("generateEmbeddings scope handling", () => {
   it("treats an empty scope like an omitted scope without requiring asset duration", async () => {
     await expect(generateEmbeddings("asset-123", { scope: {} })).resolves.toBeDefined();
 
-    expect(vi.mocked(fetchTranscriptForAsset).mock.calls[0][2].scope).toBeUndefined();
+    expect(vi.mocked(fetchRequiredTranscript).mock.calls[0][2].scope).toBeUndefined();
   });
 });
