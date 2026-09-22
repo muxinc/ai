@@ -31,15 +31,6 @@ export interface TranscriptFetchOptions {
    * be retrieved (no ready text track, missing track id, or empty transcript).
    *
    * Default behavior is non-fatal and returns an empty `transcriptText`.
-   *
-   * Safe to use from workflow code: although `fetchTranscriptForAsset` calls
-   * an internal `"use step"` function to do the actual network fetch, the
-   * `required` check itself — and any resulting throw — happens in
-   * `fetchTranscriptForAsset`'s own (non-step) call frame, so a thrown error's
-   * customer-safe brand is never subject to the step-failure serialization
-   * that would otherwise strip it (see `StructuredErrorSchema` in
-   * `@workflow/world` — only `{message, stack?, code?}` survives a step
-   * failing fatally).
    */
   required?: boolean;
 }
@@ -776,21 +767,20 @@ export async function buildTranscriptUrl(
 
 interface TranscriptStepResult extends TranscriptResult {
   /**
-   * Set only when `transcriptText` came back empty, so the non-step
-   * `required` check in `fetchTranscriptForAsset` (below) can throw a
-   * specific, customer-safe error. Never part of the public `TranscriptResult`
-   * shape returned to callers — internal to this module.
+   * Set when `transcriptText` came back empty. Never part of the public
+   * `TranscriptResult` shape returned to callers — internal to this module.
    */
   emptyReason?: "no_track" | "missing_track_id" | "empty_body" | "no_scoped_cues";
 }
 
 /**
  * Does the actual network fetch and VTT parsing. Deliberately never throws a
- * customer-safe error for "no usable transcript" itself — see
- * {@link fetchTranscriptForAsset} for why that decision has to live outside
- * the step. Still throws (uncaught) on a transient HTTP/network failure while
+ * customer-safe error for "no usable transcript" itself — the
+ * {@link fetchTranscriptForAsset} wrapper handles propagating errors.
+ *
+ * Still throws (uncaught) on a transient HTTP/network failure while
  * fetching the VTT file, so Workflow DevKit's normal step-retry applies to
- * that specific, genuinely-transient case regardless of `required`.
+ * that specific, genuinely-transient case.
  */
 async function fetchTranscriptDataForAsset(
   asset: MuxAsset,
@@ -811,30 +801,31 @@ async function fetchTranscriptDataForAsset(
 
   const transcriptUrl = await buildTranscriptUrl(playbackId, track.id, shouldSign, credentials);
 
-  const response = await fetch(transcriptUrl);
-  if (!response.ok) {
-    // Uncaught: a plain Error (not MuxAiError/FatalError-branded) so Workflow
-    // DevKit retries this step a few times before giving up, since a failed
-    // fetch of the VTT file is often just a transient blip.
-    throw new Error(`Failed to fetch transcript (HTTP ${response.status})`);
+  try {
+    const response = await fetch(transcriptUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch transcript (HTTP ${response.status})`);
+    }
+
+    const rawVtt = await response.text();
+    const effectiveScope = hasWorkflowScopeBoundaries(scope) ? scope : undefined;
+    const scopedVtt = filterVttByScope(rawVtt, effectiveScope);
+    const transcriptText = cleanTranscript ? extractTextFromVTT(scopedVtt) : scopedVtt;
+
+    const hasScopedCues = !effectiveScope || parseVTTCues(scopedVtt).length > 0;
+    if (!transcriptText.trim() || !hasScopedCues) {
+      return {
+        transcriptText,
+        transcriptUrl,
+        track,
+        emptyReason: hasScopedCues ? "empty_body" : "no_scoped_cues",
+      };
+    }
+
+    return { transcriptText, transcriptUrl, track };
+  } catch (error) {
+    wrapError(error, "Failed to fetch transcript");
   }
-
-  const rawVtt = await response.text();
-  const effectiveScope = hasWorkflowScopeBoundaries(scope) ? scope : undefined;
-  const scopedVtt = filterVttByScope(rawVtt, effectiveScope);
-  const transcriptText = cleanTranscript ? extractTextFromVTT(scopedVtt) : scopedVtt;
-
-  const hasScopedCues = !effectiveScope || parseVTTCues(scopedVtt).length > 0;
-  if (!transcriptText.trim() || !hasScopedCues) {
-    return {
-      transcriptText,
-      transcriptUrl,
-      track,
-      emptyReason: hasScopedCues ? "empty_body" : "no_scoped_cues",
-    };
-  }
-
-  return { transcriptText, transcriptUrl, track };
 }
 
 export async function fetchTranscriptForAsset(
@@ -848,13 +839,10 @@ export async function fetchTranscriptForAsset(
   try {
     result = await fetchTranscriptDataForAsset(asset, playbackId, fetchOptions);
   } catch (error) {
-    // Reaches here only after the step's own retries (see above) are
-    // exhausted on a genuinely persistent fetch failure. Not customer-safe —
-    // matches this branch's original intent of staying generic/internal
-    // rather than a validation_error, since it's an infrastructure hiccup,
-    // not a caller mistake.
+    // The step only throws an error for transient network errors that have
+    // exhausted WDK's retries. Swallow the error if the transcript is not required.
     if (required) {
-      wrapError(error, "Failed to fetch transcript");
+      throw error;
     }
     console.warn("Failed to fetch transcript:", error);
     return { transcriptText: "" };
@@ -865,15 +853,8 @@ export async function fetchTranscriptForAsset(
     return publicResult;
   }
 
-  // Thrown from here — this function's own (non-step) call frame — not from
-  // inside fetchTranscriptDataForAsset. A throw from inside a "use step"
-  // function that fails fatally crosses a Workflow DevKit step boundary,
-  // where only `{message, stack?, code?}` (see StructuredErrorSchema in
-  // @workflow/world) survives; any custom fields on a thrown error —
-  // MuxAiError's publicType/retryable/customer-safe brand included — are
-  // silently dropped, and the workflow only ever observes a generic
-  // reconstructed Error. Throwing here instead means the same MuxAiError
-  // instance reaches the caller intact.
+  // Handle throwing MuxAiErrors for the step function so the MuxAiError survives
+  // intact instead of getting reconstructed as a generic Error.
   switch (emptyReason) {
     case "no_track": {
       const availableLanguages = getReadyTextTracks(asset)
