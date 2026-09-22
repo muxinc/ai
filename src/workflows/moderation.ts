@@ -15,7 +15,7 @@ import { signUrl } from "../lib/url-signing.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
 import { hasWorkflowScopeBoundaries, resolveWorkflowScope } from "../lib/workflow-scope.ts";
 import { getThumbnailUrls } from "../primitives/thumbnails.ts";
-import { fetchRequiredTranscript } from "../primitives/transcripts.ts";
+import { fetchTranscriptForAsset } from "../primitives/transcripts.ts";
 import type {
   ImageSubmissionMode,
   ScopedMuxAIOptions,
@@ -842,11 +842,12 @@ export async function getModerationScores(
 
   if (isAudioOnly) {
     mode = "transcript";
-    const transcriptResult = await fetchRequiredTranscript(asset, playbackId, {
+    const transcriptResult = await fetchTranscriptForAsset(asset, playbackId, {
       languageCode,
       cleanTranscript: true,
       shouldSign: policy === "signed",
       credentials,
+      required: true,
       scope: effectiveScope,
     });
 
