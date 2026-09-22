@@ -1,6 +1,7 @@
 import { getApiKeyFromEnv } from "../lib/client-factory.ts";
 import type { ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImagesAsBase64 } from "../lib/image-download.ts";
+import { MuxAiError } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -16,7 +17,7 @@ import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
 import { hasWorkflowScopeBoundaries, resolveWorkflowScope } from "../lib/workflow-scope.ts";
 import { getThumbnailUrls } from "../primitives/thumbnails.ts";
 import type { VTTCue } from "../primitives/transcripts.ts";
-import { fetchTranscriptForAsset, parseVTTCues } from "../primitives/transcripts.ts";
+import { fetchTranscriptForAsset, getReadyTextTracks, parseVTTCues } from "../primitives/transcripts.ts";
 import type {
   ImageSubmissionMode,
   ScopedMuxAIOptions,
@@ -54,18 +55,14 @@ export interface TranscriptModerationScore {
 /**
  * Machine-readable reason transcript moderation was requested but skipped.
  *
- * - `"no_ready_text_track"` — the asset had no ready caption/subtitle track
- *   (or no track matching `languageCode`), so nothing could be fetched.
- * - `"no_transcript_content"` — a track was found but its caption text was
- *   empty (missing track id, transcript URL fetch failed, or the returned VTT
- *   body was blank).
  * - `"no_cues"` — the VTT body was non-empty but had no parseable cues (e.g.
- *   header-only, all cues had blank text, or windowing produced zero windows).
+ *   header-only, all cues had blank text, or windowing produced zero
+ *   windows). A legitimate "moderated, nothing to find" outcome, not a
+ *   failure. A missing caption track or an empty transcript is a hard
+ *   failure (throws) instead of a skip — see `includeTranscript` on
+ *   {@link ModerationOptions}.
  */
-export type TranscriptModerationSkipReason =
-  | "no_ready_text_track" |
-  "no_transcript_content" |
-  "no_cues";
+export type TranscriptModerationSkipReason = "no_cues";
 
 /**
  * Outcome of transcript moderation on a single asset. Attached to
@@ -200,10 +197,11 @@ export interface ModerationOptions extends ScopedMuxAIOptions {
   /**
    * When true, also moderate transcript text for video assets, in addition to thumbnails.
    * No effect on audio-only assets, which always moderate transcript text.
-   * If set but no ready caption track exists (or the track has no parseable
-   * cues), transcript moderation is reported as skipped in
-   * {@link ModerationResult.transcriptModeration} (with a machine-readable
-   * `skipReason`) — the call itself still succeeds and thumbnails still moderate.
+   * A missing caption track or an unreadable/empty transcript fetch is a hard failure
+   * (throws) — same contract as audio-only. A genuinely empty/cue-less transcript
+   * (`no_cues`) is not a failure: it's reported as skipped in
+   * {@link ModerationResult.transcriptModeration} (with a machine-readable `skipReason`)
+   * and the call still succeeds with thumbnails moderated.
    * Transcription is never triggered. Only supported with provider 'openai'.
    * @default false
    */
@@ -1251,37 +1249,72 @@ export async function getModerationScores(
   if (isAudioOnly) {
     mode = "transcript";
     // Fetch the raw VTT (cleanTranscript: false) so we can parse per-cue
-    // timecodes and segment moderation by time window. `required: true` still
-    // throws when no usable caption track / VTT exists for an audio-only asset.
+    // timecodes and segment moderation by time window. Classified explicitly
+    // below (mirrors the includeTranscript branch) instead of using
+    // `required: true`: a genuinely empty/cue-less transcript is a legitimate
+    // "moderated, nothing to find" outcome (no_cues), not a failure, while a
+    // missing track or broken fetch means there's nothing to moderate at all
+    // for this audio-only asset and should fail the job. That failure is
+    // thrown here, in workflow-body code, rather than inside this step (which
+    // is why `required` is false) -- an error thrown from inside a `"use
+    // step"` function loses its customer-safe MuxAiError brand crossing the
+    // WDK step boundary on a fatal failure, collapsing into an opaque
+    // generic message for the caller. Thrown from here, it doesn't cross that
+    // boundary and reaches the caller intact.
     const transcriptResult = await fetchTranscriptForAsset(asset, playbackId, {
       languageCode,
       cleanTranscript: false,
       shouldSign: policy === "signed",
       credentials,
-      required: true,
+      required: false,
       scope: effectiveScope,
     });
 
-    if (provider === "openai") {
-      // Audio-only implicitly requests transcript moderation. `required: true`
-      // above already threw for the "no transcript" case, so reaching here
-      // means we have transcript text — record as completed.
+    if (!transcriptResult.track) {
+      const availableLanguages = getReadyTextTracks(asset)
+        .map(t => t.language_code)
+        .filter(Boolean)
+        .join(", ");
+      throw new MuxAiError(
+        `No caption track found${languageCode ? ` for language ${languageCode}` : ""}. Available languages: ${availableLanguages || "none"}.`,
+        { type: "validation_error" },
+      );
+    }
+    if (!transcriptResult.transcriptText.trim()) {
+      throw new MuxAiError(
+        "Caption track was empty; nothing to moderate.",
+        { type: "validation_error" },
+      );
+    }
+
+    if (provider === "hive") {
+      throw new Error("Hive does not support transcript moderation in this workflow. Use provider: 'openai' for audio-only assets.");
+    } else if (provider === "google-vision-api") {
+      throw new Error("google-vision-api is image-only and does not support transcript moderation. Use provider: 'openai' for audio-only assets.");
+    } else if (provider !== "openai") {
+      const exhaustiveCheck: never = provider;
+      throw new Error(`Unsupported moderation provider: ${exhaustiveCheck}`);
+    }
+
+    const cues = parseVTTCues(transcriptResult.transcriptText);
+    const windows = cues.length === 0 ? [] : buildTranscriptWindows(cues, duration, windowingParams);
+    if (windows.length === 0) {
+      transcriptModeration = {
+        requested: true,
+        status: "skipped",
+        skipReason: "no_cues",
+        skipMessage: "Caption track had no parseable cues.",
+      };
+    } else {
       transcriptModeration = { requested: true, status: "completed" };
       transcriptScores = await requestOpenAITranscriptModeration(
-        parseVTTCues(transcriptResult.transcriptText),
+        cues,
         duration,
         model || "omni-moderation-latest",
         maxConcurrent,
         credentials,
         windowingParams,
       );
-    } else if (provider === "hive") {
-      throw new Error("Hive does not support transcript moderation in this workflow. Use provider: 'openai' for audio-only assets.");
-    } else if (provider === "google-vision-api") {
-      throw new Error("google-vision-api is image-only and does not support transcript moderation. Use provider: 'openai' for audio-only assets.");
-    } else {
-      const exhaustiveCheck: never = provider;
-      throw new Error(`Unsupported moderation provider: ${exhaustiveCheck}`);
     }
   } else {
     // Cheaply estimate how many thumbnails the interval would produce so we
@@ -1370,29 +1403,27 @@ export async function getModerationScores(
         credentials,
         required: false,
       });
-      // Classify why (if at all) we're skipping so callers get an auditable
-      // reason instead of silently seeing an empty `transcriptScores`. The
-      // three code paths are:
-      //   1. no track found by `fetchTranscriptForAsset` (track is undefined);
-      //   2. track found but its transcript text is empty (no id, fetch
-      //      failure, or blank VTT body — all reported here as
-      //      "no_transcript_content");
-      //   3. transcript text exists but has no parseable cues, OR windowing
-      //      produced zero windows — reported as "no_cues".
+      // A missing track or empty transcript fetch is a hard failure here — same
+      // contract as audio-only — thrown from this workflow-body code (not from
+      // inside the step that fetched the transcript) so the thrown MuxAiError's
+      // customer-safe brand survives intact rather than collapsing at the WDK
+      // step boundary. A transcript that exists but has no parseable cues (or
+      // windows to zero) is different: that's "moderated, nothing to find," not
+      // a failure, so it's still reported as skipped ("no_cues") below.
       if (!transcriptResult.track) {
-        transcriptModeration = {
-          requested: true,
-          status: "skipped",
-          skipReason: "no_ready_text_track",
-          skipMessage: "No ready caption/subtitle track found for this asset.",
-        };
+        const availableLanguages = getReadyTextTracks(asset)
+          .map(t => t.language_code)
+          .filter(Boolean)
+          .join(", ");
+        throw new MuxAiError(
+          `No caption track found${languageCode ? ` for language ${languageCode}` : ""}. Available languages: ${availableLanguages || "none"}.`,
+          { type: "validation_error" },
+        );
       } else if (!transcriptResult.transcriptText.trim()) {
-        transcriptModeration = {
-          requested: true,
-          status: "skipped",
-          skipReason: "no_transcript_content",
-          skipMessage: "Caption track was empty; nothing to moderate.",
-        };
+        throw new MuxAiError(
+          "Caption track was empty; nothing to moderate.",
+          { type: "validation_error" },
+        );
       } else {
         const cues = parseVTTCues(transcriptResult.transcriptText);
         const windows = cues.length === 0 ?
@@ -1434,7 +1465,10 @@ export async function getModerationScores(
   ];
   const failed = allScores.filter(s => s.error);
   const successful = allScores.filter(s => !s.error);
-  if (successful.length === 0) {
+  // Only "all attempted samples failed" is a real failure. An audio-only asset whose
+  // transcript is legitimately empty (no_cues) has zero samples attempted, not zero
+  // successes out of some — that's not the same condition and must not throw here.
+  if (allScores.length > 0 && successful.length === 0) {
     const details = failed.map(s => `${s.label}: ${s.errorMessage || "Unknown error"}`).join("; ");
     throw new Error(
       `Moderation failed for all ${allScores.length} sample(s): ${details}`,
@@ -1448,8 +1482,10 @@ export async function getModerationScores(
   }
 
   // Find highest scores across both thumbnails and transcript time windows.
-  const maxSexual = Math.max(...successful.map(s => s.sexual));
-  const maxViolence = Math.max(...successful.map(s => s.violence));
+  // Math.max(...[]) is -Infinity, not 0 -- guard the case where nothing was
+  // attempted at all (e.g. an audio-only asset skipped for no_cues).
+  const maxSexual = successful.length > 0 ? Math.max(...successful.map(s => s.sexual)) : 0;
+  const maxViolence = successful.length > 0 ? Math.max(...successful.map(s => s.violence)) : 0;
 
   const finalThresholds = { ...DEFAULT_THRESHOLDS, ...thresholds };
   // Coverage describes how well the *thumbnails* were sampled; transcript scores

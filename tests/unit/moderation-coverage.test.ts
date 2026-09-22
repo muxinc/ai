@@ -591,7 +591,7 @@ describe("getModerationScores includeTranscript (video assets)", () => {
     expect(result.transcriptScores.every(s => s.error === false)).toBe(true);
   });
 
-  it("reports transcript moderation as skipped when no ready text track exists", async () => {
+  it("throws when a video asset requests includeTranscript with no ready text track", async () => {
     vi.mocked(getPlaybackIdForAsset).mockResolvedValue({
       asset: { id: "asset-123", tracks: [] },
       playbackId: "playback-123",
@@ -605,35 +605,57 @@ describe("getModerationScores includeTranscript (video assets)", () => {
     ];
     vi.mocked(getThumbnailUrls).mockResolvedValue(urls);
 
-    mockFetch.mockImplementation(async (url, init) => {
+    mockFetch.mockImplementation(async (url) => {
       if (String(url).endsWith(".vtt")) {
         throw new Error("transcript fetch should not happen when no track exists");
       }
-      const body = JSON.parse(String(init?.body));
-      expect(Array.isArray(body.input)).toBe(true);
       return mockOpenAIModerationResponse({
         status: 200,
         body: { results: [{ category_scores: { sexual: 0.02, violence: 0.03 } }] },
       });
     });
 
-    const result = await getModerationScores("asset-123", {
-      provider: "openai",
-      model: "omni-moderation-latest",
-      includeTranscript: true,
+    await expect(
+      getModerationScores("asset-123", {
+        provider: "openai",
+        model: "omni-moderation-latest",
+        includeTranscript: true,
+      }),
+    ).rejects.toThrow("No caption track found");
+  });
+
+  it("throws when a video asset requests includeTranscript and the caption track's transcript is empty", async () => {
+    vi.mocked(getPlaybackIdForAsset).mockResolvedValue(videoAssetWithTextTrack());
+
+    const urls = [
+      { url: "https://thumb.test/a.png", time: 0 },
+      { url: "https://thumb.test/b.png", time: 10 },
+      { url: "https://thumb.test/c.png", time: 20 },
+    ];
+    vi.mocked(getThumbnailUrls).mockResolvedValue(urls);
+
+    mockFetch.mockImplementation(async (url) => {
+      if (String(url).endsWith(".vtt")) {
+        return {
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          text: vi.fn().mockResolvedValue(""),
+        } as any;
+      }
+      return mockOpenAIModerationResponse({
+        status: 200,
+        body: { results: [{ category_scores: { sexual: 0.02, violence: 0.03 } }] },
+      });
     });
 
-    expect(result.transcriptScores).toEqual([]);
-    expect(result.mode).toBe("thumbnails");
-    expect(result.coverage.requestedSampleCount).toBe(3);
-    expect(result.exceedsThreshold).toBe(false);
-    // Skip is now surfaced through transcriptModeration for auditability.
-    expect(result.transcriptModeration).toEqual({
-      requested: true,
-      status: "skipped",
-      skipReason: "no_ready_text_track",
-      skipMessage: "No ready caption/subtitle track found for this asset.",
-    });
+    await expect(
+      getModerationScores("asset-123", {
+        provider: "openai",
+        model: "omni-moderation-latest",
+        includeTranscript: true,
+      }),
+    ).rejects.toThrow("Caption track was empty; nothing to moderate.");
   });
 
   it("reports transcript moderation as skipped with no_cues when the caption track has no parseable cues", async () => {
@@ -770,5 +792,103 @@ describe("getModerationScores includeTranscript (video assets)", () => {
         includeTranscript: true,
       }),
     ).rejects.toThrow("includeTranscript is only supported with provider 'openai'.");
+  });
+
+  it("throws when an audio-only asset has no ready text track", async () => {
+    vi.mocked(isAudioOnlyAsset).mockReturnValue(true);
+    vi.mocked(getPlaybackIdForAsset).mockResolvedValue({
+      asset: { id: "asset-audio", tracks: [] },
+      playbackId: "playback-audio",
+      policy: "public",
+    } as any);
+    vi.mocked(getThumbnailUrls).mockResolvedValue([]);
+
+    mockFetch.mockImplementation(async (url) => {
+      if (String(url).endsWith(".vtt")) {
+        throw new Error("transcript fetch should not happen when no track exists");
+      }
+      throw new Error("no other request expected");
+    });
+
+    await expect(
+      getModerationScores("asset-audio", { provider: "openai" }),
+    ).rejects.toThrow("No caption track found");
+  });
+
+  it("throws when an audio-only asset's transcript is empty", async () => {
+    vi.mocked(isAudioOnlyAsset).mockReturnValue(true);
+    vi.mocked(getPlaybackIdForAsset).mockResolvedValue({
+      asset: {
+        id: "asset-audio",
+        tracks: [
+          { id: "track-en", type: "text", status: "ready", text_type: "subtitles", language_code: "en" },
+        ],
+      },
+      playbackId: "playback-audio",
+      policy: "public",
+    } as any);
+    vi.mocked(getThumbnailUrls).mockResolvedValue([]);
+
+    mockFetch.mockImplementation(async (url) => {
+      if (String(url).endsWith(".vtt")) {
+        return {
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          text: vi.fn().mockResolvedValue(""),
+        } as any;
+      }
+      throw new Error("no other request expected");
+    });
+
+    await expect(
+      getModerationScores("asset-audio", { provider: "openai" }),
+    ).rejects.toThrow("Caption track was empty; nothing to moderate.");
+  });
+
+  it("reports no_cues as a skip (not a throw) for an audio-only asset with an empty-cue transcript", async () => {
+    vi.mocked(isAudioOnlyAsset).mockReturnValue(true);
+    vi.mocked(getPlaybackIdForAsset).mockResolvedValue({
+      asset: {
+        id: "asset-audio",
+        tracks: [
+          { id: "track-en", type: "text", status: "ready", text_type: "subtitles", language_code: "en" },
+        ],
+      },
+      playbackId: "playback-audio",
+      policy: "public",
+    } as any);
+    vi.mocked(getThumbnailUrls).mockResolvedValue([]);
+
+    const HEADER_ONLY_VTT = "WEBVTT\n\nNOTE this file has no cues\n";
+
+    mockFetch.mockImplementation(async (url) => {
+      if (String(url).endsWith(".vtt")) {
+        return {
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          text: vi.fn().mockResolvedValue(HEADER_ONLY_VTT),
+        } as any;
+      }
+      throw new Error("no other request expected");
+    });
+
+    const result = await getModerationScores("asset-audio", { provider: "openai" });
+
+    expect(result.mode).toBe("transcript");
+    expect(result.thumbnailScores).toEqual([]);
+    expect(result.transcriptScores).toEqual([]);
+    expect(result.transcriptModeration).toEqual({
+      requested: true,
+      status: "skipped",
+      skipReason: "no_cues",
+      skipMessage: "Caption track had no parseable cues.",
+    });
+    // Nothing was attempted (zero samples), which must not trip the
+    // "all requested samples failed" guard or leave maxScores at -Infinity.
+    expect(result.maxScores).toEqual({ sexual: 0, violence: 0 });
+    expect(result.exceedsThreshold).toBe(false);
+    expect(result.coverage.isLowConfidence).toBe(true);
   });
 });
