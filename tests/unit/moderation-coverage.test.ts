@@ -582,7 +582,8 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
     expect(MuxAiError.is(error)).toBe(true);
     expect(error.publicType).toBe("validation_error");
     expect(error.message).toBe(
-      "Nothing to moderate: thumbnails skipped (audio_only); transcript not requested.",
+      "Nothing to moderate. Thumbnails skipped: Asset has no video track, so there are no thumbnails to moderate. " +
+      "Transcript not requested (moderateTranscript: false).",
     );
     expect(mockFetch).not.toHaveBeenCalled();
   });
@@ -597,7 +598,8 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
     expect(MuxAiError.is(error)).toBe(true);
     expect(error.publicType).toBe("validation_error");
     expect(error.message).toBe(
-      "Nothing to moderate: thumbnails skipped (audio_only); transcript skipped (no_ready_text_track).",
+      "Nothing to moderate. Thumbnails skipped: Asset has no video track, so there are no thumbnails to moderate. " +
+      "Transcript skipped: No ready caption/subtitle track found for this asset.",
     );
     expect(mockFetch).not.toHaveBeenCalled();
   });
@@ -657,7 +659,8 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
 
     expect(MuxAiError.is(error)).toBe(true);
     expect(error.message).toBe(
-      "Nothing to moderate: thumbnails skipped (audio_only); transcript skipped (unsupported_provider).",
+      "Nothing to moderate. Thumbnails skipped: Asset has no video track, so there are no thumbnails to moderate. " +
+      "Transcript skipped: Provider 'google-vision-api' is image-only and cannot moderate transcript text; use provider 'openai'.",
     );
     expect(mockFetch).not.toHaveBeenCalled();
   });

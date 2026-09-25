@@ -32,6 +32,10 @@ describe("moderation Integration Tests", () => {
       expect(result).toHaveProperty("thumbnailScores");
       expect(result).toHaveProperty("exceedsThreshold");
       expect(result).toHaveProperty("thresholds");
+      expect(result.thumbnailModeration).toEqual({ status: "completed" });
+      // Transcript moderation is on by default; whether it ran depends on the
+      // fixture having captions, but it must always be reported.
+      expect(["completed", "skipped"]).toContain(result.transcriptModeration.status);
 
       // Assert not violent and not sexual
       expect(result.maxScores.violence).toBeLessThan(VIOLENCE_THRESHOLD);
@@ -155,11 +159,13 @@ describe("moderation Integration Tests", () => {
     });
 
     it("rejects audio-only assets with a clear message", async () => {
+      // Thumbnails are skipped (no video track) and the transcript is skipped
+      // (image-only provider), so nothing can be moderated.
       await expect(
         getModerationScores(safeAudioOnlyAssetId, {
           provider: "google-vision-api",
         }),
-      ).rejects.toThrow(/google-vision-api is image-only/);
+      ).rejects.toThrow(/Nothing to moderate.*'google-vision-api' is image-only/);
     });
   });
 
@@ -174,6 +180,8 @@ describe("moderation Integration Tests", () => {
       expect(result.assetId).toBe(safeAudioOnlyAssetId);
       expect(result.mode).toBe("transcript");
       expect(result.isAudioOnly).toBe(true);
+      expect(result.thumbnailModeration).toMatchObject({ status: "skipped", skipReason: "audio_only" });
+      expect(result.transcriptModeration).toEqual({ status: "completed" });
 
       expect(Array.isArray(result.transcriptScores)).toBe(true);
       expect(result.transcriptScores.length).toBeGreaterThan(0);
