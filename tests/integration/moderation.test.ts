@@ -180,7 +180,7 @@ describe("moderation Integration Tests", () => {
       expect(result.assetId).toBe(safeAudioOnlyAssetId);
       expect(result.mode).toBe("transcript");
       expect(result.isAudioOnly).toBe(true);
-      expect(result.thumbnailModeration).toMatchObject({ status: "skipped", skipReason: "audio_only" });
+      expect(result.thumbnailModeration).toMatchObject({ status: "skipped", skipReason: "no_video_track" });
       expect(result.transcriptModeration).toEqual({ status: "completed" });
 
       expect(Array.isArray(result.transcriptScores)).toBe(true);

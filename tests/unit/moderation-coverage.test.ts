@@ -525,7 +525,7 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
     expect(counts.image).toBe(3);
   });
 
-  it("skips thumbnails with audio_only for an audio-only asset and moderates the transcript", async () => {
+  it("skips thumbnails with no_video_track for an audio-only asset and moderates the transcript", async () => {
     vi.mocked(isAudioOnlyAsset).mockReturnValue(true);
     vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack("asset-audio"));
     const counts = mockOpenAIFetch({ vtt: VTT_BODY, textScores: { sexual: 0.04, violence: 0.06 } });
@@ -539,7 +539,7 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
     expect(result.isAudioOnly).toBe(true);
     expect(result.thumbnailModeration).toEqual({
       status: "skipped",
-      skipReason: "audio_only",
+      skipReason: "no_video_track",
       skipMessage: "Asset has no video track, so there are no thumbnails to moderate.",
     });
     expect(result.transcriptModeration).toEqual({ status: "completed" });
