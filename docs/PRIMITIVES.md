@@ -55,6 +55,7 @@ console.log(result.track); // Mux track metadata
 - `cleanTranscript?: boolean` - Remove VTT timestamps and formatting (default: true)
 - `scope?: { startTime?: number; endTime?: number }` - Keep only cues overlapping this asset-relative range
 - `shouldSign?: boolean` - For signed playback policies
+- `required?: boolean` - Throw a customer-safe `MuxAiError` if no usable transcript can be retrieved (default: false, returns an empty `transcriptText` instead)
 
 ### `extractTextFromVTT(vttContent)`
 
