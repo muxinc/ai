@@ -1188,10 +1188,15 @@ async function requestThumbnailModeration(
   }
 }
 
-function describeSurfaceStatus(label: string, status: ModerationSurfaceStatus<string>): string {
+/** One sentence for the nothing-to-moderate error; `skipMessage` already ends with a period. */
+function describeSurfaceStatus(
+  label: string,
+  optionName: string,
+  status: ModerationSurfaceStatus<string>,
+): string {
   return status.status === "skipped" ?
-    `${label} skipped (${status.skipReason})` :
-    `${label} not requested`;
+    `${label} skipped: ${status.skipMessage}` :
+    `${label} not requested (${optionName}: false).`;
 }
 
 /**
@@ -1407,9 +1412,10 @@ export async function getModerationScores(
   if (!shouldRunThumbnails && !shouldRunTranscript) {
     // Never return a result with nothing scored: `exceedsThreshold: false`
     // would read as "clean" to anything automating off it.
+    const thumbnailsDetail = describeSurfaceStatus("Thumbnails", "moderateThumbnails", thumbnailModeration);
+    const transcriptDetail = describeSurfaceStatus("Transcript", "moderateTranscript", transcriptModeration);
     throw new MuxAiError(
-      `Nothing to moderate: ${describeSurfaceStatus("thumbnails", thumbnailModeration)}; ` +
-      `${describeSurfaceStatus("transcript", transcriptModeration)}.`,
+      `Nothing to moderate. ${thumbnailsDetail} ${transcriptDetail}`,
       { type: "validation_error" },
     );
   }
