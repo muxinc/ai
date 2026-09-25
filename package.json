@@ -106,7 +106,7 @@
     "example:translate-audio": "npx tsx examples/translate-audio/basic-example.ts",
     "evalite:post-results:dev": "npx tsx scripts/export-evalite-results.ts --model-set all && npx tsx scripts/post-evalite-results.ts -d -k",
     "evalite:post-results:production": "npx tsx scripts/export-evalite-results.ts --model-set all && npx tsx scripts/post-evalite-results.ts",
-    "prepare": "husky"
+    "prepare": "husky || true; npm run build"
   },
   "peerDependencies": {
     "workflow": ">=4.2.4"

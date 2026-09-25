@@ -32,6 +32,10 @@ describe("moderation Integration Tests", () => {
       expect(result).toHaveProperty("thumbnailScores");
       expect(result).toHaveProperty("exceedsThreshold");
       expect(result).toHaveProperty("thresholds");
+      expect(result.thumbnailModeration).toEqual({ status: "completed" });
+      // Transcript moderation is on by default; whether it ran depends on the
+      // fixture having captions, but it must always be reported.
+      expect(["completed", "skipped"]).toContain(result.transcriptModeration.status);
 
       // Assert not violent and not sexual
       expect(result.maxScores.violence).toBeLessThan(VIOLENCE_THRESHOLD);
@@ -155,11 +159,13 @@ describe("moderation Integration Tests", () => {
     });
 
     it("rejects audio-only assets with a clear message", async () => {
+      // Thumbnails are skipped (no video track) and the transcript is skipped
+      // (image-only provider), so nothing can be moderated.
       await expect(
         getModerationScores(safeAudioOnlyAssetId, {
           provider: "google-vision-api",
         }),
-      ).rejects.toThrow(/google-vision-api is image-only/);
+      ).rejects.toThrow(/Nothing to moderate.*'google-vision-api' is image-only/);
     });
   });
 
@@ -174,13 +180,18 @@ describe("moderation Integration Tests", () => {
       expect(result.assetId).toBe(safeAudioOnlyAssetId);
       expect(result.mode).toBe("transcript");
       expect(result.isAudioOnly).toBe(true);
+      expect(result.thumbnailModeration).toMatchObject({ status: "skipped", skipReason: "no_video_track" });
+      expect(result.transcriptModeration).toEqual({ status: "completed" });
 
-      expect(Array.isArray(result.thumbnailScores)).toBe(true);
-      expect(result.thumbnailScores.length).toBeGreaterThan(0);
-      expect(result.thumbnailScores.filter(s => !s.error).length).toBeGreaterThan(0);
-      expect(result.thumbnailScores[0].url.startsWith("transcript:")).toBe(true);
-      expect(typeof result.thumbnailScores[0].sexual).toBe("number");
-      expect(typeof result.thumbnailScores[0].violence).toBe("number");
+      expect(Array.isArray(result.transcriptScores)).toBe(true);
+      expect(result.transcriptScores.length).toBeGreaterThan(0);
+      expect(result.transcriptScores.filter(s => !s.error).length).toBeGreaterThan(0);
+      expect(result.thumbnailScores).toEqual([]);
+      expect(typeof result.transcriptScores[0].startTime).toBe("number");
+      expect(typeof result.transcriptScores[0].endTime).toBe("number");
+      expect(result.transcriptScores[0]).not.toHaveProperty("chunkIndex");
+      expect(typeof result.transcriptScores[0].sexual).toBe("number");
+      expect(typeof result.transcriptScores[0].violence).toBe("number");
     });
 
     it("should detect violent audio-only content for OpenAI", async () => {
@@ -194,10 +205,13 @@ describe("moderation Integration Tests", () => {
       expect(result.mode).toBe("transcript");
       expect(result.isAudioOnly).toBe(true);
 
-      expect(Array.isArray(result.thumbnailScores)).toBe(true);
-      expect(result.thumbnailScores.length).toBeGreaterThan(0);
-      expect(result.thumbnailScores.filter(s => !s.error).length).toBeGreaterThan(0);
-      expect(result.thumbnailScores[0].url.startsWith("transcript:")).toBe(true);
+      expect(Array.isArray(result.transcriptScores)).toBe(true);
+      expect(result.transcriptScores.length).toBeGreaterThan(0);
+      expect(result.transcriptScores.filter(s => !s.error).length).toBeGreaterThan(0);
+      expect(result.thumbnailScores).toEqual([]);
+      expect(typeof result.transcriptScores[0].startTime).toBe("number");
+      expect(typeof result.transcriptScores[0].endTime).toBe("number");
+      expect(result.transcriptScores[0]).not.toHaveProperty("chunkIndex");
 
       // Assert violent content is detected
       expect(result.maxScores.violence).toBeGreaterThan(VIOLENCE_THRESHOLD);

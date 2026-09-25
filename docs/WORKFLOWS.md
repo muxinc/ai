@@ -103,8 +103,12 @@ See [API Reference](./API.md#custom-prompts-with-promptoverrides) for more examp
 
 Analyze a Mux asset for inappropriate material using OpenAI, Hive, or Google Vision SafeSearch.
 
-- For **video assets**, moderation runs over storyboard thumbnails.
-- For **audio-only assets**, moderation runs over transcript text. Only OpenAI supports this — Hive and Google Vision are image-only.
+By default both surfaces are moderated where available, and anything skipped is reported in the result:
+
+- **Thumbnails** — storyboard frames. Skipped for audio-only assets (`thumbnailModeration.skipReason: "no_video_track"`) or when `scope` lies past the end of the video track (`"no_video_in_scope"`).
+- **Transcript** — caption text in time windows. Skipped when there's no ready caption track or nothing to moderate (`transcriptModeration.skipReason`). Only OpenAI supports text moderation — Hive and Google Vision are image-only and skip it.
+
+Turn a surface off with `moderateThumbnails: false` or `moderateTranscript: false`. The call throws if nothing can be moderated at all.
 
 ```typescript
 import { getModerationScores } from "@mux/ai/workflows";
@@ -114,9 +118,10 @@ const result = await getModerationScores("your-mux-asset-id", {
   thresholds: { sexual: 0.7, violence: 0.8 }
 });
 
-console.log(result.maxScores); // Highest scores across all thumbnails (or transcript for audio-only)
+console.log(result.maxScores); // Highest scores across all thumbnails and transcript windows
 console.log(result.exceedsThreshold); // true if content should be flagged
-console.log(result.coverage); // sample coverage and low-confidence metadata
+console.log(result.thumbnailModeration, result.transcriptModeration); // per-surface status + skip reason
+console.log(result.coverage); // thumbnail sample coverage and low-confidence metadata
 
 // Use Hive for visual moderation
 const hiveResult = await getModerationScores("your-mux-asset-id", {
@@ -132,9 +137,9 @@ const visionResult = await getModerationScores("your-mux-asset-id", {
 
 ### Provider Comparison
 
-- **OpenAI**: Uses the `omni-moderation-latest` model with dedicated moderation API. Supports text moderation for audio-only assets.
-- **Hive**: Visual moderation by default; audio-only/text moderation requires a Hive **Text Moderation** project/API key (otherwise Hive will reject `text_data`) — see [Hive Text Moderation docs](https://docs.thehive.ai/docs/classification-text)
-- **Google Vision API**: SafeSearch detection. Image-only — audio-only assets throw a clear error. SafeSearch returns discrete `Likelihood` buckets (`UNKNOWN`..`VERY_LIKELY`) which are linearly mapped onto 0..1 (so `LIKELY` ≈ 0.8, `VERY_LIKELY` = 1.0). Only `adult` and `violence` likelihoods are surfaced; `racy`, `spoof`, and `medical` are ignored. We've observed some instability in the `adult` measurement that can produce false positives, so you may want to tune your `sexual` threshold up when using Google Vision.
+- **OpenAI**: Uses the `omni-moderation-latest` model with dedicated moderation API. The only provider that moderates transcript text (multilingual).
+- **Hive**: Visual moderation only in this workflow. The transcript surface is skipped (`unsupported_provider`), so audio-only assets throw because nothing can be moderated.
+- **Google Vision API**: SafeSearch detection. Image-only — the transcript surface is skipped and audio-only assets throw a clear error. SafeSearch returns discrete `Likelihood` buckets (`UNKNOWN`..`VERY_LIKELY`) which are linearly mapped onto 0..1 (so `LIKELY` ≈ 0.8, `VERY_LIKELY` = 1.0). Only `adult` and `violence` likelihoods are surfaced; `racy`, `spoof`, and `medical` are ignored. We've observed some instability in the `adult` measurement that can produce false positives, so you may want to tune your `sexual` threshold up when using Google Vision.
 
 ## Burned-in Caption Detection
 
