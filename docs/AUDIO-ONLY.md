@@ -19,7 +19,7 @@ const result = await getSummaryAndTags("your-audio-only-asset-id", {
 
 ### Content Moderation (`getModerationScores`)
 
-For audio-only assets, moderation runs on the transcript instead of thumbnails. Use OpenAI for audio-only moderation.
+For audio-only assets, moderation runs on the transcript; the thumbnail surface is reported as skipped (`thumbnailModeration.skipReason: "audio_only"`). Use OpenAI, the only provider that supports text moderation. A ready caption track is required — with nothing to moderate, the call throws.
 
 ```typescript
 import { getModerationScores } from "@mux/ai/workflows";
