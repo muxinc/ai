@@ -74,9 +74,9 @@ export interface ModerationSurfaceStatus<Reason extends string> {
 
 /**
  * Why thumbnail moderation was skipped:
- * - `"audio_only"` — the asset has no video track, so there are no thumbnails.
+ * - `"no_video_track"` — the asset has no video track, so there are no thumbnails.
  */
-export type ThumbnailModerationSkipReason = "audio_only";
+export type ThumbnailModerationSkipReason = "no_video_track";
 
 /**
  * Why transcript moderation was skipped:
@@ -1304,7 +1304,7 @@ export async function getModerationScores(
   if (moderateThumbnails && isAudioOnly) {
     thumbnailModeration = {
       status: "skipped",
-      skipReason: "audio_only",
+      skipReason: "no_video_track",
       skipMessage: "Asset has no video track, so there are no thumbnails to moderate.",
     };
   } else if (moderateThumbnails) {

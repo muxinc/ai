@@ -103,7 +103,7 @@ Each surface can be turned off with `moderateThumbnails: false` / `moderateTrans
   - `retryDelay?: number` - Base delay between retries in milliseconds (default: 1000)
   - `maxRetryDelay?: number` - Maximum delay between retries in milliseconds (default: 10000)
   - `exponentialBackoff?: boolean` - Whether to use exponential backoff (default: true)
-- `moderateThumbnails?: boolean` - Moderate sampled storyboard thumbnails (default: `true`). Audio-only assets have no thumbnails, so the surface is reported as `skipped` in `thumbnailModeration` (`skipReason: "audio_only"`). At least one of `moderateThumbnails` / `moderateTranscript` must be `true`.
+- `moderateThumbnails?: boolean` - Moderate sampled storyboard thumbnails (default: `true`). Audio-only assets have no thumbnails, so the surface is reported as `skipped` in `thumbnailModeration` (`skipReason: "no_video_track"`). At least one of `moderateThumbnails` / `moderateTranscript` must be `true`.
 - `moderateTranscript?: boolean` - Moderate the caption transcript text (default: `true`). If no ready caption track exists, or the track has nothing to moderate, the surface is reported as `skipped` in `transcriptModeration` (`skipReason: "no_ready_text_track"` / `"no_cues"`) — the call still succeeds and thumbnails still moderate. Transcription is never triggered. Only provider `openai` supports text moderation; other providers report `skipReason: "unsupported_provider"`. Transcript scores are returned in the dedicated `transcriptScores` array, separate from `thumbnailScores`; they never enter the thumbnail `coverage` denominator. At least one of `moderateThumbnails` / `moderateTranscript` must be `true`.
 - `transcriptWindowing?: object` - Optional tuning for transcript time-windowing (all fields optional; sensible defaults applied). Transcript moderation splits the caption track into **dynamic, overlapping** time windows whose size scales with the asset's duration: `windowSeconds = clamp(duration / targetWindowCount, minWindowSeconds, maxWindowSeconds)` and consecutive windows overlap by `max(minOverlapSeconds, windowSeconds * overlapFraction)`, so content straddling a window boundary is still scored intact.
   - `targetWindowCount?: number` - Divisor used to derive the base window size from duration (default: `40`)
@@ -147,8 +147,8 @@ Each surface can be turned off with `moderateThumbnails: false` / `moderateTrans
     // 'not_requested' — moderateThumbnails: false.
     status: 'completed' | 'skipped' | 'not_requested';
     // Present only when status === 'skipped':
-    //   'audio_only' — the asset has no video track, so there are no thumbnails.
-    skipReason?: 'audio_only';
+    //   'no_video_track' — the asset has no video track, so there are no thumbnails.
+    skipReason?: 'no_video_track';
     skipMessage?: string; // Present only when status === 'skipped'. Human-readable explanation.
   };
   transcriptModeration: { // Audit trail for the transcript surface
