@@ -210,6 +210,50 @@ describe("fetchTranscriptForAsset", () => {
       scope: { startTime: 100, endTime: 110 },
     })).rejects.toThrow("Transcript has no cues in the requested scope.");
   });
+
+  it("still resolves with track and transcriptUrl when the VTT fetch fails and not required", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+    }));
+
+    const asset = {
+      tracks: [{
+        type: "text",
+        id: "track-1",
+        status: "ready",
+        text_type: "subtitles",
+        language_code: "en",
+      }],
+    } as MuxAsset;
+
+    const result = await fetchTranscriptForAsset(asset, "playback-1");
+
+    expect(result.transcriptText).toBe("");
+    expect(result.track).toEqual(asset.tracks![0]);
+    expect(result.transcriptUrl).toBeDefined();
+  });
+
+  it("throws when required and the VTT fetch fails", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+    }));
+
+    const asset = {
+      tracks: [{
+        type: "text",
+        id: "track-1",
+        status: "ready",
+        text_type: "subtitles",
+        language_code: "en",
+      }],
+    } as MuxAsset;
+
+    await expect(fetchTranscriptForAsset(asset, "playback-1", {
+      required: true,
+    })).rejects.toThrow("Failed to fetch transcript");
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

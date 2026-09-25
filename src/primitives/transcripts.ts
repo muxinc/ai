@@ -765,41 +765,31 @@ export async function buildTranscriptUrl(
   return baseUrl;
 }
 
-interface TranscriptStepResult extends TranscriptResult {
+interface TranscriptFetchStepResult {
+  transcriptText: string;
   /**
    * Set when `transcriptText` came back empty. Never part of the public
    * `TranscriptResult` shape returned to callers — internal to this module.
    */
-  emptyReason?: "no_track" | "missing_track_id" | "empty_body" | "no_scoped_cues";
+  emptyReason?: "empty_body" | "no_scoped_cues";
 }
 
 /**
- * Does the actual network fetch and VTT parsing. Deliberately never throws a
- * customer-safe error for "no usable transcript" itself — the
- * {@link fetchTranscriptForAsset} wrapper handles propagating errors.
+ * Does the actual network fetch and VTT parsing for an already-resolved
+ * transcript URL. Deliberately never throws a customer-safe error for "no
+ * usable transcript" itself — the {@link fetchTranscriptForAsset} wrapper
+ * handles propagating errors.
  *
  * Still throws (uncaught) on a transient HTTP/network failure while
  * fetching the VTT file, so Workflow DevKit's normal step-retry applies to
  * that specific, genuinely-transient case.
  */
-async function fetchTranscriptDataForAsset(
-  asset: MuxAsset,
-  playbackId: string,
-  options: Omit<TranscriptFetchOptions, "required"> = {},
-): Promise<TranscriptStepResult> {
+async function fetchTranscriptDataForUrl(
+  transcriptUrl: string,
+  options: Pick<TranscriptFetchOptions, "cleanTranscript" | "scope"> = {},
+): Promise<TranscriptFetchStepResult> {
   "use step";
-  const { languageCode, cleanTranscript = true, scope, shouldSign, credentials } = options;
-  const track = findCaptionTrack(asset, languageCode);
-
-  if (!track) {
-    return { transcriptText: "", emptyReason: "no_track" };
-  }
-
-  if (!track.id) {
-    return { transcriptText: "", track, emptyReason: "missing_track_id" };
-  }
-
-  const transcriptUrl = await buildTranscriptUrl(playbackId, track.id, shouldSign, credentials);
+  const { cleanTranscript = true, scope } = options;
 
   try {
     const response = await fetch(transcriptUrl);
@@ -816,13 +806,11 @@ async function fetchTranscriptDataForAsset(
     if (!transcriptText.trim() || !hasScopedCues) {
       return {
         transcriptText,
-        transcriptUrl,
-        track,
         emptyReason: hasScopedCues ? "empty_body" : "no_scoped_cues",
       };
     }
 
-    return { transcriptText, transcriptUrl, track };
+    return { transcriptText };
   } catch (error) {
     wrapError(error, "Failed to fetch transcript");
   }
@@ -833,11 +821,35 @@ export async function fetchTranscriptForAsset(
   playbackId: string,
   options: TranscriptFetchOptions = {},
 ): Promise<TranscriptResult> {
-  const { required = false, ...fetchOptions } = options;
+  const { required = false, languageCode, cleanTranscript, scope, shouldSign, credentials } = options;
 
-  let result: TranscriptStepResult;
+  const track = findCaptionTrack(asset, languageCode);
+  if (!track) {
+    if (required) {
+      const availableLanguages = getReadyTextTracks(asset)
+        .map(t => t.language_code)
+        .filter(Boolean)
+        .join(", ");
+      throw new MuxAiError(
+        `No caption track found${languageCode ? ` for language ${languageCode}` : ""}. Available languages: ${availableLanguages || "none"}.`,
+        { type: "validation_error" },
+      );
+    }
+    return { transcriptText: "" };
+  }
+
+  if (!track.id) {
+    if (required) {
+      throw new MuxAiError("Transcript track is missing an id.", { type: "validation_error" });
+    }
+    return { transcriptText: "", track };
+  }
+
+  const transcriptUrl = await buildTranscriptUrl(playbackId, track.id, shouldSign, credentials);
+
+  let result: TranscriptFetchStepResult;
   try {
-    result = await fetchTranscriptDataForAsset(asset, playbackId, fetchOptions);
+    result = await fetchTranscriptDataForUrl(transcriptUrl, { cleanTranscript, scope });
   } catch (error) {
     // The step only throws an error for transient network errors that have
     // exhausted WDK's retries. Swallow the error if the transcript is not required.
@@ -845,29 +857,17 @@ export async function fetchTranscriptForAsset(
       throw error;
     }
     console.warn("Failed to fetch transcript:", error);
-    return { transcriptText: "" };
+    return { transcriptText: "", transcriptUrl, track };
   }
 
-  const { emptyReason, ...publicResult } = result;
-  if (!required || !emptyReason) {
-    return publicResult;
+  if (!required || !result.emptyReason) {
+    return { transcriptText: result.transcriptText, transcriptUrl, track };
   }
 
-  // Handle throwing MuxAiErrors for the step function so the MuxAiError survives
-  // intact instead of getting reconstructed as a generic Error.
-  switch (emptyReason) {
-    case "no_track": {
-      const availableLanguages = getReadyTextTracks(asset)
-        .map(t => t.language_code)
-        .filter(Boolean)
-        .join(", ");
-      throw new MuxAiError(
-        `No caption track found${fetchOptions.languageCode ? ` for language ${fetchOptions.languageCode}` : ""}. Available languages: ${availableLanguages || "none"}.`,
-        { type: "validation_error" },
-      );
-    }
-    case "missing_track_id":
-      throw new MuxAiError("Transcript track is missing an id.", { type: "validation_error" });
+  // Thrown here, in workflow-body code, rather than inside the fetch step, so
+  // the MuxAiError survives intact instead of getting reconstructed as a
+  // generic Error at the step boundary.
+  switch (result.emptyReason) {
     case "no_scoped_cues":
       throw new MuxAiError("Transcript has no cues in the requested scope.", { type: "validation_error" });
     case "empty_body":
