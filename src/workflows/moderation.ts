@@ -75,8 +75,10 @@ export interface ModerationSurfaceStatus<Reason extends string> {
 /**
  * Why thumbnail moderation was skipped:
  * - `"no_video_track"` — the asset has no video track, so there are no thumbnails.
+ * - `"no_video_in_scope"` — the asset has a video track, but the requested
+ *   `scope` lies entirely past its end (trailing non-video media).
  */
-export type ThumbnailModerationSkipReason = "no_video_track";
+export type ThumbnailModerationSkipReason = "no_video_track" | "no_video_in_scope";
 
 /**
  * Why transcript moderation was skipped:
@@ -1281,10 +1283,6 @@ export async function getModerationScores(
       } :
     undefined;
 
-  if (moderateThumbnails && !isAudioOnly && renderableScope && renderableScope.startTime >= renderableScope.endTime) {
-    throw new Error("The requested scope does not include any renderable video.");
-  }
-
   // Resolve signing context for signed playback IDs
   const signingContext = await resolveMuxSigningContext(credentials);
   if (policy === "signed" && !signingContext) {
@@ -1306,6 +1304,15 @@ export async function getModerationScores(
       status: "skipped",
       skipReason: "no_video_track",
       skipMessage: "Asset has no video track, so there are no thumbnails to moderate.",
+    };
+  } else if (moderateThumbnails && renderableScope && renderableScope.startTime >= renderableScope.endTime) {
+    // The scope sits entirely in trailing non-video media (asset duration
+    // exceeds the video track). Nothing to sample, but caption cues can still
+    // exist there, so this is a skip rather than a failure.
+    thumbnailModeration = {
+      status: "skipped",
+      skipReason: "no_video_in_scope",
+      skipMessage: "The requested scope does not include any renderable video, so there are no thumbnails to moderate.",
     };
   } else if (moderateThumbnails) {
     // Cheaply estimate how many thumbnails the interval would produce so we

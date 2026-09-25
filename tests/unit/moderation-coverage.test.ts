@@ -483,6 +483,52 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
     expect(counts.transcript).toBe(0);
   });
 
+  it("skips thumbnails with no_video_in_scope when the scope lies past the video track, and still moderates the transcript", async () => {
+    // Asset is 60s but the video track ends at 30s; the scope sits in the trailing audio.
+    vi.mocked(getVideoTrackDurationSecondsFromAsset).mockReturnValue(30);
+    vi.mocked(getAssetDurationSecondsFromAsset).mockReturnValue(60);
+    vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack());
+    const counts = mockOpenAIFetch({
+      vtt: "WEBVTT\n\n00:00:41.000 --> 00:00:45.000\ntrailing audio line\n",
+    });
+
+    const result = await getModerationScores("asset-123", {
+      provider: "openai",
+      scope: { startTime: 40, endTime: 50 },
+    });
+
+    expect(result.mode).toBe("transcript");
+    expect(result.thumbnailModeration).toEqual({
+      status: "skipped",
+      skipReason: "no_video_in_scope",
+      skipMessage: "The requested scope does not include any renderable video, so there are no thumbnails to moderate.",
+    });
+    expect(result.transcriptModeration).toEqual({ status: "completed" });
+    expect(result.transcriptScores.length).toBe(1);
+    expect(result.transcriptScores[0]).toMatchObject({ startTime: 41, endTime: 45 });
+    expect(getThumbnailUrls).not.toHaveBeenCalled();
+    expect(counts.image).toBe(0);
+  });
+
+  it("throws a customer-safe error when the scope lies past the video track and there are no captions", async () => {
+    vi.mocked(getVideoTrackDurationSecondsFromAsset).mockReturnValue(30);
+    vi.mocked(getAssetDurationSecondsFromAsset).mockReturnValue(60);
+    vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithoutTextTrack());
+    mockOpenAIFetch({});
+
+    const error = await getModerationScores("asset-123", {
+      provider: "openai",
+      scope: { startTime: 40, endTime: 50 },
+    }).catch(e => e);
+
+    expect(MuxAiError.is(error)).toBe(true);
+    expect(error.message).toBe(
+      "Nothing to moderate. Thumbnails skipped: The requested scope does not include any renderable video, so there are no thumbnails to moderate. " +
+      "Transcript skipped: No ready caption/subtitle track found for this asset.",
+    );
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it("moderates only the transcript when moderateThumbnails is false", async () => {
     vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack());
     vi.mocked(getThumbnailUrls).mockResolvedValue(THUMBNAIL_URLS);

@@ -105,7 +105,7 @@ Analyze a Mux asset for inappropriate material using OpenAI, Hive, or Google Vis
 
 By default both surfaces are moderated where available, and anything skipped is reported in the result:
 
-- **Thumbnails** — storyboard frames. Skipped for audio-only assets (`thumbnailModeration.skipReason: "no_video_track"`).
+- **Thumbnails** — storyboard frames. Skipped for audio-only assets (`thumbnailModeration.skipReason: "no_video_track"`) or when `scope` lies past the end of the video track (`"no_video_in_scope"`).
 - **Transcript** — caption text in time windows. Skipped when there's no ready caption track or nothing to moderate (`transcriptModeration.skipReason`). Only OpenAI supports text moderation — Hive and Google Vision are image-only and skip it.
 
 Turn a surface off with `moderateThumbnails: false` or `moderateTranscript: false`. The call throws if nothing can be moderated at all.
