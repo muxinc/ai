@@ -97,3 +97,167 @@ describe("generateChapters scope handling", () => {
     expect(emptyResult.chapters).toEqual(omittedResult.chapters);
   });
 });
+
+describe("generateChapters scene context", () => {
+  it("uses scene context and aligns chapter starts to scene boundaries in seconds", async () => {
+    vi.mocked(generateText).mockResolvedValue({
+      finishReason: "stop",
+      output: {
+        chapters: [
+          { startTime: 0, title: "Introduction" },
+          { startTime: 28.8, title: "Main topic" },
+          { startTime: 31, title: "Duplicate scene" },
+          { startTime: 74, title: "Conclusion" },
+        ],
+      },
+      text: JSON.stringify({
+        chapters: [
+          { startTime: 0, title: "Introduction" },
+          { startTime: 28.8, title: "Main topic" },
+          { startTime: 31, title: "Duplicate scene" },
+          { startTime: 74, title: "Conclusion" },
+        ],
+      }),
+      usage: {
+        inputTokens: 10,
+        outputTokens: 5,
+        totalTokens: 15,
+        reasoningTokens: 0,
+        cachedInputTokens: 0,
+      },
+    } as any);
+
+    const result = await generateChapters("asset-123", {
+      sceneContext: [
+        { scene_index: 0, start_ms: 0, end_ms: 30_000, title: "Opening" },
+        { scene_index: 1, start_ms: 30_000, end_ms: 70_000, title: "Main <topic>" },
+        { scene_index: 2, start_ms: 70_000, end_ms: 120_000, title: "Conclusion" },
+      ],
+    });
+
+    expect(result.chapters).toEqual([
+      { startTime: 0, title: "Introduction" },
+      { startTime: 30, title: "Main topic" },
+      { startTime: 70, title: "Conclusion" },
+    ]);
+
+    const prompt = vi.mocked(generateText).mock.calls[0][0].messages[0].content;
+    expect(prompt).toContain("<scene_context timestamps=\"milliseconds\" trust=\"untrusted_evidence\">");
+    expect(prompt).toContain("&lt;topic&gt;");
+    expect(prompt).toContain("start_ms divided by 1000");
+    expect(prompt).toContain("never split a scene");
+    expect(vi.mocked(generateText).mock.calls[0][0].system).toContain(
+      "Use the scene progression to choose logical chapter groupings",
+    );
+  });
+
+  it("retains the existing prompt and start times when scene context is empty", async () => {
+    vi.mocked(generateText).mockResolvedValue({
+      finishReason: "stop",
+      output: { chapters: [
+        { startTime: 0, title: "Introduction" },
+        { startTime: 47.5, title: "Standalone boundary" },
+      ] },
+      text: JSON.stringify({ chapters: [
+        { startTime: 0, title: "Introduction" },
+        { startTime: 47.5, title: "Standalone boundary" },
+      ] }),
+      usage: {
+        inputTokens: 10,
+        outputTokens: 5,
+        totalTokens: 15,
+        reasoningTokens: 0,
+        cachedInputTokens: 0,
+      },
+    } as any);
+
+    const result = await generateChapters("asset-123", { sceneContext: [] });
+
+    expect(result.chapters).toEqual([
+      { startTime: 0, title: "Introduction" },
+      { startTime: 47.5, title: "Standalone boundary" },
+    ]);
+    const prompt = vi.mocked(generateText).mock.calls[0][0].messages[0].content;
+    expect(prompt).not.toContain("<scene_context");
+    expect(prompt).not.toContain("never split a scene");
+    expect(vi.mocked(generateText).mock.calls[0][0].system).not.toContain("scene progression");
+  });
+
+  it("filters out-of-range starts before aligning scoped chapters", async () => {
+    vi.mocked(generateText).mockResolvedValue({
+      finishReason: "stop",
+      output: { chapters: [
+        { startTime: 29.9, title: "Out-of-range title" },
+        { startTime: 30, title: "Scoped opening" },
+      ] },
+      text: JSON.stringify({ chapters: [
+        { startTime: 29.9, title: "Out-of-range title" },
+        { startTime: 30, title: "Scoped opening" },
+      ] }),
+      usage: {
+        inputTokens: 10,
+        outputTokens: 5,
+        totalTokens: 15,
+        reasoningTokens: 0,
+        cachedInputTokens: 0,
+      },
+    } as any);
+
+    const result = await generateChapters("asset-123", {
+      scope: { startTime: 30, endTime: 120 },
+      sceneContext: [
+        { scene_index: 0, start_ms: 30_000, end_ms: 70_000, title: "Scoped opening" },
+        { scene_index: 1, start_ms: 70_000, end_ms: 120_000, title: "Scoped ending" },
+      ],
+    });
+
+    expect(result.chapters).toEqual([{ startTime: 30, title: "Scoped opening" }]);
+  });
+
+  it("uses the first in-scope scene boundary and preserves its exact title", async () => {
+    vi.mocked(generateText).mockResolvedValue({
+      finishReason: "stop",
+      output: { chapters: [
+        { startTime: 35, title: "Scope-start near miss" },
+        { startTime: 70, title: "Scene-aligned title" },
+      ] },
+      text: JSON.stringify({ chapters: [
+        { startTime: 35, title: "Scope-start near miss" },
+        { startTime: 70, title: "Scene-aligned title" },
+      ] }),
+      usage: {
+        inputTokens: 10,
+        outputTokens: 5,
+        totalTokens: 15,
+        reasoningTokens: 0,
+        cachedInputTokens: 0,
+      },
+    } as any);
+
+    const result = await generateChapters("asset-123", {
+      scope: { startTime: 35, endTime: 120 },
+      sceneContext: [
+        { scene_index: 0, start_ms: 30_000, end_ms: 70_000, title: "Outside scope" },
+        { scene_index: 1, start_ms: 70_000, end_ms: 120_000, title: "Scoped scene" },
+      ],
+    });
+
+    expect(result.chapters).toEqual([{ startTime: 70, title: "Scene-aligned title" }]);
+    const prompt = vi.mocked(generateText).mock.calls[0][0].messages[0].content;
+    expect(prompt).toContain("The first chapter must start at 70s, the first scene boundary inside the analyzed range");
+    expect(prompt).not.toContain("The first chapter must start at 35s");
+  });
+
+  it("reports scene context without in-scope boundaries as a validation error", async () => {
+    await expect(generateChapters("asset-123", {
+      scope: { startTime: 80, endTime: 120 },
+      sceneContext: [
+        { scene_index: 0, start_ms: 0, end_ms: 60_000, title: "Outside scope" },
+      ],
+    })).rejects.toMatchObject({
+      publicType: "validation_error",
+      publicMessage: "Scene context has no chapter boundaries within the requested scope.",
+    });
+    expect(generateText).not.toHaveBeenCalled();
+  });
+});
