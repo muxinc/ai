@@ -56,6 +56,7 @@ const PROMPT_TAG_NAMES = [
   "answer_guidelines",
   "relevance_filtering",
   "transcript_guidance",
+  "scene_guidance",
   "capabilities",
   "language_guidelines",
   "tone_guidance",
