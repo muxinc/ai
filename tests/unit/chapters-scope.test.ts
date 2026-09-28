@@ -247,4 +247,17 @@ describe("generateChapters scene context", () => {
     expect(prompt).toContain("The first chapter must start at 70s, the first scene boundary inside the analyzed range");
     expect(prompt).not.toContain("The first chapter must start at 35s");
   });
+
+  it("reports scene context without in-scope boundaries as a validation error", async () => {
+    await expect(generateChapters("asset-123", {
+      scope: { startTime: 80, endTime: 120 },
+      sceneContext: [
+        { scene_index: 0, start_ms: 0, end_ms: 60_000, title: "Outside scope" },
+      ],
+    })).rejects.toMatchObject({
+      publicType: "validation_error",
+      publicMessage: "Scene context has no chapter boundaries within the requested scope.",
+    });
+    expect(generateText).not.toHaveBeenCalled();
+  });
 });

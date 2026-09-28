@@ -538,7 +538,10 @@ async function generateChaptersInternal(
       resolvedScope ? boundary >= resolvedScope.startTime && boundary < resolvedScope.endTime : true,
     );
   if (sceneContext?.length && sceneBoundarySeconds.length === 0) {
-    throw new MuxAiError("Scene context has no chapter boundaries within the requested scope.");
+    throw new MuxAiError(
+      "Scene context has no chapter boundaries within the requested scope.",
+      { type: "validation_error" },
+    );
   }
 
   const userPrompt = buildUserPrompt({
