@@ -50,6 +50,12 @@
       },
       "import": "./dist/primitives/index.js"
     },
+    "./prompts": {
+      "types": {
+        "import": "./dist/prompts/index.d.ts"
+      },
+      "import": "./dist/prompts/index.js"
+    },
     "./workflows": {
       "types": {
         "import": "./dist/workflows/index.d.ts"
