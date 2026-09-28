@@ -864,7 +864,8 @@ async function generateArtifactWithModel(args: {
   const feedback = firstViolation === "empty" ?
     "The previous draft was empty. Write the complete artifact." :
     `The previous draft measured ${describeLengthViolation(firstViolation)}. Rewrite it to fit within every limit while keeping the substance.`;
-  const second = await attempt(`${args.userPrompt}\n\n${renderSection({ tag: "revision_request", content: feedback })}`);
+  const second = await attempt(`${args.userPrompt}\n\n${renderSection({ tag: "revision_request", content: feedback })}`)
+    .catch((error: unknown) => rethrowWithTokenUsage(error, [first.usage]));
   return {
     content: second.content,
     usages: [first.usage, second.usage],

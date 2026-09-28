@@ -369,6 +369,20 @@ describe("generateText", () => {
     });
   });
 
+  it("keeps the first draft's usage when the corrective rewrite call throws", async () => {
+    const mock = vi.mocked(generateTextWithModel);
+    mock.mockResolvedValueOnce(modelResponse(BRIEF, 100));
+    mock.mockResolvedValueOnce(modelResponse({ content: "x".repeat(281) }, 10));
+    mock.mockRejectedValueOnce(Object.assign(new Error("provider exploded"), { usage: { inputTokens: 6, outputTokens: 1, totalTokens: 7 } }));
+
+    await expect(generateText("asset-123", {
+      artifacts: [{ key: "x_post", channel: "x" }],
+    })).rejects.toMatchObject({
+      message: "Failed to generate text with openai: provider exploded",
+      usage: { totalTokens: 100 + 10 + 7 },
+    });
+  });
+
   it("retries an empty draft once and fails retryably if it is still empty", async () => {
     queueGenerations(["", "   "]);
 
