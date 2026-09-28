@@ -380,11 +380,23 @@ function buildUserPrompt({
     contextSections.push(createLanguageSection(languageName));
   }
 
+  const sceneBoundarySeconds = getSceneBoundarySeconds(sceneContext)
+    .filter(boundary =>
+      scope ? boundary >= scope.startTime && boundary < scope.endTime : true,
+    );
+  let firstChapterGuideline = "";
+  if (sceneBoundarySeconds.length > 0) {
+    firstChapterGuideline = `- The first chapter must start at ${sceneBoundarySeconds[0]}s, the first scene boundary inside the analyzed range`;
+  } else if (scope) {
+    firstChapterGuideline = `- The first chapter must start at ${scope.startTime}s`;
+  }
+
   // Build dynamic chapter guidelines with configurable min/max per hour
   const dynamicChapterGuidelines = dedent`
     - Create at least ${minChaptersPerHour} and at most ${maxChaptersPerHour} chapters per hour of content
     - Use start times in seconds (not HH:MM:SS)
-    ${scope ? `- Analyze only the range from ${scope.startTime}s (inclusive) to ${scope.endTime}s (exclusive)\n- The first chapter must start at ${scope.startTime}s` : ""}
+    ${scope ? `- Analyze only the range from ${scope.startTime}s (inclusive) to ${scope.endTime}s (exclusive)` : ""}
+    ${firstChapterGuideline}
     ${sceneContext?.length ? "- Use the ordered scene context to identify chapter-sized runs of consecutive scenes\n- Every chapter startTime must exactly equal a scene start_ms divided by 1000; never split a scene" : ""}
     - Chapter start times should be non-decreasing
     - Do not include text before or after the JSON`;
@@ -415,21 +427,24 @@ function alignChaptersToSceneBoundaries(
     return chapters;
   }
 
-  const seenStartTimes = new Set<number>();
-  return chapters
-    .map((chapter) => {
-      const startTime = sceneBoundarySeconds.reduce((closest, boundary) =>
-        Math.abs(boundary - chapter.startTime) < Math.abs(closest - chapter.startTime) ? boundary : closest,
-      );
-      return { ...chapter, startTime };
-    })
-    .filter((chapter) => {
-      if (seenStartTimes.has(chapter.startTime)) {
-        return false;
-      }
-      seenStartTimes.add(chapter.startTime);
-      return true;
-    });
+  const chapterByBoundary = new Map<number, { chapter: Chapter; distance: number }>();
+  for (const chapter of chapters) {
+    const startTime = sceneBoundarySeconds.reduce((closest, boundary) =>
+      Math.abs(boundary - chapter.startTime) < Math.abs(closest - chapter.startTime) ? boundary : closest,
+    );
+    const distance = Math.abs(startTime - chapter.startTime);
+    const existing = chapterByBoundary.get(startTime);
+    if (!existing || (distance === 0 && existing.distance !== 0)) {
+      chapterByBoundary.set(startTime, {
+        chapter: { ...chapter, startTime },
+        distance,
+      });
+    }
+  }
+
+  return [...chapterByBoundary.values()]
+    .map(({ chapter }) => chapter)
+    .sort((a, b) => a.startTime - b.startTime);
 }
 
 export async function generateChapters(
@@ -518,6 +533,13 @@ async function generateChaptersInternal(
     outputLanguageCode :
       (getReliableLanguageCode(transcriptResult.track) ?? languageCode);
   const languageName = resolvedLanguageCode ? getLanguageName(resolvedLanguageCode) : undefined;
+  const sceneBoundarySeconds = getSceneBoundarySeconds(sceneContext)
+    .filter(boundary =>
+      resolvedScope ? boundary >= resolvedScope.startTime && boundary < resolvedScope.endTime : true,
+    );
+  if (sceneContext?.length && sceneBoundarySeconds.length === 0) {
+    throw new MuxAiError("Scene context has no chapter boundaries within the requested scope.");
+  }
 
   const userPrompt = buildUserPrompt({
     timestampedTranscript,
@@ -559,20 +581,18 @@ async function generateChaptersInternal(
 
   // Validate and sort chapters
   const { chapters: chaptersPayload, usage } = chaptersData;
-  const sceneBoundarySeconds = getSceneBoundarySeconds(sceneContext)
-    .filter(boundary =>
-      resolvedScope ? boundary >= resolvedScope.startTime && boundary < resolvedScope.endTime : true,
-    );
+  const scopedChapters = chaptersPayload.chapters
+    .filter(chapter => typeof chapter.startTime === "number" && typeof chapter.title === "string")
+    .filter(chapter =>
+      resolvedScope ?
+        chapter.startTime >= resolvedScope.startTime &&
+        chapter.startTime < resolvedScope.endTime :
+        true,
+    )
+    .sort((a, b) => a.startTime - b.startTime);
   const validChapters = alignChaptersToSceneBoundaries(
-    chaptersPayload.chapters
-      .filter(chapter => typeof chapter.startTime === "number" && typeof chapter.title === "string")
-      .sort((a, b) => a.startTime - b.startTime),
+    scopedChapters,
     sceneBoundarySeconds,
-  ).filter(chapter =>
-    resolvedScope ?
-      chapter.startTime >= resolvedScope.startTime &&
-      chapter.startTime < resolvedScope.endTime :
-      true,
   );
 
   if (validChapters.length === 0) {
@@ -631,10 +651,13 @@ async function generateChaptersInternal(
     throw new MuxAiError(`Failed to generate valid chapters for asset ${assetId}.`);
   }
 
-  // Ensure the first chapter starts at the beginning of the analyzed range.
-  const firstChapterStartTime = sceneBoundarySeconds[0] ?? resolvedScope?.startTime ?? 0;
-  if (scrubbedChapters[0].startTime !== firstChapterStartTime) {
-    scrubbedChapters[0].startTime = firstChapterStartTime;
+  // Preserve the standalone workflow's existing first-chapter behavior. Scene-aware
+  // chapters are already aligned and should not have titles moved between scenes.
+  if (sceneBoundarySeconds.length === 0) {
+    const firstChapterStartTime = resolvedScope?.startTime ?? 0;
+    if (scrubbedChapters[0].startTime !== firstChapterStartTime) {
+      scrubbedChapters[0].startTime = firstChapterStartTime;
+    }
   }
 
   const usageWithMetadata: TokenUsage = {

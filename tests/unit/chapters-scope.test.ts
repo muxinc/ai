@@ -183,11 +183,17 @@ describe("generateChapters scene context", () => {
     expect(vi.mocked(generateText).mock.calls[0][0].system).not.toContain("scene progression");
   });
 
-  it("aligns an approximate model start before applying scope bounds", async () => {
+  it("filters out-of-range starts before aligning scoped chapters", async () => {
     vi.mocked(generateText).mockResolvedValue({
       finishReason: "stop",
-      output: { chapters: [{ startTime: 29.9, title: "Scoped opening" }] },
-      text: JSON.stringify({ chapters: [{ startTime: 29.9, title: "Scoped opening" }] }),
+      output: { chapters: [
+        { startTime: 29.9, title: "Out-of-range title" },
+        { startTime: 30, title: "Scoped opening" },
+      ] },
+      text: JSON.stringify({ chapters: [
+        { startTime: 29.9, title: "Out-of-range title" },
+        { startTime: 30, title: "Scoped opening" },
+      ] }),
       usage: {
         inputTokens: 10,
         outputTokens: 5,
@@ -206,5 +212,39 @@ describe("generateChapters scene context", () => {
     });
 
     expect(result.chapters).toEqual([{ startTime: 30, title: "Scoped opening" }]);
+  });
+
+  it("uses the first in-scope scene boundary and preserves its exact title", async () => {
+    vi.mocked(generateText).mockResolvedValue({
+      finishReason: "stop",
+      output: { chapters: [
+        { startTime: 35, title: "Scope-start near miss" },
+        { startTime: 70, title: "Scene-aligned title" },
+      ] },
+      text: JSON.stringify({ chapters: [
+        { startTime: 35, title: "Scope-start near miss" },
+        { startTime: 70, title: "Scene-aligned title" },
+      ] }),
+      usage: {
+        inputTokens: 10,
+        outputTokens: 5,
+        totalTokens: 15,
+        reasoningTokens: 0,
+        cachedInputTokens: 0,
+      },
+    } as any);
+
+    const result = await generateChapters("asset-123", {
+      scope: { startTime: 35, endTime: 120 },
+      sceneContext: [
+        { scene_index: 0, start_ms: 30_000, end_ms: 70_000, title: "Outside scope" },
+        { scene_index: 1, start_ms: 70_000, end_ms: 120_000, title: "Scoped scene" },
+      ],
+    });
+
+    expect(result.chapters).toEqual([{ startTime: 70, title: "Scene-aligned title" }]);
+    const prompt = vi.mocked(generateText).mock.calls[0][0].messages[0].content;
+    expect(prompt).toContain("The first chapter must start at 70s, the first scene boundary inside the analyzed range");
+    expect(prompt).not.toContain("The first chapter must start at 35s");
   });
 });
