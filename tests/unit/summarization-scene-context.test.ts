@@ -117,21 +117,32 @@ beforeEach(() => {
 });
 
 describe("summarization scene context", () => {
-  it("uses ordered scene context without fetching a storyboard", async () => {
+  it("augments the storyboard and transcript with ordered scene context", async () => {
     const result = await getSummaryAndTags("asset-123", {
       sceneContext,
-      includeStoryboard: false,
     });
 
-    expect(getStoryboardUrl).not.toHaveBeenCalled();
-    expect(result.storyboardUrl).toBeUndefined();
+    expect(getStoryboardUrl).toHaveBeenCalledOnce();
+    expect(result.storyboardUrl).toBe("https://image.example/storyboard.jpg");
 
     const request = vi.mocked(generateText).mock.calls[0][0];
-    expect(request.system).toContain("ordered scene context");
-    expect(request.messages[0].content).toEqual(expect.any(String));
-    expect(request.messages[0].content).toContain("<scene_context format=\"json\" order=\"scene_index_ascending\">");
-    expect(request.messages[0].content).toContain(JSON.stringify(sceneContext));
-    expect(request.messages[0].content).toContain("Follow scene_index order");
+    expect(request.system).toContain("Ordered scene context");
+    expect(request.system).toContain("Use all provided evidence together");
+    expect(request.messages[0].content).toEqual([
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining("<scene_context format=\"json\" order=\"scene_index_ascending\">"),
+      }),
+      {
+        type: "image",
+        image: "https://image.example/storyboard.jpg",
+      },
+    ]);
+    expect(request.messages[0].content[0].text).toContain(JSON.stringify(sceneContext));
+    expect(request.messages[0].content[0].text).toContain(
+      "The important part is that every output starts from the same evidence.",
+    );
+    expect(request.messages[0].content[0].text).toContain("Follow scene_index order");
   });
 
   it("combines scene context with a scoped storyboard when requested", async () => {
@@ -171,16 +182,22 @@ describe("summarization scene context", () => {
     );
   });
 
-  it("requires non-empty scene context when the storyboard is disabled", async () => {
-    await expect(getSummaryAndTags("asset-123", {
-      includeStoryboard: false,
-      sceneContext: [],
-    })).rejects.toMatchObject({
-      publicType: "validation_error",
-      message: "Video summarization requires a storyboard unless non-empty sceneContext is provided.",
+  it("combines scene context and storyboard when the transcript is omitted", async () => {
+    await getSummaryAndTags("asset-123", {
+      includeTranscript: false,
+      sceneContext,
     });
 
     expect(fetchTranscriptForAsset).not.toHaveBeenCalled();
-    expect(generateText).not.toHaveBeenCalled();
+    expect(getStoryboardUrl).toHaveBeenCalledOnce();
+    const request = vi.mocked(generateText).mock.calls[0][0];
+    expect(request.messages[0].content).toEqual([
+      expect.objectContaining({ type: "text", text: expect.stringContaining("<scene_context") }),
+      {
+        type: "image",
+        image: "https://image.example/storyboard.jpg",
+      },
+    ]);
+    expect(request.messages[0].content[0].text).not.toContain("<transcript");
   });
 });

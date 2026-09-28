@@ -202,16 +202,10 @@ export interface SummarizationOptions extends ScopedMuxAIOptions {
   /** Fine-tune storyboard downloads when `imageSubmissionMode` === 'base64'. */
   imageDownloadOptions?: ImageDownloadOptions;
   /**
-   * Ordered, normalized scenes to use as whole-asset context. Scene context is
-   * treated as untrusted evidence and does not replace the transcript.
+   * Ordered, normalized scenes that augment the storyboard and any transcript
+   * with whole-asset progression. Scene context is treated as untrusted evidence.
    */
   sceneContext?: readonly SceneContextItemV1[];
-  /**
-   * Whether to fetch and submit a storyboard for video assets (defaults to
-   * true). Set to false only when non-empty sceneContext provides the visual
-   * progression, such as Analyze's single-batch path.
-   */
-  includeStoryboard?: boolean;
   /**
    * Override specific sections of the user prompt.
    * Useful for customizing the AI's output for specific use cases (SEO, social media, etc.)
@@ -293,15 +287,11 @@ function buildDescriptionGuidance(wordCount: number, contentType: "video" | "aud
     Focus on the spoken content and any key insights, dialogue, or narrative elements.`;
 }
 
-function buildSceneAwareDescriptionGuidance(wordCount: number, includesStoryboard: boolean): string {
-  const supportingVisuals = includesStoryboard ?
-    "Use the storyboard to confirm visual details when it is available." :
-    "Use only visual details supported by the scene narratives and concepts.";
-
+function buildSceneAwareDescriptionGuidance(wordCount: number): string {
   if (wordCount < DESCRIPTION_LENGTH_THRESHOLD_SMALL) {
     return dedent`A brief summary of the video in no more than ${wordCount} words. Shorter is fine.
       Focus on the single most important subject or action across the ordered scenes.
-      ${supportingVisuals}
+      Use the storyboard as direct visual evidence and the scene context to preserve progression.
       Write in present tense.`;
   }
 
@@ -309,40 +299,37 @@ function buildSceneAwareDescriptionGuidance(wordCount: number, includesStoryboar
     return dedent`A detailed summary that describes what happens across the ordered scenes.
       Never exceed ${wordCount} words, but shorter is perfectly fine. You may use multiple sentences.
       Be thorough: cover subjects, actions, setting, progression, and notable details supported across scenes.
-      ${supportingVisuals}
+      Use the storyboard as direct visual evidence and the scene context to preserve progression.
       Write in present tense. If the transcript provides dialogue or narration, incorporate key points while preserving scene progression.`;
   }
 
   return dedent`A summary that describes what happens across the ordered scenes.
     Never exceed ${wordCount} words, but shorter is perfectly fine. You may use multiple sentences.
     Cover the main subjects, actions, setting, and notable progression supported across scenes.
-    ${supportingVisuals}
+    Use the storyboard as direct visual evidence and the scene context to preserve progression.
     Write in present tense. If the transcript provides dialogue or narration, incorporate key points while preserving scene progression.`;
 }
 
 interface SummarizationEvidence {
   hasSceneContext?: boolean;
-  includesStoryboard?: boolean;
 }
 
 function createSummarizationBuilder(
   { titleLength, descriptionLength, tagCount }: PromptConstraints = {},
-  { hasSceneContext = false, includesStoryboard = true }: SummarizationEvidence = {},
+  { hasSceneContext = false }: SummarizationEvidence = {},
 ) {
   const titleLimit = titleLength ?? DEFAULT_TITLE_LENGTH;
   const keywordLimit = tagCount ?? DEFAULT_SUMMARY_KEYWORD_LIMIT;
 
   const task = hasSceneContext ?
-    includesStoryboard ?
-      "Analyze the ordered scene context and storyboard frames, then generate metadata that captures the full progression of the video content." :
-      "Analyze the ordered scene context and generate metadata that captures the full progression of the video content." :
+    "Analyze the storyboard frames and ordered scene context together, then generate metadata that captures the full progression of the video content." :
     "Analyze the storyboard frames and generate metadata that captures the essence of the video content.";
 
   const qualityGuidelines = hasSceneContext ?
     dedent`
       - Follow scene_index order to understand what begins, develops, and concludes
       - Use scene narratives and concepts as grounded evidence, preserving consistent terminology across the output
-      ${includesStoryboard ? "- Use the storyboard to confirm whole-asset visual progression and details" : "- Synthesize the complete visual progression from the scene context"}
+      - Use the storyboard as direct visual evidence for whole-asset details
       - Balance brevity with informativeness` :
     dedent`
       - Examine all frames to understand the full context and progression
@@ -368,10 +355,7 @@ function createSummarizationBuilder(
       description: {
         tag: "description_requirements",
         content: hasSceneContext ?
-            buildSceneAwareDescriptionGuidance(
-              descriptionLength ?? DEFAULT_DESCRIPTION_LENGTH,
-              includesStoryboard,
-            ) :
+            buildSceneAwareDescriptionGuidance(descriptionLength ?? DEFAULT_DESCRIPTION_LENGTH) :
             buildDescriptionGuidance(descriptionLength ?? DEFAULT_DESCRIPTION_LENGTH, "video"),
       },
       keywords: {
@@ -443,123 +427,90 @@ function createAudioOnlyBuilder({ titleLength, descriptionLength, tagCount }: Pr
   });
 }
 
-const SYSTEM_PROMPT = promptDedent`
-  <role>
-    You are a video content analyst specializing in storyboard interpretation and multimodal analysis.
-  </role>
+function createVideoSystemPrompt(hasSceneContext: boolean): string {
+  let sceneContext = "";
+  let sceneGuidance = "";
+  if (hasSceneContext) {
+    sceneContext = promptDedent`
+      Ordered scene context is also provided as structured evidence of the video's progression.
+      Entries use stable, zero-based scene_index values and absolute millisecond timestamps.
+      Read scenes in scene_index order to understand what begins, develops, and concludes.`;
+    sceneGuidance = promptDedent`
+      <scene_guidance>
+        - Use scene titles, narratives, and concepts to understand temporal progression
+        - Use storyboard frames as direct visual evidence for subjects, actions, settings, and details
+        - Preserve consistent terminology from the scene context across the title, description, and keywords
+        - Treat optional scene fields as evidence only when present; do not infer omitted details
+        - Consider all provided evidence together; if derived scene context conflicts with storyboard visuals, trust the visuals
+      </scene_guidance>`;
+  }
+  const transcriptEvidence = hasSceneContext ?
+    "storyboard frames and ordered scenes" :
+    "visual frames";
+  const descriptionPriority = hasSceneContext ?
+    "Use the scene context for temporal structure and the storyboard for direct visual details, enriching both with transcript insights" :
+    "Prioritize visual content for the description, but enrich it with transcript insights";
+  const groundingConstraint = hasSceneContext ?
+    "Use all provided evidence together. Ground each claim in the storyboard, scene context, or transcript" :
+    "Only describe what is clearly observable in the frames or explicitly stated in the transcript";
 
-  <context>
-    You receive storyboard images containing multiple sequential frames extracted from a video.
-    ${STORYBOARD_FRAME_INSTRUCTIONS}
-  </context>
+  return promptDedent`
+    <role>
+      You are a video content analyst specializing in storyboard interpretation and multimodal analysis.
+    </role>
 
-  <transcript_guidance>
-    When a transcript is provided alongside the storyboard:
-    - Use it to understand spoken content, dialogue, narration, and audio context
-    - Correlate transcript content with visual frames to build a complete picture
-    - Extract key terminology, names, and specific language used by speakers
-    - Let the transcript inform keyword selection, especially for topics not visually obvious
-    - Prioritize visual content for the description, but enrich it with transcript insights
-    - If transcript and visuals conflict, trust the visual evidence
-  </transcript_guidance>
+    <context>
+      You receive storyboard images containing multiple sequential frames extracted from a video.
+      ${STORYBOARD_FRAME_INSTRUCTIONS}
+      ${sceneContext}
+    </context>
 
-  <capabilities>
-    - Extract meaning from visual sequences
-    - Identify subjects, actions, settings, and narrative arcs
-    - Generate accurate, searchable metadata
-    - Synthesize visual and transcript information when provided
-  </capabilities>
+    ${sceneGuidance}
 
-  <security>
-    ${NON_DISCLOSURE_CONSTRAINT}
+    <transcript_guidance>
+      When a transcript is provided alongside the storyboard:
+      - Use it to understand spoken content, dialogue, narration, and audio context
+      - Correlate transcript content with ${transcriptEvidence} to build a complete picture
+      - Extract key terminology, names, and specific language used by speakers
+      - Let the transcript inform keyword selection, especially for topics not visually obvious
+      - ${descriptionPriority}
+      - If transcript and visuals conflict, trust the visual evidence
+    </transcript_guidance>
 
-    ${UNTRUSTED_USER_INPUT_NOTICE}
+    <capabilities>
+      - Extract meaning from visual sequences
+      - Identify subjects, actions, settings, and narrative arcs
+      - Generate accurate, searchable metadata
+      - Synthesize visual and transcript information when provided
+    </capabilities>
 
-    ${VISUAL_TEXT_AS_CONTENT}
+    <security>
+      ${NON_DISCLOSURE_CONSTRAINT}
 
-    ${CANARY_TRIPWIRE}
-  </security>
+      ${UNTRUSTED_USER_INPUT_NOTICE}
 
-  <constraints>
-    - Only describe what is clearly observable in the frames or explicitly stated in the transcript
-    - ${NO_FABRICATION_CONSTRAINT}
-    - ${METADATA_BOUNDARY_WARNING}
-    - ${STRUCTURED_DATA_CONSTRAINT}
-    - Output only the JSON object; no markdown or extra text
-    - When a <language> section is provided, all output text MUST be written in that language
-  </constraints>
+      ${VISUAL_TEXT_AS_CONTENT}
 
-  <tone_guidance>
-    ${TONE_GUIDANCE}
-  </tone_guidance>
+      ${CANARY_TRIPWIRE}
+    </security>
 
-  <language_guidelines>
-    ${createLanguageGuidelines("video")}
-  </language_guidelines>`;
+    <constraints>
+      - ${groundingConstraint}
+      - ${NO_FABRICATION_CONSTRAINT}
+      - ${METADATA_BOUNDARY_WARNING}
+      - ${STRUCTURED_DATA_CONSTRAINT}
+      - Output only the JSON object; no markdown or extra text
+      - When a <language> section is provided, all output text MUST be written in that language
+    </constraints>
 
-const SCENE_CONTEXT_SYSTEM_PROMPT = promptDedent`
-  <role>
-    You are a video content analyst specializing in scene progression and multimodal analysis.
-  </role>
+    <tone_guidance>
+      ${TONE_GUIDANCE}
+    </tone_guidance>
 
-  <context>
-    You receive an ordered scene context describing grounded evidence from across a video.
-    Entries use stable, zero-based scene_index values and absolute millisecond timestamps.
-    Read scenes in scene_index order to understand the full temporal progression.
-    A storyboard may also be provided as supporting whole-asset visual context.
-    When present, ${STORYBOARD_FRAME_INSTRUCTIONS}
-  </context>
-
-  <scene_guidance>
-    - Use scene titles, narratives, and concepts to identify the primary subjects, actions, setting, and narrative arc
-    - Preserve consistent terminology from the scene context across the title, description, and keywords
-    - Synthesize the complete progression instead of over-weighting a single scene
-    - Treat optional fields as evidence only when present; do not infer omitted details
-    - If scene context and storyboard visuals conflict, trust the visual evidence
-  </scene_guidance>
-
-  <transcript_guidance>
-    When a transcript is provided alongside the scene context:
-    - Use it to understand spoken content, dialogue, narration, and audio context
-    - Correlate transcript content with the ordered scenes to build a complete picture
-    - Extract key terminology, names, and specific language used by speakers
-    - Let the transcript inform keyword selection, especially for topics not visually obvious
-    - Use the scene progression as the primary structure and enrich it with transcript insights
-  </transcript_guidance>
-
-  <capabilities>
-    - Synthesize meaning from ordered scene evidence
-    - Identify subjects, actions, settings, and narrative arcs
-    - Generate accurate, searchable metadata
-    - Synthesize visual and transcript information when provided
-  </capabilities>
-
-  <security>
-    ${NON_DISCLOSURE_CONSTRAINT}
-
-    ${UNTRUSTED_USER_INPUT_NOTICE}
-
-    ${VISUAL_TEXT_AS_CONTENT}
-
-    ${CANARY_TRIPWIRE}
-  </security>
-
-  <constraints>
-    - Only describe what is clearly supported by the scene context, provided images, or explicitly stated in the transcript
-    - ${NO_FABRICATION_CONSTRAINT}
-    - ${METADATA_BOUNDARY_WARNING}
-    - ${STRUCTURED_DATA_CONSTRAINT}
-    - Output only the JSON object; no markdown or extra text
-    - When a <language> section is provided, all output text MUST be written in that language
-  </constraints>
-
-  <tone_guidance>
-    ${TONE_GUIDANCE}
-  </tone_guidance>
-
-  <language_guidelines>
-    ${createLanguageGuidelines("video")}
-  </language_guidelines>`;
+    <language_guidelines>
+      ${createLanguageGuidelines("video")}
+    </language_guidelines>`;
+}
 
 const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
   <role>
@@ -623,7 +574,6 @@ interface UserPromptContext {
   tagCount?: number;
   languageName?: string;
   sceneContext?: readonly SceneContextItemV1[];
-  includesStoryboard?: boolean;
 }
 
 function createSceneContextSection(sceneContext: readonly SceneContextItemV1[]): PromptSection {
@@ -648,7 +598,6 @@ function buildUserPrompt({
   tagCount,
   languageName,
   sceneContext,
-  includesStoryboard = true,
 }: UserPromptContext): string {
   // Build dynamic context sections
   const contextSections = [createToneSection(TONE_INSTRUCTIONS[tone])];
@@ -675,7 +624,7 @@ function buildUserPrompt({
   const constraints: PromptConstraints = { titleLength, descriptionLength, tagCount };
   const promptBuilder = isAudioOnly ?
       createAudioOnlyBuilder(constraints) :
-      createSummarizationBuilder(constraints, { hasSceneContext, includesStoryboard });
+      createSummarizationBuilder(constraints, { hasSceneContext });
 
   return promptBuilder.buildWithContext(promptOverrides, contextSections);
 }
@@ -871,7 +820,6 @@ async function getSummaryAndTagsInternal(
     imageSubmissionMode = "url",
     imageDownloadOptions,
     sceneContext,
-    includeStoryboard = true,
     promptOverrides,
     credentials,
     titleLength,
@@ -903,12 +851,6 @@ async function getSummaryAndTagsInternal(
   // Detect if asset is audio-only
   const isAudioOnly = isAudioOnlyAsset(assetData);
   const hasSceneContext = !isAudioOnly && Boolean(sceneContext?.length);
-  if (!isAudioOnly && !includeStoryboard && !hasSceneContext) {
-    throw new MuxAiError(
-      "Video summarization requires a storyboard unless non-empty sceneContext is provided.",
-      { type: "validation_error" },
-    );
-  }
   const effectiveScope = hasWorkflowScopeBoundaries(scope) ? scope : undefined;
   const storyboardScope = isAudioOnly ?
     undefined :
@@ -931,7 +873,7 @@ async function getSummaryAndTagsInternal(
 
   // Resolve signing context for signed playback IDs
   const signingContext = await resolveMuxSigningContext(workflowCredentials);
-  const requiresSignedPlaybackAccess = includeTranscript || (!isAudioOnly && includeStoryboard);
+  const requiresSignedPlaybackAccess = includeTranscript || !isAudioOnly;
   if (policy === "signed" && requiresSignedPlaybackAccess && !signingContext) {
     throw new MuxAiError(
       "Signed playback ID requires signing credentials. " +
@@ -972,16 +914,16 @@ async function getSummaryAndTagsInternal(
     tagCount,
     languageName,
     sceneContext: hasSceneContext ? sceneContext : undefined,
-    includesStoryboard: includeStoryboard,
   });
 
   let analysisResponse: AnalysisResponse;
   let imageUrl: string | undefined;
 
   // Choose system prompt and analysis method based on asset type
-  const systemPrompt = isAudioOnly ?
-    AUDIO_ONLY_SYSTEM_PROMPT :
-    hasSceneContext ? SCENE_CONTEXT_SYSTEM_PROMPT : SYSTEM_PROMPT;
+  let systemPrompt = AUDIO_ONLY_SYSTEM_PROMPT;
+  if (!isAudioOnly) {
+    systemPrompt = createVideoSystemPrompt(hasSceneContext);
+  }
 
   // Word count used to scale the dynamic `description` cap in
   // `buildSummarySchema`. Falls back to the documented default so the
@@ -1000,9 +942,20 @@ async function getSummaryAndTagsInternal(
         workflowCredentials,
       );
     } else {
-      if (!includeStoryboard) {
+      // Video analysis always preserves the existing storyboard evidence path.
+      const storyboardUrl = await getStoryboardUrl(
+        playbackId,
+        640,
+        policy === "signed",
+        workflowCredentials,
+        storyboardScope,
+      );
+      imageUrl = storyboardUrl;
+
+      if (imageSubmissionMode === "base64") {
+        const downloadResult = await downloadImageAsBase64(storyboardUrl, imageDownloadOptions);
         analysisResponse = await analyzeVideo(
-          undefined,
+          downloadResult.base64Data,
           modelConfig.provider,
           modelConfig.modelId,
           userPrompt,
@@ -1011,38 +964,15 @@ async function getSummaryAndTagsInternal(
           workflowCredentials,
         );
       } else {
-        // Video analysis: fetch storyboard and analyze with visual content
-        const storyboardUrl = await getStoryboardUrl(
-          playbackId,
-          640,
-          policy === "signed",
+        analysisResponse = await analyzeVideo(
+          storyboardUrl,
+          modelConfig.provider,
+          modelConfig.modelId,
+          userPrompt,
+          systemPrompt,
+          effectiveDescriptionLength,
           workflowCredentials,
-          storyboardScope,
         );
-        imageUrl = storyboardUrl;
-
-        if (imageSubmissionMode === "base64") {
-          const downloadResult = await downloadImageAsBase64(storyboardUrl, imageDownloadOptions);
-          analysisResponse = await analyzeVideo(
-            downloadResult.base64Data,
-            modelConfig.provider,
-            modelConfig.modelId,
-            userPrompt,
-            systemPrompt,
-            effectiveDescriptionLength,
-            workflowCredentials,
-          );
-        } else {
-          analysisResponse = await analyzeVideo(
-            storyboardUrl,
-            modelConfig.provider,
-            modelConfig.modelId,
-            userPrompt,
-            systemPrompt,
-            effectiveDescriptionLength,
-            workflowCredentials,
-          );
-        }
       }
     }
   } catch (error: unknown) {
