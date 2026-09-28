@@ -33,6 +33,7 @@ import {
   getReadyTextTracks,
   getReliableLanguageCode,
 } from "../primitives/transcripts.ts";
+import type { SceneContextItemV1 } from "../prompts/scene-context.ts";
 import type { ScopedMuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "../types.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -140,6 +141,11 @@ export interface ChaptersOptions extends ScopedMuxAIOptions {
    * Falls back to unconstrained (LLM decides) if no language metadata is available.
    */
   outputLanguageCode?: string;
+  /**
+   * Ordered scene context used to align chapter starts with scene boundaries.
+   * When omitted or empty, chapter generation retains its existing behavior.
+   */
+  sceneContext?: readonly SceneContextItemV1[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -286,6 +292,18 @@ const AUDIO_ONLY_SYSTEM_PROMPT_OVERRIDES: Partial<Record<ChapterSystemPromptSect
     Use those timestamps as anchors to determine chapter start times in seconds.`,
 };
 
+const SCENE_CONTEXT_SYSTEM_PROMPT_OVERRIDES: Partial<Record<ChapterSystemPromptSections, string>> = {
+  context: dedent`
+    You receive a timestamped transcript with lines in the form "[12s] Caption text" and an ordered scene context.
+    Transcript timestamps are in seconds. Scene start and end timestamps are in milliseconds.
+    Use the scene progression to choose logical chapter groupings and scene starts as chapter boundaries.`,
+  constraints: dedent`
+    - Only use information present in the transcript and scene context
+    - Return structured data that matches the requested JSON schema
+    - Do not add commentary or extra text outside the JSON
+    - When a <language> section is provided, all chapter titles MUST be written in that language`,
+};
+
 /**
  * Prompt builder for the chaptering user prompt.
  * Sections can be individually overridden via `promptOverrides` in ChaptersOptions.
@@ -327,6 +345,7 @@ const chaptersPromptBuilder = createPromptBuilder<ChaptersPromptSections>({
 
 function buildUserPrompt({
   timestampedTranscript,
+  sceneContext,
   promptOverrides,
   minChaptersPerHour = 3,
   maxChaptersPerHour = 8,
@@ -334,6 +353,7 @@ function buildUserPrompt({
   scope,
 }: {
   timestampedTranscript: string;
+  sceneContext?: readonly SceneContextItemV1[];
   promptOverrides?: ChaptersPromptOverrides;
   minChaptersPerHour?: number;
   maxChaptersPerHour?: number;
@@ -348,6 +368,14 @@ function buildUserPrompt({
     },
   ];
 
+  if (sceneContext?.length) {
+    contextSections.push({
+      tag: "scene_context",
+      content: JSON.stringify(sceneContext, null, 2),
+      attributes: { timestamps: "milliseconds", trust: "untrusted_evidence" },
+    });
+  }
+
   if (languageName) {
     contextSections.push(createLanguageSection(languageName));
   }
@@ -357,6 +385,7 @@ function buildUserPrompt({
     - Create at least ${minChaptersPerHour} and at most ${maxChaptersPerHour} chapters per hour of content
     - Use start times in seconds (not HH:MM:SS)
     ${scope ? `- Analyze only the range from ${scope.startTime}s (inclusive) to ${scope.endTime}s (exclusive)\n- The first chapter must start at ${scope.startTime}s` : ""}
+    ${sceneContext?.length ? "- Use the ordered scene context to identify chapter-sized runs of consecutive scenes\n- Every chapter startTime must exactly equal a scene start_ms divided by 1000; never split a scene" : ""}
     - Chapter start times should be non-decreasing
     - Do not include text before or after the JSON`;
 
@@ -367,6 +396,40 @@ function buildUserPrompt({
   };
 
   return chaptersPromptBuilder.buildWithContext(mergedOverrides, contextSections);
+}
+
+function getSceneBoundarySeconds(sceneContext?: readonly SceneContextItemV1[]): number[] {
+  if (!sceneContext?.length) {
+    return [];
+  }
+
+  return [...new Set(sceneContext.map(scene => scene.start_ms / 1000))]
+    .sort((a, b) => a - b);
+}
+
+function alignChaptersToSceneBoundaries(
+  chapters: Chapter[],
+  sceneBoundarySeconds: readonly number[],
+): Chapter[] {
+  if (sceneBoundarySeconds.length === 0) {
+    return chapters;
+  }
+
+  const seenStartTimes = new Set<number>();
+  return chapters
+    .map((chapter) => {
+      const startTime = sceneBoundarySeconds.reduce((closest, boundary) =>
+        Math.abs(boundary - chapter.startTime) < Math.abs(closest - chapter.startTime) ? boundary : closest,
+      );
+      return { ...chapter, startTime };
+    })
+    .filter((chapter) => {
+      if (seenStartTimes.has(chapter.startTime)) {
+        return false;
+      }
+      seenStartTimes.add(chapter.startTime);
+      return true;
+    });
 }
 
 export async function generateChapters(
@@ -397,6 +460,7 @@ async function generateChaptersInternal(
     credentials,
     outputLanguageCode,
     scope,
+    sceneContext,
   } = options;
 
   const modelConfig = resolveLanguageModelConfig({
@@ -457,6 +521,7 @@ async function generateChaptersInternal(
 
   const userPrompt = buildUserPrompt({
     timestampedTranscript,
+    sceneContext,
     promptOverrides,
     minChaptersPerHour,
     maxChaptersPerHour,
@@ -468,9 +533,11 @@ async function generateChaptersInternal(
   let chaptersData: Awaited<ReturnType<typeof generateChaptersWithAI>> | null = null;
 
   try {
-    const systemPrompt = isAudioOnly ?
-        chapterSystemPromptBuilder.build(AUDIO_ONLY_SYSTEM_PROMPT_OVERRIDES) :
-        chapterSystemPromptBuilder.build();
+    const systemPromptOverrides = {
+      ...(isAudioOnly ? AUDIO_ONLY_SYSTEM_PROMPT_OVERRIDES : {}),
+      ...(sceneContext?.length ? SCENE_CONTEXT_SYSTEM_PROMPT_OVERRIDES : {}),
+    };
+    const systemPrompt = chapterSystemPromptBuilder.build(systemPromptOverrides);
     chaptersData = await generateChaptersWithAI({
       provider: modelConfig.provider,
       modelId: modelConfig.modelId,
@@ -492,15 +559,21 @@ async function generateChaptersInternal(
 
   // Validate and sort chapters
   const { chapters: chaptersPayload, usage } = chaptersData;
-  const validChapters = chaptersPayload.chapters
-    .filter(chapter => typeof chapter.startTime === "number" && typeof chapter.title === "string")
-    .filter(chapter =>
-      resolvedScope ?
-        chapter.startTime >= resolvedScope.startTime &&
-        chapter.startTime < resolvedScope.endTime :
-        true,
-    )
-    .sort((a, b) => a.startTime - b.startTime);
+  const sceneBoundarySeconds = getSceneBoundarySeconds(sceneContext)
+    .filter(boundary =>
+      resolvedScope ? boundary >= resolvedScope.startTime && boundary < resolvedScope.endTime : true,
+    );
+  const validChapters = alignChaptersToSceneBoundaries(
+    chaptersPayload.chapters
+      .filter(chapter => typeof chapter.startTime === "number" && typeof chapter.title === "string")
+      .sort((a, b) => a.startTime - b.startTime),
+    sceneBoundarySeconds,
+  ).filter(chapter =>
+    resolvedScope ?
+      chapter.startTime >= resolvedScope.startTime &&
+      chapter.startTime < resolvedScope.endTime :
+      true,
+  );
 
   if (validChapters.length === 0) {
     throw new MuxAiError(`Failed to generate valid chapters for asset ${assetId}.`);
@@ -559,7 +632,7 @@ async function generateChaptersInternal(
   }
 
   // Ensure the first chapter starts at the beginning of the analyzed range.
-  const firstChapterStartTime = resolvedScope?.startTime ?? 0;
+  const firstChapterStartTime = sceneBoundarySeconds[0] ?? resolvedScope?.startTime ?? 0;
   if (scrubbedChapters[0].startTime !== firstChapterStartTime) {
     scrubbedChapters[0].startTime = firstChapterStartTime;
   }
