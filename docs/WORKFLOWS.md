@@ -481,7 +481,7 @@ const vttResult = await generateEmbeddings("your-mux-asset-id", {
 
 ## Text Generation
 
-Write a set of source-grounded short- and long-form text artifacts (social posts, blog posts, newsletter entries) from a video or audio asset. One editorial brief is extracted from the transcript first, and every requested artifact is written from that shared brief, so the whole set stays coherent and grounded in what the source actually says.
+Write a set of source-grounded text artifacts (social posts, blog posts, newsletter entries) from a video or audio asset. One editorial brief is extracted from the transcript first, and every requested artifact is written from that shared brief, so the whole set stays coherent and grounded in what the source actually says.
 
 ```typescript
 import { generateText } from "@mux/ai/workflows";
@@ -493,8 +493,8 @@ const result = await generateText("your-mux-asset-id", {
     { key: "insight_led" }, // an independent take on the same brief
   ],
   artifacts: [
-    { key: "x_post", kind: "short_form", channel: "x" },
-    { key: "blog_post", kind: "long_form", maxLength: { unit: "words", value: 800 } },
+    { key: "x_post", channel: "x" },
+    { key: "blog_post", maxLength: { unit: "words", value: 800 }, format: "markdown" },
   ],
   audience: "Video developers",
   voice: "conversational",
@@ -516,21 +516,21 @@ for (const variant of result.variants) {
 
 ### Artifacts and Variants
 
-- `artifacts` (1-5, unique snake_case keys) are the deliverables. `kind: "short_form"` accepts an optional `channel` (`generic`, `x`, `linkedin`, `facebook`, `instagram`, `tiktok`, `youtube`) whose conventions guide the writing and set a default length cap. `kind: "long_form"` produces developed prose. Either kind accepts `maxLength` as a hard cap and optional bounded `instructions`.
+- `artifacts` (1-5, unique snake_case keys) are the deliverables. Each accepts an optional `channel` (`generic`, `x`, `linkedin`, `facebook`, `instagram`, `tiktok`, `youtube`) whose conventions guide the writing and set a default length cap, an optional `maxLength` hard cap in characters or words, an optional `format`, and optional bounded `instructions`. With the `generic` channel, the composition scales with the length budget: a short cap produces a tight standalone piece, a large cap produces developed prose.
+- `format` is `plain` (default) or `markdown`. Plain text forbids Markdown syntax entirely, so the output can be dropped into any text field; choose `markdown` for blog posts and newsletters that render it.
 - `variants` (1-5, unique keys) each receive the complete artifact set. A variant key is only an identifier. Omit `instructions` for an independent take on the same brief, or supply them for a deliberate angle. When `variants` is omitted a single `default` variant is written.
 - Length caps are enforced after generation. Words are counted with locale-aware segmentation, so Markdown syntax is not counted and scripts without spaces are measured correctly. A draft that is empty or over a cap gets one corrective rewrite with the measured overshoot fed back; if the rewrite still misses, the workflow fails with a retryable `processing_error`. `x` artifacts are additionally held to 280 characters regardless of the unit used for `maxLength`.
 - Artifacts are written in parallel batches of five, and token usage from every completed call is preserved on the error when one fails.
 
 | Channel | Default cap |
 | --- | --- |
-| `generic` | 150 words |
+| `generic` | 300 words |
 | `x` | 280 characters (hard ceiling) |
 | `linkedin` | 300 words |
 | `facebook` | 250 words |
 | `instagram` | 1500 characters |
 | `tiktok` | 100 words |
 | `youtube` | 250 words |
-| `long_form` | 1200 words |
 
 ### Steering
 

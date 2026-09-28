@@ -51,8 +51,8 @@ import { generateText } from "@mux/ai/workflows";
 const result = await generateText("your-audio-only-asset-id", {
   provider: "openai",
   artifacts: [
-    { key: "linkedin_post", kind: "short_form", channel: "linkedin" },
-    { key: "newsletter", kind: "long_form", maxLength: { unit: "words", value: 600 } },
+    { key: "linkedin_post", channel: "linkedin" },
+    { key: "newsletter", maxLength: { unit: "words", value: 600 }, format: "markdown" },
   ],
 });
 ```

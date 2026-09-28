@@ -13,8 +13,8 @@ describe("generateText Integration Tests for Workflow DevKit", () => {
     const run = await start(generateText, [assetId, {
       provider,
       artifacts: [
-        { key: "x_post", kind: "short_form", channel: "x" },
-        { key: "summary", kind: "long_form", maxLength: { unit: "words", value: 200 } },
+        { key: "x_post", channel: "x" },
+        { key: "summary", maxLength: { unit: "words", value: 200 } },
       ],
     }]);
     expect(run.runId).toMatch(/^wrun_/);

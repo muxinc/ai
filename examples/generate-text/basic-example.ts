@@ -49,9 +49,9 @@ program
           { key: "insight_led", instructions: "Use an educational, insight-led angle." },
         ],
         artifacts: [
-          { key: "x_post", kind: "short_form", channel: "x" },
-          { key: "linkedin_post", kind: "short_form", channel: "linkedin" },
-          { key: "blog_post", kind: "long_form", maxLength: { unit: "words", value: 600 } },
+          { key: "x_post", channel: "x" },
+          { key: "linkedin_post", channel: "linkedin" },
+          { key: "blog_post", maxLength: { unit: "words", value: 600 }, format: "markdown" },
         ],
         audience: options.audience,
         voice: options.voice,
@@ -70,7 +70,7 @@ program
       for (const variant of result.variants) {
         console.log(`\n══════════ Variant: ${variant.key} ══════════`);
         for (const artifact of variant.artifacts) {
-          console.log(`\n── ${artifact.key} (${artifact.kind}) ──`);
+          console.log(`\n── ${artifact.key} ──`);
           console.log(artifact.content);
         }
       }

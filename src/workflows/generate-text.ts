@@ -30,6 +30,15 @@ import {
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
 import { aggregateTokenUsage, getErrorTokenUsage, rethrowWithTokenUsage } from "../lib/token-usage.ts";
+import {
+  assertBoundedText,
+  assertIntegerInRange,
+  assertKeyedItems,
+  assertLanguageTag,
+  assertOneOf,
+  isRecord,
+  validationError,
+} from "../lib/validation.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
 import {
   hasWorkflowScopeBoundaries,
@@ -62,20 +71,22 @@ export const GENERATE_TEXT_DEFAULT_SHOT_POLL_ATTEMPTS = 150;
 export const GENERATE_TEXT_VOICES = ["conversational", "editorial", "playful", "professional"] as const;
 export const GENERATE_TEXT_CALLS_TO_ACTION = ["none", "soft", "direct"] as const;
 export const GENERATE_TEXT_CHANNELS = ["generic", "x", "linkedin", "facebook", "instagram", "tiktok", "youtube"] as const;
+export const GENERATE_TEXT_FORMATS = ["plain", "markdown"] as const;
 
-/** Inclusive bounds accepted for each `maxLength` shape. */
+/** Inclusive bounds accepted for `maxLength.value` in each unit. */
 export const GENERATE_TEXT_LENGTH_BOUNDS = {
-  characters: { min: 10, max: 5000 },
-  shortFormWords: { min: 5, max: 500 },
-  longFormWords: { min: 100, max: 3000 },
+  characters: { min: 10, max: 20000 },
+  words: { min: 5, max: 3000 },
 } as const;
 
 /** Writing voice applied to every generated artifact. */
 export type GenerateTextVoice = (typeof GENERATE_TEXT_VOICES)[number];
 /** Whether and how generated text should invite the reader to engage further. */
 export type GenerateTextCallToAction = (typeof GENERATE_TEXT_CALLS_TO_ACTION)[number];
-/** Publishing channel whose conventions guide a short-form artifact. */
+/** Publishing channel whose conventions and default length guide an artifact. */
 export type GenerateTextChannel = (typeof GENERATE_TEXT_CHANNELS)[number];
+/** Whether generated text may use Markdown syntax. */
+export type GenerateTextFormat = (typeof GENERATE_TEXT_FORMATS)[number];
 
 /** Hard output cap for a generated artifact. */
 export interface GenerateTextLengthLimit {
@@ -91,41 +102,29 @@ export const GENERATE_TEXT_CHANNEL_CEILINGS: Partial<Record<GenerateTextChannel,
   x: { unit: "characters", value: 280 },
 };
 
+/** Shared shape of variants and artifacts. */
+export interface GenerateTextKeyedItem {
+  /** Lowercase snake_case identifier used to correlate the returned item. */
+  key: string;
+  /** Optional bounded guidance specific to this item. */
+  instructions?: string;
+}
+
 /**
  * A named version of the complete artifact set. The key is an identifier
  * only; omit `instructions` to request an independent take on the same brief.
  */
-export interface GenerateTextVariant {
-  /** Lowercase snake_case identifier used to correlate the returned variant. */
-  key: string;
-  /** Optional bounded guidance that gives this variant a deliberate angle. */
-  instructions?: string;
-}
+export type GenerateTextVariant = GenerateTextKeyedItem;
 
-interface GenerateTextArtifactBase {
-  /** Lowercase snake_case identifier used to correlate the returned artifact. */
-  key: string;
-  /** Optional bounded guidance specific to this artifact. */
-  instructions?: string;
-}
-
-/** A concise social or promotional deliverable. */
-export interface GenerateTextShortFormArtifact extends GenerateTextArtifactBase {
-  kind: "short_form";
-  /** Publishing channel whose conventions guide the result (default: "generic"). */
+/** One deliverable, such as a social post, a blog post, or a newsletter entry. */
+export interface GenerateTextArtifact extends GenerateTextKeyedItem {
+  /** Publishing channel whose conventions and default cap guide the result (default: "generic"). */
   channel?: GenerateTextChannel;
-  /** Hard output cap in characters (10-5000) or words (5-500). */
+  /** Hard output cap in characters (10-20000) or words (5-3000). Defaults to the channel's cap. */
   maxLength?: GenerateTextLengthLimit;
+  /** Whether the text may use Markdown syntax (default: "plain"). */
+  format?: GenerateTextFormat;
 }
-
-/** A developed editorial deliverable such as a blog post or newsletter entry. */
-export interface GenerateTextLongFormArtifact extends GenerateTextArtifactBase {
-  kind: "long_form";
-  /** Hard output cap in words (100-3000). */
-  maxLength?: { unit: "words"; value: number };
-}
-
-export type GenerateTextArtifact = GenerateTextShortFormArtifact | GenerateTextLongFormArtifact;
 
 /** Polling budget used while waiting for Mux shots when `useShots` is on. */
 export type GenerateTextShotPolling = Pick<WaitForShotsOptions, "pollIntervalMs" | "maxAttempts">;
@@ -172,7 +171,6 @@ export interface GenerateTextOptions extends ScopedMuxAIOptions {
 
 export interface GeneratedTextArtifact {
   key: string;
-  kind: GenerateTextArtifact["kind"];
   /**
    * The finished text. Empty when the output-safety scrubber suppressed the
    * artifact; consult `safety.scrubbedFields` on the result.
@@ -203,111 +201,26 @@ export interface GenerateTextResult {
 // Validation
 // ─────────────────────────────────────────────────────────────────────────────
 
-const KEY_PATTERN = /^[a-z][a-z0-9_]*$/;
-const KEY_MAX_CHARS = 64;
-const LANGUAGE_TAG_PATTERN = /^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/i;
-const LANGUAGE_TAG_MAX_CHARS = 35;
-
-function validationError(message: string): MuxAiError {
-  return new MuxAiError(message, { type: "validation_error" });
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function assertBoundedText(value: unknown, max: number, label: string): string {
-  if (typeof value !== "string") {
-    throw validationError(`${label} must be a string.`);
-  }
-  const trimmed = value.trim();
-  if (!trimmed || trimmed.length > max) {
-    throw validationError(`${label} must be 1-${max} characters.`);
-  }
-  return trimmed;
-}
-
-function assertKeyedItems(
-  items: unknown,
-  noun: string,
-  max: number,
-): asserts items is Array<{ key: string; instructions?: string }> {
-  if (!Array.isArray(items) || items.length === 0) {
-    throw validationError(`At least one ${noun} is required.`);
-  }
-  if (items.length > max) {
-    throw validationError(`At most ${max} ${noun}s are supported (received ${items.length}).`);
-  }
-  const seen = new Set<string>();
-  for (const item of items) {
-    if (!isRecord(item)) {
-      throw validationError(`Each ${noun} must be an object.`);
-    }
-    const key = item.key;
-    if (typeof key !== "string" || !KEY_PATTERN.test(key) || key.length > KEY_MAX_CHARS) {
-      throw validationError(
-        `${noun} key "${String(key)}" must be lowercase snake_case beginning with a letter, up to ${KEY_MAX_CHARS} characters.`,
-      );
-    }
-    if (seen.has(key)) {
-      throw validationError(`Duplicate ${noun} key "${key}".`);
-    }
-    seen.add(key);
-    if (item.instructions !== undefined) {
-      assertBoundedText(item.instructions, GENERATE_TEXT_MAX_INSTRUCTIONS_CHARS, `${noun} "${key}" instructions`);
-    }
-  }
-}
-
-function assertIntegerInRange(
-  value: unknown,
-  range: { min: number; max: number },
-  label: string,
-): void {
-  if (typeof value !== "number" || !Number.isInteger(value) || value < range.min || value > range.max) {
-    throw validationError(`${label} must be an integer between ${range.min} and ${range.max} (received ${String(value)}).`);
-  }
-}
-
 function assertArtifact(artifact: GenerateTextArtifact): void {
-  const label = `Artifact "${artifact.key}" maxLength.value`;
-  if (artifact.kind === "long_form") {
-    if (artifact.maxLength) {
-      if (artifact.maxLength.unit !== "words") {
-        throw validationError(`Artifact "${artifact.key}" long_form maxLength must be measured in words.`);
-      }
-      assertIntegerInRange(artifact.maxLength.value, GENERATE_TEXT_LENGTH_BOUNDS.longFormWords, label);
-    }
+  if (artifact.channel !== undefined) {
+    assertOneOf(artifact.channel, GENERATE_TEXT_CHANNELS, `artifact "${artifact.key}" channel`);
+  }
+  if (artifact.format !== undefined) {
+    assertOneOf(artifact.format, GENERATE_TEXT_FORMATS, `artifact "${artifact.key}" format`);
+  }
+  if (artifact.maxLength === undefined) {
     return;
   }
+  if (!isRecord(artifact.maxLength)) {
+    throw validationError(`Artifact "${artifact.key}" maxLength must be an object.`);
+  }
+  const { unit, value } = artifact.maxLength;
+  assertOneOf(unit, ["characters", "words"] as const, `artifact "${artifact.key}" maxLength.unit`);
+  assertIntegerInRange(value, GENERATE_TEXT_LENGTH_BOUNDS[unit], `Artifact "${artifact.key}" maxLength.value`);
 
-  if (artifact.kind !== "short_form") {
-    throw validationError(`Artifact kind must be "short_form" or "long_form" (received "${String((artifact as { kind: unknown }).kind)}").`);
-  }
-  if (artifact.channel !== undefined && !GENERATE_TEXT_CHANNELS.includes(artifact.channel)) {
-    throw validationError(
-      `Artifact "${artifact.key}" channel "${String(artifact.channel)}" is not supported. Valid channels are: ${GENERATE_TEXT_CHANNELS.join(", ")}.`,
-    );
-  }
-  if (!artifact.maxLength) {
-    return;
-  }
   const ceiling = artifact.channel ? GENERATE_TEXT_CHANNEL_CEILINGS[artifact.channel] : undefined;
-  if (artifact.maxLength.unit === "characters") {
-    assertIntegerInRange(artifact.maxLength.value, GENERATE_TEXT_LENGTH_BOUNDS.characters, label);
-    if (ceiling?.unit === "characters" && artifact.maxLength.value > ceiling.value) {
-      throw validationError(`Artifact "${artifact.key}" targets ${artifact.channel} and supports at most ${ceiling.value} characters.`);
-    }
-  } else if (artifact.maxLength.unit === "words") {
-    assertIntegerInRange(artifact.maxLength.value, GENERATE_TEXT_LENGTH_BOUNDS.shortFormWords, label);
-  } else {
-    throw validationError(`Artifact "${artifact.key}" maxLength.unit must be "characters" or "words".`);
-  }
-}
-
-function assertLanguageTag(value: unknown, label: string): void {
-  if (typeof value !== "string" || value.length > LANGUAGE_TAG_MAX_CHARS || !LANGUAGE_TAG_PATTERN.test(value)) {
-    throw validationError(`${label} must be a BCP 47 language tag such as "en" or "pt-BR".`);
+  if (ceiling && ceiling.unit === unit && value > ceiling.value) {
+    throw validationError(`Artifact "${artifact.key}" targets ${artifact.channel} and supports at most ${ceiling.value} ${ceiling.unit}.`);
   }
 }
 
@@ -319,8 +232,16 @@ export function resolveGenerateTextOptions(options: GenerateTextOptions): Genera
   variants: GenerateTextVariant[];
 } {
   const variants = options.variants ?? [{ key: "default" }];
-  assertKeyedItems(variants, "variant", GENERATE_TEXT_MAX_VARIANTS);
-  assertKeyedItems(options.artifacts, "artifact", GENERATE_TEXT_MAX_ARTIFACTS);
+  assertKeyedItems(variants, {
+    noun: "variant",
+    max: GENERATE_TEXT_MAX_VARIANTS,
+    maxInstructionsChars: GENERATE_TEXT_MAX_INSTRUCTIONS_CHARS,
+  });
+  assertKeyedItems(options.artifacts, {
+    noun: "artifact",
+    max: GENERATE_TEXT_MAX_ARTIFACTS,
+    maxInstructionsChars: GENERATE_TEXT_MAX_INSTRUCTIONS_CHARS,
+  });
   for (const artifact of options.artifacts) {
     assertArtifact(artifact);
   }
@@ -328,13 +249,11 @@ export function resolveGenerateTextOptions(options: GenerateTextOptions): Genera
   if (options.audience !== undefined) {
     assertBoundedText(options.audience, GENERATE_TEXT_MAX_AUDIENCE_CHARS, "audience");
   }
-  if (options.voice !== undefined && !GENERATE_TEXT_VOICES.includes(options.voice)) {
-    throw validationError(`Invalid voice "${String(options.voice)}". Valid voices are: ${GENERATE_TEXT_VOICES.join(", ")}.`);
+  if (options.voice !== undefined) {
+    assertOneOf(options.voice, GENERATE_TEXT_VOICES, "voice");
   }
-  if (options.callToAction !== undefined && !GENERATE_TEXT_CALLS_TO_ACTION.includes(options.callToAction)) {
-    throw validationError(
-      `Invalid callToAction "${String(options.callToAction)}". Valid values are: ${GENERATE_TEXT_CALLS_TO_ACTION.join(", ")}.`,
-    );
+  if (options.callToAction !== undefined) {
+    assertOneOf(options.callToAction, GENERATE_TEXT_CALLS_TO_ACTION, "callToAction");
   }
   if (options.brandTerms !== undefined) {
     if (!Array.isArray(options.brandTerms) || options.brandTerms.length === 0 || options.brandTerms.length > GENERATE_TEXT_MAX_BRAND_TERMS) {
@@ -363,10 +282,9 @@ export function resolveGenerateTextOptions(options: GenerateTextOptions): Genera
 // ─────────────────────────────────────────────────────────────────────────────
 
 const WORD_BOUNDARY = /\s+/u;
-const DEFAULT_LONG_FORM_LIMIT: GenerateTextLengthLimit = { unit: "words", value: 1200 };
 
-const SHORT_FORM_DEFAULT_LIMITS: Record<GenerateTextChannel, GenerateTextLengthLimit> = {
-  generic: { unit: "words", value: 150 },
+const CHANNEL_DEFAULT_LIMITS: Record<GenerateTextChannel, GenerateTextLengthLimit> = {
+  generic: { unit: "words", value: 300 },
   x: GENERATE_TEXT_CHANNEL_CEILINGS.x!,
   linkedin: { unit: "words", value: 300 },
   facebook: { unit: "words", value: 250 },
@@ -377,13 +295,7 @@ const SHORT_FORM_DEFAULT_LIMITS: Record<GenerateTextChannel, GenerateTextLengthL
 
 /** Resolves the hard output cap for an artifact, applying channel defaults. */
 export function resolveGenerateTextLengthLimit(artifact: GenerateTextArtifact): GenerateTextLengthLimit {
-  if (artifact.maxLength) {
-    return artifact.maxLength;
-  }
-  if (artifact.kind === "long_form") {
-    return DEFAULT_LONG_FORM_LIMIT;
-  }
-  return SHORT_FORM_DEFAULT_LIMITS[artifact.channel ?? "generic"];
+  return artifact.maxLength ?? CHANNEL_DEFAULT_LIMITS[artifact.channel ?? "generic"];
 }
 
 /**
@@ -392,9 +304,7 @@ export function resolveGenerateTextLengthLimit(artifact: GenerateTextArtifact): 
  */
 export function resolveGenerateTextLengthLimits(artifact: GenerateTextArtifact): GenerateTextLengthLimit[] {
   const limit = resolveGenerateTextLengthLimit(artifact);
-  const ceiling = artifact.kind === "short_form" && artifact.channel ?
-    GENERATE_TEXT_CHANNEL_CEILINGS[artifact.channel] :
-    undefined;
+  const ceiling = artifact.channel ? GENERATE_TEXT_CHANNEL_CEILINGS[artifact.channel] : undefined;
   if (!ceiling || (ceiling.unit === limit.unit && ceiling.value >= limit.value)) {
     return [limit];
   }
@@ -634,8 +544,7 @@ const BRIEF_SYSTEM_PROMPT = promptDedent`
   </constraints>
 `;
 
-const CHANNEL_GUIDANCE: Record<GenerateTextChannel, string> = {
-  generic: "Write self-contained short-form copy with a clear hook and one useful idea.",
+const CHANNEL_GUIDANCE: Record<Exclude<GenerateTextChannel, "generic">, string> = {
   x: "Write one X post. Front-load the useful idea, keep the rhythm tight, and avoid filler hashtags or thread numbering.",
   linkedin: "Write a LinkedIn post with a concrete opening, readable paragraph breaks, and a developed takeaway. Avoid engagement bait.",
   facebook: "Write a Facebook post that is clear and approachable without clickbait or artificial enthusiasm.",
@@ -644,7 +553,24 @@ const CHANNEL_GUIDANCE: Record<GenerateTextChannel, string> = {
   youtube: "Write concise YouTube promotional copy that quickly establishes why the subject matters. Avoid generic subscribe language unless requested.",
 };
 
-const LONG_FORM_GUIDANCE = "Write developed, cohesive prose suitable for a blog post, article, or newsletter entry. Use Markdown headings only when they improve navigation.";
+const WORDS_PER_CHARACTER = 1 / 6;
+
+/** Composition for channel-less text scales with the length budget rather than a fixed category. */
+function describeGenericComposition(limit: GenerateTextLengthLimit): string {
+  const words = limit.unit === "words" ? limit.value : limit.value * WORDS_PER_CHARACTER;
+  if (words <= 150) {
+    return "Write a short, self-contained piece with a clear opening and one useful idea.";
+  }
+  if (words <= 600) {
+    return "Write a focused piece that develops one idea with concrete supporting detail.";
+  }
+  return "Write developed, cohesive prose suitable for a blog post, article, or newsletter entry, with a clear through-line across sections.";
+}
+
+const FORMAT_GUIDANCE: Record<GenerateTextFormat, string> = {
+  plain: "Write plain text only. Do not use Markdown or any other markup: no headings, bold or italic markers, bullet or numbered list markers, links, or code formatting. Separate paragraphs with a blank line.",
+  markdown: "Format the text as Markdown. Use headings, lists, and emphasis only where they help the reader.",
+};
 
 const VOICE_GUIDANCE: Record<GenerateTextVoice, string> = {
   conversational: "Write like a thoughtful person explaining the idea to one specific reader. Prefer natural phrasing over polished corporate language.",
@@ -680,11 +606,10 @@ function buildArtifactSystemPrompt(args: {
   limits: GenerateTextLengthLimit[];
   hasOutputLanguage: boolean;
 }): string {
-  const artifactGuidance = args.artifact.kind === "long_form" ?
-    LONG_FORM_GUIDANCE :
-    CHANNEL_GUIDANCE[args.artifact.channel ?? "generic"];
+  const channel = args.artifact.channel ?? "generic";
   const guidanceLines = [
-    artifactGuidance,
+    channel === "generic" ? describeGenericComposition(args.limits[0]) : CHANNEL_GUIDANCE[channel],
+    FORMAT_GUIDANCE[args.artifact.format ?? "plain"],
     `Keep the finished text at or below ${args.limits.map(limit => `${limit.value} ${limit.unit}`).join(" and at or below ")}.`,
     "Unless a steering section in the user message specifies otherwise:",
     "- Write for an informed general audience.",
@@ -845,8 +770,8 @@ async function extractBriefWithModel(args: {
       description: "Source-grounded editorial brief used to write every requested artifact.",
       schema: briefSchema,
     }),
+    system: args.systemPrompt,
     messages: [
-      { role: "system", content: args.systemPrompt },
       {
         role: "user",
         content: [
@@ -911,8 +836,8 @@ async function generateArtifactWithModel(args: {
         description: "One finished artifact written from the editorial brief.",
         schema: artifactSchema,
       }),
+      system: args.systemPrompt,
       messages: [
-        { role: "system", content: args.systemPrompt },
         { role: "user", content: userPrompt },
       ],
     }));
@@ -953,8 +878,8 @@ async function generateArtifactWithModel(args: {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Writes a set of source-grounded short- and long-form text artifacts from a
- * Mux asset's transcript, enriched with a scoped storyboard (and optionally
+ * Writes a set of source-grounded text artifacts from a Mux asset's
+ * transcript, enriched with a scoped storyboard (and optionally
  * shot frames) for video assets. One shared editorial brief is extracted
  * first; every variant × artifact combination is then written from that
  * brief in bounded parallel batches.
@@ -1154,7 +1079,6 @@ async function generateTextInternal(
       }
       return {
         key: artifact.key,
-        kind: artifact.kind,
         content: safety.scrub(item.content, `${field}.content`),
       };
     }),

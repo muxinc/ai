@@ -16,8 +16,8 @@ describe("generateText Integration Tests", () => {
         { key: "insight_led" },
       ],
       artifacts: [
-        { key: "x_post", kind: "short_form", channel: "x" },
-        { key: "blog_post", kind: "long_form", maxLength: { unit: "words", value: 300 } },
+        { key: "x_post", channel: "x" },
+        { key: "blog_post", maxLength: { unit: "words", value: 300 }, format: "markdown" },
       ],
       audience: "Video developers",
       voice: "conversational",
@@ -41,7 +41,7 @@ describe("generateText Integration Tests", () => {
   it("should write from the transcript alone for audio-only assets", async () => {
     const result = await generateText(muxTestAssets.audioOnlyAssetId, {
       provider: "openai",
-      artifacts: [{ key: "post", kind: "short_form", channel: "linkedin" }],
+      artifacts: [{ key: "post", channel: "linkedin" }],
     });
 
     expect(result.storyboardUrl).toBeUndefined();
@@ -53,7 +53,7 @@ describe("generateText Integration Tests", () => {
   it("should respect a scoped execution window", async () => {
     const result = await generateText(testAssetId, {
       provider: "openai",
-      artifacts: [{ key: "post", kind: "short_form" }],
+      artifacts: [{ key: "post" }],
       scope: { startTime: 0, endTime: 20 },
     });
 
@@ -64,7 +64,7 @@ describe("generateText Integration Tests", () => {
   it("should reject invalid options before contacting Mux", async () => {
     await expect(generateText(testAssetId, {
       provider: "openai",
-      artifacts: [{ key: "x_post", kind: "short_form", channel: "x", maxLength: { unit: "characters", value: 500 } }],
+      artifacts: [{ key: "x_post", channel: "x", maxLength: { unit: "characters", value: 500 } }],
     })).rejects.toThrow("supports at most 280 characters");
   });
 });

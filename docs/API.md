@@ -567,7 +567,7 @@ player.addChapters([
 
 ## `generateText(assetId, options)`
 
-Writes a set of source-grounded short- and long-form text artifacts from a video or audio asset. Extracts one editorial brief from the transcript (plus a scoped storyboard for video assets), then writes every variant × artifact combination from that brief in parallel.
+Writes a set of source-grounded text artifacts from a video or audio asset. Extracts one editorial brief from the transcript (plus a scoped storyboard for video assets), then writes every variant × artifact combination from that brief in parallel.
 
 **Parameters:**
 
@@ -577,8 +577,10 @@ Writes a set of source-grounded short- and long-form text artifacts from a video
 **Options:**
 
 - `artifacts: GenerateTextArtifact[]` - Deliverables to write for every variant (1-5, unique lowercase snake_case keys). Each artifact accepts optional `instructions` (up to 500 characters).
-  - `{ key, kind: "short_form", channel?, maxLength?, instructions? }` - `channel` is one of `generic` (default), `x`, `linkedin`, `facebook`, `instagram`, `tiktok`, `youtube`. `maxLength` is `{ unit: "characters", value: 10-5000 }` or `{ unit: "words", value: 5-500 }`; `x` artifacts are always held to 280 characters, even when `maxLength` is expressed in words.
-  - `{ key, kind: "long_form", maxLength?, instructions? }` - `maxLength` is `{ unit: "words", value: 100-3000 }` (default 1200).
+  - `{ key, channel?, maxLength?, format?, instructions? }`
+  - `channel` is one of `generic` (default), `x`, `linkedin`, `facebook`, `instagram`, `tiktok`, `youtube`. It guides the writing conventions and sets the default cap (300 words for `generic`).
+  - `maxLength` is `{ unit: "characters", value: 10-20000 }` or `{ unit: "words", value: 5-3000 }`. `x` artifacts are always held to 280 characters, even when `maxLength` is expressed in words.
+  - `format` is `"plain"` (default, no Markdown syntax) or `"markdown"`.
 - `variants?: Array<{ key: string; instructions?: string }>` - Named versions of the complete artifact set (1-5, unique keys). Defaults to `[{ key: "default" }]`. Omit `instructions` for an independent take on the same brief.
 - `provider?: 'openai' | 'anthropic' | 'google' | 'baseten' | 'openai-compatible'` - AI provider (default: 'openai')
 - `model?: string` - AI model to use. Defaults per provider: `gpt-5.6-luna` at medium reasoning (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google). Baseten and OpenAI-compatible endpoints have no default — pass `model` or set the `BASETEN_MODEL` / `OPENAI_COMPATIBLE_MODEL` environment variable.
@@ -588,7 +590,7 @@ Writes a set of source-grounded short- and long-form text artifacts from a video
 - `brandTerms?: string[]` - Brand or domain terms to use exactly when the source supports them (1-10 terms, 40 characters each, 240 combined)
 - `useShots?: boolean` - Attach up to 24 evenly sampled shot frames as extra visual evidence, reusing existing shots and requesting generation only when the asset has none (default: false, video assets only)
 - `shotPolling?: { pollIntervalMs?: number; maxAttempts?: number }` - How long to wait for shots that are not ready yet (default: 150 attempts at a 2-second interval, about five minutes)
-- `languageCode?: string` - Language code for transcript track selection. When omitted, prefers English if available.
+- `languageCode?: string` - BCP 47 language code for transcript track selection. When omitted, prefers English if available.
 - `outputLanguageCode?: string` - BCP 47 language code for the generated text. When omitted or `'auto'`, follows the selected transcript track's language when it is reliable.
 - `scope?: WorkflowScope` - Asset-relative execution window. Bounds transcript cues, the storyboard, and shot selection.
 
@@ -601,7 +603,6 @@ interface GenerateTextResult {
     key: string;
     artifacts: Array<{
       key: string;
-      kind: "short_form" | "long_form";
       content: string; // Empty when suppressed by the output-safety scrubber
     }>;
   }>;
