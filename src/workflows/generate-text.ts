@@ -44,6 +44,8 @@ import { getStoryboardUrl } from "../primitives/storyboards.ts";
 import { fetchTranscriptForAsset, getReliableLanguageCode } from "../primitives/transcripts.ts";
 import type { ScopedMuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "../types.ts";
 
+import type { ModelMessage } from "ai";
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Public types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -312,6 +314,13 @@ export function resolveGenerateTextOptions(options: GenerateTextOptions): Genera
 // ─────────────────────────────────────────────────────────────────────────────
 
 const WORD_BOUNDARY = /\s+/u;
+
+/** Models miscount length, so drafts aim below the hard cap to leave headroom. */
+const LENGTH_TARGET_RATIO = 0.9;
+
+function resolveLengthTarget(limit: GenerateTextLengthLimit): number {
+  return Math.max(1, Math.floor(limit.value * LENGTH_TARGET_RATIO));
+}
 
 const CHANNEL_DEFAULT_LIMITS: Record<GenerateTextChannel, GenerateTextLengthLimit> = {
   generic: { unit: "words", value: 300 },
@@ -631,7 +640,7 @@ function buildArtifactSystemPrompt(args: {
   const guidanceLines = [
     channel === "generic" ? describeGenericComposition(args.limits[0]) : CHANNEL_GUIDANCE[channel],
     FORMAT_GUIDANCE[args.artifact.format ?? "plain"],
-    `Keep the finished text at or below ${args.limits.map(limit => `${limit.value} ${limit.unit}`).join(" and at or below ")}.`,
+    `Aim for about ${args.limits.map(limit => `${resolveLengthTarget(limit)} ${limit.unit}`).join(" and ")}. This is a hard cap: never exceed ${args.limits.map(limit => `${limit.value} ${limit.unit}`).join(" or ")}.`,
     "Unless a steering section in the user message specifies otherwise:",
     "- Write for an informed general audience.",
     "- Prefer natural, conversational phrasing over polished corporate language.",
@@ -746,8 +755,10 @@ function buildArtifactUserPrompt(args: {
   ]);
 }
 
-function describeLengthViolation(violation: { limit: GenerateTextLengthLimit; actual: number }): string {
-  return `${violation.actual} ${violation.limit.unit} against a cap of ${violation.limit.value}`;
+function describeLengthRevision({ limit, actual }: { limit: GenerateTextLengthLimit; actual: number }): string {
+  const target = resolveLengthTarget(limit);
+  return `That draft measured ${actual} ${limit.unit} against a hard cap of ${limit.value}. ` +
+    `Shorten it to about ${target} ${limit.unit} (at least ${actual - target} fewer) while keeping the substance, and return the complete revised text.`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -834,8 +845,8 @@ interface ArtifactStepResult {
 
 /**
  * Writes one artifact. A draft that is empty or over a cap gets exactly one
- * corrective retry with the measured overshoot fed back, so a routine 2%
- * overshoot costs one extra call rather than the whole run.
+ * corrective retry. An over-cap draft is handed back to the model with the
+ * measured overshoot so it trims that text rather than starting over.
  */
 async function generateArtifactWithModel(args: {
   provider: SupportedProvider;
@@ -848,7 +859,7 @@ async function generateArtifactWithModel(args: {
   "use step";
   const model = await createLanguageModelFromConfig(args.provider, args.modelId, args.credentials);
 
-  const attempt = async (userPrompt: string): Promise<ArtifactAttempt> => {
+  const attempt = async (messages: ModelMessage[]): Promise<ArtifactAttempt> => {
     const response = await withContentPolicyAwareRetry(() => generateTextWithModel({
       model,
       maxRetries: 0,
@@ -858,9 +869,7 @@ async function generateArtifactWithModel(args: {
         schema: artifactSchema,
       }),
       system: args.systemPrompt,
-      messages: [
-        { role: "user", content: userPrompt },
-      ],
+      messages,
     }));
     const output = getGeneratedOutputWithContentPolicyHandling(response);
     if (!output) {
@@ -876,16 +885,24 @@ async function generateArtifactWithModel(args: {
   const judge = (content: string): ArtifactStepResult["violation"] =>
     content ? findGenerateTextLengthViolation(content, args.limits) : "empty";
 
-  const first = await attempt(args.userPrompt);
+  const initialMessages: ModelMessage[] = [{ role: "user", content: args.userPrompt }];
+  const first = await attempt(initialMessages);
   const firstViolation = judge(first.content);
   if (!firstViolation) {
     return { content: first.content, usages: [first.usage], unexpectedKeys: first.unexpectedKeys };
   }
 
-  const feedback = firstViolation === "empty" ?
-    "The previous draft was empty. Write the complete artifact." :
-    `The previous draft measured ${describeLengthViolation(firstViolation)}. Rewrite it to fit within every limit while keeping the substance.`;
-  const second = await attempt(`${args.userPrompt}\n\n${renderSection({ tag: "revision_request", content: feedback })}`)
+  const revisionMessages: ModelMessage[] = firstViolation === "empty" ?
+      [{
+        role: "user",
+        content: `${args.userPrompt}\n\n${renderSection({ tag: "revision_request", content: "The previous draft was empty. Write the complete artifact." })}`,
+      }] :
+      [
+        ...initialMessages,
+        { role: "assistant", content: JSON.stringify({ content: first.content }) },
+        { role: "user", content: renderSection({ tag: "revision_request", content: describeLengthRevision(firstViolation) }) },
+      ];
+  const second = await attempt(revisionMessages)
     .catch((error: unknown) => rethrowWithTokenUsage(error, [first.usage]));
   return {
     content: second.content,

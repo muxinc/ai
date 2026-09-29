@@ -288,7 +288,7 @@ describe("generateText", () => {
 
     const plainSystem = systemPrompt(1);
     expect(plainSystem).toContain("The variant key is not a writing instruction.");
-    expect(plainSystem).toContain("at or below 300 words");
+    expect(plainSystem).toContain("Aim for about 270 words. This is a hard cap: never exceed 300 words.");
     expect(plainSystem).toContain("LinkedIn post");
     expect(plainSystem).not.toContain("editorial point of view");
     expect(plainSystem).not.toContain("Robots");
@@ -328,15 +328,23 @@ describe("generateText", () => {
     expect(systemPrompt(3)).not.toContain("Write plain text only.");
   });
 
-  it("retries an over-cap draft once with the measured overshoot and accepts a fixed rewrite", async () => {
-    queueGenerations(["x".repeat(281), "short enough"]);
+  it("hands an over-cap draft back once with the measured overshoot and accepts the trimmed rewrite", async () => {
+    const draft = "x".repeat(281);
+    queueGenerations([draft, "short enough"]);
 
     const result = await generateText("asset-123", {
       artifacts: [{ key: "x_post", channel: "x" }],
     });
 
     expect(generateTextWithModel).toHaveBeenCalledTimes(3);
-    expect(userText(2)).toContain("<revision_request>\nThe previous draft measured 281 characters against a cap of 280.");
+    expect(call(2).messages).toEqual([
+      call(1).messages[0],
+      { role: "assistant", content: JSON.stringify({ content: draft }) },
+      {
+        role: "user",
+        content: "<revision_request>\nThat draft measured 281 characters against a hard cap of 280. Shorten it to about 252 characters (at least 29 fewer) while keeping the substance, and return the complete revised text.\n</revision_request>",
+      },
+    ]);
     expect(result.variants[0].artifacts[0].content).toBe("short enough");
     expect(result.usage?.totalTokens).toBe(120);
   });
@@ -378,6 +386,7 @@ describe("generateText", () => {
       publicMessage: "Generated text for variants[default].artifacts[post] was empty after a retry.",
       retryable: true,
     });
+    expect(call(2).messages).toHaveLength(1);
     expect(userText(2)).toContain("The previous draft was empty.");
   });
 
@@ -390,7 +399,7 @@ describe("generateText", () => {
     })).rejects.toMatchObject({
       publicMessage: expect.stringContaining("exceeded the 280 characters limit after a retry (285 returned)"),
     });
-    expect(systemPrompt(1)).toContain("at or below 50 words and at or below 280 characters");
+    expect(systemPrompt(1)).toContain("Aim for about 45 words and 252 characters. This is a hard cap: never exceed 50 words or 280 characters.");
   });
 
   it("runs the matrix in batches of five and keeps usage from fulfilled siblings when one fails", async () => {
