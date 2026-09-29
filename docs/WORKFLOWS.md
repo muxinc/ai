@@ -538,7 +538,7 @@ for (const variant of result.variants) {
 
 ### Shot Frames
 
-Set `useShots: true` on a video asset to attach an evenly distributed sample of up to 24 shot frames alongside the storyboard. Existing shots are reused; generation is requested only when the asset has none. Shot generation can take several minutes on first use, so leave this off for latency-sensitive paths, or raise `shotPolling.maxAttempts` above the default of 150 (about five minutes at the 2-second interval). Not supported for audio-only assets.
+Set `useShots: true` on a video asset to attach an evenly distributed sample of up to 24 shot frames alongside the storyboard. The workflow only reads shots that are already generated; it never requests or waits for them. When shots are not ready it logs a warning and continues with the storyboard alone, matching `generateEngagementInsights`. To guarantee shots are used, generate them first with `waitForShotsForAsset` from `@mux/ai/primitives`. Not supported for audio-only assets.
 
 ### Output Safety
 

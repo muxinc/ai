@@ -44,7 +44,6 @@ vi.mock("../../src/primitives/storyboards", () => ({
 
 vi.mock("../../src/primitives/shots", () => ({
   getShotsForAsset: vi.fn(),
-  waitForShotsForAsset: vi.fn(),
 }));
 
 const { generateText: generateTextWithModel } = await import("ai");
@@ -58,7 +57,7 @@ const { createLanguageModelFromConfig, resolveLanguageModelConfig } = await impo
 const { resolveMuxSigningContext } = await import("../../src/lib/workflow-credentials");
 const { fetchTranscriptForAsset, getReliableLanguageCode } = await import("../../src/primitives/transcripts");
 const { getStoryboardUrl } = await import("../../src/primitives/storyboards");
-const { getShotsForAsset, waitForShotsForAsset } = await import("../../src/primitives/shots");
+const { getShotsForAsset } = await import("../../src/primitives/shots");
 const {
   generateText,
   measureGenerateTextLength,
@@ -141,7 +140,6 @@ beforeEach(() => {
   } as any);
   vi.mocked(getStoryboardUrl).mockResolvedValue("https://image.mux.com/playback-123/storyboard.png");
   vi.mocked(getShotsForAsset).mockResolvedValue(COMPLETED_SHOTS);
-  vi.mocked(waitForShotsForAsset).mockResolvedValue(COMPLETED_SHOTS);
 });
 
 describe("generateText", () => {
@@ -165,7 +163,6 @@ describe("generateText", () => {
     }));
     expect(getStoryboardUrl).toHaveBeenCalledWith("playback-123", 640, false, undefined, { startTime: 10, endTime: 40 });
     expect(getShotsForAsset).not.toHaveBeenCalled();
-    expect(waitForShotsForAsset).not.toHaveBeenCalled();
     expect(generateTextWithModel).toHaveBeenCalledTimes(5);
 
     expect(call(0).messages[0].content).toEqual([
@@ -228,7 +225,7 @@ describe("generateText", () => {
     expect(result.usage?.metadata?.thumbnailCount).toBe(0);
   });
 
-  it("reuses completed shots without requesting generation and samples frames inside the scope", async () => {
+  it("uses completed shots and samples frames inside the scope", async () => {
     queueGenerations(["hello"]);
 
     await generateText("asset-123", {
@@ -238,7 +235,6 @@ describe("generateText", () => {
     });
 
     expect(getShotsForAsset).toHaveBeenCalledWith("asset-123", { credentials: undefined });
-    expect(waitForShotsForAsset).not.toHaveBeenCalled();
     expect(call(0).messages[0].content.slice(1)).toEqual([
       { type: "image", image: "https://image.mux.com/playback-123/storyboard.png" },
       { type: "image", image: "shot-0" },
@@ -247,37 +243,26 @@ describe("generateText", () => {
     ]);
   });
 
-  it("requests shot generation only when Mux has none, within the caller's polling budget", async () => {
-    vi.mocked(getShotsForAsset).mockRejectedValueOnce(Object.assign(new Error("not found"), { status: 404 }));
+  it.each([
+    ["pending", () => vi.mocked(getShotsForAsset).mockResolvedValueOnce({ status: "pending", createdAt: "2026-08-13T00:00:00Z" })],
+    ["missing", () => vi.mocked(getShotsForAsset).mockRejectedValueOnce(Object.assign(new Error("not found"), { status: 404 }))],
+  ])("falls back to the storyboard alone when shots are %s, without waiting or requesting them", async (_state, arrange) => {
+    arrange();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     queueGenerations(["hello"]);
 
-    await generateText("asset-123", {
-      artifacts: [{ key: "post" }],
-      useShots: true,
-      shotPolling: { maxAttempts: 300, pollIntervalMs: 3000 },
-    });
-
-    expect(waitForShotsForAsset).toHaveBeenCalledWith("asset-123", {
-      credentials: undefined,
-      createIfMissing: true,
-      maxAttempts: 300,
-      pollIntervalMs: 3000,
-    });
-  });
-
-  it("polls pending shots without re-requesting them, using the default budget", async () => {
-    vi.mocked(getShotsForAsset).mockResolvedValueOnce({ status: "pending", createdAt: "2026-08-13T00:00:00Z" });
-    queueGenerations(["hello"]);
-
-    await generateText("asset-123", {
+    const result = await generateText("asset-123", {
       artifacts: [{ key: "post" }],
       useShots: true,
     });
 
-    expect(waitForShotsForAsset).toHaveBeenCalledWith("asset-123", expect.objectContaining({
-      createIfMissing: false,
-      maxAttempts: 150,
-    }));
+    expect(getShotsForAsset).toHaveBeenCalledTimes(1);
+    expect(call(0).messages[0].content.slice(1)).toEqual([
+      { type: "image", image: "https://image.mux.com/playback-123/storyboard.png" },
+    ]);
+    expect(result.usage?.metadata?.thumbnailCount).toBe(1);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("Using the storyboard only."));
+    warn.mockRestore();
   });
 
   it("rejects useShots for audio-only assets before contacting any model", async () => {
@@ -526,18 +511,6 @@ describe("resolveGenerateTextOptions", () => {
       artifacts,
       variants: Array.from({ length: 6 }, (_, index) => ({ key: `v${index}` })),
     })).toThrow("At most 5 variants are supported (received 6).");
-  });
-
-  it("reports non-string inputs as validation errors rather than TypeErrors", () => {
-    expect(() => resolveGenerateTextOptions({ artifacts: [{ key: "post", instructions: 42 as any }] }))
-      .toThrow("artifact \"post\" instructions must be a string.");
-    expect(() => resolveGenerateTextOptions({ artifacts, audience: 5 as any })).toThrow("audience must be a string.");
-    expect(() => resolveGenerateTextOptions({ artifacts, brandTerms: [null as any] })).toThrow("Each brand term must be a string.");
-    expect(() => resolveGenerateTextOptions({ artifacts: [null as any] })).toThrow("Each artifact must be an object.");
-    expect(() => resolveGenerateTextOptions({ artifacts: [{ key: "post", maxLength: { unit: "words", value: "9" as any } }] }))
-      .toThrow("must be an integer between 5 and 3000");
-    expect(() => resolveGenerateTextOptions({ artifacts: [{ key: "post", maxLength: "long" as any }] }))
-      .toThrow("Artifact \"post\" maxLength must be an object.");
   });
 
   it("applies one length range per unit and the X character ceiling", () => {

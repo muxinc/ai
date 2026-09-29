@@ -588,8 +588,7 @@ Writes a set of source-grounded text artifacts from a video or audio asset. Extr
 - `voice?: 'conversational' | 'editorial' | 'playful' | 'professional'` - Best-effort writing voice for every artifact
 - `callToAction?: 'none' | 'soft' | 'direct'` - Whether and how the text should invite the reader to engage further
 - `brandTerms?: string[]` - Brand or domain terms to use exactly when the source supports them (1-10 terms, 40 characters each, 240 combined)
-- `useShots?: boolean` - Attach up to 24 evenly sampled shot frames as extra visual evidence, reusing existing shots and requesting generation only when the asset has none (default: false, video assets only)
-- `shotPolling?: { pollIntervalMs?: number; maxAttempts?: number }` - How long to wait for shots that are not ready yet (default: 150 attempts at a 2-second interval, about five minutes)
+- `useShots?: boolean` - Attach up to 24 evenly sampled shot frames as extra visual evidence when the asset's shots are already generated. When they are not ready, the workflow uses the storyboard alone. Generate shots beforehand with the shots primitives if you need them (default: false, video assets only)
 - `languageCode?: string` - BCP 47 language code for transcript track selection. When omitted, prefers English if available.
 - `outputLanguageCode?: string` - BCP 47 language code for the generated text. When omitted or `'auto'`, follows the selected transcript track's language when it is reliable.
 - `scope?: WorkflowScope` - Asset-relative execution window. Bounds transcript cues, the storyboard, and shot selection.
@@ -615,9 +614,8 @@ interface GenerateTextResult {
 **Errors:**
 
 - `validation_error` - Invalid option bounds, malformed language tags, missing transcript, empty scope, or `useShots` on an audio-only asset. Thrown before any model call.
-- `processing_error` - An artifact was still empty or over its length cap after one corrective rewrite (retryable), the editorial brief was suppressed by the output-safety scrubber (retryable), shot generation failed, no shots overlapped the scope, or the model stopped before producing a complete response.
+- `processing_error` - An artifact was still empty or over its length cap after one corrective rewrite (retryable), the editorial brief was suppressed by the output-safety scrubber (retryable), or the model stopped before producing a complete response.
 - `content_policy_error` - The provider blocked the transcript or an image under its content policy (non-retryable).
-- `timeout_error` - Shots were still not ready after the `shotPolling` budget (retryable).
 
 ## `translateAudio(assetId, toLanguageCode, options?)`
 

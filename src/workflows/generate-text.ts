@@ -30,15 +30,6 @@ import {
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
 import { aggregateTokenUsage, getErrorTokenUsage, rethrowWithTokenUsage } from "../lib/token-usage.ts";
-import {
-  assertBoundedText,
-  assertIntegerInRange,
-  assertKeyedItems,
-  assertLanguageTag,
-  assertOneOf,
-  isRecord,
-  validationError,
-} from "../lib/validation.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
 import {
   hasWorkflowScopeBoundaries,
@@ -47,8 +38,8 @@ import {
   timeRangesOverlap,
 } from "../lib/workflow-scope.ts";
 import type { ResolvedWorkflowScope } from "../lib/workflow-scope.ts";
-import type { CompletedShotsResult, Shot, WaitForShotsOptions } from "../primitives/shots.ts";
-import { getShotsForAsset, waitForShotsForAsset } from "../primitives/shots.ts";
+import type { CompletedShotsResult, Shot } from "../primitives/shots.ts";
+import { getShotsForAsset } from "../primitives/shots.ts";
 import { getStoryboardUrl } from "../primitives/storyboards.ts";
 import { fetchTranscriptForAsset, getReliableLanguageCode } from "../primitives/transcripts.ts";
 import type { ScopedMuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "../types.ts";
@@ -66,7 +57,6 @@ export const GENERATE_TEXT_MAX_BRAND_TERM_CHARS = 40;
 export const GENERATE_TEXT_MAX_BRAND_TERMS_TOTAL_CHARS = 240;
 export const GENERATE_TEXT_MAX_SHOT_FRAMES = 24;
 export const GENERATE_TEXT_MAX_CONCURRENT_GENERATIONS = 5;
-export const GENERATE_TEXT_DEFAULT_SHOT_POLL_ATTEMPTS = 150;
 
 export const GENERATE_TEXT_VOICES = ["conversational", "editorial", "playful", "professional"] as const;
 export const GENERATE_TEXT_CALLS_TO_ACTION = ["none", "soft", "direct"] as const;
@@ -126,20 +116,21 @@ export interface GenerateTextArtifact extends GenerateTextKeyedItem {
   format?: GenerateTextFormat;
 }
 
-/** Polling budget used while waiting for Mux shots when `useShots` is on. */
-export type GenerateTextShotPolling = Pick<WaitForShotsOptions, "pollIntervalMs" | "maxAttempts">;
-
 /** Configuration accepted by `generateText`. */
 export interface GenerateTextOptions extends ScopedMuxAIOptions {
   /** AI provider to run (defaults to 'openai'). */
   provider?: SupportedProvider;
   /** Provider-specific chat model identifier. */
   model?: ModelIdByProvider[SupportedProvider];
-  /** The deliverables to write for every variant (1-5, unique keys). */
+  /**
+   * What to write: each artifact is one deliverable, such as an X post or a
+   * blog post (1-5, unique keys).
+   */
   artifacts: GenerateTextArtifact[];
   /**
-   * Named versions of the complete artifact set (1-5, unique keys).
-   * Defaults to a single variant with the key "default".
+   * How many takes to write. Every variant produces its own copy of the full
+   * artifact list, so 2 variants × 3 artifacts yields 6 pieces of text
+   * (1-5, unique keys). Defaults to a single variant with the key "default".
    */
   variants?: GenerateTextVariant[];
   /** The intended reader, used as best-effort guidance for framing and vocabulary. */
@@ -151,15 +142,12 @@ export interface GenerateTextOptions extends ScopedMuxAIOptions {
   /** Brand or domain terms to use exactly when the source supports them (1-10 terms). */
   brandTerms?: string[];
   /**
-   * When true, generate or reuse Mux shots and attach a bounded sample of
-   * shot frames as additional visual evidence. Video assets only.
+   * When true, attach a bounded sample of the asset's Mux shot frames as
+   * additional visual evidence. Shots must already be generated; when they
+   * are not ready the workflow continues with the storyboard alone. Video
+   * assets only.
    */
   useShots?: boolean;
-  /**
-   * How long to wait for shots when `useShots` is on and they are not ready.
-   * Defaults to 150 attempts at the shots primitive's 2-second interval.
-   */
-  shotPolling?: GenerateTextShotPolling;
   /** BCP 47 language code of the caption track to use. When omitted, prefers English if available. */
   languageCode?: string;
   /**
@@ -201,6 +189,50 @@ export interface GenerateTextResult {
 // Validation
 // ─────────────────────────────────────────────────────────────────────────────
 
+const KEY_PATTERN = /^[a-z][a-z0-9_]{0,63}$/;
+const LANGUAGE_TAG_PATTERN = /^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/i;
+const LENGTH_UNITS = ["characters", "words"] as const;
+
+function validationError(message: string): MuxAiError {
+  return new MuxAiError(message, { type: "validation_error" });
+}
+
+function assertOneOf<T extends string>(value: string, allowed: readonly T[], label: string): void {
+  if (!allowed.includes(value as T)) {
+    throw validationError(`Invalid ${label} "${value}". Valid values are: ${allowed.join(", ")}.`);
+  }
+}
+
+function assertBoundedText(value: string, max: number, label: string): number {
+  const length = value.trim().length;
+  if (length === 0 || length > max) {
+    throw validationError(`${label} must be 1-${max} characters.`);
+  }
+  return length;
+}
+
+function assertKeyedItems(items: readonly GenerateTextKeyedItem[], noun: string, max: number): void {
+  if (items.length === 0) {
+    throw validationError(`At least one ${noun} is required.`);
+  }
+  if (items.length > max) {
+    throw validationError(`At most ${max} ${noun}s are supported (received ${items.length}).`);
+  }
+  const seen = new Set<string>();
+  for (const { key, instructions } of items) {
+    if (!KEY_PATTERN.test(key ?? "")) {
+      throw validationError(`${noun} key "${key}" must be lowercase snake_case beginning with a letter, up to 64 characters.`);
+    }
+    if (seen.has(key)) {
+      throw validationError(`Duplicate ${noun} key "${key}".`);
+    }
+    seen.add(key);
+    if (instructions !== undefined) {
+      assertBoundedText(instructions, GENERATE_TEXT_MAX_INSTRUCTIONS_CHARS, `${noun} "${key}" instructions`);
+    }
+  }
+}
+
 function assertArtifact(artifact: GenerateTextArtifact): void {
   if (artifact.channel !== undefined) {
     assertOneOf(artifact.channel, GENERATE_TEXT_CHANNELS, `artifact "${artifact.key}" channel`);
@@ -211,16 +243,22 @@ function assertArtifact(artifact: GenerateTextArtifact): void {
   if (artifact.maxLength === undefined) {
     return;
   }
-  if (!isRecord(artifact.maxLength)) {
-    throw validationError(`Artifact "${artifact.key}" maxLength must be an object.`);
-  }
   const { unit, value } = artifact.maxLength;
-  assertOneOf(unit, ["characters", "words"] as const, `artifact "${artifact.key}" maxLength.unit`);
-  assertIntegerInRange(value, GENERATE_TEXT_LENGTH_BOUNDS[unit], `Artifact "${artifact.key}" maxLength.value`);
+  assertOneOf(unit, LENGTH_UNITS, `artifact "${artifact.key}" maxLength.unit`);
+  const bounds = GENERATE_TEXT_LENGTH_BOUNDS[unit];
+  if (!Number.isInteger(value) || value < bounds.min || value > bounds.max) {
+    throw validationError(`Artifact "${artifact.key}" maxLength.value must be an integer between ${bounds.min} and ${bounds.max} (received ${value}).`);
+  }
 
   const ceiling = artifact.channel ? GENERATE_TEXT_CHANNEL_CEILINGS[artifact.channel] : undefined;
   if (ceiling && ceiling.unit === unit && value > ceiling.value) {
     throw validationError(`Artifact "${artifact.key}" targets ${artifact.channel} and supports at most ${ceiling.value} ${ceiling.unit}.`);
+  }
+}
+
+function assertLanguageTag(value: string, label: string): void {
+  if (value.length > 35 || !LANGUAGE_TAG_PATTERN.test(value)) {
+    throw validationError(`${label} must be a BCP 47 language tag such as "en" or "pt-BR".`);
   }
 }
 
@@ -232,16 +270,8 @@ export function resolveGenerateTextOptions(options: GenerateTextOptions): Genera
   variants: GenerateTextVariant[];
 } {
   const variants = options.variants ?? [{ key: "default" }];
-  assertKeyedItems(variants, {
-    noun: "variant",
-    max: GENERATE_TEXT_MAX_VARIANTS,
-    maxInstructionsChars: GENERATE_TEXT_MAX_INSTRUCTIONS_CHARS,
-  });
-  assertKeyedItems(options.artifacts, {
-    noun: "artifact",
-    max: GENERATE_TEXT_MAX_ARTIFACTS,
-    maxInstructionsChars: GENERATE_TEXT_MAX_INSTRUCTIONS_CHARS,
-  });
+  assertKeyedItems(variants, "variant", GENERATE_TEXT_MAX_VARIANTS);
+  assertKeyedItems(options.artifacts, "artifact", GENERATE_TEXT_MAX_ARTIFACTS);
   for (const artifact of options.artifacts) {
     assertArtifact(artifact);
   }
@@ -256,13 +286,13 @@ export function resolveGenerateTextOptions(options: GenerateTextOptions): Genera
     assertOneOf(options.callToAction, GENERATE_TEXT_CALLS_TO_ACTION, "callToAction");
   }
   if (options.brandTerms !== undefined) {
-    if (!Array.isArray(options.brandTerms) || options.brandTerms.length === 0 || options.brandTerms.length > GENERATE_TEXT_MAX_BRAND_TERMS) {
+    if (options.brandTerms.length === 0 || options.brandTerms.length > GENERATE_TEXT_MAX_BRAND_TERMS) {
       throw validationError(`brandTerms must contain 1-${GENERATE_TEXT_MAX_BRAND_TERMS} terms.`);
     }
-    let total = 0;
-    for (const term of options.brandTerms) {
-      total += assertBoundedText(term, GENERATE_TEXT_MAX_BRAND_TERM_CHARS, "Each brand term").length;
-    }
+    const total = options.brandTerms.reduce(
+      (sum, term) => sum + assertBoundedText(term, GENERATE_TEXT_MAX_BRAND_TERM_CHARS, "Each brand term"),
+      0,
+    );
     if (total > GENERATE_TEXT_MAX_BRAND_TERMS_TOTAL_CHARS) {
       throw validationError(`Combined brandTerms must be ${GENERATE_TEXT_MAX_BRAND_TERMS_TOTAL_CHARS} characters or fewer.`);
     }
@@ -398,34 +428,25 @@ export function selectGenerateTextShotFrames(
   });
 }
 
-function isNotFoundError(error: unknown): boolean {
-  return isRecord(error) && error.status === 404;
-}
-
 /**
- * Reuses completed shots when they exist, otherwise requests generation only
- * when Mux has none and polls within the caller's budget.
+ * Returns completed shots when they exist. Shot generation and waiting are the
+ * caller's responsibility, so anything short of completed shots, including a
+ * failed lookup, falls back to the storyboard alone.
  */
-async function resolveShotsForAsset(
+async function getCompletedShots(
   assetId: string,
   credentials: WorkflowCredentialsInput | undefined,
-  polling: GenerateTextShotPolling | undefined,
-): Promise<CompletedShotsResult> {
-  const existing = await getShotsForAsset(assetId, { credentials }).catch((error: unknown) => {
-    if (isNotFoundError(error)) {
-      return null;
+): Promise<CompletedShotsResult | undefined> {
+  try {
+    const result = await getShotsForAsset(assetId, { credentials });
+    if (result.status === "completed") {
+      return result;
     }
-    throw error;
-  });
-  if (existing?.status === "completed") {
-    return existing;
+    console.warn(`[@mux/ai] Shots are not ready for asset ${assetId} (status: ${result.status}). Using the storyboard only.`);
+  } catch {
+    console.warn(`[@mux/ai] Shots lookup failed for asset ${assetId}. Using the storyboard only.`);
   }
-  return waitForShotsForAsset(assetId, {
-    credentials,
-    createIfMissing: existing === null,
-    maxAttempts: polling?.maxAttempts ?? GENERATE_TEXT_DEFAULT_SHOT_POLL_ATTEMPTS,
-    pollIntervalMs: polling?.pollIntervalMs,
-  });
+  return undefined;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -949,7 +970,6 @@ async function generateTextInternal(
     callToAction,
     brandTerms,
     useShots = false,
-    shotPolling,
     languageCode,
     outputLanguageCode,
     credentials,
@@ -1002,7 +1022,7 @@ async function generateTextInternal(
       scope: effectiveScope,
     }),
     isAudioOnly ? undefined : getStoryboardUrl(playbackId, 640, shouldSign, credentials, storyboardScope),
-    useShots ? resolveShotsForAsset(assetId, credentials, shotPolling) : undefined,
+    useShots ? getCompletedShots(assetId, credentials) : undefined,
   ]);
 
   const transcriptText = transcriptResult.transcriptText.trim();
@@ -1020,14 +1040,7 @@ async function generateTextInternal(
 
   const imageUrls: string[] = storyboardUrl ? [storyboardUrl] : [];
   if (shotsResult) {
-    const selectedShots = selectGenerateTextShotFrames(shotsResult.shots, assetDurationSeconds!, resolvedScope);
-    if (selectedShots.length === 0) {
-      throw new MuxAiError(
-        effectiveScope ? "No usable shots found in the requested scope." : "No usable shots found for this asset.",
-        { type: "processing_error" },
-      );
-    }
-    imageUrls.push(...selectedShots.map(shot => shot.imageUrl));
+    imageUrls.push(...selectGenerateTextShotFrames(shotsResult.shots, assetDurationSeconds!, resolvedScope).map(shot => shot.imageUrl));
   }
 
   const steering: SteeringOptions = { audience, voice, callToAction, brandTerms };
