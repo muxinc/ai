@@ -155,39 +155,6 @@ const result = await getSummaryAndTags(assetId, {
 
 This is rarely needed — string overrides cover the vast majority of use cases.
 
-## Reusing Guidance in Custom Workflows
-
-`@mux/ai/prompts` exports the same metadata and chapter-quality guidance used by the SDK workflows. These helpers return prompt sections, not complete prompts or model calls. Your workflow owns the task, evidence, output schema, chapter density, boundaries, and timestamp units.
-
-```ts
-import {
-  createChapterGuidance,
-  createPromptBuilder,
-  createSummarizationGuidance,
-} from "@mux/ai/prompts";
-
-const metadata = createSummarizationGuidance({
-  hasSceneContext: true,
-  hasStoryboard: false,
-});
-const chapters = createChapterGuidance({ terminologySource: "evidence" });
-
-const builder = createPromptBuilder({
-  template: {
-    task: { tag: "task", content: "Generate metadata and chapters from the supplied scenes." },
-    ...metadata,
-    chapterQuality: { ...chapters.qualityGuidelines, tag: "chapter_quality" },
-    chapterTitles: chapters.titleGuidelines,
-    outputFormat: { tag: "output_format", content: "Reference chapter starts using scene_index." },
-  },
-  sectionOrder: ["task", "title", "description", "keywords", "qualityGuidelines", "chapterQuality", "chapterTitles", "outputFormat"],
-});
-```
-
-Set `mediaType: "audio"` for transcript-only metadata guidance. For video scene context, set `hasStoryboard` to match the evidence actually supplied; it defaults to `true` to preserve standalone Summarize behavior. Chapter terminology defaults to `"transcript"`; use `"evidence"` when a transcript may be absent.
-
-The same entry point exports `createLanguageSection`, `createLanguageGuidelines`, and shared safety fragments (`NON_DISCLOSURE_CONSTRAINT`, `UNTRUSTED_USER_INPUT_NOTICE`, `CANARY_TRIPWIRE`, `METADATA_BOUNDARY_WARNING`, `NO_FABRICATION_CONSTRAINT`, `STRUCTURED_DATA_CONSTRAINT`, `VISUAL_TEXT_AS_CONTENT`). Include the applicable language and safety sections in your system prompt; the example above only illustrates guidance composition. Output safety helpers such as `createSafetyReporter` remain available for post-processing.
-
 ## Tips for Effective Overrides
 
 - **Start small.** Override one section at a time and compare results against the defaults before changing more.

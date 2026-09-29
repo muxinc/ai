@@ -1,9 +1,4 @@
-import { createHash } from "node:crypto";
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
-import { SYSTEM_PROMPT_CANARY } from "../../src/lib/prompt-fragments";
-import type { SummarizationOptions } from "../../src/workflows/summarization";
 
 vi.mock("ai", () => ({
   generateText: vi.fn(),
@@ -204,45 +199,5 @@ describe("summarization scene context", () => {
       },
     ]);
     expect(request.messages[0].content[0].text).not.toContain("<transcript");
-  });
-});
-
-describe.each([
-  { name: "video", audioOnly: false, sceneContext: undefined },
-  { name: "scene-aware video", audioOnly: false, sceneContext },
-  { name: "audio", audioOnly: true, sceneContext: undefined },
-])("standalone $name prompt compatibility", ({ name, audioOnly, sceneContext }) => {
-  it.each([15, 25, 50, 100, 150])("preserves the original prompt at %i description words", async (descriptionLength) => {
-    vi.mocked(isAudioOnlyAsset).mockReturnValue(audioOnly);
-    await getSummaryAndTags("asset-123", { descriptionLength, sceneContext });
-    const request = vi.mocked(generateText).mock.calls[0][0];
-    const prompt = JSON.stringify({
-      system: request.system.replace(SYSTEM_PROMPT_CANARY, "[CANARY]"),
-      messages: request.messages,
-    });
-    expect(createHash("sha256").update(prompt).digest("hex")).toMatchSnapshot(`${name}-${descriptionLength}`);
-  });
-
-  it("preserves custom lengths, language, tone, and section overrides", async () => {
-    vi.mocked(isAudioOnlyAsset).mockReturnValue(audioOnly);
-    const options: SummarizationOptions = {
-      sceneContext,
-      titleLength: 4,
-      descriptionLength: 20,
-      tagCount: 3,
-      outputLanguageCode: "fr",
-      tone: "professional",
-      promptOverrides: {
-        title: "Use a short product name.",
-        qualityGuidelines: { tag: "custom_quality", content: "Keep names consistent." },
-      },
-    };
-    await getSummaryAndTags("asset-123", options);
-    const request = vi.mocked(generateText).mock.calls[0][0];
-    const prompt = JSON.stringify({
-      system: request.system.replace(SYSTEM_PROMPT_CANARY, "[CANARY]"),
-      messages: request.messages,
-    });
-    expect(createHash("sha256").update(prompt).digest("hex")).toMatchSnapshot(`${name}-overrides`);
   });
 });

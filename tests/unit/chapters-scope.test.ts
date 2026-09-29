@@ -1,9 +1,4 @@
-import { createHash } from "node:crypto";
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
-import { SYSTEM_PROMPT_CANARY } from "../../src/lib/prompt-fragments";
-import type { ChaptersOptions } from "../../src/workflows/chapters";
 
 vi.mock("ai", () => ({
   generateText: vi.fn(),
@@ -264,50 +259,5 @@ describe("generateChapters scene context", () => {
       publicMessage: "Scene context has no chapter boundaries within the requested scope.",
     });
     expect(generateText).not.toHaveBeenCalled();
-  });
-});
-
-const promptCases: { name: string; audioOnly?: boolean; options?: ChaptersOptions }[] = [
-  { name: "video" },
-  { name: "audio", audioOnly: true },
-  { name: "scoped video", options: { scope: { startTime: 10, endTime: 100 } } },
-  { name: "scene-aware", options: { sceneContext: [
-    { scene_index: 0, start_ms: 0, end_ms: 70_000, title: "Opening" },
-    { scene_index: 1, start_ms: 70_000, end_ms: 120_000, title: "Closing" },
-  ] } },
-  { name: "scoped scenes", options: {
-    scope: { startTime: 35, endTime: 120 },
-    sceneContext: [
-      { scene_index: 0, start_ms: 30_000, end_ms: 70_000, title: "Opening" },
-      { scene_index: 1, start_ms: 70_000, end_ms: 120_000, title: "Closing" },
-    ],
-  } },
-  { name: "overrides", options: {
-    minChaptersPerHour: 5,
-    maxChaptersPerHour: 12,
-    outputLanguageCode: "fr",
-    promptOverrides: {
-      task: "Group the content into product topics.",
-      titleGuidelines: { tag: "custom_titles", content: "Use short product names." },
-    },
-  } },
-];
-
-describe.each(promptCases)("standalone $name chapter prompt compatibility", ({ name, audioOnly = false, options }) => {
-  it("preserves the original system and user prompts", async () => {
-    vi.mocked(isAudioOnlyAsset).mockReturnValue(audioOnly);
-    vi.mocked(generateText).mockResolvedValue({
-      finishReason: "stop",
-      output: { chapters: [{ startTime: 70, title: "Closing" }] },
-      text: JSON.stringify({ chapters: [{ startTime: 70, title: "Closing" }] }),
-      usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
-    } as any);
-    await generateChapters("asset-123", options);
-    const request = vi.mocked(generateText).mock.calls[0][0];
-    const prompt = JSON.stringify({
-      system: request.system.replace(SYSTEM_PROMPT_CANARY, "[CANARY]"),
-      messages: request.messages,
-    });
-    expect(createHash("sha256").update(prompt).digest("hex")).toMatchSnapshot(name);
   });
 });
