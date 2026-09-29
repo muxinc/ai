@@ -41,6 +41,22 @@ const result = await generateChapters("your-audio-only-asset-id", {
 });
 ```
 
+### Text Generation (`generateText`)
+
+Writes posts and articles from the transcript alone. Audio-only assets skip the storyboard and reject `useShots`.
+
+```typescript
+import { generateText } from "@mux/ai/workflows";
+
+const result = await generateText("your-audio-only-asset-id", {
+  provider: "openai",
+  artifacts: [
+    { key: "linkedin_post", channel: "linkedin" },
+    { key: "newsletter", maxLength: { unit: "words", value: 600 }, format: "markdown" },
+  ],
+});
+```
+
 ### Embeddings (`generateEmbeddings`)
 
 Embeddings are computed from transcript text. Audio-only assets require a transcript (single-track fallback is supported).

@@ -114,10 +114,12 @@ describe("moderation Integration Tests", () => {
     });
   });
 
+  // Google's URL fetcher intermittently cannot reach image.mux.com, so these tests send image bytes.
   describe("google-vision-api provider", () => {
     it("should detect safe content (not violent, not sexual)", async () => {
       const result = await getModerationScores(safeAsset, {
         provider: "google-vision-api",
+        imageSubmissionMode: "base64",
       });
 
       expect(result).toBeDefined();
@@ -140,6 +142,7 @@ describe("moderation Integration Tests", () => {
     it("should detect violent content", async () => {
       const result = await getModerationScores(violentAsset, {
         provider: "google-vision-api",
+        imageSubmissionMode: "base64",
       });
 
       expect(result).toBeDefined();

@@ -74,6 +74,18 @@ const PROMPT_TAG_NAMES = [
   "keywords_requirements",
   "chapter_guidelines",
   "title_guidelines",
+  "grounding_rules",
+  "writing_rules",
+  "artifact_guidance",
+  "requested_context",
+  "source_brief",
+  "variant_instructions",
+  "artifact_instructions",
+  "steering_audience",
+  "steering_voice",
+  "steering_call_to_action",
+  "steering_brand_terms",
+  "revision_request",
 ];
 
 // Matches `<tag>`, `</tag>`, `< tag >`, `<tag attr="x">`, etc.

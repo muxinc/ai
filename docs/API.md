@@ -19,8 +19,8 @@ beginning up to 90 seconds. Times remain relative to the original asset in
 workflow outputs.
 
 `scope` is supported by `getSummaryAndTags`, `getModerationScores`,
-`hasBurnedInCaptions`, `askQuestions`, `generateChapters`, and
-`generateEmbeddings`. It bounds storyboard or thumbnail selection and
+`hasBurnedInCaptions`, `askQuestions`, `generateChapters`,
+`generateEmbeddings`, and `generateText`. It bounds storyboard or thumbnail selection and
 transcript cues as applicable. The workflow rejects negative, non-finite,
 empty, reversed, or out-of-asset ranges.
 
@@ -564,6 +564,58 @@ player.addChapters([
   { startTime: 120, title: "Conclusion" }
 ]);
 ```
+
+## `generateText(assetId, options)`
+
+Writes a set of source-grounded text artifacts from a video or audio asset. Extracts one editorial brief from the transcript (plus a scoped storyboard for video assets), then writes every variant × artifact combination from that brief in parallel.
+
+**Parameters:**
+
+- `assetId` (string) - Mux asset ID (video or audio-only, must have a ready caption track)
+- `options` - Configuration options
+
+**Options:**
+
+- `artifacts: GenerateTextArtifact[]` - Deliverables to write for every variant (1-5, unique lowercase snake_case keys). Each artifact accepts optional `instructions` (up to 500 characters).
+  - `{ key, channel?, maxLength?, format?, instructions? }`
+  - `channel` is one of `generic` (default), `x`, `linkedin`, `facebook`, `instagram`, `tiktok`, `youtube`. It guides the writing conventions and sets the default cap (300 words for `generic`).
+  - `maxLength` is `{ unit: "characters", value: 10-20000 }` or `{ unit: "words", value: 5-3000 }`. `x` artifacts are always held to 280 characters, even when `maxLength` is expressed in words.
+  - `format` is `"plain"` (default, no Markdown syntax) or `"markdown"`.
+- `variants?: Array<{ key: string; instructions?: string }>` - Named versions of the complete artifact set (1-5, unique keys). Defaults to `[{ key: "default" }]`. Omit `instructions` for an independent take on the same brief.
+- `provider?: 'openai' | 'anthropic' | 'google' | 'baseten' | 'openai-compatible'` - AI provider (default: 'openai')
+- `model?: string` - AI model to use. Defaults per provider: `gpt-5.6-luna` at medium reasoning (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google). Baseten and OpenAI-compatible endpoints have no default — pass `model` or set the `BASETEN_MODEL` / `OPENAI_COMPATIBLE_MODEL` environment variable.
+- `audience?: string` - Intended reader, used as best-effort guidance (up to 160 characters)
+- `voice?: 'conversational' | 'editorial' | 'playful' | 'professional'` - Best-effort writing voice for every artifact
+- `callToAction?: 'none' | 'soft' | 'direct'` - Whether and how the text should invite the reader to engage further
+- `brandTerms?: string[]` - Brand or domain terms to use exactly when the source supports them (1-10 terms, 40 characters each, 240 combined)
+- `useShots?: boolean` - Attach up to 24 evenly sampled shot frames as extra visual evidence when the asset's shots are already generated. When they are not ready, the workflow uses the storyboard alone. Generate shots beforehand with the shots primitives if you need them (default: false, video assets only)
+- `languageCode?: string` - BCP 47 language code for transcript track selection. When omitted, prefers English if available.
+- `outputLanguageCode?: string` - BCP 47 language code for the generated text. When omitted or `'auto'`, follows the selected transcript track's language when it is reliable.
+- `scope?: WorkflowScope` - Asset-relative execution window. Bounds transcript cues, the storyboard, and shot selection.
+
+**Returns:**
+
+```typescript
+interface GenerateTextResult {
+  assetId: string;
+  variants: Array<{
+    key: string;
+    artifacts: Array<{
+      key: string;
+      content: string; // Empty when suppressed by the output-safety scrubber
+    }>;
+  }>;
+  storyboardUrl?: string; // Storyboard attached to the brief (undefined for audio-only assets)
+  usage?: TokenUsage; // Aggregate usage across the brief and every artifact
+  safety?: SafetyReport; // Output-side scrubbing report
+}
+```
+
+**Errors:**
+
+- `validation_error` - Invalid option bounds, malformed language tags, missing transcript, empty scope, or `useShots` on an audio-only asset. Thrown before any model call.
+- `processing_error` - An artifact was still empty or over its length cap after one corrective rewrite (retryable), the editorial brief was suppressed by the output-safety scrubber (retryable), or the model stopped before producing a complete response.
+- `content_policy_error` - The provider blocked the transcript or an image under its content policy (non-retryable).
 
 ## `translateAudio(assetId, toLanguageCode, options?)`
 

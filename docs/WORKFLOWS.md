@@ -27,7 +27,7 @@ const result = await getSummaryAndTags(assetId, {
 
 Either boundary can be omitted. Scoped execution is available for
 summarization, moderation, burned-in caption detection, question answering,
-chapter generation, and embeddings. Visual workflows request a scoped
+chapter generation, embeddings, and text generation. Visual workflows request a scoped
 storyboard or scoped thumbnails, and transcript-based workflows include only
 cues that overlap the range. Returned timestamps remain relative to the full
 asset.
@@ -478,6 +478,73 @@ const vttResult = await generateEmbeddings("your-mux-asset-id", {
   }
 });
 ```
+
+## Text Generation
+
+Write a set of source-grounded text artifacts (social posts, blog posts, newsletter entries) from a video or audio asset. One editorial brief is extracted from the transcript first, and every requested artifact is written from that shared brief, so the whole set stays coherent and grounded in what the source actually says.
+
+```typescript
+import { generateText } from "@mux/ai/workflows";
+
+const result = await generateText("your-mux-asset-id", {
+  provider: "openai",
+  variants: [
+    { key: "product_led", instructions: "Use a promotional, product-led angle." },
+    { key: "insight_led" }, // an independent take on the same brief
+  ],
+  artifacts: [
+    { key: "x_post", channel: "x" },
+    { key: "blog_post", maxLength: { unit: "words", value: 800 }, format: "markdown" },
+  ],
+  audience: "Video developers",
+  voice: "conversational",
+  callToAction: "soft",
+  brandTerms: ["Mux"],
+});
+
+for (const variant of result.variants) {
+  for (const artifact of variant.artifacts) {
+    console.log(variant.key, artifact.key, artifact.content);
+  }
+}
+```
+
+### Requirements
+
+- Asset must have a ready caption/transcript track. The transcript is the authoritative source for names, claims, and meaning.
+- Video assets attach a scoped storyboard to the brief as visual context. Audio-only assets write from the transcript alone.
+
+### Artifacts and Variants
+
+- `artifacts` (1-5, unique snake_case keys) are the deliverables. Each accepts an optional `channel` (`generic`, `x`, `linkedin`, `facebook`, `instagram`, `tiktok`, `youtube`) whose conventions guide the writing and set a default length cap, an optional `maxLength` hard cap in characters or words, an optional `format`, and optional bounded `instructions`. With the `generic` channel, the composition scales with the length budget: a short cap produces a tight standalone piece, a large cap produces developed prose.
+- `format` is `plain` (default) or `markdown`. Plain text forbids Markdown syntax entirely, so the output can be dropped into any text field; choose `markdown` for blog posts and newsletters that render it.
+- `variants` (1-5, unique keys) each receive the complete artifact set. A variant key is only an identifier. Omit `instructions` for an independent take on the same brief, or supply them for a deliberate angle. When `variants` is omitted a single `default` variant is written.
+- Length caps are enforced after generation. Words are counted with locale-aware segmentation, so Markdown syntax is not counted and scripts without spaces are measured correctly. Prompts aim for about 90% of each cap to leave headroom for model miscounting. A draft that is over a cap is handed back to the model with the measured overshoot to trim, and an empty draft is regenerated; if that single retry still misses, the workflow fails with a retryable `processing_error`. A draft that comes back with literal `\n` or `\"` escape sequences and no real line breaks is handed back once to fix; the text is never rewritten locally, and a rewrite that still looks escaped is returned as-is. `x` artifacts are additionally held to 280 characters regardless of the unit used for `maxLength`.
+- Artifacts are written in parallel batches of five, and token usage from every completed call is preserved on the error when one fails.
+
+| Channel | Default cap |
+| --- | --- |
+| `generic` | 300 words |
+| `x` | 280 characters (hard ceiling) |
+| `linkedin` | 300 words |
+| `facebook` | 250 words |
+| `instagram` | 1500 characters |
+| `tiktok` | 100 words |
+| `youtube` | 250 words |
+
+### Steering
+
+`audience`, `voice`, `callToAction`, and `brandTerms` apply to every artifact and are best-effort guidance. They are bounded (audience 160 characters; up to 10 brand terms of 40 characters, 240 combined) and are rendered into dedicated prompt sections, so they cannot override the grounding and safety rules.
+
+### Shot Frames
+
+Set `useShots: true` on a video asset to attach an evenly distributed sample of up to 24 shot frames alongside the storyboard. The workflow only reads shots that are already generated; it never requests or waits for them. When shots are not ready it logs a warning and continues with the storyboard alone, matching `generateEngagementInsights`. To guarantee shots are used, generate them first with `waitForShotsForAsset` from `@mux/ai/primitives`. Not supported for audio-only assets.
+
+### Output Safety
+
+The editorial brief is scrubbed before any artifact is written: leaked list entries are dropped and a leaked headline field fails the run with a retryable `processing_error`, so a transcript-borne injection is caught after one model call rather than multiplied across the set. Every artifact then passes through the same scrubber. A suppressed artifact is returned with empty `content`, and `result.safety.scrubbedFields` names it, so callers can retry or fall back rather than publish a leaked prompt.
+
+`audience`, `voice`, `callToAction`, `brandTerms`, and per-item `instructions` are rendered into the user turn in dedicated sections, never into the system prompt, and `languageCode` / `outputLanguageCode` must be well-formed BCP 47 tags.
 
 ## Caption Translation
 
