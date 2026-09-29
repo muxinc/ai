@@ -6,7 +6,7 @@ import { muxTestAssets } from "../helpers/mux-test-assets";
 
 const MARKDOWN_SYNTAX = /^\s{0,3}#{1,6}\s|\*\*|__|^\s*[-*+]\s|^\s*\d+\.\s|\[[^\]]+\]\([^)]+\)|`/m;
 const MARKDOWN_HEADING = /^\s{0,3}#{1,6}\s\S/m;
-const RECAP_FRAMING = /\b(?:this|the) (?:video|transcript|recording|clip|podcast|episode)\b|\bthe speaker\b|\bin this (?:video|content)\b/i;
+const RECAP_FRAMING = /\b(?:this|the) (?:video|transcript|recording|clip|podcast|episode|speaker|host|presenter) (?:explains|discusses|covers|shows|walks|talks|dives|explores|highlights|demonstrates|describes|goes)\b|\bthe (?:speaker|presenter|narrator)\b|\bin (?:this|today's) (?:video|episode|transcript|recording|content)\b|\bwe(?:'ll| will) (?:explore|discuss|cover)\b/i;
 
 function artifactContent(result: Awaited<ReturnType<typeof generateText>>, variantKey: string, artifactKey: string): string {
   const variant = result.variants.find(entry => entry.key === variantKey);
