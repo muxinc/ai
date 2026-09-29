@@ -7,29 +7,32 @@ import {
 } from "../../src/primitives/shots";
 
 const MOCK_PENDING_RESPONSE = {
-  data: {
-    status: "pending" as const,
-    created_at: "1773108428",
-  },
+  status: "pending" as const,
+  created_at: "1773108428",
 };
 
 const MOCK_ERRORED_RESPONSE = {
-  data: {
-    status: "errored" as const,
-    created_at: "1773108428",
-    error: {
-      type: "arbitrary string",
-      messages: ["string", "array"],
-    },
+  status: "errored" as const,
+  created_at: "1773108428",
+  errors: {
+    type: "arbitrary string",
+    messages: ["string", "array"],
+  },
+};
+
+const MOCK_LEGACY_ERRORED_RESPONSE = {
+  status: "errored" as const,
+  created_at: "1773108428",
+  error: {
+    type: "arbitrary string",
+    messages: ["string", "array"],
   },
 };
 
 const MOCK_COMPLETED_RESPONSE = {
-  data: {
-    status: "completed" as const,
-    created_at: "1773108428",
-    shots_manifest_url: "https://stream.mux.com/aicontext/test-asset/shots.json?signature=test",
-  },
+  status: "completed" as const,
+  created_at: "1773108428",
+  shots_manifest_url: "https://stream.mux.com/aicontext/test-asset/shots.json?signature=test",
 };
 
 const MOCK_SHOTS_MANIFEST = {
@@ -49,12 +52,11 @@ vi.mock("../../src/lib/client-factory", () => ({
   getMuxClientFromEnv: vi.fn(),
 }));
 
-const mockMuxGet = vi.fn();
-const mockMuxPost = vi.fn();
+const mockRetrieveShots = vi.fn();
+const mockGenerateShots = vi.fn();
 const mockFetch = vi.fn();
 const mockCreateClient = vi.fn(() => ({
-  get: mockMuxGet,
-  post: mockMuxPost,
+  video: { assets: { retrieveShots: mockRetrieveShots, generateShots: mockGenerateShots } },
 }));
 
 const { getMuxClientFromEnv } = await import("../../src/lib/client-factory");
@@ -62,8 +64,7 @@ const { getMuxClientFromEnv } = await import("../../src/lib/client-factory");
 beforeEach(() => {
   vi.resetAllMocks();
   mockCreateClient.mockImplementation(() => ({
-    get: mockMuxGet,
-    post: mockMuxPost,
+    video: { assets: { retrieveShots: mockRetrieveShots, generateShots: mockGenerateShots } },
   }));
   vi.stubGlobal("fetch", mockFetch);
   vi.mocked(getMuxClientFromEnv).mockResolvedValue({
@@ -78,7 +79,7 @@ afterEach(() => {
 
 describe("requestShotsForAsset", () => {
   it("returns transformed pending result", async () => {
-    mockMuxPost.mockResolvedValue(MOCK_PENDING_RESPONSE);
+    mockGenerateShots.mockResolvedValue(MOCK_PENDING_RESPONSE);
 
     const result = await requestShotsForAsset("test-asset-123");
 
@@ -88,19 +89,16 @@ describe("requestShotsForAsset", () => {
     });
   });
 
-  it("constructs the correct POST path and empty body", async () => {
-    mockMuxPost.mockResolvedValue(MOCK_PENDING_RESPONSE);
+  it("calls generateShots with the asset ID and an empty body", async () => {
+    mockGenerateShots.mockResolvedValue(MOCK_PENDING_RESPONSE);
 
     await requestShotsForAsset("test-asset-123");
 
-    expect(mockMuxPost).toHaveBeenCalledWith(
-      "/video/v1/assets/test-asset-123/shots",
-      { body: {} },
-    );
+    expect(mockGenerateShots).toHaveBeenCalledWith("test-asset-123", {});
   });
 
   it("passes credentials through to the mux client factory", async () => {
-    mockMuxPost.mockResolvedValue(MOCK_PENDING_RESPONSE);
+    mockGenerateShots.mockResolvedValue(MOCK_PENDING_RESPONSE);
     const credentials = {
       muxTokenId: "token-id",
       muxTokenSecret: "token-secret",
@@ -114,7 +112,7 @@ describe("requestShotsForAsset", () => {
 
 describe("getShotsForAsset", () => {
   it("returns transformed pending result", async () => {
-    mockMuxGet.mockResolvedValue(MOCK_PENDING_RESPONSE);
+    mockRetrieveShots.mockResolvedValue(MOCK_PENDING_RESPONSE);
 
     const result = await getShotsForAsset("test-asset-123");
 
@@ -126,7 +124,7 @@ describe("getShotsForAsset", () => {
   });
 
   it("fetches and transforms completed shots from a manifest URL", async () => {
-    mockMuxGet.mockResolvedValue(MOCK_COMPLETED_RESPONSE);
+    mockRetrieveShots.mockResolvedValue(MOCK_COMPLETED_RESPONSE);
     mockFetch.mockResolvedValue({
       ok: true,
       json: vi.fn().mockResolvedValue(MOCK_SHOTS_MANIFEST),
@@ -155,7 +153,7 @@ describe("getShotsForAsset", () => {
 
   it("falls back to the deprecated image_url field with a warning", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    mockMuxGet.mockResolvedValue(MOCK_COMPLETED_RESPONSE);
+    mockRetrieveShots.mockResolvedValue(MOCK_COMPLETED_RESPONSE);
     mockFetch.mockResolvedValue({
       ok: true,
       json: vi.fn().mockResolvedValue({
@@ -184,7 +182,7 @@ describe("getShotsForAsset", () => {
   });
 
   it("returns transformed errored result", async () => {
-    mockMuxGet.mockResolvedValue(MOCK_ERRORED_RESPONSE);
+    mockRetrieveShots.mockResolvedValue(MOCK_ERRORED_RESPONSE);
 
     const result = await getShotsForAsset("test-asset-123");
 
@@ -199,22 +197,35 @@ describe("getShotsForAsset", () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it("constructs the correct GET path", async () => {
-    mockMuxGet.mockResolvedValue(MOCK_PENDING_RESPONSE);
+  it("calls retrieveShots with the asset ID", async () => {
+    mockRetrieveShots.mockResolvedValue(MOCK_PENDING_RESPONSE);
 
     await getShotsForAsset("test-asset-123");
 
-    expect(mockMuxGet).toHaveBeenCalledWith(
-      "/video/v1/assets/test-asset-123/shots",
-    );
+    expect(mockRetrieveShots).toHaveBeenCalledWith("test-asset-123");
+  });
+
+  it("reads error details from the legacy `error` field", async () => {
+    mockRetrieveShots.mockResolvedValue(MOCK_LEGACY_ERRORED_RESPONSE);
+
+    const result = await getShotsForAsset("test-asset-123");
+
+    expect(result).toEqual({
+      status: "errored",
+      createdAt: "1773108428",
+      error: {
+        type: "arbitrary string",
+        messages: ["string", "array"],
+      },
+    });
   });
 });
 
 describe("waitForShotsForAsset", () => {
   it("requests shots and polls until completed", async () => {
     vi.useFakeTimers();
-    mockMuxPost.mockResolvedValue(MOCK_PENDING_RESPONSE);
-    mockMuxGet
+    mockGenerateShots.mockResolvedValue(MOCK_PENDING_RESPONSE);
+    mockRetrieveShots
       .mockResolvedValueOnce(MOCK_PENDING_RESPONSE)
       .mockResolvedValueOnce(MOCK_COMPLETED_RESPONSE);
     mockFetch.mockResolvedValue({
@@ -244,21 +255,24 @@ describe("waitForShotsForAsset", () => {
     await vi.runAllTimersAsync();
     await expectation;
 
-    expect(mockMuxPost).toHaveBeenCalledTimes(1);
-    expect(mockMuxGet).toHaveBeenCalledTimes(2);
+    expect(mockGenerateShots).toHaveBeenCalledTimes(1);
+    expect(mockRetrieveShots).toHaveBeenCalledTimes(2);
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   it("continues polling when shots were already requested previously", async () => {
     vi.useFakeTimers();
-    mockMuxPost.mockRejectedValue({
+    mockGenerateShots.mockRejectedValue({
       status: 400,
       error: {
-        messages: ["Shots generation has already been requested"],
+        error: {
+          type: "invalid_parameters",
+          messages: ["Shots generation has already been requested"],
+        },
       },
       message: "400 invalid_parameters",
     });
-    mockMuxGet.mockResolvedValue(MOCK_COMPLETED_RESPONSE);
+    mockRetrieveShots.mockResolvedValue(MOCK_COMPLETED_RESPONSE);
     mockFetch.mockResolvedValue({
       ok: true,
       json: vi.fn().mockResolvedValue(MOCK_SHOTS_MANIFEST),
@@ -275,14 +289,14 @@ describe("waitForShotsForAsset", () => {
     await vi.runAllTimersAsync();
     await expectation;
 
-    expect(mockMuxPost).toHaveBeenCalledTimes(1);
-    expect(mockMuxGet).toHaveBeenCalledTimes(1);
+    expect(mockGenerateShots).toHaveBeenCalledTimes(1);
+    expect(mockRetrieveShots).toHaveBeenCalledTimes(1);
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   it("can poll without creating a request first", async () => {
     vi.useFakeTimers();
-    mockMuxGet.mockResolvedValue(MOCK_COMPLETED_RESPONSE);
+    mockRetrieveShots.mockResolvedValue(MOCK_COMPLETED_RESPONSE);
     mockFetch.mockResolvedValue({
       ok: true,
       json: vi.fn().mockResolvedValue(MOCK_SHOTS_MANIFEST),
@@ -299,15 +313,15 @@ describe("waitForShotsForAsset", () => {
 
     await vi.runAllTimersAsync();
     await expectation;
-    expect(mockMuxPost).not.toHaveBeenCalled();
-    expect(mockMuxGet).toHaveBeenCalledTimes(1);
+    expect(mockGenerateShots).not.toHaveBeenCalled();
+    expect(mockRetrieveShots).toHaveBeenCalledTimes(1);
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   it("throws a timeout error when shots never complete", async () => {
     vi.useFakeTimers();
-    mockMuxPost.mockResolvedValue(MOCK_PENDING_RESPONSE);
-    mockMuxGet.mockResolvedValue(MOCK_PENDING_RESPONSE);
+    mockGenerateShots.mockResolvedValue(MOCK_PENDING_RESPONSE);
+    mockRetrieveShots.mockResolvedValue(MOCK_PENDING_RESPONSE);
 
     const promise = waitForShotsForAsset("test-asset-123", {
       pollIntervalMs: 100,
@@ -319,13 +333,13 @@ describe("waitForShotsForAsset", () => {
 
     await vi.runAllTimersAsync();
     await expectation;
-    expect(mockMuxGet).toHaveBeenCalledTimes(3);
+    expect(mockRetrieveShots).toHaveBeenCalledTimes(3);
   });
 
   it("throws immediately when shots enter an errored terminal state", async () => {
     vi.useFakeTimers();
-    mockMuxPost.mockResolvedValue(MOCK_PENDING_RESPONSE);
-    mockMuxGet.mockResolvedValue(MOCK_ERRORED_RESPONSE);
+    mockGenerateShots.mockResolvedValue(MOCK_PENDING_RESPONSE);
+    mockRetrieveShots.mockResolvedValue(MOCK_ERRORED_RESPONSE);
 
     const promise = waitForShotsForAsset("test-asset-123", {
       pollIntervalMs: 100,
@@ -337,14 +351,14 @@ describe("waitForShotsForAsset", () => {
 
     await vi.runAllTimersAsync();
     await expectation;
-    expect(mockMuxGet).toHaveBeenCalledTimes(1);
+    expect(mockRetrieveShots).toHaveBeenCalledTimes(1);
   });
 
   it("enforces a minimum poll interval when zero is provided", async () => {
     vi.useFakeTimers();
     const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
-    mockMuxPost.mockResolvedValue(MOCK_PENDING_RESPONSE);
-    mockMuxGet
+    mockGenerateShots.mockResolvedValue(MOCK_PENDING_RESPONSE);
+    mockRetrieveShots
       .mockResolvedValueOnce(MOCK_PENDING_RESPONSE)
       .mockResolvedValueOnce(MOCK_COMPLETED_RESPONSE);
     mockFetch.mockResolvedValue({

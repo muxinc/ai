@@ -8,7 +8,7 @@ export default defineConfig({
   clean: true,
   splitting: false,
   external: [
-    "@mux/mux-node",
+    "@mux/ts",
     "dedent",
     "dotenv",
     "ai",
