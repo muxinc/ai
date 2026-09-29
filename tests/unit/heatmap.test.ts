@@ -13,7 +13,18 @@ import {
 const MOCK_HEATMAP_DATA = Array.from({ length: 100 }, (_, i) =>
   Math.round((1.0 + Math.sin(i / 10) * 0.5) * 100) / 100);
 
+// Shape observed from the live API.
 const MOCK_API_RESPONSE = {
+  total_row_count: null,
+  timeframe: [1770831101, 1770917501],
+  data: {
+    asset_id: "test-asset-123",
+    heatmap: MOCK_HEATMAP_DATA,
+  },
+};
+
+// Shape described by the API reference and the SDK types.
+const MOCK_DOCUMENTED_API_RESPONSE = {
   total_row_count: null,
   timeframe: [1770831101, 1770917501],
   data: {
@@ -26,8 +37,8 @@ const MOCK_EMPTY_HEATMAP_RESPONSE = {
   total_row_count: null,
   timeframe: [1770831101, 1770917501],
   data: {
-    total_views: 0,
-    value: Array.from({ length: 100 }).fill(0),
+    asset_id: "test-asset-empty",
+    heatmap: Array.from({ length: 100 }).fill(0),
   },
 };
 
@@ -74,8 +85,24 @@ describe("getHeatmapForAsset", () => {
 
     expect(result.heatmap).toHaveLength(100);
     expect(result.assetId).toBe("test-asset-123");
-    expect(result.totalViews).toBe(1024);
+    expect(result.totalViews).toBeUndefined();
     expect(result.timeframe).toEqual([1770831101, 1770917501]);
+  });
+
+  it("reads the documented value/total_views shape", async () => {
+    mockAssetHeatmap.mockResolvedValue(MOCK_DOCUMENTED_API_RESPONSE);
+
+    const result = await getHeatmapForAsset("test-asset-123");
+
+    expect(result.heatmap).toEqual(MOCK_HEATMAP_DATA);
+    expect(result.assetId).toBe("test-asset-123");
+    expect(result.totalViews).toBe(1024);
+  });
+
+  it("throws when the response has no heatmap values", async () => {
+    mockAssetHeatmap.mockResolvedValue({ timeframe: [1, 2], data: { asset_id: "x" } });
+
+    await expect(getHeatmapForAsset("x")).rejects.toThrow("missing heatmap values");
   });
 
   it("transforms snake_case to camelCase", async () => {
@@ -85,10 +112,8 @@ describe("getHeatmapForAsset", () => {
 
     expect(result).toHaveProperty("assetId");
     expect(result).toHaveProperty("heatmap");
-    expect(result).toHaveProperty("totalViews");
     expect(result).toHaveProperty("timeframe");
-    expect(result).not.toHaveProperty("total_views");
-    expect(result).not.toHaveProperty("value");
+    expect(result).not.toHaveProperty("asset_id");
   });
 
   it("handles empty heatmap array (all zeros)", async () => {
@@ -150,7 +175,10 @@ describe("getHeatmapForVideo", () => {
   });
 
   it("returns videoId in response", async () => {
-    mockVideoHeatmap.mockResolvedValue(MOCK_API_RESPONSE);
+    mockVideoHeatmap.mockResolvedValue({
+      ...MOCK_API_RESPONSE,
+      data: { video_id: "test-video-123", heatmap: MOCK_HEATMAP_DATA },
+    });
 
     const result = await getHeatmapForVideo("test-video-123");
 
@@ -176,7 +204,10 @@ describe("getHeatmapForPlaybackId", () => {
   });
 
   it("returns playbackId in response", async () => {
-    mockPlaybackIdHeatmap.mockResolvedValue(MOCK_API_RESPONSE);
+    mockPlaybackIdHeatmap.mockResolvedValue({
+      ...MOCK_API_RESPONSE,
+      data: { playback_id: "test-playback-123", heatmap: MOCK_HEATMAP_DATA },
+    });
 
     const result = await getHeatmapForPlaybackId("test-playback-123");
 

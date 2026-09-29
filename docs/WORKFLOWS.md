@@ -396,7 +396,7 @@ The workflow combines multiple data sources for comprehensive analysis:
 - Use **`skipShots: true`** for latency-sensitive API endpoints (saves up to 30s)
 - Videos need sufficient view data — new or low-view videos may not have engagement data
 - Audio-only assets work but lack visual analysis
-- The heatmap is an array of per-bucket engagement values across the video timeline; the number of buckets scales with the video duration
+- The heatmap is 100 data points regardless of video length — each point represents 1/100th of the video
 
 ## Chapter Generation
 

@@ -14,7 +14,7 @@ const MOCK_API_RESPONSE = {
   total_row_count: null,
   timeframe: [1770831101, 1770917501],
   data: {
-    total_views: 1024,
+    asset_id: "test-asset-123",
     hotspots: [
       { start_ms: 86922, score: 0.875, end_ms: 90331 },
       { start_ms: 131235, score: 0.76, end_ms: 141461 },
@@ -29,7 +29,7 @@ const MOCK_EMPTY_RESPONSE = {
   total_row_count: null,
   timeframe: [1770831101, 1770917501],
   data: {
-    total_views: 0,
+    video_id: "test-video-123",
     hotspots: [],
   },
 };
@@ -38,7 +38,7 @@ const MOCK_SINGLE_HOTSPOT_RESPONSE = {
   total_row_count: null,
   timeframe: [1770831101, 1770917501],
   data: {
-    total_views: 12,
+    playback_id: "test-playback-123",
     hotspots: [
       { start_ms: 5000, score: 0.95, end_ms: 10000 },
     ],

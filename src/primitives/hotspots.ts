@@ -28,8 +28,8 @@ export interface HotspotResponse {
   videoId?: string;
   playbackId?: string;
   hotspots: Hotspot[];
-  /** Number of views aggregated into the hotspots during the timeframe */
-  totalViews: number;
+  /** Number of views aggregated into the hotspots, when the API reports it */
+  totalViews?: number;
 }
 
 /**
@@ -89,6 +89,15 @@ export async function getHotspotsForPlaybackId(
 
 type HotspotIdentifierType = "assets" | "videos" | "playback-ids";
 
+/** The live API returns identifier fields the SDK types omit; `total_views` is documented but not observed. */
+interface HotspotsApiData {
+  asset_id?: string;
+  video_id?: string;
+  playback_id?: string;
+  hotspots: Array<{ start_ms: number; end_ms: number; score: number }>;
+  total_views?: number;
+}
+
 /**
  * Internal helper to fetch hotspots from the Mux Data engagement API.
  */
@@ -117,16 +126,17 @@ async function fetchHotspots(
     mux.data.engagement.playbackIds :
     mux.data.engagement[identifierType];
   const response = await resource.hotspots(id, query);
+  const data = response.data as HotspotsApiData;
 
   return {
-    assetId: identifierType === "assets" ? id : undefined,
-    videoId: identifierType === "videos" ? id : undefined,
-    playbackId: identifierType === "playback-ids" ? id : undefined,
-    hotspots: response.data.hotspots.map(h => ({
+    assetId: data.asset_id ?? (identifierType === "assets" ? id : undefined),
+    videoId: data.video_id ?? (identifierType === "videos" ? id : undefined),
+    playbackId: data.playback_id ?? (identifierType === "playback-ids" ? id : undefined),
+    hotspots: data.hotspots.map(h => ({
       startMs: h.start_ms,
       endMs: h.end_ms,
       score: h.score,
     })),
-    totalViews: response.data.total_views,
+    totalViews: data.total_views,
   };
 }
