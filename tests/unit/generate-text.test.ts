@@ -376,23 +376,59 @@ describe("generateText", () => {
     });
   });
 
-  it("repairs double-escaped provider output, splitting collapsed lists only in markdown", async () => {
-    queueGenerations([
-      String.raw`Plain intro.\n\nSay \"GIF\" out loud.`,
-      String.raw`Intro.\n\n### Heading\nBody with \"quotes\".  * One * Two`,
-    ]);
+  it("hands a double-escaped draft back once and accepts the fixed rewrite without rewriting text locally", async () => {
+    const escaped = String.raw`Intro.\n\nSay \"GIF\" out loud.`;
+    queueGenerations([escaped, "Intro.\n\nSay \"GIF\" out loud."]);
 
     const result = await generateText("asset-123", {
-      artifacts: [
-        { key: "post" },
-        { key: "blog_post", format: "markdown" },
-      ],
+      artifacts: [{ key: "post" }],
     });
 
-    expect(result.variants[0].artifacts).toEqual([
-      { key: "post", content: "Plain intro.\n\nSay \"GIF\" out loud." },
-      { key: "blog_post", content: "Intro.\n\n### Heading\nBody with \"quotes\".\n* One * Two" },
+    expect(call(2).messages).toEqual([
+      call(1).messages[0],
+      { role: "assistant", content: JSON.stringify({ content: escaped }) },
+      {
+        role: "user",
+        content: String.raw`<revision_request>
+That draft contains literal escape sequences such as \n and \" instead of real line breaks and quotation marks. Return the complete text using real line breaks and plain quotation marks.
+</revision_request>`,
+      },
     ]);
+    expect(result.variants[0].artifacts[0].content).toBe("Intro.\n\nSay \"GIF\" out loud.");
+  });
+
+  it("returns a still-escaped rewrite as-is rather than failing, since the text may be legitimate", async () => {
+    const literal = String.raw`Split lines on \n in your parser.`;
+    queueGenerations([literal, literal]);
+
+    const result = await generateText("asset-123", {
+      artifacts: [{ key: "post" }],
+    });
+
+    expect(generateTextWithModel).toHaveBeenCalledTimes(3);
+    expect(result.variants[0].artifacts[0].content).toBe(literal);
+  });
+
+  it("does not treat a literal escape sequence in multi-line text as double-escaped", async () => {
+    queueGenerations([`${String.raw`Use \n to break lines.`}\n\nThat is all.`]);
+
+    await generateText("asset-123", {
+      artifacts: [{ key: "post" }],
+    });
+
+    expect(generateTextWithModel).toHaveBeenCalledTimes(2);
+  });
+
+  it("asks for both fixes when a draft is double-escaped and over its cap", async () => {
+    queueGenerations([`${"x".repeat(280)}\\n`, "short enough"]);
+
+    await generateText("asset-123", {
+      artifacts: [{ key: "x_post", channel: "x" }],
+    });
+
+    const revision = call(2).messages[2].content;
+    expect(revision).toContain("That draft measured 282 characters against a hard cap of 280.");
+    expect(revision).toContain("That draft contains literal escape sequences");
   });
 
   it("retries an empty draft once and fails retryably if it is still empty", async () => {

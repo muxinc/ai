@@ -9,7 +9,7 @@ import {
 import type { ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImageAsBase64 } from "../lib/image-download.ts";
 import { getLanguageName } from "../lib/language-codes.ts";
-import { normalizeMarkdownDescription, unescapeDoubleEscapedText } from "../lib/markdown-normalization.ts";
+import { normalizeMarkdownDescription } from "../lib/markdown-normalization.ts";
 import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
@@ -1016,7 +1016,7 @@ async function getSummaryAndTagsInternal(
   }
 
   const scrubbedTitle = safety.scrub(analysisResponse.result.title, "title");
-  const normalizedDescription = normalizeMarkdownDescription(unescapeDoubleEscapedText(analysisResponse.result.description));
+  const normalizedDescription = normalizeMarkdownDescription(analysisResponse.result.description);
   const scrubbedDescription = safety.scrub(normalizedDescription, "description");
   const scrubbedKeywords = (analysisResponse.result.keywords ?? [])
     .map((kw, i) => safety.scrubDetailed(kw, `keywords[${i}]`))

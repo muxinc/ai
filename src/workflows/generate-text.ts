@@ -6,7 +6,6 @@ import {
   withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
 import { getLanguageName } from "../lib/language-codes.ts";
-import { normalizeMarkdownDescription, unescapeDoubleEscapedText } from "../lib/markdown-normalization.ts";
 import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
@@ -603,12 +602,6 @@ const FORMAT_GUIDANCE: Record<GenerateTextFormat, string> = {
   markdown: "Format the text as Markdown. Use headings, lists, and emphasis only where they help the reader.",
 };
 
-/** Repairs double-escaped provider output before it is measured or returned. */
-function normalizeArtifactContent(content: string, format: GenerateTextFormat): string {
-  const unescaped = unescapeDoubleEscapedText(content);
-  return (format === "markdown" ? normalizeMarkdownDescription(unescaped) : unescaped).trim();
-}
-
 const VOICE_GUIDANCE: Record<GenerateTextVoice, string> = {
   conversational: "Write like a thoughtful person explaining the idea to one specific reader. Prefer natural phrasing over polished corporate language.",
   editorial: "Use a clear editorial point of view, purposeful structure, and specific supporting detail.",
@@ -762,6 +755,18 @@ function buildArtifactUserPrompt(args: {
   ]);
 }
 
+const ESCAPED_LINE_BREAK = /\\[nr]/;
+
+/**
+ * Some providers occasionally escape the content string twice, returning
+ * literal `\n` and `\"` sequences instead of line breaks and quotes.
+ */
+function hasEscapedLineBreaks(content: string): boolean {
+  return !content.includes("\n") && ESCAPED_LINE_BREAK.test(content);
+}
+
+const ESCAPED_TEXT_REVISION = "That draft contains literal escape sequences such as \\n and \\\" instead of real line breaks and quotation marks. Return the complete text using real line breaks and plain quotation marks.";
+
 function describeLengthRevision({ limit, actual }: { limit: GenerateTextLengthLimit; actual: number }): string {
   const target = resolveLengthTarget(limit);
   return `That draft measured ${actual} ${limit.unit} against a hard cap of ${limit.value}. ` +
@@ -846,14 +851,15 @@ interface ArtifactStepResult {
   /** Usage from every attempt, including a rejected first draft. */
   usages: TokenUsage[];
   unexpectedKeys: string[];
-  /** Set when the final draft is still empty or over a limit. */
+  /** Set when the final draft is still empty or over a limit. Escaped text alone never fails. */
   violation?: { limit: GenerateTextLengthLimit; actual: number } | "empty";
 }
 
 /**
- * Writes one artifact. A draft that is empty or over a cap gets exactly one
- * corrective retry. An over-cap draft is handed back to the model with the
- * measured overshoot so it trims that text rather than starting over.
+ * Writes one artifact. A draft that is empty, over a cap, or double-escaped
+ * gets exactly one corrective retry. Non-empty drafts are handed back to the
+ * model with the problem described so it fixes that text rather than starting
+ * over. Content is never rewritten locally.
  */
 async function generateArtifactWithModel(args: {
   provider: SupportedProvider;
@@ -861,7 +867,6 @@ async function generateArtifactWithModel(args: {
   systemPrompt: string;
   userPrompt: string;
   limits: GenerateTextLengthLimit[];
-  format: GenerateTextFormat;
   credentials?: WorkflowCredentialsInput;
 }): Promise<ArtifactStepResult> {
   "use step";
@@ -884,7 +889,7 @@ async function generateArtifactWithModel(args: {
       throw new Error("Generated text output missing");
     }
     return {
-      content: normalizeArtifactContent(artifactSchema.parse(output).content, args.format),
+      content: artifactSchema.parse(output).content.trim(),
       usage: readUsage(response),
       unexpectedKeys: detectUnexpectedKeysFromRawText(response.text, artifactSchema.keyof().options),
     };
@@ -896,10 +901,15 @@ async function generateArtifactWithModel(args: {
   const initialMessages: ModelMessage[] = [{ role: "user", content: args.userPrompt }];
   const first = await attempt(initialMessages);
   const firstViolation = judge(first.content);
-  if (!firstViolation) {
+  const firstEscaped = hasEscapedLineBreaks(first.content);
+  if (!firstViolation && !firstEscaped) {
     return { content: first.content, usages: [first.usage], unexpectedKeys: first.unexpectedKeys };
   }
 
+  const feedback = [
+    firstViolation && firstViolation !== "empty" ? describeLengthRevision(firstViolation) : undefined,
+    firstEscaped ? ESCAPED_TEXT_REVISION : undefined,
+  ].filter((line): line is string => Boolean(line)).join("\n");
   const revisionMessages: ModelMessage[] = firstViolation === "empty" ?
       [{
         role: "user",
@@ -908,7 +918,7 @@ async function generateArtifactWithModel(args: {
       [
         ...initialMessages,
         { role: "assistant", content: JSON.stringify({ content: first.content }) },
-        { role: "user", content: renderSection({ tag: "revision_request", content: describeLengthRevision(firstViolation) }) },
+        { role: "user", content: renderSection({ tag: "revision_request", content: feedback }) },
       ];
   const second = await attempt(revisionMessages)
     .catch((error: unknown) => rethrowWithTokenUsage(error, [first.usage]));
@@ -1096,7 +1106,6 @@ async function generateTextInternal(
     systemPrompt: buildArtifactSystemPrompt({ artifact, variant, limits, hasOutputLanguage: Boolean(languageName) }),
     userPrompt: buildArtifactUserPrompt({ brief, artifact, variant, steering, languageName }),
     limits,
-    format: artifact.format ?? "plain",
     credentials,
   })), collectedUsage, provider);
 
