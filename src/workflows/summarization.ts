@@ -1,5 +1,4 @@
 import { generateText, Output } from "ai";
-import dedent from "dedent";
 import { z } from "zod";
 
 import {
@@ -56,6 +55,7 @@ import {
 import { getStoryboardUrl } from "../primitives/storyboards.ts";
 import { fetchTranscriptForAsset, getReadyTextTracks, getReliableLanguageCode } from "../primitives/transcripts.ts";
 import type { SceneContextItemV1 } from "../prompts/scene-context.ts";
+import { createSummarizationGuidance, DEFAULT_DESCRIPTION_LENGTH, DEFAULT_SUMMARY_KEYWORD_LIMIT } from "../prompts/summarization.ts";
 import type {
   ImageSubmissionMode,
   ScopedMuxAIOptions,
@@ -68,9 +68,7 @@ import type {
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const DEFAULT_SUMMARY_KEYWORD_LIMIT = 10;
-export const DEFAULT_TITLE_LENGTH = 10;
-export const DEFAULT_DESCRIPTION_LENGTH = 50;
+export { DEFAULT_DESCRIPTION_LENGTH, DEFAULT_SUMMARY_KEYWORD_LIMIT, DEFAULT_TITLE_LENGTH } from "../prompts/summarization.ts";
 
 /**
  * Length caps (`.max(...)`) on each free-text field are a mechanical
@@ -243,185 +241,36 @@ interface PromptConstraints {
   tagCount?: number;
 }
 
-const DESCRIPTION_LENGTH_THRESHOLD_SMALL = 25;
-const DESCRIPTION_LENGTH_THRESHOLD_LARGE = 100;
-
-function buildDescriptionGuidance(wordCount: number, contentType: "video" | "audio"): string {
-  if (wordCount < DESCRIPTION_LENGTH_THRESHOLD_SMALL) {
-    if (contentType === "video") {
-      return dedent`A brief summary of the video in no more than ${wordCount} words. Shorter is fine.
-        Focus on the single most important subject or action.
-        Write in present tense.`;
-    }
-    return dedent`A brief summary of the audio content in no more than ${wordCount} words. Shorter is fine.
-      Focus on the single most important topic or theme.
-      Write in present tense.`;
-  }
-
-  if (wordCount > DESCRIPTION_LENGTH_THRESHOLD_LARGE) {
-    if (contentType === "video") {
-      return dedent`A detailed summary that describes what happens across the video.
-        Never exceed ${wordCount} words, but shorter is perfectly fine. You may use multiple sentences.
-        Be thorough: cover subjects, actions, setting, progression, and any notable details visible across frames.
-        Write in present tense. Be specific about observable details rather than making assumptions.
-        If the transcript provides dialogue or narration, incorporate key points but prioritize visual content.`;
-    }
-    return dedent`A detailed summary that describes the audio content.
-      Never exceed ${wordCount} words, but shorter is perfectly fine. You may use multiple sentences.
-      Be thorough: cover topics, speakers, themes, progression, and any notable insights.
-      Write in present tense. Be specific about what is discussed or presented rather than making assumptions.
-      Focus on the spoken content and any key insights, dialogue, or narrative elements.`;
-  }
-
-  if (contentType === "video") {
-    return dedent`A summary that describes what happens across the video.
-      Never exceed ${wordCount} words, but shorter is perfectly fine. You may use multiple sentences.
-      Cover the main subjects, actions, setting, and any notable progression visible across frames.
-      Write in present tense. Be specific about observable details rather than making assumptions.
-      If the transcript provides dialogue or narration, incorporate key points but prioritize visual content.`;
-  }
-  return dedent`A summary that describes the audio content.
-    Never exceed ${wordCount} words, but shorter is perfectly fine. You may use multiple sentences.
-    Cover the main topics, speakers, themes, and any notable progression in the discussion or narration.
-    Write in present tense. Be specific about what is discussed or presented rather than making assumptions.
-    Focus on the spoken content and any key insights, dialogue, or narrative elements.`;
-}
-
-function buildSceneAwareDescriptionGuidance(wordCount: number): string {
-  if (wordCount < DESCRIPTION_LENGTH_THRESHOLD_SMALL) {
-    return dedent`A brief summary of the video in no more than ${wordCount} words. Shorter is fine.
-      Focus on the single most important subject or action across the ordered scenes.
-      Use the storyboard as direct visual evidence and the scene context to preserve progression.
-      Write in present tense.`;
-  }
-
-  if (wordCount > DESCRIPTION_LENGTH_THRESHOLD_LARGE) {
-    return dedent`A detailed summary that describes what happens across the ordered scenes.
-      Never exceed ${wordCount} words, but shorter is perfectly fine. You may use multiple sentences.
-      Be thorough: cover subjects, actions, setting, progression, and notable details supported across scenes.
-      Use the storyboard as direct visual evidence and the scene context to preserve progression.
-      Write in present tense. If the transcript provides dialogue or narration, incorporate key points while preserving scene progression.`;
-  }
-
-  return dedent`A summary that describes what happens across the ordered scenes.
-    Never exceed ${wordCount} words, but shorter is perfectly fine. You may use multiple sentences.
-    Cover the main subjects, actions, setting, and notable progression supported across scenes.
-    Use the storyboard as direct visual evidence and the scene context to preserve progression.
-    Write in present tense. If the transcript provides dialogue or narration, incorporate key points while preserving scene progression.`;
-}
-
 interface SummarizationEvidence {
   hasSceneContext?: boolean;
 }
 
 function createSummarizationBuilder(
-  { titleLength, descriptionLength, tagCount }: PromptConstraints = {},
+  constraints: PromptConstraints = {},
   { hasSceneContext = false }: SummarizationEvidence = {},
 ) {
-  const titleLimit = titleLength ?? DEFAULT_TITLE_LENGTH;
-  const keywordLimit = tagCount ?? DEFAULT_SUMMARY_KEYWORD_LIMIT;
-
-  const task = hasSceneContext ?
-    "Analyze the storyboard frames and ordered scene context together, then generate metadata that captures the full progression of the video content." :
-    "Analyze the storyboard frames and generate metadata that captures the essence of the video content.";
-
-  const qualityGuidelines = hasSceneContext ?
-    dedent`
-      - Follow scene_index order to understand what begins, develops, and concludes
-      - Use scene narratives and concepts as grounded evidence, preserving consistent terminology across the output
-      - Use the storyboard as direct visual evidence for whole-asset details
-      - Balance brevity with informativeness` :
-    dedent`
-      - Examine all frames to understand the full context and progression
-      - Be precise: "golden retriever" is better than "dog" when identifiable
-      - Capture the narrative: what begins, develops, and concludes
-      - Balance brevity with informativeness`;
-
   return createPromptBuilder<SummarizationPromptSections>({
     template: {
       task: {
         tag: "task",
-        content: task,
-      },
-      title: {
-        tag: "title_requirements",
-        content: dedent`
-          A concise, label-style title — not a sentence or description.
-          Never exceed ${titleLimit} words, but shorter is better.
-          Think of how a video card title, playlist entry, or file name would read — e.g. "Predator: Badlands Trailer" or "Chef Prepares Holiday Feast".
-          Start with the primary subject or topic. Never begin with "A video of" or similar phrasing.
-          Use specific nouns over lengthy descriptions. Avoid clauses, conjunctions, or narrative structure.`,
-      },
-      description: {
-        tag: "description_requirements",
         content: hasSceneContext ?
-            buildSceneAwareDescriptionGuidance(descriptionLength ?? DEFAULT_DESCRIPTION_LENGTH) :
-            buildDescriptionGuidance(descriptionLength ?? DEFAULT_DESCRIPTION_LENGTH, "video"),
+          "Analyze the storyboard frames and ordered scene context together, then generate metadata that captures the full progression of the video content." :
+          "Analyze the storyboard frames and generate metadata that captures the essence of the video content.",
       },
-      keywords: {
-        tag: "keywords_requirements",
-        content: dedent`
-          Specific, searchable terms (up to ${keywordLimit}) that capture:
-          - Primary subjects (people, animals, objects)
-          - Actions and activities being performed
-          - Setting and environment
-          - Notable objects or tools
-          - Style or genre (if applicable)
-          Prefer concrete nouns and action verbs over abstract concepts.
-          Use lowercase. Avoid redundant or overly generic terms like "video" or "content".`,
-      },
-      qualityGuidelines: {
-        tag: "quality_guidelines",
-        content: qualityGuidelines,
-      },
+      ...createSummarizationGuidance({ ...constraints, hasSceneContext }),
     },
     sectionOrder: ["task", "title", "description", "keywords", "qualityGuidelines"],
   });
 }
 
-function createAudioOnlyBuilder({ titleLength, descriptionLength, tagCount }: PromptConstraints = {}) {
-  const titleLimit = titleLength ?? DEFAULT_TITLE_LENGTH;
-  const keywordLimit = tagCount ?? DEFAULT_SUMMARY_KEYWORD_LIMIT;
-
+function createAudioOnlyBuilder(constraints: PromptConstraints = {}) {
   return createPromptBuilder<SummarizationPromptSections>({
     template: {
       task: {
         tag: "task",
         content: "Analyze the transcript and generate metadata that captures the essence of the audio content.",
       },
-      title: {
-        tag: "title_requirements",
-        content: dedent`
-          A concise, label-style title — not a sentence or description.
-          Never exceed ${titleLimit} words, but shorter is better.
-          Think of how a podcast episode title or playlist entry would read — e.g. "Weekly News Roundup" or "Interview with Dr. Smith".
-          Start with the primary subject or topic. Never begin with "An audio of" or similar phrasing.
-          Use specific nouns over lengthy descriptions. Avoid clauses, conjunctions, or narrative structure.`,
-      },
-      description: {
-        tag: "description_requirements",
-        content: buildDescriptionGuidance(descriptionLength ?? DEFAULT_DESCRIPTION_LENGTH, "audio"),
-      },
-      keywords: {
-        tag: "keywords_requirements",
-        content: dedent`
-          Specific, searchable terms (up to ${keywordLimit}) that capture:
-          - Primary topics and themes
-          - Speakers or presenters (if named)
-          - Key concepts and terminology
-          - Content type (interview, lecture, music, etc.)
-          - Genre or style (if applicable)
-          Prefer concrete nouns and relevant terms over abstract concepts.
-          Use lowercase. Avoid redundant or overly generic terms like "audio" or "content".`,
-      },
-      qualityGuidelines: {
-        tag: "quality_guidelines",
-        content: dedent`
-          - Analyze the full transcript to understand context and themes
-          - Be precise: use specific terminology when mentioned
-          - Capture the narrative: what is introduced, discussed, and concluded
-          - Balance brevity with informativeness`,
-      },
+      ...createSummarizationGuidance({ ...constraints, mediaType: "audio" }),
     },
     sectionOrder: ["task", "title", "description", "keywords", "qualityGuidelines"],
   });

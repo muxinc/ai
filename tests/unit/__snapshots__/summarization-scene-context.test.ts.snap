@@ -1,0 +1,37 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`standalone 'audio' prompt compatibility > preserves custom lengths, language, tone, and section overrides > audio-overrides 1`] = `"c5b125a4a75af909c76282bc28b180b32205b78a7bc7b329ba6d335d286c15da"`;
+
+exports[`standalone 'audio' prompt compatibility > preserves the original prompt at 15 description words > audio-15 1`] = `"21ffc0d06abec807857dd1593a9af146ee11b9c1270023baaffc86be8406416f"`;
+
+exports[`standalone 'audio' prompt compatibility > preserves the original prompt at 25 description words > audio-25 1`] = `"60a009b74656ed2ed87596b7b66448ed15c5f8eb899d25e6e5bd7f0a15662322"`;
+
+exports[`standalone 'audio' prompt compatibility > preserves the original prompt at 50 description words > audio-50 1`] = `"535eb494d14d68f5d0d1e54ad52f1d58e7e82fe34e01d6990101e7ab09be9a63"`;
+
+exports[`standalone 'audio' prompt compatibility > preserves the original prompt at 100 description words > audio-100 1`] = `"7fe2df1e28097afd564e575a3b0392abee764a9750de451d25787a4dc549ec94"`;
+
+exports[`standalone 'audio' prompt compatibility > preserves the original prompt at 150 description words > audio-150 1`] = `"cb083a865575f550eaa5e42c89d8094888d6bfbf3356457123496670827bf35a"`;
+
+exports[`standalone 'scene-aware video' prompt compatibility > preserves custom lengths, language, tone, and section overrides > scene-aware video-overrides 1`] = `"fb8f8ad9a1cd2916231d352438230a46275aced7421d3d35aed1a7277d5fb976"`;
+
+exports[`standalone 'scene-aware video' prompt compatibility > preserves the original prompt at 15 description words > scene-aware video-15 1`] = `"70a20ca51feb29b34ce9f3fada504437dcdc5f51f8d18047714ffc5691a769dc"`;
+
+exports[`standalone 'scene-aware video' prompt compatibility > preserves the original prompt at 25 description words > scene-aware video-25 1`] = `"b71330036d63e55b754f145b16bcf3f67f7df86e32884202467030f07cb958dc"`;
+
+exports[`standalone 'scene-aware video' prompt compatibility > preserves the original prompt at 50 description words > scene-aware video-50 1`] = `"5f5f51b4def1cb099dac208f0a1d3d9683ce47ceb1b4864b1885e1ebd6a8bac6"`;
+
+exports[`standalone 'scene-aware video' prompt compatibility > preserves the original prompt at 100 description words > scene-aware video-100 1`] = `"e4de721a16a51fe3535843bfc4b0b783c205890a61dda2c403c400edc3e4c450"`;
+
+exports[`standalone 'scene-aware video' prompt compatibility > preserves the original prompt at 150 description words > scene-aware video-150 1`] = `"94d97fcf398b3e845d40abd47d0fff90d521e48b2a30061aaabe8452122c3757"`;
+
+exports[`standalone 'video' prompt compatibility > preserves custom lengths, language, tone, and section overrides > video-overrides 1`] = `"67a11fab633af8c124e323bc93d1ca6617b8ffa4a5273afec0b2f19dd938616a"`;
+
+exports[`standalone 'video' prompt compatibility > preserves the original prompt at 15 description words > video-15 1`] = `"cf5edef284071dafc3f3c92cfd8f816e59d17fcdb9f391944dcdc53f9d3b782c"`;
+
+exports[`standalone 'video' prompt compatibility > preserves the original prompt at 25 description words > video-25 1`] = `"4bf448acaec4932f637e947809e57b7147dc303016213962352df1f48988d5a4"`;
+
+exports[`standalone 'video' prompt compatibility > preserves the original prompt at 50 description words > video-50 1`] = `"bbddf5d5b51a487c1ca95e76e3d378df20ec751b65b2dea3783f9c5b4591230b"`;
+
+exports[`standalone 'video' prompt compatibility > preserves the original prompt at 100 description words > video-100 1`] = `"9fb851804db3a51f9d377f0c46b824c5337a9350b3f3225f4f19b70ce372aaf0"`;
+
+exports[`standalone 'video' prompt compatibility > preserves the original prompt at 150 description words > video-150 1`] = `"ed0196d9c31264e9cc08ce08c87fb0383a47e6002b9e0f6c8560744417e7956a"`;

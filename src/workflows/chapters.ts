@@ -33,6 +33,7 @@ import {
   getReadyTextTracks,
   getReliableLanguageCode,
 } from "../primitives/transcripts.ts";
+import { createChapterGuidance } from "../prompts/chapters.ts";
 import type { SceneContextItemV1 } from "../prompts/scene-context.ts";
 import type { ScopedMuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "../types.ts";
 
@@ -237,6 +238,8 @@ async function generateChaptersWithAI({
  */
 export type ChapterSystemPromptSections = "role" | "context" | "security" | "constraints" | "qualityGuidelines";
 
+const chapterGuidance = createChapterGuidance();
+
 /**
  * Prompt builder for the chaptering system prompt.
  * Sections can be individually overridden for different content types.
@@ -271,11 +274,8 @@ const chapterSystemPromptBuilder = createPromptBuilder<ChapterSystemPromptSectio
         - When a <language> section is provided, all chapter titles MUST be written in that language`,
     },
     qualityGuidelines: {
-      tag: "quality_guidelines",
-      content: dedent`
-        - Create chapters at topic shifts or clear transitions
-        - Keep chapter titles concise and descriptive
-        - Ensure the first chapter starts at 0 seconds`,
+      ...chapterGuidance.qualityGuidelines,
+      content: `${chapterGuidance.qualityGuidelines.content}\n- Ensure the first chapter starts at 0 seconds`,
     },
   },
   sectionOrder: ["role", "context", "security", "constraints", "qualityGuidelines"],
@@ -332,13 +332,7 @@ const chaptersPromptBuilder = createPromptBuilder<ChaptersPromptSections>({
       tag: "chapter_guidelines",
       content: "", // Placeholder - always overridden with dynamic content
     },
-    titleGuidelines: {
-      tag: "title_guidelines",
-      content: dedent`
-        - Keep titles concise and descriptive
-        - Avoid filler or generic labels like "Chapter 1"
-        - Use the transcript's terminology`,
-    },
+    titleGuidelines: chapterGuidance.titleGuidelines,
   },
   sectionOrder: ["task", "outputFormat", "chapterGuidelines", "titleGuidelines"],
 });

@@ -1,0 +1,13 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`standalone 'audio' chapter prompt compatibility > preserves the original system and user prompts > audio 1`] = `"80a6bbb06e866e29ff971926e811354770aef337d552e7dc9886c856686a7e8c"`;
+
+exports[`standalone 'overrides' chapter prompt compatibility > preserves the original system and user prompts > overrides 1`] = `"5a9e862a6007c53d4c7975bbd06c5282aed905c8dca1224b9a4c831ccf641cf4"`;
+
+exports[`standalone 'scene-aware' chapter prompt compatibility > preserves the original system and user prompts > scene-aware 1`] = `"abda4d0ac4cb9e02f200c1f92f14fdf90891872b527a49f372aed44931c7710f"`;
+
+exports[`standalone 'scoped scenes' chapter prompt compatibility > preserves the original system and user prompts > scoped scenes 1`] = `"c3c36cc34902ba94347b1725ee397d8f1761e2d07e6061324c83cae280790e63"`;
+
+exports[`standalone 'scoped video' chapter prompt compatibility > preserves the original system and user prompts > scoped video 1`] = `"26fa25acd30542463d684b4da67db6fb31eec1e941cd03e9f0ac7643b77cbe08"`;
+
+exports[`standalone 'video' chapter prompt compatibility > preserves the original system and user prompts > video 1`] = `"641577df6dcd0e54bbb05c812ddf255de83d64b76554c4d8c7e44883fc92b86c"`;
