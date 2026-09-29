@@ -756,7 +756,7 @@ export async function buildTranscriptUrl(
   credentials?: WorkflowCredentialsInput,
 ): Promise<string> {
   "use step";
-  const baseUrl = `${getMuxStreamOrigin()}/${playbackId}/text/${trackId}.vtt`;
+  const baseUrl = `${await getMuxStreamOrigin(credentials)}/${playbackId}/text/${trackId}.vtt`;
 
   if (shouldSign) {
     return signUrl(baseUrl, playbackId, "video", undefined, credentials);

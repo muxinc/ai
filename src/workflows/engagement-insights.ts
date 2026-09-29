@@ -462,7 +462,7 @@ async function getThumbnailUrlsForHotspots(
   options: { width?: number; shouldSign?: boolean; credentials?: WorkflowCredentialsInput } = {},
 ): Promise<string[]> {
   const { width = 640, shouldSign = false, credentials } = options;
-  const baseUrl = getMuxThumbnailBaseUrl(playbackId);
+  const baseUrl = await getMuxThumbnailBaseUrl(playbackId, credentials);
 
   const urlPromises = hotspots.map(async (h) => {
     const time = Math.floor(h.startMs / 1000);

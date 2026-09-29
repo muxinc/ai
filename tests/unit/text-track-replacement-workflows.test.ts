@@ -25,6 +25,7 @@ vi.mock("../../src/lib/storage-adapter", () => ({
 vi.mock("../../src/lib/workflow-credentials", () => ({
   resolveMuxClient: vi.fn(),
   resolveMuxSigningContext: vi.fn(),
+  resolveWorkflowCredentials: async () => ({}),
 }));
 
 vi.mock("../../src/lib/providers", async importOriginal => ({

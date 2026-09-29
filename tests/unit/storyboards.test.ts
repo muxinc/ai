@@ -8,7 +8,7 @@ describe("getStoryboardUrl", () => {
 
   it("keeps the existing URL when scope is omitted", async () => {
     await expect(getStoryboardUrl(playbackId)).resolves.toBe(
-      `${getMuxStoryboardBaseUrl(playbackId)}?width=640`,
+      `${await getMuxStoryboardBaseUrl(playbackId)}?width=640`,
     );
   });
 
@@ -22,7 +22,7 @@ describe("getStoryboardUrl", () => {
     );
 
     expect(url).toBe(
-      `${getMuxStoryboardBaseUrl(playbackId)}?width=800&asset_start_time=10.5&asset_end_time=42`,
+      `${await getMuxStoryboardBaseUrl(playbackId)}?width=800&asset_start_time=10.5&asset_end_time=42`,
     );
   });
 
@@ -37,5 +37,16 @@ describe("getStoryboardUrl", () => {
 
     expect(url).toContain("asset_start_time=15");
     expect(url).not.toContain("asset_end_time");
+  });
+
+  it("uses muxCustomDomain from credentials", async () => {
+    const url = await getStoryboardUrl(
+      playbackId,
+      640,
+      false,
+      { muxCustomDomain: "media.example.com" },
+    );
+
+    expect(url).toBe(`https://image.media.example.com/${playbackId}/storyboard.png?width=640`);
   });
 });
