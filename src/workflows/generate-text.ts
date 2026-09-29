@@ -6,6 +6,7 @@ import {
   withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
 import { getLanguageName } from "../lib/language-codes.ts";
+import { normalizeMarkdownDescription, unescapeDoubleEscapedText } from "../lib/markdown-normalization.ts";
 import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
@@ -602,6 +603,12 @@ const FORMAT_GUIDANCE: Record<GenerateTextFormat, string> = {
   markdown: "Format the text as Markdown. Use headings, lists, and emphasis only where they help the reader.",
 };
 
+/** Repairs double-escaped provider output before it is measured or returned. */
+function normalizeArtifactContent(content: string, format: GenerateTextFormat): string {
+  const unescaped = unescapeDoubleEscapedText(content);
+  return (format === "markdown" ? normalizeMarkdownDescription(unescaped) : unescaped).trim();
+}
+
 const VOICE_GUIDANCE: Record<GenerateTextVoice, string> = {
   conversational: "Write like a thoughtful person explaining the idea to one specific reader. Prefer natural phrasing over polished corporate language.",
   editorial: "Use a clear editorial point of view, purposeful structure, and specific supporting detail.",
@@ -854,6 +861,7 @@ async function generateArtifactWithModel(args: {
   systemPrompt: string;
   userPrompt: string;
   limits: GenerateTextLengthLimit[];
+  format: GenerateTextFormat;
   credentials?: WorkflowCredentialsInput;
 }): Promise<ArtifactStepResult> {
   "use step";
@@ -876,7 +884,7 @@ async function generateArtifactWithModel(args: {
       throw new Error("Generated text output missing");
     }
     return {
-      content: artifactSchema.parse(output).content.trim(),
+      content: normalizeArtifactContent(artifactSchema.parse(output).content, args.format),
       usage: readUsage(response),
       unexpectedKeys: detectUnexpectedKeysFromRawText(response.text, artifactSchema.keyof().options),
     };
@@ -1088,6 +1096,7 @@ async function generateTextInternal(
     systemPrompt: buildArtifactSystemPrompt({ artifact, variant, limits, hasOutputLanguage: Boolean(languageName) }),
     userPrompt: buildArtifactUserPrompt({ brief, artifact, variant, steering, languageName }),
     limits,
+    format: artifact.format ?? "plain",
     credentials,
   })), collectedUsage, provider);
 

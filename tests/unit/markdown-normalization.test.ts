@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeMarkdownDescription } from "../../src/lib/markdown-normalization";
+import { normalizeMarkdownDescription, unescapeDoubleEscapedText } from "../../src/lib/markdown-normalization";
 
 describe("normalizeMarkdownDescription", () => {
   it("converts literal escaped line breaks to real newlines", () => {
@@ -23,5 +23,27 @@ describe("normalizeMarkdownDescription", () => {
     const description = "A low - impact movement with steady pacing. Equipment is optional.";
 
     expect(normalizeMarkdownDescription(description)).toBe(description);
+  });
+});
+
+describe("unescapeDoubleEscapedText", () => {
+  it("reverses a second layer of JSON escaping", () => {
+    const text = String.raw`Intro.\n\n### Heading\nSay \"GIF\"\tor \\JIF.`;
+
+    expect(unescapeDoubleEscapedText(text)).toBe("Intro.\n\n### Heading\nSay \"GIF\"\tor \\JIF.");
+  });
+
+  it("leaves text alone when it is not valid escaped JSON", () => {
+    const text = String.raw`Intro.\n\nSay "GIF" unescaped.`;
+
+    expect(unescapeDoubleEscapedText(text)).toBe(text);
+  });
+
+  it("leaves text with real line breaks or no escaped line breaks alone", () => {
+    const multiline = `${String.raw`Line one`}\n${String.raw`Use \"quotes\" and \n literally.`}`;
+    const singleLine = String.raw`Escape quotes as \" in JSON.`;
+
+    expect(unescapeDoubleEscapedText(multiline)).toBe(multiline);
+    expect(unescapeDoubleEscapedText(singleLine)).toBe(singleLine);
   });
 });

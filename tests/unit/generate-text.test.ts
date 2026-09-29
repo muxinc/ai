@@ -376,6 +376,25 @@ describe("generateText", () => {
     });
   });
 
+  it("repairs double-escaped provider output, splitting collapsed lists only in markdown", async () => {
+    queueGenerations([
+      String.raw`Plain intro.\n\nSay \"GIF\" out loud.`,
+      String.raw`Intro.\n\n### Heading\nBody with \"quotes\".  * One * Two`,
+    ]);
+
+    const result = await generateText("asset-123", {
+      artifacts: [
+        { key: "post" },
+        { key: "blog_post", format: "markdown" },
+      ],
+    });
+
+    expect(result.variants[0].artifacts).toEqual([
+      { key: "post", content: "Plain intro.\n\nSay \"GIF\" out loud." },
+      { key: "blog_post", content: "Intro.\n\n### Heading\nBody with \"quotes\".\n* One * Two" },
+    ]);
+  });
+
   it("retries an empty draft once and fails retryably if it is still empty", async () => {
     queueGenerations(["", "   "]);
 
