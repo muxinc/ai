@@ -254,6 +254,75 @@ describe("editCaptions text track replacement", () => {
     expect(result.uploadedTrackId).toBe("track-en-suffixed");
   });
 
+  describe("when the source name already ends with the suffix", () => {
+    const EDITED_SOURCE = { ...SOURCE_TRACK, name: "English (edited)" };
+    let calls: string[];
+
+    beforeEach(() => {
+      mockAsset([EDITED_SOURCE]);
+      calls = [];
+      vi.mocked(resolveMuxClient).mockResolvedValue({
+        createClient: async () => ({
+          video: {
+            assets: {
+              deleteTrack: vi.fn(async (_assetId: string, id: string) => {
+                calls.push(`delete ${id}`);
+              }),
+            },
+          },
+        }),
+      } as any);
+    });
+
+    function mockCreates(...outcomes: Array<string | Error>) {
+      for (const outcome of outcomes) {
+        vi.mocked(createTextTrackOnMux).mockImplementationOnce(async (_assetId, _language, name) => {
+          calls.push(`create ${name}`);
+          if (outcome instanceof Error) {
+            throw outcome;
+          }
+          return outcome;
+        });
+      }
+    }
+
+    it("keeps the name, never leaving the asset without the captions", async () => {
+      mockCreates("track-temp", "track-final");
+
+      const result = await editCaptions("asset-1", "track-en", { ...OPTIONS, deleteOriginalTrack: true, trackNameSuffix: "edited" });
+
+      expect(calls).toEqual([
+        "create English (edited) (edited)",
+        "delete track-en",
+        "create English (edited)",
+        "delete track-temp",
+      ]);
+      expect(result.uploadedTrackId).toBe("track-final");
+    });
+
+    it("keeps the suffixed track when re-creating under the source name fails", async () => {
+      mockCreates("track-temp", new Error("Mux exploded"));
+
+      const result = await editCaptions("asset-1", "track-en", { ...OPTIONS, deleteOriginalTrack: true, trackNameSuffix: "edited" });
+
+      expect(calls).toEqual([
+        "create English (edited) (edited)",
+        "delete track-en",
+        "create English (edited)",
+      ]);
+      expect(result.uploadedTrackId).toBe("track-temp");
+    });
+
+    it("appends the suffix when the source is kept", async () => {
+      mockCreates("track-suffixed");
+
+      const result = await editCaptions("asset-1", "track-en", { ...OPTIONS, deleteOriginalTrack: false, trackNameSuffix: "edited" });
+
+      expect(calls).toEqual(["create English (edited) (edited)"]);
+      expect(result.uploadedTrackId).toBe("track-suffixed");
+    });
+  });
+
   it("restores the source track from the original VTT when the in-place create fails", async () => {
     vi.mocked(replaceAndCreateTextTrack).mockResolvedValue({
       kind: "create_failed",

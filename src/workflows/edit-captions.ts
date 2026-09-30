@@ -138,6 +138,8 @@ export interface EditCaptionsOptions<P extends SupportedProvider = SupportedProv
    * @deprecated Use `trackName`. Suffix appended to the source track name in the
    * previous naming scheme, e.g. "edited" produces "Subtitles (edited)". Setting
    * it selects that scheme; cannot be combined with `replaceExistingTracks` or `trackName`.
+   * When the source is deleted and its name already ends with the suffix, the
+   * edited track keeps the source's name.
    */
   trackNameSuffix?: string;
   /** Expiry duration in seconds for S3 presigned GET URLs. Defaults to 86400 (24 hours). */
@@ -909,8 +911,15 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
     }
 
     if (uploadToMux && legacyTrackNaming) {
+      const nameSuffix = ` (${trackNameSuffix ?? "edited"})`;
+      // A source that already ends with the suffix keeps its name. Mux track
+      // names must be unique, so the edited track is created under the
+      // suffixed name, the source is deleted, and the edited track is then
+      // re-created under the source's name. Each step leaves a copy of the
+      // captions on the asset.
+      const keepSourceName = deleteOriginal && sourceName.endsWith(nameSuffix);
       try {
-        const trackName = `${sourceName} (${trackNameSuffix ?? "edited"})`;
+        const trackName = `${sourceName}${nameSuffix}`;
         uploadedTrackId = await createTextTrackOnMux(
           assetId,
           sourceLanguageCode,
@@ -929,6 +938,31 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
           await deleteTrackOnMux(assetId, trackId, credentials);
         } catch (error) {
           wrapError(error, "Failed to delete original track");
+        }
+      }
+
+      if (keepSourceName && uploadedTrackId) {
+        const temporaryTrackId = uploadedTrackId;
+        try {
+          uploadedTrackId = await createTextTrackOnMux(
+            assetId,
+            sourceLanguageCode,
+            sourceName,
+            presignedUrl,
+            credentials,
+            { closedCaptions: sourceTrack.closed_captions, passthrough: trackPassthrough },
+          );
+        } catch (error) {
+          console.warn(
+            `Failed to rename edited track to "${sourceName}"; keeping it as ${temporaryTrackId}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+        if (uploadedTrackId !== temporaryTrackId) {
+          try {
+            await deleteTrackOnMux(assetId, temporaryTrackId, credentials);
+          } catch (error) {
+            wrapError(error, "Failed to delete temporary edited track");
+          }
         }
       }
     } else if (uploadToMux) {
