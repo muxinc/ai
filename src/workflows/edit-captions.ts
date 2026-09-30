@@ -629,6 +629,18 @@ async function deleteTrackOnMux(
   await mux.video.assets.deleteTrack(assetId, trackId);
 }
 
+async function renameTrackOnMux(
+  assetId: string,
+  trackId: string,
+  name: string,
+  credentials?: WorkflowCredentialsInput,
+): Promise<void> {
+  "use step";
+  const muxClient = await resolveMuxClient(credentials);
+  const mux = await muxClient.createClient();
+  await mux.video.assets.updateTrack(assetId, trackId, { name });
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Main workflow
 // ─────────────────────────────────────────────────────────────────────────────
@@ -937,27 +949,12 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
       }
 
       if (keepSourceName && uploadedTrackId) {
-        const temporaryTrackId = uploadedTrackId;
         try {
-          uploadedTrackId = await createTextTrackOnMux(
-            assetId,
-            sourceLanguageCode,
-            sourceName,
-            presignedUrl,
-            credentials,
-            { closedCaptions: sourceTrack.closed_captions, passthrough: trackPassthrough },
-          );
+          await renameTrackOnMux(assetId, uploadedTrackId, sourceName, credentials);
         } catch (error) {
           console.warn(
-            `Failed to rename edited track to "${sourceName}"; keeping it as ${temporaryTrackId}: ${error instanceof Error ? error.message : String(error)}`,
+            `Failed to rename edited track ${uploadedTrackId} to "${sourceName}": ${error instanceof Error ? error.message : String(error)}`,
           );
-        }
-        if (uploadedTrackId !== temporaryTrackId) {
-          try {
-            await deleteTrackOnMux(assetId, temporaryTrackId, credentials);
-          } catch (error) {
-            wrapError(error, "Failed to delete temporary edited track");
-          }
         }
       }
     } else if (uploadToMux) {
