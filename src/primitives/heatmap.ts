@@ -8,35 +8,23 @@ export interface HeatmapOptions {
   credentials?: WorkflowCredentialsInput;
 }
 
-/** Raw API response structure from Mux Data API */
-// To be removed when the Mux Node SDK is updated
-interface HeatmapApiResponse {
-  timeframe: [number, number];
-  data: {
-    asset_id?: string;
-    video_id?: string;
-    playback_id?: string;
-    heatmap: number[];
-  };
-}
-
 export interface HeatmapResponse {
   assetId?: string;
   videoId?: string;
   playbackId?: string;
-  /** Array of 100 values representing engagement for each 1/100th of the video */
+  /** Engagement values across the video timeline, one per equal slice (currently 100) */
   heatmap: number[];
   timeframe: [number, number];
 }
 
 /**
  * Fetches engagement heatmap for a Mux asset.
- * Returns a length 100 array where each value represents how many times
- * that 1/100th of the video was watched.
+ * Returns an array where each value represents how many times
+ * that slice of the video was watched.
  *
  * @param assetId - The Mux asset ID
  * @param options - Heatmap query options
- * @returns Heatmap data with 100 engagement values
+ * @returns Heatmap data with per-bucket engagement values
  */
 export async function getHeatmapForAsset(
   assetId: string,
@@ -48,12 +36,12 @@ export async function getHeatmapForAsset(
 
 /**
  * Fetches engagement heatmap for a Mux video ID.
- * Returns a length 100 array where each value represents how many times
- * that 1/100th of the video was watched.
+ * Returns an array where each value represents how many times
+ * that slice of the video was watched.
  *
  * @param videoId - The Mux video ID
  * @param options - Heatmap query options
- * @returns Heatmap data with 100 engagement values
+ * @returns Heatmap data with per-bucket engagement values
  */
 export async function getHeatmapForVideo(
   videoId: string,
@@ -65,12 +53,12 @@ export async function getHeatmapForVideo(
 
 /**
  * Fetches engagement heatmap for a Mux playback ID.
- * Returns a length 100 array where each value represents how many times
- * that 1/100th of the video was watched.
+ * Returns an array where each value represents how many times
+ * that slice of the video was watched.
  *
  * @param playbackId - The Mux playback ID
  * @param options - Heatmap query options
- * @returns Heatmap data with 100 engagement values
+ * @returns Heatmap data with per-bucket engagement values
  */
 export async function getHeatmapForPlaybackId(
   playbackId: string,
@@ -80,33 +68,17 @@ export async function getHeatmapForPlaybackId(
   return fetchHeatmap("playback-ids", playbackId, options);
 }
 
-/**
- * Transforms the snake_case API response to camelCase for the public interface.
- * TODO: Remove when the Mux Node SDK is updated
- */
-function transformHeatmapResponse(
-  response: HeatmapApiResponse,
-): HeatmapResponse {
-  return {
-    assetId: response.data.asset_id,
-    videoId: response.data.video_id,
-    playbackId: response.data.playback_id,
-    heatmap: response.data.heatmap,
-    timeframe: response.timeframe,
-  };
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Internal Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
+type HeatmapIdentifierType = "assets" | "videos" | "playback-ids";
+
 /**
- * Internal helper to fetch heatmap from the Mux Data API.
- * Uses the raw HTTP methods on the Mux client since the SDK doesn't have
- * typed methods for the engagement endpoints yet.
+ * Internal helper to fetch a heatmap from the Mux Data engagement API.
  */
 async function fetchHeatmap(
-  identifierType: "assets" | "videos" | "playback-ids",
+  identifierType: HeatmapIdentifierType,
   id: string,
   options: HeatmapOptions,
 ): Promise<HeatmapResponse> {
@@ -115,14 +87,19 @@ async function fetchHeatmap(
 
   const muxClient = await getMuxClientFromEnv(credentials);
   const mux = await muxClient.createClient();
+  const query = { timeframe: [timeframe] };
 
-  // Build query parameters
-  const queryParams = new URLSearchParams();
-  queryParams.append("timeframe[]", timeframe);
+  const resource = identifierType === "playback-ids" ?
+    mux.data.engagement.playbackIds :
+    mux.data.engagement[identifierType];
+  const response = await resource.heatmap(id, query);
+  const { data } = response;
 
-  // Use the raw HTTP method since the SDK doesn't have typed engagement methods yet
-  const path = `/data/v1/engagement/${identifierType}/${id}/heatmap?${queryParams.toString()}`;
-  const response = await mux.get(path) as HeatmapApiResponse;
-
-  return transformHeatmapResponse(response);
+  return {
+    assetId: data.asset_id ?? (identifierType === "assets" ? id : undefined),
+    videoId: data.video_id ?? (identifierType === "videos" ? id : undefined),
+    playbackId: data.playback_id ?? (identifierType === "playback-ids" ? id : undefined),
+    heatmap: data.heatmap,
+    timeframe: response.timeframe as [number, number],
+  };
 }

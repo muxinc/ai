@@ -3,7 +3,7 @@ import type { WorkflowCredentialsInput } from "../types.ts";
 
 import { resolveMuxSigningContext } from "./workflow-credentials.ts";
 
-import type Mux from "@mux/mux-node";
+import type Mux from "@mux/ts";
 
 /**
  * Context required to sign URLs for signed playback IDs.
@@ -42,14 +42,10 @@ export function getMuxSigningContextFromEnv(): SigningContext | undefined {
  * This client is used internally for signing operations.
  */
 async function createSigningClient(context: SigningContext): Promise<Mux> {
-  // Dynamic import to prevent @mux/mux-node (and its transitive dep jose)
-  // from being bundled into workflow VM code where `require` is unavailable.
-  const { default: MuxClient } = await import("@mux/mux-node");
+  // Dynamic import keeps @mux/ts out of workflow VM bundles where `require` is unavailable.
+  const { default: MuxClient } = await import("@mux/ts");
+  // No API token needed: the client is only used for local JWT signing.
   return new MuxClient({
-    // These are not needed for signing, but the SDK requires them
-    // Using empty strings as we only need the jwt functionality
-    tokenId: env.MUX_TOKEN_ID || "",
-    tokenSecret: env.MUX_TOKEN_SECRET || "",
     jwtSigningKey: context.keyId,
     jwtPrivateKey: context.keySecret,
   });

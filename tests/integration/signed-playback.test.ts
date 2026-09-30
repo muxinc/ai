@@ -1,4 +1,4 @@
-import Mux from "@mux/mux-node";
+import Mux from "@mux/ts";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { env, reloadEnv } from "../../src/env";

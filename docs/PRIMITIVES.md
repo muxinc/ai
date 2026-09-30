@@ -31,7 +31,7 @@ import {
 Fetches and optionally cleans transcript text from a Mux asset.
 
 ```typescript
-import Mux from "@mux/mux-node";
+import Mux from "@mux/ts";
 
 import { fetchTranscriptForAsset } from "@mux/ai/primitives";
 
@@ -358,7 +358,7 @@ Combine primitives to create custom AI workflows:
 
 ```typescript
 import { openai } from "@ai-sdk/openai";
-import Mux from "@mux/mux-node";
+import Mux from "@mux/ts";
 import { generateText } from "ai";
 
 import {
@@ -440,7 +440,7 @@ Drop down to primitives when you need complete control over the AI prompt and lo
 
 ```typescript
 import { openai } from "@ai-sdk/openai";
-import Mux from "@mux/mux-node";
+import Mux from "@mux/ts";
 import { generateText } from "ai";
 
 import { fetchTranscriptForAsset, getStoryboardUrl } from "@mux/ai/primitives";
@@ -521,7 +521,7 @@ Build your own workflow functions following the library patterns:
 
 ```typescript
 import { openai } from "@ai-sdk/openai";
-import Mux from "@mux/mux-node";
+import Mux from "@mux/ts";
 import { generateText } from "ai";
 
 import { fetchTranscriptForAsset } from "@mux/ai/primitives";
