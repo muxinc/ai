@@ -14,8 +14,6 @@ export interface HeatmapResponse {
   playbackId?: string;
   /** Engagement values across the video timeline, one per equal slice (currently 100) */
   heatmap: number[];
-  /** Number of views aggregated into the heatmap, when the API reports it */
-  totalViews?: number;
   timeframe: [number, number];
 }
 
@@ -76,16 +74,6 @@ export async function getHeatmapForPlaybackId(
 
 type HeatmapIdentifierType = "assets" | "videos" | "playback-ids";
 
-/** The live API returns `heatmap` + identifier fields; the SDK types describe `value` + `total_views`. */
-interface HeatmapApiData {
-  asset_id?: string;
-  video_id?: string;
-  playback_id?: string;
-  heatmap?: number[];
-  value?: number[];
-  total_views?: number;
-}
-
 /**
  * Internal helper to fetch a heatmap from the Mux Data engagement API.
  */
@@ -105,18 +93,13 @@ async function fetchHeatmap(
     mux.data.engagement.playbackIds :
     mux.data.engagement[identifierType];
   const response = await resource.heatmap(id, query);
-  const data = response.data as HeatmapApiData;
-  const heatmap = data.heatmap ?? data.value;
-  if (!Array.isArray(heatmap)) {
-    throw new TypeError("Invalid heatmap response: missing heatmap values");
-  }
+  const { data } = response;
 
   return {
     assetId: data.asset_id ?? (identifierType === "assets" ? id : undefined),
     videoId: data.video_id ?? (identifierType === "videos" ? id : undefined),
     playbackId: data.playback_id ?? (identifierType === "playback-ids" ? id : undefined),
-    heatmap,
-    totalViews: data.total_views,
+    heatmap: data.heatmap,
     timeframe: response.timeframe as [number, number],
   };
 }

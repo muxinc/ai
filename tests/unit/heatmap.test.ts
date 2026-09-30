@@ -13,23 +13,12 @@ import {
 const MOCK_HEATMAP_DATA = Array.from({ length: 100 }, (_, i) =>
   Math.round((1.0 + Math.sin(i / 10) * 0.5) * 100) / 100);
 
-// Shape observed from the live API.
 const MOCK_API_RESPONSE = {
   total_row_count: null,
   timeframe: [1770831101, 1770917501],
   data: {
     asset_id: "test-asset-123",
     heatmap: MOCK_HEATMAP_DATA,
-  },
-};
-
-// Shape described by the API reference and the SDK types.
-const MOCK_DOCUMENTED_API_RESPONSE = {
-  total_row_count: null,
-  timeframe: [1770831101, 1770917501],
-  data: {
-    total_views: 1024,
-    value: MOCK_HEATMAP_DATA,
   },
 };
 
@@ -85,24 +74,7 @@ describe("getHeatmapForAsset", () => {
 
     expect(result.heatmap).toHaveLength(100);
     expect(result.assetId).toBe("test-asset-123");
-    expect(result.totalViews).toBeUndefined();
     expect(result.timeframe).toEqual([1770831101, 1770917501]);
-  });
-
-  it("reads the documented value/total_views shape", async () => {
-    mockAssetHeatmap.mockResolvedValue(MOCK_DOCUMENTED_API_RESPONSE);
-
-    const result = await getHeatmapForAsset("test-asset-123");
-
-    expect(result.heatmap).toEqual(MOCK_HEATMAP_DATA);
-    expect(result.assetId).toBe("test-asset-123");
-    expect(result.totalViews).toBe(1024);
-  });
-
-  it("throws when the response has no heatmap values", async () => {
-    mockAssetHeatmap.mockResolvedValue({ timeframe: [1, 2], data: { asset_id: "x" } });
-
-    await expect(getHeatmapForAsset("x")).rejects.toThrow("missing heatmap values");
   });
 
   it("transforms snake_case to camelCase", async () => {
