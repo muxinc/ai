@@ -205,6 +205,20 @@ describe("getShotsForAsset", () => {
     expect(mockRetrieveShots).toHaveBeenCalledWith("test-asset-123");
   });
 
+  it("throws a clear error for statuses this library does not handle", async () => {
+    for (const status of ["skipped", "deleted"]) {
+      mockRetrieveShots.mockResolvedValue({ status, created_at: "1773108428" });
+      await expect(getShotsForAsset("test-asset-123")).rejects.toThrow(`Unsupported shots status '${status}'`);
+    }
+  });
+
+  it("throws when a completed response has no manifest URL", async () => {
+    mockRetrieveShots.mockResolvedValue({ status: "completed", created_at: "1773108428" });
+
+    await expect(getShotsForAsset("test-asset-123")).rejects.toThrow("missing shots_manifest_url");
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it("reads error details from the legacy `error` field", async () => {
     mockRetrieveShots.mockResolvedValue(MOCK_LEGACY_ERRORED_RESPONSE);
 
