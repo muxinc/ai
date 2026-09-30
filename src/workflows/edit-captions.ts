@@ -912,11 +912,6 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
 
     if (uploadToMux && legacyTrackNaming) {
       const nameSuffix = ` (${trackNameSuffix ?? "edited"})`;
-      // A source that already ends with the suffix keeps its name. Mux track
-      // names must be unique, so the edited track is created under the
-      // suffixed name, the source is deleted, and the edited track is then
-      // re-created under the source's name. Each step leaves a copy of the
-      // captions on the asset.
       const keepSourceName = deleteOriginal && sourceName.endsWith(nameSuffix);
       try {
         const trackName = `${sourceName}${nameSuffix}`;
