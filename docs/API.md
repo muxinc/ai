@@ -471,7 +471,7 @@ Edits a caption track using LLM-powered profanity censorship, static find/replac
 - `trackName?: string` - Name for the edited Mux text track (default: the source track's name)
 - `trackPassthrough?: string` - `passthrough` written on the edited track, max 255 characters (default: `{"mux_ai":{"workflow":"edit-captions"}}`)
 - `deleteOriginalTrack?: boolean` - **Deprecated**, use `replaceExistingTracks`. When set, the previous behaviour applies: create `<source name> (<trackNameSuffix>)`, then delete the source if `true`. Cannot be combined with `replaceExistingTracks` or `trackName`.
-- `trackNameSuffix?: string` - **Deprecated**, use `trackName`. Selects the previous naming scheme (default suffix 'edited', e.g. "Subtitles (edited)"). Cannot be combined with `replaceExistingTracks` or `trackName`.
+- `trackNameSuffix?: string` - **Deprecated**, use `trackName`. Selects the previous naming scheme (default suffix 'edited', e.g. "Subtitles (edited)"). When the source is deleted and its name already ends with the suffix, the edited track keeps the source's name. Cannot be combined with `replaceExistingTracks` or `trackName`.
 - `s3Endpoint?: string` - S3-compatible storage endpoint
 - `s3Region?: string` - S3 region (default: 'auto')
 - `s3Bucket?: string` - S3 bucket name
