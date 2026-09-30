@@ -35,12 +35,16 @@ const EnvSchema = z.object({
 
   MUX_SIGNING_KEY: optionalString("Mux signing key ID for signed playback URLs.", "Used to sign playback URLs"),
   MUX_PRIVATE_KEY: optionalString("Mux signing private key for signed playback URLs.", "Used to sign playback URLs"),
+  MUX_CUSTOM_DOMAIN: optionalString(
+    "Mux domain for image.* and stream.* playback URLs, e.g. staging.mux.com or a custom domain (defaults to mux.com).",
+    "Mux custom domain",
+  ),
   MUX_IMAGE_URL_OVERRIDE: optionalString(
-    "Override for Mux image base URL (defaults to https://image.mux.com).",
+    "Deprecated: use MUX_CUSTOM_DOMAIN. Override for Mux image base URL (defaults to https://image.mux.com).",
     "Mux image URL override",
   ),
   MUX_STREAM_URL_OVERRIDE: optionalString(
-    "Override for Mux stream base URL (defaults to https://stream.mux.com).",
+    "Deprecated: use MUX_CUSTOM_DOMAIN. Override for Mux stream base URL (defaults to https://stream.mux.com).",
     "Mux stream URL override",
   ),
   MUX_BASE_URL: optionalString(
@@ -174,11 +178,27 @@ function parseEnv(): Env {
   return parsedEnv.data;
 }
 
+let hasWarnedAboutDeprecatedUrlOverrides = false;
+
+function warnOnDeprecatedUrlOverrides(parsed: Env): void {
+  if (hasWarnedAboutDeprecatedUrlOverrides || (!parsed.MUX_IMAGE_URL_OVERRIDE && !parsed.MUX_STREAM_URL_OVERRIDE)) {
+    return;
+  }
+
+  hasWarnedAboutDeprecatedUrlOverrides = true;
+  console.warn(
+    "MUX_IMAGE_URL_OVERRIDE and MUX_STREAM_URL_OVERRIDE are deprecated and will be removed in a future release. " +
+    "Set MUX_CUSTOM_DOMAIN instead (e.g. MUX_CUSTOM_DOMAIN=staging.mux.com for image.staging.mux.com and stream.staging.mux.com).",
+  );
+}
+
 const env: Env = parseEnv();
+warnOnDeprecatedUrlOverrides(env);
 
 export function reloadEnv(): Env {
   const parsed = parseEnv();
   Object.assign(env, parsed);
+  warnOnDeprecatedUrlOverrides(env);
   return env;
 }
 

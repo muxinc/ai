@@ -746,7 +746,7 @@ async function getThumbnailUrlsFromTimestamps(
 ): Promise<Array<{ url: string; time: number }>> {
   "use step";
   const { width, shouldSign, credentials } = options;
-  const baseUrl = getMuxThumbnailBaseUrl(playbackId);
+  const baseUrl = await getMuxThumbnailBaseUrl(playbackId, credentials);
 
   const times = [...new Set(timestampsMs.map(toThumbnailTimeSeconds))];
   const urlPromises = times.map(async (time) => {

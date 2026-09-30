@@ -16,6 +16,7 @@ vi.mock("../../src/lib/workflow-credentials", () => ({
   resolveMuxClient: vi.fn(),
   resolveMuxSigningContext: vi.fn(),
   resolveProviderApiKey: vi.fn(),
+  resolveWorkflowCredentials: async () => ({}),
 }));
 
 vi.mock("../../src/lib/client-factory", () => ({

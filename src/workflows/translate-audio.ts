@@ -640,7 +640,7 @@ export async function translateAudio(
     }
 
     // Build audio URL (signed if needed)
-    let audioUrl = `${getMuxStreamOrigin()}/${playbackId}/audio.m4a`;
+    let audioUrl = `${await getMuxStreamOrigin(credentials)}/${playbackId}/audio.m4a`;
     if (policy === "signed") {
       audioUrl = await signUrl(audioUrl, playbackId, "video", undefined, credentials);
     }

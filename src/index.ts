@@ -51,6 +51,10 @@ export type {
   TrackTarget,
 } from "./lib/mux-tracks.ts";
 
+// Mux playback URL utilities
+export { getMuxPlaybackOrigin } from "./lib/mux-url.ts";
+export type { MuxPlaybackService } from "./lib/mux-url.ts";
+
 // Workflow credential utilities
 export { setWorkflowCredentialsProvider } from "./lib/workflow-credentials.ts";
 export type { WorkflowCredentialsProvider } from "./lib/workflow-credentials.ts";

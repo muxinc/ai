@@ -171,6 +171,7 @@ Supported credential fields:
 | `muxTokenSecret` | Mux API token secret |
 | `muxSigningKey` | Mux signing key ID (for signed playback) |
 | `muxPrivateKey` | Mux private key (for signed playback) |
+| `muxCustomDomain` | Mux custom domain for playback URLs (e.g. `media.example.com` → `image.media.example.com` / `stream.media.example.com`; falls back to `MUX_CUSTOM_DOMAIN`) |
 | `openaiApiKey` | OpenAI API key |
 | `basetenApiKey` | Baseten API key |
 | `basetenUrl` | Baseten language endpoint URL (dedicated `/sync/v1` deployment or shared base URL; omit for Model APIs) |
@@ -206,8 +207,8 @@ setWorkflowCredentialsProvider(async () => ({
 
 Credentials are merged from multiple sources in order of precedence:
 
-1. **Credentials provider** (`setWorkflowCredentialsProvider`) — highest priority
-2. **Direct `credentials` option** passed to the workflow call
+1. **Direct `credentials` option** passed to the workflow call — highest priority
+2. **Credentials provider** (`setWorkflowCredentialsProvider`)
 3. **Environment variables** — lowest priority fallback
 
 This means you can set shared credentials via environment variables and override specific keys per-request or per-tenant.
@@ -246,6 +247,9 @@ MUX_TOKEN_SECRET=your_mux_token_secret
 # Mux Signing (only for signed playback assets)
 MUX_SIGNING_KEY=your_signing_key_id
 MUX_PRIVATE_KEY=your_base64_encoded_private_key
+
+# Mux custom domain for image.* / stream.* playback URLs (optional, defaults to mux.com)
+MUX_CUSTOM_DOMAIN=media.example.com
 
 # AI Providers (configure only what you need)
 OPENAI_API_KEY=your_openai_api_key

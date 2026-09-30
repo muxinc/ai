@@ -95,6 +95,8 @@ export interface WorkflowCredentials {
   muxSigningKey?: string;
   /** Optional direct Mux private key for signed playback URL generation. */
   muxPrivateKey?: string;
+  /** Optional Mux custom domain (e.g. "media.example.com") used for image.* and stream.* playback URLs. */
+  muxCustomDomain?: string;
   /** Optional direct OpenAI API key for per-request credential injection. */
   openaiApiKey?: string;
   /** Optional direct Baseten API key for per-request credential injection. */
