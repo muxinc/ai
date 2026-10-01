@@ -138,7 +138,7 @@ describe("translateAudio track replacement", () => {
 
     const error = await captureRejection(translateAudio(ASSET_ID, "es", { uploadCaptionsToMux: true }));
 
-    expect(error.message).toContain("Text track(s) already exist");
+    expect(error.message).toContain("A text track already exists");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

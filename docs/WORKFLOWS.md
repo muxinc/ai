@@ -785,21 +785,20 @@ The `find` and `replace` values omit the surrounding brackets. For example, the 
 
 ### Replacing or Keeping the Source Track
 
-By default the edited track takes the source track's place: the source (and any other text track in the same language or with the same name) is deleted and the edited track is created under the source's name, language, and `closed_captions` flag. If Mux rejects the new track after the source was deleted, the source is restored from the VTT that was fetched.
+By default (`replaceExistingTracks: "replace"`) the edited track takes the source track's place: the source is deleted and the edited track is created under the source's name, language, and `closed_captions` flag. No other track is touched. If Mux rejects the new track after the source was deleted, the source is restored from the VTT that was fetched.
+
+With `replaceExistingTracks: "fail"` nothing is deleted and the edited track is added alongside the source, so `trackName` is required and must differ from the source's name.
+
+Mux requires text track names to be unique on an asset, so `editCaptions` checks the edited track's name (`trackName`, or the source's name by default) before doing any editing. If a track other than the source already has that name, it rejects with a validation error before any tokens are spent or anything is deleted. Other tracks in the same language don't matter: an auto-generated track next to the one you're editing is left alone.
+
+The name is checked again right before the edited track is written. If a track with that name appeared in the meantime, nothing is written, and a source that was already deleted is restored.
 
 ```typescript
-// Keep the source and add a cleaned copy alongside it. trackName is required.
+// Keep the source and add a cleaned copy alongside it.
 const kept = await editCaptions(assetId, trackId, {
   replacements: [{ find: "Mucks", replace: "Mux" }],
   replaceExistingTracks: "fail",
   trackName: "English (clean)",
-});
-
-// Only replace if everything in the way is Mux-generated (ASR) captions.
-const upgraded = await editCaptions(assetId, trackId, {
-  provider: "anthropic",
-  autoCensorProfanity: { mode: "blank" },
-  replaceExistingTracks: "replace_generated",
 });
 ```
 
@@ -827,7 +826,7 @@ const result = await editCaptions(assetId, trackId, {
     { find: "speaker_0", replace: "Alice" },
   ],
   uploadToMux: true, // Upload edited track to Mux (default: true)
-  replaceExistingTracks: "replace_all", // "replace_all" (default), "replace_generated", or "fail"
+  replaceExistingTracks: "replace", // "replace" (default) or "fail"
   trackName: "English", // Defaults to the source track's name
 });
 ```
