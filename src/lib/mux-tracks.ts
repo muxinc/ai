@@ -153,6 +153,19 @@ export function findNameCollisionTextTracks(asset: MuxAsset, target: TextTrackTa
   return listTracks(asset, targetType(target)).filter(track => normalizeTrackName(track.name) === targetName);
 }
 
+/** `A text track` / `2 text tracks`, with the verb agreeing, so messages read naturally for one match or several. */
+function countTracks(tracks: AssetTextTrack[], label: string, singularVerb: string, pluralVerb: string): string {
+  const kind = label.toLowerCase();
+  if (tracks.length === 1) {
+    return `${kind === "audio" ? "An" : "A"} ${kind} track ${singularVerb}`;
+  }
+  return `${tracks.length} ${kind} tracks ${pluralVerb}`;
+}
+
+function itOrThem(tracks: AssetTextTrack[]): string {
+  return tracks.length === 1 ? "it" : "them";
+}
+
 function describeTracks(tracks: AssetTextTrack[]): string {
   return tracks
     .map(track => `${track.name ?? "(unnamed)"} [${track.language_code ?? "?"}, ${track.type === "audio" ? (track.primary ? "primary audio" : "audio") : (track.text_source ?? "unknown source")}, ${track.status ?? "ready"}]`)
@@ -163,9 +176,6 @@ function describeTracks(tracks: AssetTextTrack[]): string {
  * Decides which existing tracks stand in the way of `target` and what `policy`
  * says to do about them. Pure: pass the freshest asset you have.
  *
- * `keepTrackIds` marks tracks that are allowed to coexist with the new one and
- * are never treated as conflicts.
- *
  * A conflicting primary audio track always blocks: Mux refuses to delete it and
  * it is the customer's original audio.
  */
@@ -173,15 +183,11 @@ export function planTextTrackReplacement(
   asset: MuxAsset,
   target: TextTrackTarget,
   policy: ReplaceExistingTracksPolicy,
-  options: { keepTrackIds?: string[] } = {},
 ): TextTrackReplacementPlan {
   const label = targetType(target) === "audio" ? "Audio" : "Text";
-  const keep = new Set(options.keepTrackIds ?? []);
   const conflicts = new Map<string, AssetTextTrack>();
   for (const track of [...findSameLanguageTextTracks(asset, target), ...findNameCollisionTextTracks(asset, target)]) {
-    if (!keep.has(track.id!)) {
-      conflicts.set(track.id!, track);
-    }
+    conflicts.set(track.id!, track);
   }
   const conflicting = [...conflicts.values()];
 
@@ -192,7 +198,7 @@ export function planTextTrackReplacement(
   if (policy === "fail") {
     return {
       kind: "blocked",
-      reason: `${label} track(s) already exist for language '${target.languageCode}' or name '${target.name}': ${describeTracks(conflicting)}. Set replaceExistingTracks to replace them.`,
+      reason: `${countTracks(conflicting, label, "already exists", "already exist")} for language '${target.languageCode}' or name '${target.name}': ${describeTracks(conflicting)}. Set replaceExistingTracks to replace ${itOrThem(conflicting)}.`,
       tracks: conflicting.map(summarizeTextTrack),
     };
   }
@@ -211,7 +217,7 @@ export function planTextTrackReplacement(
     if (notGenerated.length > 0) {
       return {
         kind: "blocked",
-        reason: `${label} track(s) that are not Mux-generated exist for language '${target.languageCode}' or name '${target.name}': ${describeTracks(notGenerated)}. Use replaceExistingTracks: "replace_all" to replace them.`,
+        reason: `${countTracks(notGenerated, label, "that is not Mux-generated exists", "that are not Mux-generated exist")} for language '${target.languageCode}' or name '${target.name}': ${describeTracks(notGenerated)}. Use replaceExistingTracks: "replace_all" to replace ${itOrThem(notGenerated)}.`,
         tracks: notGenerated.map(summarizeTextTrack),
       };
     }
@@ -242,7 +248,7 @@ export function planSourceTrackReplacement(
         { kind: "clear" } :
         {
           kind: "blocked",
-          reason: `Text track(s) already exist with name '${target.name}': ${describeTracks(colliding)}. Choose a different trackName.`,
+          reason: `${countTracks(colliding, "Text", "already exists", "already exist")} with name '${target.name}': ${describeTracks(colliding)}. Choose a different trackName.`,
           tracks: colliding.map(summarizeTextTrack),
         };
   }
@@ -251,7 +257,7 @@ export function planSourceTrackReplacement(
   if (others.length > 0) {
     return {
       kind: "blocked",
-      reason: `Text track(s) other than the source already use the name '${target.name}': ${describeTracks(others)}. Choose a different trackName.`,
+      reason: `${countTracks(others, "Text", "other than the source already uses", "other than the source already use")} the name '${target.name}': ${describeTracks(others)}. Choose a different trackName.`,
       tracks: others.map(summarizeTextTrack),
     };
   }
@@ -355,8 +361,6 @@ interface CreateTrackWriteInput {
 
 export interface ReplaceAndCreateTextTrackInput extends CreateTrackWriteInput {
   policy: ReplaceExistingTracksPolicy;
-  /** Tracks that may coexist with the new one; see `planTextTrackReplacement`. */
-  keepTrackIds?: string[];
 }
 
 export type ReplaceAndCreateTrackInput = ReplaceAndCreateTextTrackInput;
@@ -384,7 +388,7 @@ export interface ReplaceSourceTrackInput extends CreateTrackWriteInput {
  */
 export async function replaceAndCreateTrack(input: ReplaceAndCreateTextTrackInput): Promise<ReplaceAndCreateTextTrackResult> {
   "use step";
-  return writeTrack(input, asset => planTextTrackReplacement(asset, input.target, input.policy, { keepTrackIds: input.keepTrackIds }));
+  return writeTrack(input, asset => planTextTrackReplacement(asset, input.target, input.policy));
 }
 
 /**

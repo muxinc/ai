@@ -171,13 +171,14 @@ describe("planTextTrackReplacement", () => {
     }
   });
 
-  it("never treats kept tracks as conflicts", () => {
-    const tracks = [
-      track({ id: "source", language_code: "en", name: "English" }),
-      track({ id: "other", language_code: "en", name: "English CC" }),
-    ];
-    expect(planTextTrackReplacement(asset(tracks), { languageCode: "en", name: "English (clean)" }, "fail", { keepTrackIds: ["source"] }).kind).toBe("blocked");
-    expect(planTextTrackReplacement(asset([tracks[0]]), { languageCode: "en", name: "English (clean)" }, "fail", { keepTrackIds: ["source"] })).toEqual({ kind: "clear" });
+  it("words the reason for one conflict or several", () => {
+    const one = planTextTrackReplacement(asset([track({ id: "a", language_code: "en", name: "English CC" })]), TARGET, "fail");
+    const two = planTextTrackReplacement(asset([
+      track({ id: "a", language_code: "en", name: "English CC" }),
+      track({ id: "b", language_code: "en-US", name: "American English" }),
+    ]), TARGET, "fail");
+    expect(one.kind === "blocked" && one.reason).toMatch(/^A text track already exists .* to replace it\.$/);
+    expect(two.kind === "blocked" && two.reason).toMatch(/^2 text tracks already exist .* to replace them\.$/);
   });
 
   describe("audio targets", () => {
@@ -211,7 +212,7 @@ describe("planTextTrackReplacement", () => {
       const plan = planTextTrackReplacement(asset([dubbedEs]), AUDIO_TARGET, "replace_generated");
       expect(plan.kind).toBe("blocked");
       if (plan.kind === "blocked") {
-        expect(plan.reason).toContain("Audio track(s) that are not Mux-generated");
+        expect(plan.reason).toContain("An audio track that is not Mux-generated exists");
       }
     });
   });
