@@ -789,7 +789,9 @@ By default (`replaceExistingTracks: "replace"`) the edited track takes the sourc
 
 With `replaceExistingTracks: "fail"` nothing is deleted and the edited track is added alongside the source, so `trackName` is required and must differ from the source's name.
 
-Either way, the edit is rejected before any work runs if another track already uses the edited track's name. Language doesn't count, since the edit is always in the source's language.
+Mux requires text track names to be unique on an asset, so `editCaptions` checks the edited track's name (`trackName`, or the source's name by default) before doing any editing. If a track other than the source already has that name, it rejects with a validation error before any tokens are spent or anything is deleted. Other tracks in the same language don't matter: an auto-generated track next to the one you're editing is left alone.
+
+The name is checked again right before the edited track is written. If a track with that name appeared in the meantime, nothing is written, and a source that was already deleted is restored.
 
 ```typescript
 // Keep the source and add a cleaned copy alongside it.
