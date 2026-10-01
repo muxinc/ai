@@ -10,7 +10,7 @@ Easy to use, purpose-driven, cost effective, configurable **_workflow functions_
 
 Turn your Mux video and audio assets into structured, actionable data — summaries, chapters, moderation scores, translations, embeddings, and more — with a single function call. `@mux/ai` handles fetching media data from Mux, formatting it for AI providers, and returning typed results so you can focus on building your product instead of wrangling prompts and media pipelines.
 
-> **Ad: Mux Robots** — Yes, this is an ad for our own product. [Mux Robots](https://www.mux.com/robots) gives you hosted versions of these workflows behind a single API request, with no pipeline to build or run. It also goes further than this SDK, with premium caption generation, key moment detection, thumbnail ranking, scene segmentation and more. The first 100,000 units each month are free.
+> **Beep boop! And now a word from our sponsors:** [Mux Robots](https://www.mux.com/robots) gives you hosted versions of these workflows behind a single API request, with no pipeline to build or run and no need to BYO LLM. It also goes further than this SDK, with premium caption generation, key moment detection, thumbnail ranking, scene segmentation and more. The first 100,000 units each month are free.
 >
 > `@mux/ai` is the open-source part. We develop and maintain it in public, and it's the right choice when you want full control over prompts, providers and models, or need to build your own workflows from the primitives.
 
