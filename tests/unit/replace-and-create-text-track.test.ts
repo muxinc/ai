@@ -207,7 +207,7 @@ describe("replaceSourceTrack", () => {
 
     expect(result).toEqual({
       kind: "blocked",
-      reason: expect.stringContaining("A text track other than the source already uses the name"),
+      reason: expect.stringContaining("A text track already has the name 'English'"),
       tracks: [expect.objectContaining({ id: "dup" })],
       deleted: [expect.objectContaining({ id: "up-en" })],
     });

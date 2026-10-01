@@ -208,7 +208,7 @@ describe("editCaptions source track replacement", () => {
 
     const error = await captureRejection(editCaptions("asset-1", "track-en", { ...OPTIONS, trackName: "English (clean)" }));
 
-    expect(error.message).toContain("other than the source");
+    expect(error.message).toContain("already has the name 'English (clean)'");
     expect(vi.mocked(replaceSourceTrack)).not.toHaveBeenCalled();
   });
 

@@ -226,15 +226,7 @@ export function planTextTrackReplacement(
   return { kind: "replace", toDelete: conflicting.map(summarizeTextTrack) };
 }
 
-/**
- * Plans the write for a workflow that edits `sourceTrackId` into `target`. Pure:
- * pass the freshest asset you have.
- *
- * Under `replace` only the source is deleted; any other track already using the
- * target name blocks, since nothing the caller didn't point at is removed. Under
- * `fail` any track using the target name blocks, the source included. A source
- * that is already gone is not an error: there is simply nothing to delete.
- */
+/** Plans an edit of `sourceTrackId` into `target`: deletes at most the source, and blocks if any other track has the target's name. */
 export function planSourceTrackReplacement(
   asset: MuxAsset,
   sourceTrackId: string,
@@ -242,27 +234,16 @@ export function planSourceTrackReplacement(
   policy: SourceTrackReplacementPolicy,
 ): TextTrackReplacementPlan {
   const colliding = findNameCollisionTextTracks(asset, target);
-
-  if (policy === "fail") {
-    return colliding.length === 0 ?
-        { kind: "clear" } :
-        {
-          kind: "blocked",
-          reason: `${countTracks(colliding, "Text", "already exists", "already exist")} with name '${target.name}': ${describeTracks(colliding)}. Choose a different trackName.`,
-          tracks: colliding.map(summarizeTextTrack),
-        };
-  }
-
-  const others = colliding.filter(track => track.id !== sourceTrackId);
-  if (others.length > 0) {
+  const blocking = policy === "fail" ? colliding : colliding.filter(track => track.id !== sourceTrackId);
+  if (blocking.length > 0) {
     return {
       kind: "blocked",
-      reason: `${countTracks(others, "Text", "other than the source already uses", "other than the source already use")} the name '${target.name}': ${describeTracks(others)}. Choose a different trackName.`,
-      tracks: others.map(summarizeTextTrack),
+      reason: `${countTracks(blocking, "Text", "already has", "already have")} the name '${target.name}': ${describeTracks(blocking)}. Choose a different trackName.`,
+      tracks: blocking.map(summarizeTextTrack),
     };
   }
 
-  const source = listTracks(asset, targetType(target)).find(track => track.id === sourceTrackId);
+  const source = policy === "replace" ? listTracks(asset, targetType(target)).find(track => track.id === sourceTrackId) : undefined;
   return source ? { kind: "replace", toDelete: [summarizeTextTrack(source)] } : { kind: "clear" };
 }
 

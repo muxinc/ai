@@ -238,7 +238,7 @@ describe("planSourceTrackReplacement", () => {
     expect(plan.kind).toBe("blocked");
     if (plan.kind === "blocked") {
       expect(plan.tracks.map(t => t.id)).toEqual(["other"]);
-      expect(plan.reason).toContain("other than the source");
+      expect(plan.reason).toContain("already has the name");
     }
   });
 
