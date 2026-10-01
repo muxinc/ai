@@ -15,6 +15,7 @@ vi.mock("../../src/lib/mux-tracks", async importOriginal => ({
   createTextTrackOnMux: vi.fn(),
   fetchVttFromMux: vi.fn(),
   replaceAndCreateTextTrack: vi.fn(),
+  replaceSourceTrack: vi.fn(),
 }));
 
 vi.mock("../../src/lib/storage-adapter", () => ({
@@ -46,7 +47,7 @@ vi.mock("../../src/env", () => ({
 
 const { generateText } = await import("ai");
 const { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } = await import("../../src/lib/mux-assets");
-const { createTextTrackOnMux, fetchVttFromMux, replaceAndCreateTextTrack } = await import("../../src/lib/mux-tracks");
+const { createTextTrackOnMux, fetchVttFromMux, replaceAndCreateTextTrack, replaceSourceTrack } = await import("../../src/lib/mux-tracks");
 const { createPresignedGetUrlWithStorageAdapter, putObjectWithStorageAdapter } = await import("../../src/lib/storage-adapter");
 const { resolveMuxClient, resolveMuxSigningContext } = await import("../../src/lib/workflow-credentials");
 const { createLanguageModelFromConfig, resolveLanguageModelConfig } = await import("../../src/lib/providers");
@@ -176,11 +177,12 @@ describe("translateCaptions text track replacement", () => {
   });
 });
 
-describe("editCaptions text track replacement", () => {
+describe("editCaptions source track replacement", () => {
   const OPTIONS = { replacements: [{ find: "Hello", replace: "Hi" }] };
 
-  it("replaces the source track in place by default, carrying closed_captions", async () => {
-    vi.mocked(replaceAndCreateTextTrack).mockResolvedValue({
+  it("replaces only the source track by default, under its name, carrying closed_captions", async () => {
+    mockAsset([SOURCE_TRACK, { ...ASR_ES_TRACK, id: "track-en-cc", language_code: "en", name: "English CC" }]);
+    vi.mocked(replaceSourceTrack).mockResolvedValue({
       kind: "created",
       trackId: "track-en-edited",
       deleted: [{ id: "track-en", name: "English", languageCode: "en", textSource: "uploaded" }],
@@ -188,28 +190,39 @@ describe("editCaptions text track replacement", () => {
 
     const result = await editCaptions("asset-1", "track-en", OPTIONS);
 
-    expect(vi.mocked(replaceAndCreateTextTrack)).toHaveBeenCalledWith(expect.objectContaining({
+    expect(vi.mocked(replaceSourceTrack)).toHaveBeenCalledWith(expect.objectContaining({
+      sourceTrackId: "track-en",
       target: { languageCode: "en", name: "English" },
-      policy: "replace_all",
+      policy: "replace",
       closedCaptions: true,
-      keepTrackIds: [],
       passthrough: JSON.stringify({ mux_ai: { workflow: "edit-captions" } }),
     }));
     expect(result.uploadedTrackId).toBe("track-en-edited");
     expect(result.replacedTracks?.map(t => t.id)).toEqual(["track-en"]);
+    expect(vi.mocked(replaceAndCreateTextTrack)).not.toHaveBeenCalled();
     expect(vi.mocked(createTextTrackOnMux)).not.toHaveBeenCalled();
   });
 
-  it("requires trackName under fail and keeps the source out of the conflict set", async () => {
-    const error = await captureRejection(editCaptions("asset-1", "track-en", { ...OPTIONS, replaceExistingTracks: "fail" }));
-    expect(error.message).toContain("trackName is required");
+  it("rejects before editing when another track already uses the target name under replace", async () => {
+    mockAsset([SOURCE_TRACK, { ...ASR_ES_TRACK, id: "track-clean", language_code: "fr", name: "English (clean)" }]);
 
-    vi.mocked(replaceAndCreateTextTrack).mockResolvedValue({ kind: "created", trackId: "t", deleted: [] });
+    const error = await captureRejection(editCaptions("asset-1", "track-en", { ...OPTIONS, trackName: "English (clean)" }));
+
+    expect(error.message).toContain("other than the source");
+    expect(vi.mocked(replaceSourceTrack)).not.toHaveBeenCalled();
+  });
+
+  it("requires a distinct trackName under fail and adds the edit alongside the source", async () => {
+    const missing = await captureRejection(editCaptions("asset-1", "track-en", { ...OPTIONS, replaceExistingTracks: "fail" }));
+    expect(missing.message).toContain("trackName is required");
+
+    vi.mocked(replaceSourceTrack).mockResolvedValue({ kind: "created", trackId: "t", deleted: [] });
+    mockAsset([SOURCE_TRACK, { ...ASR_ES_TRACK, id: "track-en-cc", language_code: "en", name: "English CC" }]);
     await editCaptions("asset-1", "track-en", { ...OPTIONS, replaceExistingTracks: "fail", trackName: "English (clean)" });
-    expect(vi.mocked(replaceAndCreateTextTrack)).toHaveBeenCalledWith(expect.objectContaining({
+    expect(vi.mocked(replaceSourceTrack)).toHaveBeenCalledWith(expect.objectContaining({
+      sourceTrackId: "track-en",
       target: { languageCode: "en", name: "English (clean)" },
       policy: "fail",
-      keepTrackIds: ["track-en"],
     }));
   });
 
@@ -217,16 +230,22 @@ describe("editCaptions text track replacement", () => {
     const error = await captureRejection(editCaptions("asset-1", "track-en", { ...OPTIONS, replaceExistingTracks: "fail", trackName: " english " }));
     expect(error.message).toContain("matches the source track's name");
     expect(vi.mocked(generateText)).not.toHaveBeenCalled();
-    expect(vi.mocked(replaceAndCreateTextTrack)).not.toHaveBeenCalled();
+    expect(vi.mocked(replaceSourceTrack)).not.toHaveBeenCalled();
   });
 
-  it("rejects before editing when fail would collide with another track", async () => {
-    mockAsset([SOURCE_TRACK, { ...ASR_ES_TRACK, id: "track-en-cc", language_code: "en", name: "English CC" }]);
+  it("rejects before editing when fail would collide with another track's name", async () => {
+    mockAsset([SOURCE_TRACK, { ...ASR_ES_TRACK, id: "track-clean", name: "English (clean)" }]);
 
     const error = await captureRejection(editCaptions("asset-1", "track-en", { ...OPTIONS, replaceExistingTracks: "fail", trackName: "English (clean)" }));
 
-    expect(error.message).toContain("English CC");
-    expect(vi.mocked(replaceAndCreateTextTrack)).not.toHaveBeenCalled();
+    expect(error.message).toContain("English (clean)");
+    expect(vi.mocked(replaceSourceTrack)).not.toHaveBeenCalled();
+  });
+
+  it("rejects the policies that only apply to workflows without a source track", async () => {
+    const error = await captureRejection(editCaptions("asset-1", "track-en", { ...OPTIONS, replaceExistingTracks: "replace_all" as never }));
+    expect(error.message).toContain("must be \"replace\" or \"fail\"");
+    expect(vi.mocked(getPlaybackIdForAsset)).not.toHaveBeenCalled();
   });
 
   it("rejects mixing deprecated options with the new ones", async () => {
@@ -250,12 +269,12 @@ describe("editCaptions text track replacement", () => {
       undefined,
       { closedCaptions: true, passthrough: JSON.stringify({ mux_ai: { workflow: "edit-captions" } }) },
     );
-    expect(vi.mocked(replaceAndCreateTextTrack)).not.toHaveBeenCalled();
+    expect(vi.mocked(replaceSourceTrack)).not.toHaveBeenCalled();
     expect(result.uploadedTrackId).toBe("track-en-suffixed");
   });
 
-  it("restores the source track from the original VTT when the in-place create fails", async () => {
-    vi.mocked(replaceAndCreateTextTrack).mockResolvedValue({
+  it("restores the source track from the original VTT when the create fails after the source was deleted", async () => {
+    vi.mocked(replaceSourceTrack).mockResolvedValue({
       kind: "create_failed",
       reason: "Mux exploded",
       deleted: [{ id: "track-en", name: "English", languageCode: "en" }],
@@ -281,30 +300,22 @@ describe("editCaptions text track replacement", () => {
   });
 
   it("restores the source when the retry is blocked after the source was already deleted", async () => {
-    vi.mocked(replaceAndCreateTextTrack).mockResolvedValue({
+    vi.mocked(replaceSourceTrack).mockResolvedValue({
       kind: "blocked",
-      reason: "an uploaded track appeared",
-      tracks: [{ id: "late", name: "English", languageCode: "en", textSource: "uploaded" }],
+      reason: "a track named English appeared",
+      tracks: [{ id: "late", name: "English", languageCode: "fr", textSource: "uploaded" }],
       deleted: [{ id: "track-en", name: "English", languageCode: "en" }],
     });
     vi.mocked(createTextTrackOnMux).mockResolvedValue("track-en-restored");
 
-    const error = await captureRejection(editCaptions("asset-1", "track-en", { ...OPTIONS, replaceExistingTracks: "replace_all" }));
+    const error = await captureRejection(editCaptions("asset-1", "track-en", OPTIONS));
 
-    expect(error.message).toContain("an uploaded track appeared");
+    expect(error.message).toContain("a track named English appeared");
     expect(error.message).toContain("restored as track-en-restored");
-    expect(vi.mocked(createTextTrackOnMux)).toHaveBeenCalledWith(
-      "asset-1",
-      "en",
-      "English",
-      "https://s3.example.test/presigned.vtt",
-      undefined,
-      { closedCaptions: true, passthrough: "customer-tag" },
-    );
   });
 
   it("does not attempt a restore when the source was not deleted", async () => {
-    vi.mocked(replaceAndCreateTextTrack).mockResolvedValue({ kind: "create_failed", reason: "nope", deleted: [] });
+    vi.mocked(replaceSourceTrack).mockResolvedValue({ kind: "create_failed", reason: "nope", deleted: [] });
 
     const error = await captureRejection(editCaptions("asset-1", "track-en", OPTIONS));
 

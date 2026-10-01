@@ -8,6 +8,7 @@ import {
   MUX_TRACK_PASSTHROUGH_MAX_CHARS,
   normalizeTrackLanguageCode,
   normalizeTrackName,
+  planSourceTrackReplacement,
   planTextTrackReplacement,
   validateTrackPassthrough,
 } from "../../src/lib/mux-tracks";
@@ -218,6 +219,46 @@ describe("planTextTrackReplacement", () => {
   it("ignores tracks without an id", () => {
     const plan = planTextTrackReplacement(asset([{ type: "text", text_type: "subtitles", language_code: "en", name: "English" } as AssetTextTrack]), TARGET, "fail");
     expect(plan).toEqual({ kind: "clear" });
+  });
+});
+
+describe("planSourceTrackReplacement", () => {
+  const source = track({ id: "src", language_code: "en", name: "English" });
+
+  it("deletes only the source under replace, leaving other same-language tracks alone", () => {
+    const asr = track({ id: "asr", language_code: "en", name: "English CC", text_source: "generated_vod" });
+    const plan = planSourceTrackReplacement(asset([source, asr]), "src", TARGET, "replace");
+    expect(plan).toEqual({ kind: "replace", toDelete: [expect.objectContaining({ id: "src" })] });
+  });
+
+  it("blocks under replace when a track other than the source already uses the target name", () => {
+    const sameName = track({ id: "other", language_code: "fr", name: " english " });
+    const plan = planSourceTrackReplacement(asset([source, sameName]), "src", TARGET, "replace");
+    expect(plan.kind).toBe("blocked");
+    if (plan.kind === "blocked") {
+      expect(plan.tracks.map(t => t.id)).toEqual(["other"]);
+      expect(plan.reason).toContain("other than the source");
+    }
+  });
+
+  it("is clear under replace when the source is already gone", () => {
+    expect(planSourceTrackReplacement(asset([]), "src", TARGET, "replace")).toEqual({ kind: "clear" });
+  });
+
+  it("ignores language under fail and blocks only on a name collision", () => {
+    const clean = { languageCode: "en", name: "English (clean)" };
+    expect(planSourceTrackReplacement(asset([source]), "src", clean, "fail")).toEqual({ kind: "clear" });
+
+    const taken = track({ id: "taken", language_code: "es", name: "English (clean)" });
+    const plan = planSourceTrackReplacement(asset([source, taken]), "src", clean, "fail");
+    expect(plan.kind).toBe("blocked");
+    if (plan.kind === "blocked") {
+      expect(plan.tracks.map(t => t.id)).toEqual(["taken"]);
+    }
+  });
+
+  it("counts the source as a collision under fail when the names match", () => {
+    expect(planSourceTrackReplacement(asset([source]), "src", TARGET, "fail").kind).toBe("blocked");
   });
 });
 

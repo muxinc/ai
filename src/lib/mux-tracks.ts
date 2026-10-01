@@ -19,6 +19,16 @@ import { resolveMuxClient } from "./workflow-credentials.ts";
  */
 export type ReplaceExistingTracksPolicy = "fail" | "replace_all" | "replace_generated";
 
+/**
+ * How a workflow that edits an existing track treats that source track.
+ *
+ * - `replace`: delete the source and create the new track in its place. No other track is deleted.
+ * - `fail`: delete nothing; the new track is added alongside the source and must have a different name.
+ *
+ * Only name collisions count: the new track is always in the source's language.
+ */
+export type SourceTrackReplacementPolicy = "replace" | "fail";
+
 /** Mux track types that share a name-uniqueness group among themselves. */
 export type ReplaceableTrackType = "text" | "audio";
 
@@ -154,8 +164,7 @@ function describeTracks(tracks: AssetTextTrack[]): string {
  * says to do about them. Pure: pass the freshest asset you have.
  *
  * `keepTrackIds` marks tracks that are allowed to coexist with the new one and
- * are never treated as conflicts. edit-captions uses it under `fail` to keep
- * the source track it is editing.
+ * are never treated as conflicts.
  *
  * A conflicting primary audio track always blocks: Mux refuses to delete it and
  * it is the customer's original audio.
@@ -209,6 +218,46 @@ export function planTextTrackReplacement(
   }
 
   return { kind: "replace", toDelete: conflicting.map(summarizeTextTrack) };
+}
+
+/**
+ * Plans the write for a workflow that edits `sourceTrackId` into `target`. Pure:
+ * pass the freshest asset you have.
+ *
+ * Under `replace` only the source is deleted; any other track already using the
+ * target name blocks, since nothing the caller didn't point at is removed. Under
+ * `fail` any track using the target name blocks, the source included. A source
+ * that is already gone is not an error: there is simply nothing to delete.
+ */
+export function planSourceTrackReplacement(
+  asset: MuxAsset,
+  sourceTrackId: string,
+  target: TextTrackTarget,
+  policy: SourceTrackReplacementPolicy,
+): TextTrackReplacementPlan {
+  const colliding = findNameCollisionTextTracks(asset, target);
+
+  if (policy === "fail") {
+    return colliding.length === 0 ?
+        { kind: "clear" } :
+        {
+          kind: "blocked",
+          reason: `Text track(s) already exist with name '${target.name}': ${describeTracks(colliding)}. Choose a different trackName.`,
+          tracks: colliding.map(summarizeTextTrack),
+        };
+  }
+
+  const others = colliding.filter(track => track.id !== sourceTrackId);
+  if (others.length > 0) {
+    return {
+      kind: "blocked",
+      reason: `Text track(s) other than the source already use the name '${target.name}': ${describeTracks(others)}. Choose a different trackName.`,
+      tracks: others.map(summarizeTextTrack),
+    };
+  }
+
+  const source = listTracks(asset, targetType(target)).find(track => track.id === sourceTrackId);
+  return source ? { kind: "replace", toDelete: [summarizeTextTrack(source)] } : { kind: "clear" };
 }
 
 /** True for Mux's `400 invalid_parameters` "Track name 'X' is not unique" rejection. */
@@ -294,20 +343,29 @@ export async function createTextTrackOnMux(
   return trackResponse.id;
 }
 
-export interface ReplaceAndCreateTextTrackInput {
+interface CreateTrackWriteInput {
   assetId: string;
   target: TextTrackTarget;
-  policy: ReplaceExistingTracksPolicy;
   presignedUrl: string;
   /** Text tracks only. */
   closedCaptions?: boolean;
   passthrough?: string;
-  /** Tracks that may coexist with the new one; see `planTextTrackReplacement`. */
-  keepTrackIds?: string[];
   credentials?: WorkflowCredentialsInput;
 }
 
+export interface ReplaceAndCreateTextTrackInput extends CreateTrackWriteInput {
+  policy: ReplaceExistingTracksPolicy;
+  /** Tracks that may coexist with the new one; see `planTextTrackReplacement`. */
+  keepTrackIds?: string[];
+}
+
 export type ReplaceAndCreateTrackInput = ReplaceAndCreateTextTrackInput;
+
+export interface ReplaceSourceTrackInput extends CreateTrackWriteInput {
+  /** The track being edited; see `planSourceTrackReplacement`. */
+  sourceTrackId: string;
+  policy: SourceTrackReplacementPolicy;
+}
 
 /**
  * Fetches the asset fresh, deletes whatever `policy` allows, then creates the
@@ -326,6 +384,24 @@ export type ReplaceAndCreateTrackInput = ReplaceAndCreateTextTrackInput;
  */
 export async function replaceAndCreateTrack(input: ReplaceAndCreateTextTrackInput): Promise<ReplaceAndCreateTextTrackResult> {
   "use step";
+  return writeTrack(input, asset => planTextTrackReplacement(asset, input.target, input.policy, { keepTrackIds: input.keepTrackIds }));
+}
+
+/**
+ * `replaceAndCreateTrack` for a workflow that edits an existing text track: plans
+ * with `planSourceTrackReplacement`, so at most the source itself is deleted.
+ * Same outcomes and retry behaviour.
+ */
+export async function replaceSourceTrack(input: ReplaceSourceTrackInput): Promise<ReplaceAndCreateTextTrackResult> {
+  "use step";
+  const target: TextTrackTarget = { ...input.target, type: "text" };
+  return writeTrack({ ...input, target }, asset => planSourceTrackReplacement(asset, input.sourceTrackId, target, input.policy));
+}
+
+async function writeTrack(
+  input: CreateTrackWriteInput,
+  plan: (asset: MuxAsset) => TextTrackReplacementPlan,
+): Promise<ReplaceAndCreateTextTrackResult> {
   const muxClient = await resolveMuxClient(input.credentials);
   const mux = await muxClient.createClient();
   const type = targetType(input.target);
@@ -347,12 +423,12 @@ export async function replaceAndCreateTrack(input: ReplaceAndCreateTextTrackInpu
       }
       return failed(error);
     }
-    const plan = planTextTrackReplacement(asset, input.target, input.policy, { keepTrackIds: input.keepTrackIds });
-    if (plan.kind === "blocked") {
-      return { ...plan, deleted };
+    const planned = plan(asset);
+    if (planned.kind === "blocked") {
+      return { ...planned, deleted };
     }
-    if (plan.kind === "replace") {
-      for (const track of plan.toDelete) {
+    if (planned.kind === "replace") {
+      for (const track of planned.toDelete) {
         try {
           await mux.video.assets.deleteTrack(input.assetId, track.id);
           deleted.push(track);
