@@ -20,15 +20,6 @@ const MOCK_ERRORED_RESPONSE = {
   },
 };
 
-const MOCK_LEGACY_ERRORED_RESPONSE = {
-  status: "errored" as const,
-  created_at: "1773108428",
-  error: {
-    type: "arbitrary string",
-    messages: ["string", "array"],
-  },
-};
-
 const MOCK_COMPLETED_RESPONSE = {
   status: "completed" as const,
   created_at: "1773108428",
@@ -217,21 +208,6 @@ describe("getShotsForAsset", () => {
 
     await expect(getShotsForAsset("test-asset-123")).rejects.toThrow("missing shots_manifest_url");
     expect(mockFetch).not.toHaveBeenCalled();
-  });
-
-  it("reads error details from the legacy `error` field", async () => {
-    mockRetrieveShots.mockResolvedValue(MOCK_LEGACY_ERRORED_RESPONSE);
-
-    const result = await getShotsForAsset("test-asset-123");
-
-    expect(result).toEqual({
-      status: "errored",
-      createdAt: "1773108428",
-      error: {
-        type: "arbitrary string",
-        messages: ["string", "array"],
-      },
-    });
   });
 });
 

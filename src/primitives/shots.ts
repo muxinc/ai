@@ -47,13 +47,6 @@ export interface WaitForShotsOptions extends ShotRequestOptions {
   createIfMissing?: boolean;
 }
 
-/** SDK shots payload plus fields the API returns that the SDK type omits. */
-type ShotsApiData = AssetShots & {
-  created_at: string;
-  /** Older payloads nest error details under `error` rather than `errors`. */
-  error?: AssetShots.Errors;
-};
-
 interface ShotsManifestResponse {
   shots: Array<{
     start_time: number;
@@ -124,26 +117,22 @@ async function fetchShotsFromManifest(
   return mapManifestShots(manifest.shots);
 }
 
-async function transformShotsResponse(
-  data: ShotsApiData,
-): Promise<ShotsResult> {
+async function transformShotsResponse(data: AssetShots): Promise<ShotsResult> {
   switch (data.status) {
     case "pending":
       return {
         status: "pending",
         createdAt: data.created_at,
       };
-    case "errored": {
-      const details = data.errors ?? data.error;
+    case "errored":
       return {
         status: "errored",
         createdAt: data.created_at,
         error: {
-          type: details?.type ?? "unknown",
-          messages: details?.messages ?? [],
+          type: data.errors?.type ?? "unknown",
+          messages: data.errors?.messages ?? [],
         },
       };
-    }
     case "completed":
       if (!data.shots_manifest_url) {
         throw new Error("Completed shots response is missing shots_manifest_url");
@@ -189,7 +178,7 @@ export async function requestShotsForAsset(
   const { credentials } = options;
   const muxClient = await getMuxClientFromEnv(credentials);
   const mux = await muxClient.createClient();
-  const data = await mux.video.assets.generateShots(assetId, {}) as ShotsApiData;
+  const data = await mux.video.assets.generateShots(assetId, {});
   const result = await transformShotsResponse(data);
 
   if (result.status !== "pending") {
@@ -216,7 +205,7 @@ export async function getShotsForAsset(
   const { credentials } = options;
   const muxClient = await getMuxClientFromEnv(credentials);
   const mux = await muxClient.createClient();
-  const data = await mux.video.assets.retrieveShots(assetId) as ShotsApiData;
+  const data = await mux.video.assets.retrieveShots(assetId);
 
   return await transformShotsResponse(data);
 }
