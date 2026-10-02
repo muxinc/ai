@@ -222,6 +222,22 @@ describe("translateAudio static rendition cleanup", () => {
     expect(result.createdStaticRenditionId).toBe(CREATED_RENDITION_ID);
   });
 
+  it("waits up to 30 minutes for a requested rendition before timing out", async () => {
+    const { retrieve, deleteStaticRendition } = mockMuxClient({
+      initialAsset: buildAsset(),
+      polledAsset: buildAsset({
+        files: [{ id: CREATED_RENDITION_ID, name: "audio.m4a", status: "preparing" }],
+      }),
+    });
+    stubElevenLabsFetch();
+
+    const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
+
+    expect(error).toMatchObject({ publicType: "timeout_error", retryable: true });
+    expect(retrieve).toHaveBeenCalledTimes(180);
+    expect(deleteStaticRendition).toHaveBeenCalledWith(ASSET_ID, CREATED_RENDITION_ID);
+  });
+
   it("treats an already-deleted rendition (404) as deleted", async () => {
     const { deleteStaticRendition } = mockMuxClient({
       initialAsset: buildAsset(),
@@ -235,5 +251,93 @@ describe("translateAudio static rendition cleanup", () => {
     const result = await translateAudio(ASSET_ID, "fr", BASE_OPTIONS);
 
     expect(result.staticRenditionCleanup).toBe("deleted");
+  });
+});
+
+function legacyAsset(mp4Support: string, staticRenditions?: object) {
+  return { ...buildAsset(staticRenditions), mp4_support: mp4Support };
+}
+
+function dubbingSourceUrl(fetchMock: ReturnType<typeof vi.fn>): string | undefined {
+  const createCall = fetchMock.mock.calls.find(([input, init]) =>
+    String(input).endsWith("/v1/dubbing") && init?.method === "POST");
+  return (createCall?.[1]?.body as FormData | undefined)?.get("source_url")?.toString();
+}
+
+describe("translateAudio on assets using the deprecated mp4_support option", () => {
+  it.each([
+    ["capped-1080p", ["capped-1080p.mp4"], "capped-1080p.mp4"],
+    ["audio-only", ["audio.m4a"], "audio.m4a"],
+    ["audio-only,capped-1080p", ["audio.m4a", "capped-1080p.mp4"], "audio.m4a"],
+    ["standard", ["low.mp4", "medium.mp4", "high.mp4"], "low.mp4"],
+  ])("dubs from the existing files for mp4_support=%s without touching static renditions", async (mp4Support, fileNames, expected) => {
+    const { createStaticRendition, deleteStaticRendition } = mockMuxClient({
+      initialAsset: legacyAsset(mp4Support, { status: "ready", files: fileNames.map(name => ({ name, filesize: "1000" })) }),
+    });
+    const fetchMock = stubElevenLabsFetch();
+
+    const result = await translateAudio(ASSET_ID, "fr", BASE_OPTIONS);
+
+    expect(dubbingSourceUrl(fetchMock)).toMatch(new RegExp(`/playback-123/${expected.replace(".", "\\.")}$`));
+    expect(createStaticRendition).not.toHaveBeenCalled();
+    expect(deleteStaticRendition).not.toHaveBeenCalled();
+    expect(result.createdStaticRenditionId).toBeUndefined();
+    expect(result.staticRenditionCleanup).toBe("not_created");
+  });
+
+  it("waits for preparing mp4_support renditions instead of requesting new ones", async () => {
+    const { createStaticRendition, retrieve } = mockMuxClient({
+      initialAsset: legacyAsset("capped-1080p", { status: "preparing" }),
+      polledAsset: legacyAsset("capped-1080p", { status: "ready", files: [{ name: "capped-1080p.mp4" }] }),
+    });
+    const fetchMock = stubElevenLabsFetch();
+
+    await translateAudio(ASSET_ID, "fr", BASE_OPTIONS);
+
+    expect(retrieve).toHaveBeenCalled();
+    expect(createStaticRendition).not.toHaveBeenCalled();
+    expect(dubbingSourceUrl(fetchMock)).toMatch(/\/playback-123\/capped-1080p\.mp4$/);
+  });
+
+  it("rejects an mp4_support file too large to dub before calling ElevenLabs", async () => {
+    const { createStaticRendition, deleteStaticRendition } = mockMuxClient({
+      initialAsset: legacyAsset("capped-1080p", { status: "ready", files: [{ name: "capped-1080p.mp4", filesize: "1500000000" }] }),
+    });
+    const fetchMock = stubElevenLabsFetch();
+
+    const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
+
+    expect(error).toMatchObject({ publicType: "validation_error", retryable: false });
+    expect((error as Error).message).toContain("capped-1080p.mp4 static rendition (1.5 GB) is larger than the 1 GB");
+    expect((error as Error).message).toContain("Static Renditions API");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(createStaticRendition).not.toHaveBeenCalled();
+    expect(deleteStaticRendition).not.toHaveBeenCalled();
+  });
+
+  it("fails errored mp4_support renditions without re-requesting them", async () => {
+    const { createStaticRendition } = mockMuxClient({
+      initialAsset: legacyAsset("audio-only", { status: "errored" }),
+    });
+    const fetchMock = stubElevenLabsFetch();
+
+    const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
+
+    expect(error).toMatchObject({ publicType: "validation_error" });
+    expect((error as Error).message).toContain("static renditions are errored");
+    expect(createStaticRendition).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("times out after 30 minutes of preparing mp4_support renditions", async () => {
+    const { retrieve } = mockMuxClient({
+      initialAsset: legacyAsset("capped-1080p", { status: "preparing" }),
+    });
+    stubElevenLabsFetch();
+
+    const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
+
+    expect(error).toMatchObject({ publicType: "timeout_error", retryable: true });
+    expect(retrieve).toHaveBeenCalledTimes(180);
   });
 });
