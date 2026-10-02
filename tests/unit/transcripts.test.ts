@@ -1,6 +1,7 @@
 import dedent from "dedent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { MuxAiError } from "../../src/lib/mux-ai-error";
 import {
   buildVttFromCueBlocks,
   buildVttFromTranslatedCueBlocks,
@@ -149,6 +150,109 @@ describe("fetchTranscriptForAsset", () => {
       required: true,
       scope: {},
     })).rejects.toThrow("Transcript is empty.");
+  });
+
+  it("throws a MuxAiError instance (not just a message-alike) when required and no track exists", async () => {
+    const asset = { tracks: [] } as unknown as MuxAsset;
+
+    const error = await fetchTranscriptForAsset(asset, "playback-1", { required: true }).catch(e => e);
+
+    expect(error).toBeInstanceOf(MuxAiError);
+    expect(MuxAiError.is(error)).toBe(true);
+    expect((error as MuxAiError).message).toContain("No caption track found");
+  });
+
+  it("resolves (does not throw) with an empty transcriptText when not required and no track exists", async () => {
+    const asset = { tracks: [] } as unknown as MuxAsset;
+
+    await expect(fetchTranscriptForAsset(asset, "playback-1")).resolves.toEqual({ transcriptText: "" });
+  });
+
+  it("throws when required and the caption track is missing an id", async () => {
+    const asset = {
+      tracks: [{
+        type: "text",
+        status: "ready",
+        text_type: "subtitles",
+        language_code: "en",
+      }],
+    } as unknown as MuxAsset;
+
+    await expect(fetchTranscriptForAsset(asset, "playback-1", {
+      required: true,
+    })).rejects.toThrow("Transcript track is missing an id.");
+  });
+
+  it("throws when required and no cues survive the requested scope", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      text: vi.fn().mockResolvedValue(dedent`
+        WEBVTT
+
+        00:00:00.000 --> 00:00:03.000
+        Hello there.
+      `),
+    }));
+
+    const asset = {
+      tracks: [{
+        type: "text",
+        id: "track-1",
+        status: "ready",
+        text_type: "subtitles",
+        language_code: "en",
+      }],
+    } as MuxAsset;
+
+    await expect(fetchTranscriptForAsset(asset, "playback-1", {
+      required: true,
+      cleanTranscript: false,
+      scope: { startTime: 100, endTime: 110 },
+    })).rejects.toThrow("Transcript has no cues in the requested scope.");
+  });
+
+  it("still resolves with track and transcriptUrl when the VTT fetch fails and not required", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+    }));
+
+    const asset = {
+      tracks: [{
+        type: "text",
+        id: "track-1",
+        status: "ready",
+        text_type: "subtitles",
+        language_code: "en",
+      }],
+    } as MuxAsset;
+
+    const result = await fetchTranscriptForAsset(asset, "playback-1");
+
+    expect(result.transcriptText).toBe("");
+    expect(result.track).toEqual(asset.tracks![0]);
+    expect(result.transcriptUrl).toBeDefined();
+  });
+
+  it("throws when required and the VTT fetch fails", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+    }));
+
+    const asset = {
+      tracks: [{
+        type: "text",
+        id: "track-1",
+        status: "ready",
+        text_type: "subtitles",
+        language_code: "en",
+      }],
+    } as MuxAsset;
+
+    await expect(fetchTranscriptForAsset(asset, "playback-1", {
+      required: true,
+    })).rejects.toThrow("Failed to fetch transcript");
   });
 });
 
