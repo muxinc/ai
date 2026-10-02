@@ -31,7 +31,18 @@ export interface CompletedShotsResult {
   shots: Shot[];
 }
 
-export type ShotsResult = PendingShotsResult | ErroredShotsResult | CompletedShotsResult;
+/** Mux declined to run shot detection, e.g. the asset has no video track. */
+export interface SkippedShotsResult {
+  status: "skipped";
+  createdAt: string;
+}
+
+export interface DeletedShotsResult {
+  status: "deleted";
+  createdAt: string;
+}
+
+export type ShotsResult = PendingShotsResult | ErroredShotsResult | CompletedShotsResult | SkippedShotsResult | DeletedShotsResult;
 
 export interface ShotRequestOptions {
   /** Optional workflow credentials */
@@ -120,8 +131,10 @@ async function fetchShotsFromManifest(
 async function transformShotsResponse(data: AssetShots): Promise<ShotsResult> {
   switch (data.status) {
     case "pending":
+    case "skipped":
+    case "deleted":
       return {
-        status: "pending",
+        status: data.status,
         createdAt: data.created_at,
       };
     case "errored":
@@ -253,6 +266,17 @@ export async function waitForShotsForAsset(
 
     if (result.status === "errored") {
       throw new MuxAiError(`Shot generation failed for asset ${assetId}.`);
+    }
+
+    if (result.status === "skipped") {
+      throw new MuxAiError(
+        `Shot generation was skipped for asset ${assetId}; the asset may have no video track.`,
+        { type: "validation_error" },
+      );
+    }
+
+    if (result.status === "deleted") {
+      throw new MuxAiError(`Shots for asset ${assetId} have been deleted.`, { type: "validation_error" });
     }
 
     if (attempt < normalizedMaxAttempts - 1) {

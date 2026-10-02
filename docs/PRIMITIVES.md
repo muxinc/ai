@@ -207,8 +207,13 @@ interface Shot {
 
 type ShotsResult =
   | {
-      status: "pending";
+      status: "pending" | "skipped" | "deleted";
       createdAt: string;
+    }
+  | {
+      status: "errored";
+      createdAt: string;
+      error: { type: string; messages: string[] };
     }
   | {
       status: "completed";
@@ -216,6 +221,8 @@ type ShotsResult =
       shots: Shot[];
     };
 ```
+
+`skipped` means Mux declined to run shot detection, typically because the asset has no video track.
 
 ### `waitForShotsForAsset(assetId, options?)`
 
@@ -231,6 +238,8 @@ const result = await waitForShotsForAsset("asset-id", {
 
 console.log(result.shots);
 ```
+
+Resolves only with a `completed` result. Throws a `MuxAiError` when shots end in `errored`, `skipped`, or `deleted`, or when polling times out.
 
 **Options:**
 
