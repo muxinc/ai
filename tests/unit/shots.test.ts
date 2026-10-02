@@ -196,11 +196,19 @@ describe("getShotsForAsset", () => {
     expect(mockRetrieveShots).toHaveBeenCalledWith("test-asset-123");
   });
 
+  it("returns skipped and deleted as terminal results", async () => {
+    // Live payload for an audio-only asset; `id` is returned but not typed by the SDK.
+    mockRetrieveShots.mockResolvedValue({ status: "skipped", id: "fxZCiiucFNyeQ7b7XPYzUYQ6O2p8IXC8g4sGxfku9yum971YOHZWnQ", created_at: "1790966334" });
+    await expect(getShotsForAsset("test-asset-123")).resolves.toEqual({ status: "skipped", createdAt: "1790966334" });
+
+    mockRetrieveShots.mockResolvedValue({ status: "deleted", created_at: "1773108428" });
+    await expect(getShotsForAsset("test-asset-123")).resolves.toEqual({ status: "deleted", createdAt: "1773108428" });
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it("throws a clear error for statuses this library does not handle", async () => {
-    for (const status of ["skipped", "deleted"]) {
-      mockRetrieveShots.mockResolvedValue({ status, created_at: "1773108428" });
-      await expect(getShotsForAsset("test-asset-123")).rejects.toThrow(`Unsupported shots status '${status}'`);
-    }
+    mockRetrieveShots.mockResolvedValue({ status: "unexpected", created_at: "1773108428" });
+    await expect(getShotsForAsset("test-asset-123")).rejects.toThrow("Unsupported shots status 'unexpected'");
   });
 
   it("throws when a completed response has no manifest URL", async () => {
@@ -338,6 +346,25 @@ describe("waitForShotsForAsset", () => {
     const expectation = expect(promise).rejects.toThrow(
       "Shot generation failed for asset test-asset-123.",
     );
+
+    await vi.runAllTimersAsync();
+    await expectation;
+    expect(mockRetrieveShots).toHaveBeenCalledTimes(1);
+  });
+
+  it("throws a validation error instead of polling when shots are skipped", async () => {
+    vi.useFakeTimers();
+    mockGenerateShots.mockResolvedValue(MOCK_PENDING_RESPONSE);
+    mockRetrieveShots.mockResolvedValue({ status: "skipped", created_at: "1790966334" });
+
+    const promise = waitForShotsForAsset("test-asset-123", {
+      pollIntervalMs: 100,
+      maxAttempts: 3,
+    });
+    const expectation = expect(promise).rejects.toMatchObject({
+      publicType: "validation_error",
+      publicMessage: "Shot generation was skipped for asset test-asset-123; the asset may have no video track.",
+    });
 
     await vi.runAllTimersAsync();
     await expectation;
