@@ -858,6 +858,7 @@ console.log(result.presignedUrl); // S3 audio file URL
 ### Requirements
 
 - Asset must have an `audio.m4a` static rendition (auto-requested if missing; a rendition the workflow creates is deleted afterwards by default, configurable via `staticRenditionCleanup: "delete" | "keep"`)
+- Assets on the deprecated [`mp4_support`](https://www.mux.com/docs/guides/enable-static-mp4-renditions-using-mp4-support) option are dubbed from their existing files, never modified: `audio.m4a` for `audio-only` and `audio-only,capped-1080p`, `capped-1080p.mp4` for `capped-1080p`, and `low.mp4` for `standard`. A file over 1 GB is rejected before dubbing; move the asset to the [Static Renditions API](https://www.mux.com/docs/guides/enable-static-mp4-renditions) and add an `audio-only` rendition instead.
 - ElevenLabs API key with Creator plan or higher
 - S3-compatible storage (same as caption translation)
 
@@ -867,7 +868,7 @@ ElevenLabs supports 32+ languages with automatic language name detection via `In
 
 ### Audio Dubbing Workflow
 
-1. Checks asset has audio.m4a static rendition (requests one if missing)
+1. Checks asset has audio.m4a static rendition (requests one if missing, waiting up to 30 minutes for it; `mp4_support` assets use their existing files instead)
 2. Downloads default audio track from Mux
 3. Creates ElevenLabs dubbing job (source language auto-detected unless `fromLanguageCode` is set)
 4. Polls for completion (up to 30 minutes)
