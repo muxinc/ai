@@ -7,6 +7,11 @@ import type { LanguageCodePair, SupportedISO639_1 } from "../lib/language-codes.
 import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "../lib/mux-assets.ts";
 import {
+  getLegacyMp4SupportRenditionSizeError,
+  resolveLegacyMp4SupportRendition,
+  usesLegacyMp4Support,
+} from "../lib/mux-static-renditions.ts";
+import {
   buildMuxAiTrackPassthrough,
   planTextTrackReplacement,
   replaceAndCreateTrack,
@@ -141,8 +146,12 @@ export interface AudioTranslationOptions extends MuxAIOptions {
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
 
-const STATIC_RENDITION_POLL_INTERVAL_MS = 5000;
-const STATIC_RENDITION_MAX_ATTEMPTS = 36; // ~3 minutes
+const STATIC_RENDITION_POLL_INTERVAL_MS = 10_000;
+const STATIC_RENDITION_MAX_ATTEMPTS = 180; // 30 minutes
+
+// Conservative ElevenLabs dubbing source cap. Only checked for `mp4_support`
+// assets, the one case where the dubbing source can be a video MP4.
+const MAX_DUBBING_SOURCE_BYTES = 1_000_000_000;
 
 const DUBBING_POLL_INTERVAL_MS = 10_000;
 const DEFAULT_DUBBING_POLL_TIMEOUT_SECONDS = 7200; // 2 hours; override via options.dubbingPollTimeoutSeconds
@@ -292,6 +301,51 @@ async function waitForAudioStaticRendition({
     "Timed out waiting for the static rendition to become ready. Please try again in a moment.",
     { type: "timeout_error", retryable: true },
   );
+}
+
+// Assets on the deprecated `mp4_support` option reject the Static Renditions
+// API, so this only waits for and reads their existing files, never modifying them.
+async function waitForLegacyMp4SupportRendition({
+  assetId,
+  initialAsset,
+  credentials,
+}: {
+  assetId: string;
+  initialAsset: any;
+  credentials?: WorkflowCredentialsInput;
+}): Promise<string> {
+  let rendition = resolveLegacyMp4SupportRendition(initialAsset);
+
+  for (let attempt = 1; rendition?.kind === "preparing" && attempt <= STATIC_RENDITION_MAX_ATTEMPTS; attempt++) {
+    console.warn(
+      `⌛ Waiting for mp4_support static renditions (attempt ${attempt}/${STATIC_RENDITION_MAX_ATTEMPTS})`,
+    );
+    await sleep(STATIC_RENDITION_POLL_INTERVAL_MS);
+    rendition = resolveLegacyMp4SupportRendition(await retrieveAsset(assetId, credentials));
+  }
+
+  if (!rendition) {
+    throw new MuxAiError(
+      "The asset's static rendition settings changed while waiting for them. Please try again.",
+      { type: "processing_error", retryable: true },
+    );
+  }
+  if (rendition.kind === "preparing") {
+    throw new MuxAiError(
+      "Timed out waiting for the static rendition to become ready. Please try again in a moment.",
+      { type: "timeout_error", retryable: true },
+    );
+  }
+  if (rendition.kind === "unusable") {
+    throw new MuxAiError(rendition.reason, { type: "validation_error" });
+  }
+
+  const sizeError = getLegacyMp4SupportRenditionSizeError(rendition, MAX_DUBBING_SOURCE_BYTES);
+  if (sizeError) {
+    throw new MuxAiError(sizeError, { type: "validation_error" });
+  }
+
+  return rendition.name;
 }
 
 async function createElevenLabsDubbingJob({
@@ -601,7 +655,8 @@ export async function translateAudio(
   // including poll timeouts.
   let currentAsset = initialAsset;
   let createdStaticRenditionId: string | undefined;
-  if (!hasReadyAudioStaticRendition(currentAsset)) {
+  const isLegacyMp4SupportAsset = usesLegacyMp4Support(initialAsset);
+  if (!isLegacyMp4SupportAsset && !hasReadyAudioStaticRendition(currentAsset)) {
     console.warn("❌ No ready audio static rendition found. Requesting one now...");
     const renditionStatus = currentAsset.static_renditions?.status ?? "not_requested";
     if (renditionStatus === "not_requested" || renditionStatus === "errored") {
@@ -622,25 +677,34 @@ export async function translateAudio(
   let captionsTrackId: string | undefined;
 
   try {
-    if (!hasReadyAudioStaticRendition(currentAsset)) {
-      currentAsset = await waitForAudioStaticRendition({
+    let sourceRenditionName = "audio.m4a";
+    if (isLegacyMp4SupportAsset) {
+      sourceRenditionName = await waitForLegacyMp4SupportRendition({
         assetId,
         initialAsset: currentAsset,
         credentials,
       });
-    }
+    } else {
+      if (!hasReadyAudioStaticRendition(currentAsset)) {
+        currentAsset = await waitForAudioStaticRendition({
+          assetId,
+          initialAsset: currentAsset,
+          credentials,
+        });
+      }
 
-    const audioRendition = getReadyAudioStaticRendition(currentAsset);
+      const audioRendition = getReadyAudioStaticRendition(currentAsset);
 
-    if (!audioRendition) {
-      throw new MuxAiError(
-        "Unable to obtain an audio-only static rendition for this asset. Please verify static renditions are enabled in Mux.",
-        { type: "validation_error" },
-      );
+      if (!audioRendition) {
+        throw new MuxAiError(
+          "Unable to obtain an audio-only static rendition for this asset. Please verify static renditions are enabled in Mux.",
+          { type: "validation_error" },
+        );
+      }
     }
 
     // Build audio URL (signed if needed)
-    let audioUrl = `${await getMuxStreamOrigin(credentials)}/${playbackId}/audio.m4a`;
+    let audioUrl = `${await getMuxStreamOrigin(credentials)}/${playbackId}/${sourceRenditionName}`;
     if (policy === "signed") {
       audioUrl = await signUrl(audioUrl, playbackId, "video", undefined, credentials);
     }

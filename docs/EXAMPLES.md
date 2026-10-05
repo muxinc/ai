@@ -278,7 +278,7 @@ npm run dubbing-only <your-asset-id> fr
 
 **Audio Dubbing Workflow:**
 
-1. Checks asset has audio.m4a static rendition
+1. Checks asset has audio.m4a static rendition (or, for assets using the deprecated `mp4_support` option, picks the best existing file)
 2. Downloads default audio track from Mux
 3. Creates ElevenLabs dubbing job (source language auto-detected unless `--from` is set)
 4. Polls for completion (up to 30 minutes)

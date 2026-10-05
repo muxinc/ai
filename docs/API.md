@@ -623,7 +623,7 @@ Creates AI-dubbed audio tracks from existing media content using ElevenLabs voic
 
 **Parameters:**
 
-- `assetId` (string) - Mux asset ID (video or audio-only; must have audio.m4a static rendition)
+- `assetId` (string) - Mux asset ID (video or audio-only; must have audio.m4a static rendition, or use the deprecated `mp4_support` option)
 - `toLanguageCode` (string) - Target language code (e.g., 'es', 'fr', 'de')
 - `options` (optional) - Configuration options
 
@@ -667,6 +667,7 @@ interface TranslateAudioResult {
 **Requirements:**
 
 - Asset must have an `audio.m4a` static rendition (auto-requested if missing, and deleted again afterwards by default — see `staticRenditionCleanup`)
+- Assets on the deprecated [`mp4_support`](https://www.mux.com/docs/guides/enable-static-mp4-renditions-using-mp4-support) option are dubbed from their existing files, never modified: `audio.m4a` for `audio-only` and `audio-only,capped-1080p`, `capped-1080p.mp4` for `capped-1080p`, and `low.mp4` for `standard`. A file over 1 GB is rejected before dubbing; move the asset to the [Static Renditions API](https://www.mux.com/docs/guides/enable-static-mp4-renditions) and add an `audio-only` rendition instead.
 - ElevenLabs API key with Creator plan or higher
 - S3-compatible storage for Mux ingestion
 
