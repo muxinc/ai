@@ -24,16 +24,12 @@ export type { MuxAiErrorType } from "./lib/mux-ai-error.ts";
 
 // Mux static renditions created by the deprecated `mp4_support` option
 export {
-  getLegacyMp4Support,
   getLegacyMp4SupportRenditionSizeError,
   resolveLegacyMp4SupportRendition,
   STATIC_RENDITIONS_GUIDE_URL,
+  usesLegacyMp4Support,
 } from "./lib/mux-static-renditions.ts";
-export type {
-  LegacyMp4Support,
-  LegacyMp4SupportRendition,
-  StaticRenditionFileName,
-} from "./lib/mux-static-renditions.ts";
+export type { LegacyMp4SupportRendition } from "./lib/mux-static-renditions.ts";
 
 // Mux text track replacement
 export {

@@ -7,11 +7,10 @@ import type { LanguageCodePair, SupportedISO639_1 } from "../lib/language-codes.
 import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "../lib/mux-assets.ts";
 import {
-  getLegacyMp4Support,
   getLegacyMp4SupportRenditionSizeError,
   resolveLegacyMp4SupportRendition,
+  usesLegacyMp4Support,
 } from "../lib/mux-static-renditions.ts";
-import type { StaticRenditionFileName } from "../lib/mux-static-renditions.ts";
 import {
   buildMuxAiTrackPassthrough,
   planTextTrackReplacement,
@@ -314,7 +313,7 @@ async function waitForLegacyMp4SupportRendition({
   assetId: string;
   initialAsset: any;
   credentials?: WorkflowCredentialsInput;
-}): Promise<StaticRenditionFileName> {
+}): Promise<string> {
   let rendition = resolveLegacyMp4SupportRendition(initialAsset);
 
   for (let attempt = 1; rendition?.kind === "preparing" && attempt <= STATIC_RENDITION_MAX_ATTEMPTS; attempt++) {
@@ -346,7 +345,6 @@ async function waitForLegacyMp4SupportRendition({
     throw new MuxAiError(sizeError, { type: "validation_error" });
   }
 
-  console.warn(`ℹ️ Using ${rendition.name} from the asset's mp4_support="${rendition.mp4Support}" static renditions`);
   return rendition.name;
 }
 
@@ -657,8 +655,8 @@ export async function translateAudio(
   // including poll timeouts.
   let currentAsset = initialAsset;
   let createdStaticRenditionId: string | undefined;
-  const usesLegacyMp4Support = getLegacyMp4Support(initialAsset) !== undefined;
-  if (!usesLegacyMp4Support && !hasReadyAudioStaticRendition(currentAsset)) {
+  const isLegacyMp4SupportAsset = usesLegacyMp4Support(initialAsset);
+  if (!isLegacyMp4SupportAsset && !hasReadyAudioStaticRendition(currentAsset)) {
     console.warn("❌ No ready audio static rendition found. Requesting one now...");
     const renditionStatus = currentAsset.static_renditions?.status ?? "not_requested";
     if (renditionStatus === "not_requested" || renditionStatus === "errored") {
@@ -679,8 +677,8 @@ export async function translateAudio(
   let captionsTrackId: string | undefined;
 
   try {
-    let sourceRenditionName: StaticRenditionFileName = "audio.m4a";
-    if (usesLegacyMp4Support) {
+    let sourceRenditionName = "audio.m4a";
+    if (isLegacyMp4SupportAsset) {
       sourceRenditionName = await waitForLegacyMp4SupportRendition({
         assetId,
         initialAsset: currentAsset,

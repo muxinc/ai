@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  getLegacyMp4Support,
   getLegacyMp4SupportRenditionSizeError,
   resolveLegacyMp4SupportRendition,
+  usesLegacyMp4Support,
 } from "../../src/lib/mux-static-renditions";
 
 function legacyAsset(mp4Support: string | undefined, staticRenditions?: object) {
@@ -14,13 +14,13 @@ function legacyFile(name: string, filesize?: string | number) {
   return { name, ext: name.endsWith(".m4a") ? "m4a" : "mp4", filesize };
 }
 
-describe("getLegacyMp4Support", () => {
-  it("returns the mp4_support value when the deprecated option is in use", () => {
-    expect(getLegacyMp4Support(legacyAsset("capped-1080p"))).toBe("capped-1080p");
+describe("usesLegacyMp4Support", () => {
+  it("is true when the deprecated option is in use", () => {
+    expect(usesLegacyMp4Support(legacyAsset("capped-1080p"))).toBe(true);
   });
 
-  it.each([undefined, "none"])("returns undefined for mp4_support=%s", (mp4Support) => {
-    expect(getLegacyMp4Support(legacyAsset(mp4Support))).toBeUndefined();
+  it.each([undefined, "none"])("is false for mp4_support=%s", (mp4Support) => {
+    expect(usesLegacyMp4Support(legacyAsset(mp4Support))).toBe(false);
   });
 });
 
@@ -40,7 +40,7 @@ describe("resolveLegacyMp4SupportRendition", () => {
   ])("picks the preferred file for mp4_support=%s", (mp4Support, fileNames, expected) => {
     const asset = legacyAsset(mp4Support, { status: "ready", files: fileNames.map(name => legacyFile(name)) });
 
-    expect(resolveLegacyMp4SupportRendition(asset)).toEqual({ kind: "ready", mp4Support, name: expected });
+    expect(resolveLegacyMp4SupportRendition(asset)).toEqual({ kind: "ready", name: expected });
   });
 
   it.each([
@@ -72,16 +72,13 @@ describe("resolveLegacyMp4SupportRendition", () => {
     ["preparing", { status: "preparing", files: [] }],
     ["not yet reported", undefined],
   ])("reports preparing while the aggregate status is %s", (_label, staticRenditions) => {
-    expect(resolveLegacyMp4SupportRendition(legacyAsset("capped-1080p", staticRenditions))).toEqual({
-      kind: "preparing",
-      mp4Support: "capped-1080p",
-    });
+    expect(resolveLegacyMp4SupportRendition(legacyAsset("capped-1080p", staticRenditions))).toEqual({ kind: "preparing" });
   });
 
   it.each(["errored", "disabled"])("reports %s renditions as unusable and points at the Static Renditions API", (status) => {
     const rendition = resolveLegacyMp4SupportRendition(legacyAsset("audio-only", { status, files: [] }));
 
-    expect(rendition).toMatchObject({ kind: "unusable", mp4Support: "audio-only" });
+    expect(rendition).toMatchObject({ kind: "unusable" });
     expect(rendition?.kind === "unusable" && rendition.reason).toContain(`static renditions are ${status}`);
     expect(rendition?.kind === "unusable" && rendition.reason).toContain("https://www.mux.com/docs/guides/enable-static-mp4-renditions");
   });
@@ -89,12 +86,12 @@ describe("resolveLegacyMp4SupportRendition", () => {
   it("reports a ready asset with none of the preferred files as unusable", () => {
     const rendition = resolveLegacyMp4SupportRendition(legacyAsset("audio-only", { status: "ready", files: [legacyFile("capped-1080p.mp4")] }));
 
-    expect(rendition).toMatchObject({ kind: "unusable", mp4Support: "audio-only" });
+    expect(rendition).toMatchObject({ kind: "unusable", reason: expect.stringContaining("(\"audio-only\")") });
   });
 });
 
 describe("getLegacyMp4SupportRenditionSizeError", () => {
-  const ready = { kind: "ready", mp4Support: "capped-1080p", name: "capped-1080p.mp4" } as const;
+  const ready = { kind: "ready", name: "capped-1080p.mp4" } as const;
 
   it("returns undefined when the file fits or its size is unknown", () => {
     expect(getLegacyMp4SupportRenditionSizeError({ ...ready, filesizeBytes: 1_000_000_000 }, 1_000_000_000)).toBeUndefined();
