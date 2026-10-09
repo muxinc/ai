@@ -52,7 +52,14 @@ export function planTextRepair(content: string, limits: readonly TextLengthLimit
     budgets: limits.map((limit) => {
       const total = [...selected].reduce((sum, selectedIndex) => sum + measureGenerateTextLength(parts[selectedIndex], limit.unit), 0);
       const allowance = limit.value - measureGenerateTextLength(fixed, limit.unit) - headroom(limit);
-      return { unit: limit.unit, value: Math.floor(total === 0 ? allowance / selected.size : measureGenerateTextLength(parts[index], limit.unit) * Math.min(1, allowance / total)) };
+      if (allowance < selected.size)
+        return { unit: limit.unit, value: 0 };
+      // Reserve a positive budget for every span before weighting the remainder.
+      // Short or zero-word paragraphs must not make an otherwise feasible plan fail.
+      const remaining = allowance - selected.size;
+      const length = measureGenerateTextLength(parts[index], limit.unit);
+      const share = total === 0 ? remaining / selected.size : length * remaining / total;
+      return { unit: limit.unit, value: Math.min(Math.max(1, length), 1 + Math.floor(share)) };
     }),
   }));
   if (!spans.length || spans.some(span => span.budgets.some(budget => budget.value < 1)))
@@ -145,6 +152,8 @@ export async function runTextRepairLoop<Usage>(options: RepairOptions<Usage>): P
     // No additional call after a refusal, truncation, timeout, or provider error.
     if (call.error)
       return { status: "failed" as const, attempts, reason: call.error };
+    if (applied.accepted && !findGenerateTextLengthViolation(applied.content, options.limits))
+      return { status: "valid" as const, content: applied.content, attempts };
     if (applied.accepted && options.limits.every(limit => measureGenerateTextLength(applied.content, limit.unit) <= measureGenerateTextLength(content, limit.unit)))
       content = applied.content;
   }

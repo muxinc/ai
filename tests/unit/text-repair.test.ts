@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import type { RepairPlan } from "../../src/workflows/index.ts";
 import { applyTextRepair, planTextRepair, repairJsonSchema, runTextRepairLoop } from "../../src/workflows/index.ts";
 
 describe("bounded text repair", () => {
@@ -28,6 +29,22 @@ describe("bounded text repair", () => {
     const plan = planTextRepair(content, [{ unit: "words", value: 120 }])!;
     expect(plan.spans).toHaveLength(3);
     expect(plan.spans.every(span => span.budgets[0].value >= 35)).toBe(true);
+  });
+
+  it.each([
+    { content: `${"long ".repeat(100)}\n\nEnd.`, limits: [{ unit: "words" as const, value: 10 }] },
+    { content: `${"x".repeat(1000)}\n\nY`, limits: [{ unit: "characters" as const, value: 100 }] },
+    { content: `${"long ".repeat(100)}\n\n😀`, limits: [{ unit: "words" as const, value: 10 }, { unit: "characters" as const, value: 100 }] },
+  ])("repairs large overshoots with short or zero-word sibling paragraphs ($limits)", async ({ content, limits }) => {
+    const generate = vi.fn(async (_plan: RepairPlan) => ({ replacements: { p_0: "Brief.", p_2: content.split("\n\n")[1] }, elapsedMs: 1 }));
+    const result = await runTextRepairLoop({ content, limits, generate });
+    expect(result.status).toBe("valid");
+    expect(generate).toHaveBeenCalledTimes(1);
+    const plan = generate.mock.calls[0][0];
+    expect(plan.spans).toHaveLength(2);
+    expect(plan.spans.every(span => span.budgets.every(budget => budget.value >= 1))).toBe(true);
+    for (const [index, limit] of limits.entries())
+      expect(plan.spans.reduce((sum, span) => sum + span.budgets[index].value, 0)).toBeLessThanOrEqual(limit.value);
   });
 
   it("uses SDK word segmentation for hyphenated text and code points for emoji", async () => {
@@ -79,6 +96,18 @@ describe("bounded text repair", () => {
     expect(result.status).toBe("failed");
     expect(generate).toHaveBeenCalledTimes(2);
     expect(result).not.toHaveProperty("content");
+  });
+
+  it.each([
+    { content: "x".repeat(200), replacement: "Short words.", limits: [{ unit: "words" as const, value: 5 }, { unit: "characters" as const, value: 100 }] },
+    { content: "a b c d e f", replacement: "One longer replacement.", limits: [{ unit: "words" as const, value: 5 }, { unit: "characters" as const, value: 100 }] },
+  ])("accepts a repair meeting every cap even when the other unit grows ($replacement)", async ({ content, replacement, limits }) => {
+    const generate = vi.fn(async () => ({ replacements: { p_0: replacement }, usage: { tokens: 12 }, elapsedMs: 1 }));
+    const result = await runTextRepairLoop({ content, limits, generate, maxAttempts: 1 });
+    expect(result.status).toBe("valid");
+    expect(result.content).toBe(replacement);
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(result.attempts[0].call.usage).toEqual({ tokens: 12 });
   });
 
   it("replans a smaller candidate and retains usage for each bounded attempt", async () => {
