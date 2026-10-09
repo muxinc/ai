@@ -614,7 +614,7 @@ interface GenerateTextResult {
 **Errors:**
 
 - `validation_error` - Invalid option bounds, malformed language tags, missing transcript, empty scope, or `useShots` on an audio-only asset. Thrown before any model call.
-- `processing_error` - An artifact was still empty or over its length cap after one corrective rewrite (retryable), the editorial brief was suppressed by the output-safety scrubber (retryable), or the model stopped before producing a complete response.
+- `processing_error` - An artifact was still empty after its generation retry, or bounded paragraph repair failed to meet all length caps within two calls (retryable), the editorial brief was suppressed by the output-safety scrubber (retryable), or the model stopped before producing a complete response.
 - `content_policy_error` - The provider blocked the transcript or an image under its content policy (non-retryable).
 
 ## `translateAudio(assetId, toLanguageCode, options?)`

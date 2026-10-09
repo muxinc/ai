@@ -126,7 +126,7 @@
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.16",
     "@ai-sdk/google": "^3.0.10",
-    "@ai-sdk/openai": "^3.0.12",
+    "@ai-sdk/openai": "^3.0.124",
     "@ai-sdk/openai-compatible": "^2.0.51",
     "@mux/ts": "^15.5.0",
     "@noble/ciphers": "^2.1.1",
