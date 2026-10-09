@@ -535,7 +535,7 @@ for (const variant of result.variants) {
 ### Reusing paragraph repair
 
 The same API used by `generateText` is exported from `@mux/ai/workflows` for
-callers such as Robots. It currently handles word/character caps by editing
+use in other workflows and applications. It currently handles word/character caps by editing
 paragraphs; it is not a generic arbitrary-output repair system.
 
 ```typescript
