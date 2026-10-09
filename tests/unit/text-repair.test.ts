@@ -1,18 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { applyTextRepair, planTextRepair, repairJsonSchema, repairText } from "../../src/workflows/index.ts";
+import { applyTextRepair, planTextRepair, repairJsonSchema, runTextRepairLoop } from "../../src/workflows/index.ts";
 
 describe("bounded text repair", () => {
   it("does not call a model for content already within the cap", async () => {
     const generate = vi.fn();
-    const result = await repairText({ content: "Fits.", limits: [{ unit: "characters", value: 5 }], generate });
+    const result = await runTextRepairLoop({ content: "Fits.", limits: [{ unit: "characters", value: 5 }], generate });
     expect(result.status).toBe("valid");
     expect(generate).not.toHaveBeenCalled();
   });
 
   it("does not accept an empty draft merely because its length fits", async () => {
     const generate = vi.fn();
-    expect((await repairText({ content: "  ", limits: [{ unit: "characters", value: 100 }], generate })).status).toBe("failed");
+    expect((await runTextRepairLoop({ content: "  ", limits: [{ unit: "characters", value: 100 }], generate })).status).toBe("failed");
     expect(generate).not.toHaveBeenCalled();
   });
 
@@ -32,13 +32,13 @@ describe("bounded text repair", () => {
 
   it("uses SDK word segmentation for hyphenated text and code points for emoji", async () => {
     const noCall = vi.fn();
-    expect((await repairText({ content: "😀😀", limits: [{ unit: "characters", value: 2 }], generate: noCall })).status).toBe("valid");
+    expect((await runTextRepairLoop({ content: "😀😀", limits: [{ unit: "characters", value: 2 }], generate: noCall })).status).toBe("valid");
     expect(noCall).not.toHaveBeenCalled();
     expect(planTextRepair("state-of-the-art video workflow", [{ unit: "words", value: 5 }])).not.toBeNull();
   });
 
   it("repairs emoji-only text under simultaneous word and character caps", async () => {
-    const result = await repairText({
+    const result = await runTextRepairLoop({
       content: "😀".repeat(20),
       limits: [{ unit: "words", value: 5 }, { unit: "characters", value: 10 }],
       generate: async () => ({ replacements: { p_0: "😀".repeat(5) }, elapsedMs: 1 }),
@@ -75,7 +75,7 @@ describe("bounded text repair", () => {
 
   it("validates both limits before returning an assembled output", async () => {
     const generate = vi.fn(async () => ({ replacements: { p_0: "state-of-the-art video workflow" }, elapsedMs: 1 }));
-    const result = await repairText({ content: "long ".repeat(30), limits: [{ unit: "words", value: 5 }, { unit: "characters", value: 100 }], generate });
+    const result = await runTextRepairLoop({ content: "long ".repeat(30), limits: [{ unit: "words", value: 5 }, { unit: "characters", value: 100 }], generate });
     expect(result.status).toBe("failed");
     expect(generate).toHaveBeenCalledTimes(2);
     expect(result).not.toHaveProperty("content");
@@ -85,7 +85,7 @@ describe("bounded text repair", () => {
     const generate = vi.fn()
       .mockResolvedValueOnce({ replacements: { p_0: "x".repeat(110) }, usage: { tokens: 20 }, elapsedMs: 1 })
       .mockResolvedValueOnce({ replacements: { p_0: "Short." }, usage: { tokens: 10 }, elapsedMs: 1 });
-    const result = await repairText({ content: "x".repeat(200), limits: [{ unit: "characters", value: 100 }], generate });
+    const result = await runTextRepairLoop({ content: "x".repeat(200), limits: [{ unit: "characters", value: 100 }], generate });
     expect(result.status).toBe("valid");
     expect(result.content).toBe("Short.");
     expect(result.attempts.map(attempt => attempt.call.usage)).toEqual([{ tokens: 20 }, { tokens: 10 }]);
@@ -94,7 +94,7 @@ describe("bounded text repair", () => {
 
   it("stops after provider errors and retains reported failed-call usage", async () => {
     const generate = vi.fn(async () => ({ error: "refusal", usage: { tokens: 12 }, elapsedMs: 1 }));
-    const result = await repairText({ content: "x".repeat(200), limits: [{ unit: "characters", value: 100 }], generate });
+    const result = await runTextRepairLoop({ content: "x".repeat(200), limits: [{ unit: "characters", value: 100 }], generate });
     expect(result.status).toBe("failed");
     expect(generate).toHaveBeenCalledTimes(1);
     expect(result.attempts[0].call.usage).toEqual({ tokens: 12 });
@@ -102,8 +102,8 @@ describe("bounded text repair", () => {
 
   it("rejects unbounded retries and reports impossible budgets without calling a model", async () => {
     const generate = vi.fn();
-    await expect(repairText({ content: "x", limits: [{ unit: "characters", value: 1 }], generate, maxAttempts: 3 })).rejects.toThrow("one or two");
-    const result = await repairText({ content: "long\n\ntext", limits: [{ unit: "characters", value: 1 }], generate });
+    await expect(runTextRepairLoop({ content: "x", limits: [{ unit: "characters", value: 1 }], generate, maxAttempts: 3 })).rejects.toThrow("one or two");
+    const result = await runTextRepairLoop({ content: "long\n\ntext", limits: [{ unit: "characters", value: 1 }], generate });
     expect(result.status).toBe("failed");
     expect(generate).not.toHaveBeenCalled();
   });

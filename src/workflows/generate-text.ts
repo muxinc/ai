@@ -30,7 +30,7 @@ import {
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
 import { findGenerateTextLengthViolation } from "../lib/text-length.ts";
-import { repairTextWithModel } from "../lib/text-repair-model.ts";
+import { repairText } from "../lib/text-repair-model.ts";
 import { aggregateTokenUsage, getErrorTokenUsage, rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
 import {
@@ -865,7 +865,7 @@ async function generateArtifactWithModel(args: {
   }
 
   const noReasoning = args.provider === "openai" && (args.modelId === "gpt-6-luna" || args.modelId === "gpt-6-sol" || /^gpt-5\.[1-9]/.test(args.modelId));
-  const repaired = await repairTextWithModel({
+  const repaired = await repairText({
     content: candidate.content,
     limits: args.limits,
     protectedTerms: args.protectedTerms,

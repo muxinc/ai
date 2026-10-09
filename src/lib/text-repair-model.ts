@@ -4,7 +4,7 @@ import type { TokenUsage } from "../types.ts";
 
 import { getGeneratedOutputWithContentPolicyHandling } from "./content-policy-error.ts";
 import { CANARY_TRIPWIRE, NON_DISCLOSURE_CONSTRAINT, promptDedent } from "./prompt-fragments.ts";
-import { repairJsonSchema, repairText } from "./text-repair.ts";
+import { repairJsonSchema, runTextRepairLoop } from "./text-repair.ts";
 import type { RepairCall, RepairOptions, RepairPlan, RepairResult } from "./text-repair.ts";
 import { getErrorTokenUsage } from "./token-usage.ts";
 
@@ -70,10 +70,11 @@ export function createTextRepairGenerator(options: TextRepairModelOptions) {
 }
 
 /**
- * Repairs over-cap paragraphs with an AI SDK model, returning exact validity
+ * Model-backed entrypoint for repairing over-cap paragraphs with an AI SDK model,
+ * returning exact validity
  * and all attempt usage. Length validity does not imply semantic equivalence;
  * callers own editorial review and safety filtering of the assembled output.
  */
-export function repairTextWithModel(options: Omit<RepairOptions<TokenUsage>, "generate"> & TextRepairModelOptions): Promise<RepairResult<TokenUsage>> {
-  return repairText({ ...options, generate: createTextRepairGenerator(options) });
+export function repairText(options: Omit<RepairOptions<TokenUsage>, "generate"> & TextRepairModelOptions): Promise<RepairResult<TokenUsage>> {
+  return runTextRepairLoop({ ...options, generate: createTextRepairGenerator(options) });
 }

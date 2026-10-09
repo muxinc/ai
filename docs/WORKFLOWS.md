@@ -540,9 +540,9 @@ paragraphs; it is not a generic arbitrary-output repair system.
 
 ```typescript
 import { createOpenAI } from "@ai-sdk/openai";
-import { repairTextWithModel } from "@mux/ai/workflows";
+import { repairText } from "@mux/ai/workflows";
 
-const repaired = await repairTextWithModel({
+const repaired = await repairText({
   content: draft,
   limits: [{ unit: "words", value: 150 }],
   protectedTerms: ["Mux"],
@@ -556,9 +556,9 @@ if (repaired.status === "valid") {
 // Retain repaired.attempts[*].call.usage, including failures.
 ```
 
-`repairText` accepts a generation callback with caller-owned usage data;
+`runTextRepairLoop` accepts a generation callback with caller-owned usage data;
 `createTextRepairGenerator` supplies an AI SDK callback, and
-`repairTextWithModel` combines them. `planTextRepair`, `repairJsonSchema`, and
+`repairText` combines them. `planTextRepair`, `repairJsonSchema`, and
 `applyTextRepair` expose the current planning/assembly operations. Their typed
 plans and results keep generation independent of local validation, allowing
 other models and orchestration later without duplicating this policy.

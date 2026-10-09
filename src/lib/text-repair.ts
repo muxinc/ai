@@ -122,8 +122,8 @@ export type RepairResult<Usage> =
   | { status: "valid"; content: string; attempts: RepairAttempt<Usage>[] } |
   { status: "failed"; attempts: RepairAttempt<Usage>[]; reason: string };
 
-/** Model-independent paragraph repair with local exact-cap validation. */
-export async function repairText<Usage>(options: RepairOptions<Usage>): Promise<RepairResult<Usage>> {
+/** Orchestrates paragraph repair through a caller-supplied generation callback. */
+export async function runTextRepairLoop<Usage>(options: RepairOptions<Usage>): Promise<RepairResult<Usage>> {
   const maxAttempts = options.maxAttempts ?? 2;
   if (!Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 2)
     throw new Error("Repair is limited to one or two calls");
