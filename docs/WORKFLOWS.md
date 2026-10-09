@@ -519,7 +519,7 @@ for (const variant of result.variants) {
 - `artifacts` (1-5, unique snake_case keys) are the deliverables. Each accepts an optional `channel` (`generic`, `x`, `linkedin`, `facebook`, `instagram`, `tiktok`, `youtube`) whose conventions guide the writing and set a default length cap, an optional `maxLength` hard cap in characters or words, an optional `format`, and optional bounded `instructions`. With the `generic` channel, the composition scales with the length budget: a short cap produces a tight standalone piece, a large cap produces developed prose.
 - `format` is `plain` (default) or `markdown`. Plain text forbids Markdown syntax entirely, so the output can be dropped into any text field; choose `markdown` for blog posts and newsletters that render it.
 - `variants` (1-5, unique keys) each receive the complete artifact set. A variant key is only an identifier. Omit `instructions` for an independent take on the same brief, or supply them for a deliberate angle. When `variants` is omitted a single `default` variant is written.
-- Length caps are enforced after generation. Words are counted with locale-aware segmentation, so Markdown syntax is not counted and scripts without spaces are measured correctly. Prompts aim for about 90% of each cap to leave headroom for model miscounting. A draft that is over a cap is handed back to the model with the measured overshoot to trim, and an empty draft is regenerated; if that single retry still misses, the workflow fails with a retryable `processing_error`. A draft that comes back with literal `\n` or `\"` escape sequences and no real line breaks is handed back once to fix; the text is never rewritten locally, and a rewrite that still looks escaped is returned as-is. `x` artifacts are additionally held to 280 characters regardless of the unit used for `maxLength`.
+- Length caps are enforced after generation using Unicode code points and locale-aware word segmentation. Prompts aim for about 90% of each cap. An over-cap draft uses the shared paragraph repair API: select spans, allocate budgets, send only those paragraphs, assemble locally, and recheck every cap. It allows at most two repair calls; unresolved limits or provider failures produce a retryable `processing_error` with attempt usage preserved. It uses the selected provider/model, disabling reasoning for supported OpenAI models. Empty or double-escaped drafts retain one full-prompt generation/format correction. Final artifacts still pass through the output-safety scrubber. `x` artifacts are held to 280 characters regardless of the requested unit.
 - Artifacts are written in parallel batches of five, and token usage from every completed call is preserved on the error when one fails.
 
 | Channel | Default cap |
@@ -531,6 +531,45 @@ for (const variant of result.variants) {
 | `instagram` | 1500 characters |
 | `tiktok` | 100 words |
 | `youtube` | 250 words |
+
+### Reusing paragraph repair
+
+The same API used by `generateText` is exported from `@mux/ai/workflows` for
+use in other workflows and applications. It currently handles word/character caps by editing
+paragraphs; it is not a generic arbitrary-output repair system.
+
+```typescript
+import { createOpenAI } from "@ai-sdk/openai";
+import { repairText } from "@mux/ai/workflows";
+
+const repaired = await repairText({
+  content: draft,
+  limits: [{ unit: "words", value: 150 }],
+  protectedTerms: ["Mux"],
+  model: createOpenAI().responses("gpt-6-luna"),
+  providerOptions: { openai: { reasoningEffort: "none", store: false } },
+});
+if (repaired.status === "valid") {
+  // Run the caller's output-safety checks before delivery.
+  useRepairedText(repaired.content);
+}
+// Retain repaired.attempts[*].call.usage, including failures.
+```
+
+`runTextRepairLoop` accepts a generation callback with caller-owned usage data;
+`createTextRepairGenerator` supplies an AI SDK callback, and
+`repairText` combines them. `planTextRepair`, `repairJsonSchema`, and
+`applyTextRepair` expose the current planning/assembly operations. Their typed
+plans and results keep generation independent of local validation, allowing
+other models and orchestration later without duplicating this policy.
+
+Untouched text/separators and protected literal terms are preserved. Exact
+length validity does not prove factual equivalence or editorial quality;
+callers own semantic review and output-safety filtering. When using Workflow
+DevKit, invoke model-backed repair inside a durable step; these helpers do not
+create steps or persist usage themselves. `generateText` already calls it from
+its artifact step and accounts every attempt. Helpers use the supplied model
+without switching providers, so callers own per-provider usage attribution.
 
 ### Steering
 

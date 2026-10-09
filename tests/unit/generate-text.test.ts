@@ -6,6 +6,7 @@ vi.mock("ai", () => {
   const neverInstance = { isInstance: () => false };
   return {
     generateText: vi.fn(),
+    jsonSchema: vi.fn(schema => ({ jsonSchema: schema })),
     Output: {
       object: vi.fn(({ schema }) => ({ schema })),
     },
@@ -328,52 +329,92 @@ describe("generateText", () => {
     expect(systemPrompt(3)).not.toContain("Write plain text only.");
   });
 
-  it("hands an over-cap draft back once with the measured overshoot and accepts the trimmed rewrite", async () => {
-    const draft = "x".repeat(281);
-    queueGenerations([draft, "short enough"]);
+  it("repairs over-cap text with selected paragraphs only and preserves untouched text", async () => {
+    const draft = `Keep exactly.\n\n${"x".repeat(300)}`;
+    queueGenerations([draft]);
+    vi.mocked(generateTextWithModel).mockResolvedValueOnce(modelResponse({ p_2: "Short enough." }, 10));
+    vi.mocked(resolveLanguageModelConfig).mockReturnValue({ provider: "openai", modelId: "gpt-6-luna" } as any);
 
-    const result = await generateText("asset-123", {
-      artifacts: [{ key: "x_post", channel: "x" }],
-    });
-
+    const result = await generateText("asset-123", { artifacts: [{ key: "x_post", channel: "x" }] });
     expect(generateTextWithModel).toHaveBeenCalledTimes(3);
-    expect(call(2).messages).toEqual([
-      call(1).messages[0],
-      { role: "assistant", content: JSON.stringify({ content: draft }) },
-      {
-        role: "user",
-        content: "<revision_request>\nThat draft measured 281 characters against a hard cap of 280. Shorten it to about 252 characters (at least 29 fewer) while keeping the substance, and return the complete revised text.\n</revision_request>",
-      },
-    ]);
-    expect(result.variants[0].artifacts[0].content).toBe("short enough");
+    expect(JSON.parse(call(2).prompt).spans).toEqual([{ id: "p_2", text: "x".repeat(300), budgets: [{ unit: "characters", value: 255 }] }]);
+    expect(call(2).messages).toBeUndefined();
+    expect(call(2).prompt).not.toContain(BRIEF.centralIdea);
+    expect(call(2).prompt).not.toContain("Keep exactly.");
+    expect(call(2).providerOptions).toEqual({ openai: { reasoningEffort: "none", store: false } });
+    expect(result.variants[0].artifacts[0].content).toBe("Keep exactly.\n\nShort enough.");
     expect(result.usage?.totalTokens).toBe(120);
   });
 
-  it("fails as a retryable processing error when the rewrite is still over the cap, keeping all usage", async () => {
-    queueGenerations(["x".repeat(281), "y".repeat(290)]);
+  it("replans a smaller over-cap candidate once without a full-prompt rewrite", async () => {
+    queueGenerations(["x".repeat(320)]);
+    const mock = vi.mocked(generateTextWithModel);
+    mock.mockResolvedValueOnce(modelResponse({ p_0: "y".repeat(281) }, 10));
+    mock.mockResolvedValueOnce(modelResponse({ p_0: "Fits." }, 10));
+    const result = await generateText("asset-123", { artifacts: [{ key: "x_post", channel: "x" }] });
+    expect(result.variants[0].artifacts[0].content).toBe("Fits.");
+    expect(JSON.parse(call(3).prompt).spans[0].text).toBe("y".repeat(281));
+    expect(result.usage?.totalTokens).toBe(130);
+  });
 
-    await expect(generateText("asset-123", {
-      artifacts: [{ key: "x_post", channel: "x" }],
-    })).rejects.toMatchObject({
+  it("fails after two repairs without returning over-cap content and retains every call's usage", async () => {
+    queueGenerations(["x".repeat(320)]);
+    const mock = vi.mocked(generateTextWithModel);
+    mock.mockResolvedValueOnce(modelResponse({ p_0: "y".repeat(290) }, 10));
+    mock.mockResolvedValueOnce(modelResponse({ p_0: "z".repeat(281) }, 10));
+    await expect(generateText("asset-123", { artifacts: [{ key: "x_post", channel: "x" }] })).rejects.toMatchObject({
       publicType: "processing_error",
-      publicMessage: "Generated text for variants[default].artifacts[x_post] exceeded the 280 characters limit after a retry (290 returned).",
       retryable: true,
-      usage: { inputTokens: 117, outputTokens: 3, totalTokens: 120 },
+      usage: { totalTokens: 130 },
+    });
+    expect(generateTextWithModel).toHaveBeenCalledTimes(4);
+  });
+
+  it("stops after repair provider errors and retains initial and failed-call usage", async () => {
+    queueGenerations(["x".repeat(281)]);
+    vi.mocked(generateTextWithModel).mockRejectedValueOnce(Object.assign(new Error("provider exploded"), { usage: { inputTokens: 6, outputTokens: 1, totalTokens: 7 } }));
+    await expect(generateText("asset-123", { artifacts: [{ key: "x_post", channel: "x" }] })).rejects.toMatchObject({
+      message: "Bounded text repair failed: provider exploded",
+      usage: { totalTokens: 117 },
+    });
+    expect(generateTextWithModel).toHaveBeenCalledTimes(3);
+  });
+
+  it("retains repair usage on incomplete output and stops the repair loop", async () => {
+    queueGenerations(["x".repeat(281)]);
+    vi.mocked(generateTextWithModel).mockResolvedValueOnce({ ...modelResponse({ p_0: "Fits." }, 15), finishReason: "length" });
+    await expect(generateText("asset-123", { artifacts: [{ key: "x_post", channel: "x" }] })).rejects.toMatchObject({ usage: { totalTokens: 125 } });
+    expect(generateTextWithModel).toHaveBeenCalledTimes(3);
+  });
+
+  it("retains pre-parse repair usage when structured output parsing throws", async () => {
+    queueGenerations(["x".repeat(281)]);
+    vi.mocked(generateTextWithModel).mockImplementationOnce(async (options) => {
+      await options.onStepFinish?.({ usage: { inputTokens: 10, outputTokens: 2, totalTokens: 12, inputTokenDetails: { cacheReadTokens: 3, cacheWriteTokens: 4 } } } as any);
+      throw new Error("invalid JSON");
+    });
+    await expect(generateText("asset-123", { artifacts: [{ key: "x_post", channel: "x" }] })).rejects.toMatchObject({
+      usage: { totalTokens: 122, cachedInputTokens: 3, cacheWriteTokens: 4 },
     });
   });
 
-  it("keeps the first draft's usage when the corrective rewrite call throws", async () => {
-    const mock = vi.mocked(generateTextWithModel);
-    mock.mockResolvedValueOnce(modelResponse(BRIEF, 100));
-    mock.mockResolvedValueOnce(modelResponse({ content: "x".repeat(281) }, 10));
-    mock.mockRejectedValueOnce(Object.assign(new Error("provider exploded"), { usage: { inputTokens: 6, outputTokens: 1, totalTokens: 7 } }));
+  it("preserves brand terms and checks repaired content through the existing safety scrubber", async () => {
+    queueGenerations([`Mux ${"x".repeat(300)}`]);
+    vi.mocked(generateTextWithModel).mockResolvedValueOnce(modelResponse({ p_0: `Mux ${SYSTEM_PROMPT_CANARY}` }, 10));
+    const result = await generateText("asset-123", { brandTerms: ["Mux"], artifacts: [{ key: "x_post", channel: "x" }] });
+    expect(JSON.parse(call(2).prompt).protectedTerms).toEqual(["Mux"]);
+    expect(result.variants[0].artifacts[0].content).toBe("");
+    expect(result.safety?.leaksDetected).toBe(true);
+  });
 
-    await expect(generateText("asset-123", {
-      artifacts: [{ key: "x_post", channel: "x" }],
-    })).rejects.toMatchObject({
-      message: "Failed to generate text with openai: provider exploded",
-      usage: { totalTokens: 100 + 10 + 7 },
-    });
+  it("uses the selected non-OpenAI model for repair without OpenAI-specific options", async () => {
+    queueGenerations(["x".repeat(281)]);
+    vi.mocked(generateTextWithModel).mockResolvedValueOnce(modelResponse({ p_0: "Fits." }, 10));
+    vi.mocked(resolveLanguageModelConfig).mockReturnValue({ provider: "google", modelId: "gemini-test" } as any);
+    const result = await generateText("asset-123", { provider: "google", artifacts: [{ key: "x_post", channel: "x" }] });
+    expect(call(2).model).toBe(call(1).model);
+    expect(call(2).providerOptions).toBeUndefined();
+    expect(result.variants[0].artifacts[0].content).toBe("Fits.");
   });
 
   it("hands a double-escaped draft back once and accepts the fixed rewrite without rewriting text locally", async () => {
@@ -447,12 +488,14 @@ That draft contains literal escape sequences such as \n and \" instead of real l
 
   it("enforces the 280-character x ceiling even when the caller capped in words", async () => {
     const over = `${"word ".repeat(9)}${"x".repeat(240)}`;
-    queueGenerations([over, over]);
+    queueGenerations([over]);
+    vi.mocked(generateTextWithModel).mockResolvedValueOnce(modelResponse({ p_0: over }, 10));
+    vi.mocked(generateTextWithModel).mockResolvedValueOnce(modelResponse({ p_0: over }, 10));
 
     await expect(generateText("asset-123", {
       artifacts: [{ key: "x_post", channel: "x", maxLength: { unit: "words", value: 50 } }],
     })).rejects.toMatchObject({
-      publicMessage: expect.stringContaining("exceeded the 280 characters limit after a retry (285 returned)"),
+      publicMessage: expect.stringContaining("Repair budget exhausted without a valid output"),
     });
     expect(systemPrompt(1)).toContain("Aim for about 45 words and 252 characters. This is a hard cap: never exceed 50 words or 280 characters.");
   });

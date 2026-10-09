@@ -29,6 +29,8 @@ import {
 } from "../lib/prompt-fragments.ts";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
+import { findGenerateTextLengthViolation } from "../lib/text-length.ts";
+import { repairText } from "../lib/text-repair-model.ts";
 import { aggregateTokenUsage, getErrorTokenUsage, rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
 import {
@@ -45,6 +47,8 @@ import { fetchTranscriptForAsset, getReliableLanguageCode } from "../primitives/
 import type { ScopedMuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "../types.ts";
 
 import type { ModelMessage } from "ai";
+
+export { findGenerateTextLengthViolation, measureGenerateTextLength } from "../lib/text-length.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public types
@@ -313,8 +317,6 @@ export function resolveGenerateTextOptions(options: GenerateTextOptions): Genera
 // Length policy
 // ─────────────────────────────────────────────────────────────────────────────
 
-const WORD_BOUNDARY = /\s+/u;
-
 /** Models miscount length, so drafts aim below the hard cap to leave headroom. */
 const LENGTH_TARGET_RATIO = 0.9;
 
@@ -348,58 +350,6 @@ export function resolveGenerateTextLengthLimits(artifact: GenerateTextArtifact):
     return [limit];
   }
   return [limit, ceiling];
-}
-
-interface WordSegmenter {
-  segment: (input: string) => Iterable<{ isWordLike?: boolean }>;
-}
-
-function createWordSegmenter(): WordSegmenter | undefined {
-  const Segmenter = (Intl as unknown as {
-    Segmenter?: new (locale: string, options: { granularity: "word" }) => WordSegmenter;
-  }).Segmenter;
-  return Segmenter ? new Segmenter("und", { granularity: "word" }) : undefined;
-}
-
-/**
- * Measures text in the unit of a length limit. Characters are code points.
- * Words use locale-aware segmentation so Markdown syntax is not counted and
- * scripts without spaces are counted properly, falling back to whitespace
- * splitting where `Intl.Segmenter` is unavailable.
- */
-export function measureGenerateTextLength(content: string, unit: GenerateTextLengthLimit["unit"]): number {
-  if (unit === "characters") {
-    return [...content].length;
-  }
-  const normalized = content.trim();
-  if (!normalized) {
-    return 0;
-  }
-  const segmenter = createWordSegmenter();
-  if (!segmenter) {
-    return normalized.split(WORD_BOUNDARY).length;
-  }
-  let words = 0;
-  for (const segment of segmenter.segment(normalized)) {
-    if (segment.isWordLike) {
-      words += 1;
-    }
-  }
-  return words;
-}
-
-/** The first limit a piece of text violates, if any. */
-export function findGenerateTextLengthViolation(
-  content: string,
-  limits: readonly GenerateTextLengthLimit[],
-): { limit: GenerateTextLengthLimit; actual: number } | undefined {
-  for (const limit of limits) {
-    const actual = measureGenerateTextLength(content, limit.unit);
-    if (actual > limit.value) {
-      return { limit, actual };
-    }
-  }
-  return undefined;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -777,22 +727,8 @@ function describeLengthRevision({ limit, actual }: { limit: GenerateTextLengthLi
 // Model steps
 // ─────────────────────────────────────────────────────────────────────────────
 
-function readUsage(response: { usage: {
-  inputTokens?: number;
-  outputTokens?: number;
-  totalTokens?: number;
-  reasoningTokens?: number;
-  cachedInputTokens?: number;
-  inputTokenDetails?: { cacheWriteTokens?: number };
-}; }): TokenUsage {
-  return {
-    inputTokens: response.usage.inputTokens,
-    outputTokens: response.usage.outputTokens,
-    totalTokens: response.usage.totalTokens,
-    reasoningTokens: response.usage.reasoningTokens,
-    cachedInputTokens: response.usage.cachedInputTokens,
-    cacheWriteTokens: response.usage.inputTokenDetails?.cacheWriteTokens,
-  };
+function readUsage(response: { usage: unknown }): TokenUsage {
+  return getErrorTokenUsage(response) ?? {};
 }
 
 async function extractBriefWithModel(args: {
@@ -856,10 +792,9 @@ interface ArtifactStepResult {
 }
 
 /**
- * Writes one artifact. A draft that is empty, over a cap, or double-escaped
- * gets exactly one corrective retry. Non-empty drafts are handed back to the
- * model with the problem described so it fixes that text rather than starting
- * over. Content is never rewritten locally.
+ * Writes one artifact. Over-cap drafts receive at most two paragraph repair
+ * calls, without resending the editorial brief. Empty or double-escaped drafts
+ * retain one format/content retry. All calls stay inside this durable step.
  */
 async function generateArtifactWithModel(args: {
   provider: SupportedProvider;
@@ -867,6 +802,7 @@ async function generateArtifactWithModel(args: {
   systemPrompt: string;
   userPrompt: string;
   limits: GenerateTextLengthLimit[];
+  protectedTerms?: string[];
   credentials?: WorkflowCredentialsInput;
 }): Promise<ArtifactStepResult> {
   "use step";
@@ -906,28 +842,44 @@ async function generateArtifactWithModel(args: {
     return { content: first.content, usages: [first.usage], unexpectedKeys: first.unexpectedKeys };
   }
 
-  const feedback = [
-    firstViolation && firstViolation !== "empty" ? describeLengthRevision(firstViolation) : undefined,
-    firstEscaped ? ESCAPED_TEXT_REVISION : undefined,
-  ].filter((line): line is string => Boolean(line)).join("\n");
-  const revisionMessages: ModelMessage[] = firstViolation === "empty" ?
-      [{
-        role: "user",
-        content: `${args.userPrompt}\n\n${renderSection({ tag: "revision_request", content: "The previous draft was empty. Write the complete artifact." })}`,
-      }] :
-      [
-        ...initialMessages,
-        { role: "assistant", content: JSON.stringify({ content: first.content }) },
-        { role: "user", content: renderSection({ tag: "revision_request", content: feedback }) },
-      ];
-  const second = await attempt(revisionMessages)
-    .catch((error: unknown) => rethrowWithTokenUsage(error, [first.usage]));
-  return {
-    content: second.content,
-    usages: [first.usage, second.usage],
-    unexpectedKeys: [...first.unexpectedKeys, ...second.unexpectedKeys],
-    violation: judge(second.content),
-  };
+  let candidate = first;
+  const usages = [first.usage];
+  const unexpectedKeys = [...first.unexpectedKeys];
+  // Empty/double-escaped content needs the existing generation/format repair.
+  // Length alone never triggers this full-prompt correction.
+  if (firstViolation === "empty" || firstEscaped) {
+    const feedback = [
+      firstViolation && firstViolation !== "empty" ? describeLengthRevision(firstViolation) : undefined,
+      firstEscaped ? ESCAPED_TEXT_REVISION : undefined,
+    ].filter((line): line is string => Boolean(line)).join("\n");
+    const revisionMessages: ModelMessage[] = firstViolation === "empty" ?
+        [{ role: "user", content: `${args.userPrompt}\n\n${renderSection({ tag: "revision_request", content: "The previous draft was empty. Write the complete artifact." })}` }] :
+        [...initialMessages, { role: "assistant", content: JSON.stringify({ content: first.content }) }, { role: "user", content: renderSection({ tag: "revision_request", content: feedback }) }];
+    candidate = await attempt(revisionMessages).catch((error: unknown) => rethrowWithTokenUsage(error, usages));
+    usages.push(candidate.usage);
+    unexpectedKeys.push(...candidate.unexpectedKeys);
+  }
+  const violation = judge(candidate.content);
+  if (!violation || violation === "empty") {
+    return { content: candidate.content, usages, unexpectedKeys, violation };
+  }
+
+  const noReasoning = args.provider === "openai" && (args.modelId === "gpt-6-luna" || args.modelId === "gpt-6-sol" || /^gpt-5\.[1-9]/.test(args.modelId));
+  const repaired = await repairText({
+    content: candidate.content,
+    limits: args.limits,
+    protectedTerms: args.protectedTerms,
+    model,
+    ...(noReasoning ? { providerOptions: { openai: { reasoningEffort: "none", store: false } } } : {}),
+  });
+  usages.push(...repaired.attempts.flatMap(item => item.call.usage ? [item.call.usage] : []));
+  if (repaired.status !== "valid") {
+    rethrowWithTokenUsage(new MuxAiError(`Bounded text repair failed: ${repaired.reason}`, {
+      type: "processing_error",
+      retryable: true,
+    }), usages);
+  }
+  return { content: repaired.content, usages, unexpectedKeys };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1106,6 +1058,7 @@ async function generateTextInternal(
     systemPrompt: buildArtifactSystemPrompt({ artifact, variant, limits, hasOutputLanguage: Boolean(languageName) }),
     userPrompt: buildArtifactUserPrompt({ brief, artifact, variant, steering, languageName }),
     limits,
+    protectedTerms: brandTerms,
     credentials,
   })), collectedUsage, provider);
 
