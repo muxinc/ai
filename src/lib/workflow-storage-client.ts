@@ -9,7 +9,6 @@ import {
   createPresignedGetUrl,
   putObjectToS3,
 } from "./s3-sigv4.ts";
-import { registerWorkflowSerializationClass } from "./workflow-serialization.ts";
 
 export interface WorkflowStorageClientOptions {
   accessKeyId?: string;
@@ -23,8 +22,6 @@ export interface WorkflowStorageClientOptions {
  * operations compatible across edge/ESM and Node runtimes.
  */
 export class WorkflowStorageClient {
-  static classId = "WorkflowStorageClient";
-
   private readonly accessKeyId?: string;
   private readonly secretAccessKey?: string;
 
@@ -89,8 +86,6 @@ export class WorkflowStorageClient {
     return new this(value);
   }
 }
-
-registerWorkflowSerializationClass(WorkflowStorageClient.classId, WorkflowStorageClient);
 
 function isSerializedWorkflowStorageClient(value: unknown): value is WorkflowStorageClientOptions {
   if (!value || typeof value !== "object") {
