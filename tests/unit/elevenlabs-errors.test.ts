@@ -8,7 +8,7 @@ function jsonResponse(body: unknown, status: number, statusText: string) {
 }
 
 describe("isRetryableElevenLabsStatus", () => {
-  it.each([408, 429, 500, 502, 503, 504])("retries %i", (status) => {
+  it.each([408, 425, 429, 500, 502, 503, 504])("retries %i", (status) => {
     expect(isRetryableElevenLabsStatus(status)).toBe(true);
   });
 
@@ -36,6 +36,16 @@ describe("elevenLabsResponseError", () => {
     expect(rateLimited.message).toBe("ElevenLabs API error: 429 Too Many Requests: slow down");
     expect(unavailable.name).toBe("Error");
     expect(unavailable.message).toBe("ElevenLabs API error: 503 Service Unavailable");
+  });
+
+  it("leaves a dub that is not ready to download yet (425) retryable", async () => {
+    const error = await elevenLabsResponseError(
+      "Failed to fetch dubbed audio",
+      jsonResponse({ detail: { status: "dubbing_not_ready", message: "Dubbing not ready." } }, 425, "Too Early"),
+    );
+
+    expect(error.name).toBe("Error");
+    expect(error.message).toBe("Failed to fetch dubbed audio: 425 Too Early: dubbing_not_ready: Dubbing not ready.");
   });
 
   it("is never a customer-safe MuxAiError, even when fatal", async () => {

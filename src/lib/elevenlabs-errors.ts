@@ -18,7 +18,8 @@ export async function elevenLabsResponseError(context: string, response: Respons
 }
 
 export function isRetryableElevenLabsStatus(status: number): boolean {
-  return status === 408 || status === 429 || status >= 500;
+  // 425 Too Early: the dubbed output is not ready to download yet.
+  return status === 408 || status === 425 || status === 429 || status >= 500;
 }
 
 async function describeElevenLabsErrorResponse(response: Response): Promise<string> {
