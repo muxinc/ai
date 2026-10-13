@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SYSTEM_PROMPT_CANARY } from "../../src/lib/prompt-fragments";
 
@@ -121,6 +121,7 @@ function systemPrompt(index: number): string {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.spyOn(console, "warn").mockImplementation(() => {});
 
   const track = { id: "text-track", language_code: "en", status: "ready", type: "text" };
   vi.mocked(getPlaybackIdForAsset).mockResolvedValue({
@@ -142,6 +143,8 @@ beforeEach(() => {
   vi.mocked(getStoryboardUrl).mockResolvedValue("https://image.mux.com/playback-123/storyboard.png");
   vi.mocked(getShotsForAsset).mockResolvedValue(COMPLETED_SHOTS);
 });
+
+afterEach(() => vi.restoreAllMocks());
 
 describe("generateText", () => {
   it("extracts one brief with the scoped storyboard, then writes every variant × artifact in request order", async () => {
@@ -380,13 +383,29 @@ describe("generateText", () => {
     expect(generateTextWithModel).toHaveBeenCalledTimes(4);
   });
 
-  it("stops after repair provider errors and retains initial and failed-call usage", async () => {
+  it("keeps unexpected repair exceptions internal and retains initial and failed-call usage", async () => {
     queueGenerations(["x".repeat(281)]);
-    vi.mocked(generateTextWithModel).mockRejectedValueOnce(Object.assign(new Error("provider exploded"), { usage: { inputTokens: 6, outputTokens: 1, totalTokens: 7 } }));
+    const cause = Object.assign(new Error("provider exploded"), { usage: { inputTokens: 6, outputTokens: 1, totalTokens: 7 } });
+    vi.mocked(generateTextWithModel).mockRejectedValueOnce(cause);
     await expect(generateText("asset-123", { artifacts: [{ key: "x_post", channel: "x" }] })).rejects.toMatchObject({
-      message: "Bounded text repair failed: provider exploded",
+      message: "Unable to complete text generation.",
+      publicMessage: "Unable to complete text generation.",
+      publicType: "processing_error",
+      retryable: true,
+      cause,
       usage: { totalTokens: 117 },
     });
+    expect(console.warn).toHaveBeenCalledWith("[@mux/ai] Bounded text repair failed.", expect.objectContaining({ reason: "provider exploded", errorName: "Error" }));
+    expect(generateTextWithModel).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps non-Error repair failures out of the public message", async () => {
+    queueGenerations(["x".repeat(281)]);
+    vi.mocked(generateTextWithModel).mockRejectedValueOnce("internal provider detail");
+    const error = await generateText("asset-123", { artifacts: [{ key: "x_post", channel: "x" }] }).catch(error => error);
+    expect(error).toMatchObject({ publicMessage: "Unable to complete text generation.", retryable: true, cause: "internal provider detail", usage: { totalTokens: 110 } });
+    expect(JSON.stringify(error)).not.toContain("internal provider detail");
+    expect(console.warn).toHaveBeenCalledWith("[@mux/ai] Bounded text repair failed.", expect.objectContaining({ reason: "internal provider detail" }));
     expect(generateTextWithModel).toHaveBeenCalledTimes(3);
   });
 
@@ -538,8 +557,9 @@ That draft contains literal escape sequences such as \n and \" instead of real l
     await expect(generateText("asset-123", {
       artifacts: [{ key: "x_post", channel: "x", maxLength: { unit: "words", value: 50 } }],
     })).rejects.toMatchObject({
-      publicMessage: expect.stringContaining("Repair budget exhausted without a valid output"),
+      publicMessage: "Unable to complete text generation.",
     });
+    expect(console.warn).toHaveBeenCalledWith("[@mux/ai] Bounded text repair failed.", expect.objectContaining({ reason: "Repair budget exhausted without a valid output" }));
     expect(systemPrompt(1)).toContain("Aim for about 45 words and 252 characters. This is a hard cap: never exceed 50 words or 280 characters.");
   });
 

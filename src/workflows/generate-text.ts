@@ -875,16 +875,31 @@ async function generateArtifactWithModel(args: {
   usages.push(...repaired.attempts.flatMap(item => item.call.usage ? [item.call.usage] : []));
   if (repaired.status !== "valid") {
     const cause = repaired.attempts.at(-1)?.call.errorCause;
-    // Rebuild without cause.usage: that call is already in usages above.
+    // Rebuild before adding aggregate usage: the failed call is already in usages.
     // Retain customer-safe metadata, including errors serialized by callers.
-    const failure = isIncompleteGenerationError(cause) ?
-        new IncompleteGenerationError(cause.finishReason, cause.rawFinishReason) :
-      MuxAiError.is(cause) ?
-          new MuxAiError(cause.publicMessage, { type: cause.publicType, retryable: cause.retryable }) :
-          new MuxAiError(`Bounded text repair failed: ${repaired.reason}`, {
-            type: "processing_error",
-            retryable: APICallError.isInstance(cause) ? cause.isRetryable : true,
-          });
+    let failure: Error;
+    if (isIncompleteGenerationError(cause)) {
+      failure = new IncompleteGenerationError(cause.finishReason, cause.rawFinishReason);
+    } else if (MuxAiError.is(cause)) {
+      failure = new MuxAiError(cause.publicMessage, { type: cause.publicType, retryable: cause.retryable });
+    } else {
+      const apiError = APICallError.isInstance(cause) ? cause : undefined;
+      // Log inside the step: workflow error serialization may discard cause.
+      // Select diagnostic fields rather than logging request bodies or headers.
+      console.warn("[@mux/ai] Bounded text repair failed.", {
+        provider: args.provider,
+        modelId: args.modelId,
+        reason: repaired.reason,
+        errorName: cause instanceof Error ? cause.name : undefined,
+        statusCode: apiError?.statusCode,
+        requestId: apiError?.responseHeaders?.["x-request-id"] ?? apiError?.responseHeaders?.["request-id"],
+      });
+      failure = new MuxAiError("Unable to complete text generation.", {
+        type: "processing_error",
+        retryable: apiError?.isRetryable ?? true,
+        cause,
+      });
+    }
     rethrowWithTokenUsage(failure, usages);
   }
   return { content: repaired.content, usages, unexpectedKeys };

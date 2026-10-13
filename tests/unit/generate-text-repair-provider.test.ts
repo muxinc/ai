@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { APICallError } from "ai";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { generateText } from "../../src/workflows/generate-text.ts";
 
-const state = vi.hoisted(() => ({ requests: [] as Record<string, any>[], failure: "" as "" | "length" | "truncated-json" | "filter" | "refusal" | "refusal-with-reasoning" | "policy" | "auth" | "transient" }));
+const state = vi.hoisted(() => ({ requests: [] as Record<string, any>[], failure: "" as "" | "length" | "truncated-json" | "filter" | "refusal" | "refusal-with-reasoning" | "policy" | "auth" | "transient", providerMessage: "Provider rejected gpt-private for org-internal: rate-limit quota details" }));
 
 vi.mock("../../src/lib/providers", async () => {
   const { createOpenAI } = await import("@ai-sdk/openai");
@@ -27,7 +28,7 @@ vi.mock("../../src/lib/providers", async () => {
           name === "generated_text" ? { content: `Keep exactly.\n\n${"x".repeat(300)}` } : { p_2: "Short enough." };
         const repair = name === "paragraph_replacements";
         if (repair && (state.failure === "auth" || state.failure === "transient" || state.failure === "policy")) {
-          return new Response(JSON.stringify({ error: { message: "Request failed", type: "invalid_request_error", code: state.failure === "policy" ? "content_policy_violation" : "test_error", param: null } }), { status: state.failure === "auth" ? 401 : state.failure === "policy" ? 400 : 429, headers: { "content-type": "application/json" } });
+          return new Response(JSON.stringify({ error: { message: state.providerMessage, type: "invalid_request_error", code: state.failure === "policy" ? "content_policy_violation" : "test_error", param: null } }), { status: state.failure === "auth" ? 401 : state.failure === "policy" ? 400 : 429, headers: { "content-type": "application/json", "x-request-id": "req-repair-test", "x-private-header": "internal-header" } });
         }
         const refused = repair && (state.failure === "refusal" || state.failure === "refusal-with-reasoning");
         return new Response(JSON.stringify({
@@ -62,7 +63,10 @@ vi.mock("../../src/primitives/transcripts", () => ({
 beforeEach(() => {
   state.requests = [];
   state.failure = "";
+  vi.spyOn(console, "warn").mockImplementation(() => {});
 });
+
+afterEach(() => vi.restoreAllMocks());
 
 describe("production repair through the real AI SDK provider", () => {
   it("sends no reasoning and strict replacement fields while preserving every usage category", async () => {
@@ -97,12 +101,29 @@ describe("production repair through the real AI SDK provider", () => {
     expect(state.requests).toHaveLength(3);
   });
 
-  it.each([["auth", false], ["transient", true]] as const)("keeps %s retryability without retrying inside repair", async (failure, retryable) => {
+  it.each([["auth", false, 401], ["transient", true, 429]] as const)("keeps %s diagnostics internal and preserves retryability without retrying inside repair", async (failure, retryable, statusCode) => {
     state.failure = failure;
-    await expect(generateText("asset-test", { artifacts: [{ key: "post", channel: "x" }] })).rejects.toMatchObject({
+    const error = await generateText("asset-test", { artifacts: [{ key: "post", channel: "x" }] }).catch(error => error);
+    expect(error).toMatchObject({
+      __robots_error: true,
+      message: "Unable to complete text generation.",
+      publicMessage: "Unable to complete text generation.",
       publicType: "processing_error",
       retryable,
-      usage: { totalTokens: 220, cacheWriteTokens: 60 },
+      usage: { inputTokens: 200, outputTokens: 20, totalTokens: 220, cachedInputTokens: 40, cacheWriteTokens: 60, reasoningTokens: 0 },
+    });
+    expect(APICallError.isInstance(error.cause)).toBe(true);
+    expect(error.cause).toMatchObject({ message: state.providerMessage, statusCode, responseHeaders: { "x-request-id": "req-repair-test" } });
+    expect(Object.getOwnPropertyDescriptor(error, "cause")?.enumerable).toBe(false);
+    expect(JSON.stringify(error)).not.toContain(state.providerMessage);
+    expect(JSON.stringify(error)).not.toContain("req-repair-test");
+    expect(console.warn).toHaveBeenCalledExactlyOnceWith("[@mux/ai] Bounded text repair failed.", {
+      provider: "openai",
+      modelId: "gpt-6-luna",
+      reason: state.providerMessage,
+      errorName: "AI_APICallError",
+      statusCode,
+      requestId: "req-repair-test",
     });
     expect(state.requests).toHaveLength(3);
   });

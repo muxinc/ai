@@ -34,11 +34,18 @@ export class MuxAiError extends Error {
   /** Whether the customer should retry the job. */
   readonly retryable: boolean;
 
+  /** Internal diagnostic failure; non-enumerable and excluded from JSON. */
+  declare readonly cause?: unknown;
+
   constructor(message: string, opts?: {
     type?: MuxAiErrorType;
     retryable?: boolean;
+    cause?: unknown;
   }) {
     super(message);
+    if (opts?.cause !== undefined) {
+      Object.defineProperty(this, "cause", { value: opts.cause, writable: true, configurable: true });
+    }
     this.name = "FatalError";
     this.publicType = opts?.type ?? "processing_error";
     this.publicMessage = message;
