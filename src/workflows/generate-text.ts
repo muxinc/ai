@@ -1,8 +1,10 @@
-import { generateText as generateTextWithModel, Output } from "ai";
+import { APICallError, generateText as generateTextWithModel, Output } from "ai";
 import { z } from "zod";
 
 import {
   getGeneratedOutputWithContentPolicyHandling,
+  IncompleteGenerationError,
+  isIncompleteGenerationError,
   withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
 import { getLanguageName } from "../lib/language-codes.ts";
@@ -864,20 +866,26 @@ async function generateArtifactWithModel(args: {
     return { content: candidate.content, usages, unexpectedKeys, violation };
   }
 
-  const noReasoning = args.provider === "openai" && (args.modelId === "gpt-6-luna" || args.modelId === "gpt-6-sol" || /^gpt-5\.[1-9]/.test(args.modelId));
   const repaired = await repairText({
     content: candidate.content,
     limits: args.limits,
     protectedTerms: args.protectedTerms,
     model,
-    ...(noReasoning ? { providerOptions: { openai: { reasoningEffort: "none", store: false } } } : {}),
   });
   usages.push(...repaired.attempts.flatMap(item => item.call.usage ? [item.call.usage] : []));
   if (repaired.status !== "valid") {
-    rethrowWithTokenUsage(new MuxAiError(`Bounded text repair failed: ${repaired.reason}`, {
-      type: "processing_error",
-      retryable: true,
-    }), usages);
+    const cause = repaired.attempts.at(-1)?.call.errorCause;
+    // Rebuild without cause.usage: that call is already in usages above.
+    // Retain customer-safe metadata, including errors serialized by callers.
+    const failure = isIncompleteGenerationError(cause) ?
+        new IncompleteGenerationError(cause.finishReason, cause.rawFinishReason) :
+      MuxAiError.is(cause) ?
+          new MuxAiError(cause.publicMessage, { type: cause.publicType, retryable: cause.retryable }) :
+          new MuxAiError(`Bounded text repair failed: ${repaired.reason}`, {
+            type: "processing_error",
+            retryable: APICallError.isInstance(cause) ? cause.isRetryable : true,
+          });
+    rethrowWithTokenUsage(failure, usages);
   }
   return { content: repaired.content, usages, unexpectedKeys };
 }

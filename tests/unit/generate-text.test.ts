@@ -133,7 +133,7 @@ beforeEach(() => {
   vi.mocked(isAudioOnlyAsset).mockReturnValue(false);
   vi.mocked(resolveMuxSigningContext).mockResolvedValue(undefined);
   vi.mocked(resolveLanguageModelConfig).mockReturnValue({ provider: "openai", modelId: "test-model" } as any);
-  vi.mocked(createLanguageModelFromConfig).mockResolvedValue({} as any);
+  vi.mocked(createLanguageModelFromConfig).mockResolvedValue({ provider: "openai.responses", modelId: "test-model" } as any);
   vi.mocked(getReliableLanguageCode).mockReturnValue("en");
   vi.mocked(fetchTranscriptForAsset).mockResolvedValue({
     track,
@@ -334,6 +334,7 @@ describe("generateText", () => {
     queueGenerations([draft]);
     vi.mocked(generateTextWithModel).mockResolvedValueOnce(modelResponse({ p_2: "Short enough." }, 10));
     vi.mocked(resolveLanguageModelConfig).mockReturnValue({ provider: "openai", modelId: "gpt-6-luna" } as any);
+    vi.mocked(createLanguageModelFromConfig).mockResolvedValue({ provider: "openai.responses", modelId: "gpt-6-luna" } as any);
 
     const result = await generateText("asset-123", { artifacts: [{ key: "x_post", channel: "x" }] });
     expect(generateTextWithModel).toHaveBeenCalledTimes(3);
@@ -344,6 +345,15 @@ describe("generateText", () => {
     expect(call(2).providerOptions).toEqual({ openai: { reasoningEffort: "none", store: false } });
     expect(result.variants[0].artifacts[0].content).toBe("Keep exactly.\n\nShort enough.");
     expect(result.usage?.totalTokens).toBe(120);
+  });
+
+  it("repairs Markdown with a legitimate code escape while preserving the heading", async () => {
+    queueGenerations([`# Guide\n\nUse ${String.raw`\n`} in code. ${"Long explanation. ".repeat(30)}`]);
+    const replacement = String.raw`Use **care** with \n in code.`;
+    vi.mocked(generateTextWithModel).mockResolvedValueOnce(modelResponse({ p_2: replacement }, 10));
+    const result = await generateText("asset-123", { artifacts: [{ key: "guide", format: "markdown", maxLength: { unit: "characters", value: 420 } }] });
+    expect(result.variants[0].artifacts[0].content).toBe(`# Guide\n\n${replacement}`);
+    expect(generateTextWithModel).toHaveBeenCalledTimes(3);
   });
 
   it("replans a smaller over-cap candidate once without a full-prompt rewrite", async () => {
@@ -383,7 +393,40 @@ describe("generateText", () => {
   it("retains repair usage on incomplete output and stops the repair loop", async () => {
     queueGenerations(["x".repeat(281)]);
     vi.mocked(generateTextWithModel).mockResolvedValueOnce({ ...modelResponse({ p_0: "Fits." }, 15), finishReason: "length" });
-    await expect(generateText("asset-123", { artifacts: [{ key: "x_post", channel: "x" }] })).rejects.toMatchObject({ usage: { totalTokens: 125 } });
+    await expect(generateText("asset-123", { artifacts: [{ key: "x_post", channel: "x" }] })).rejects.toMatchObject({ publicType: "processing_error", retryable: false, finishReason: "length", usage: { totalTokens: 125 } });
+    expect(generateTextWithModel).toHaveBeenCalledTimes(3);
+  });
+
+  it("preserves a serialized non-retryable repair error without double-counting usage", async () => {
+    queueGenerations(["x".repeat(281)]);
+    vi.mocked(generateTextWithModel).mockRejectedValueOnce({
+      __robots_error: true,
+      publicType: "validation_error",
+      publicMessage: "Unsupported request.",
+      retryable: false,
+      usage: { totalTokens: 7 },
+    });
+    await expect(generateText("asset-123", { artifacts: [{ key: "post", channel: "x" }] })).rejects.toMatchObject({
+      publicType: "validation_error",
+      publicMessage: "Unsupported request.",
+      retryable: false,
+      usage: { totalTokens: 117 },
+    });
+    expect(generateTextWithModel).toHaveBeenCalledTimes(3);
+  });
+
+  it("stops after a repair content filter before reading output and preserves all usage", async () => {
+    queueGenerations(["x".repeat(281)]);
+    const response = { ...modelResponse(undefined, 15), finishReason: "content-filter" };
+    Object.defineProperty(response, "output", { get: () => {
+      throw new Error("output must not be read");
+    } });
+    vi.mocked(generateTextWithModel).mockResolvedValueOnce(response);
+    await expect(generateText("asset-123", { artifacts: [{ key: "post", channel: "x" }] })).rejects.toMatchObject({
+      publicType: "content_policy_error",
+      retryable: false,
+      usage: { totalTokens: 125 },
+    });
     expect(generateTextWithModel).toHaveBeenCalledTimes(3);
   });
 

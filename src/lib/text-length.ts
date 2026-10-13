@@ -14,6 +14,8 @@ function createWordSegmenter(): WordSegmenter | undefined {
   return Segmenter ? new Segmenter("und", { granularity: "word" }) : undefined;
 }
 
+const wordSegmenter = createWordSegmenter();
+
 /**
  * Measures text in the unit of a length limit. Characters are code points.
  * Words use locale-aware segmentation so Markdown syntax is not counted and
@@ -28,12 +30,11 @@ export function measureGenerateTextLength(content: string, unit: TextLengthLimit
   if (!normalized) {
     return 0;
   }
-  const segmenter = createWordSegmenter();
-  if (!segmenter) {
+  if (!wordSegmenter) {
     return normalized.split(/\s+/u).length;
   }
   let words = 0;
-  for (const segment of segmenter.segment(normalized)) {
+  for (const segment of wordSegmenter.segment(normalized)) {
     if (segment.isWordLike) {
       words += 1;
     }

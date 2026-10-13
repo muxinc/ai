@@ -2,7 +2,7 @@ import type { TextLengthLimit } from "./text-length.ts";
 import { findGenerateTextLengthViolation, measureGenerateTextLength } from "./text-length.ts";
 
 const PARAGRAPH_SEPARATOR = /(\r?\n(?:[\t ]*\r?\n)+)/;
-const INVALID_REPLACEMENT = /\\[nr]|\r?\n[\t ]*\r?\n/;
+const INVALID_REPLACEMENT = /\r?\n[\t ]*\r?\n/;
 
 function headroom(limit: TextLengthLimit) {
   return Math.min(limit.unit === "words" ? 5 : 10, Math.floor(limit.value * 0.1));
@@ -91,7 +91,7 @@ export function applyTextRepair(content: string, plan: RepairPlan, replacements:
     const replacement = values[span.id];
     if (parts[index] !== span.text)
       return { accepted: false, reason: "Stale repair plan" } as const;
-    if (typeof replacement !== "string" || !replacement.trim() || INVALID_REPLACEMENT.test(replacement))
+    if (typeof replacement !== "string" || !replacement.trim() || INVALID_REPLACEMENT.test(replacement) || introducesLiteralEscapes(span.text, replacement))
       return { accepted: false, reason: "Empty or incompatible paragraph replacement" } as const;
     parts[index] = replacement;
   }
@@ -101,11 +101,20 @@ export function applyTextRepair(content: string, plan: RepairPlan, replacements:
   return { accepted: true, content: parts.join("") } as const;
 }
 
+// Literal escapes can be intentional prose or Markdown code. Preserve existing
+// sequences, but reject newly introduced double escaping from the model.
+function introducesLiteralEscapes(source: string, replacement: string): boolean {
+  return [String.raw`\n`, String.raw`\r`].some(sequence =>
+    replacement.split(sequence).length > source.split(sequence).length);
+}
+
 export interface RepairCall<Usage> {
   replacements?: unknown;
   usage?: Usage;
   elapsedMs: number;
   error?: string;
+  /** Original failure, retaining classification/metadata alongside the message. */
+  errorCause?: unknown;
 }
 
 // Model-agnostic kernel. The caller owns generation, accounting, semantic review,

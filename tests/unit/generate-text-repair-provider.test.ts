@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { generateText } from "../../src/workflows/generate-text.ts";
 
-const state = vi.hoisted(() => ({ requests: [] as Record<string, any>[], failRepair: false }));
+const state = vi.hoisted(() => ({ requests: [] as Record<string, any>[], failure: "" as "" | "length" | "truncated-json" | "filter" | "refusal" | "policy" | "auth" | "transient" }));
 
 vi.mock("../../src/lib/providers", async () => {
   const { createOpenAI } = await import("@ai-sdk/openai");
@@ -25,13 +25,17 @@ vi.mock("../../src/lib/providers", async () => {
               claimsToQualify: [],
             } :
           name === "generated_text" ? { content: `Keep exactly.\n\n${"x".repeat(300)}` } : { p_2: "Short enough." };
+        const repair = name === "paragraph_replacements";
+        if (repair && (state.failure === "auth" || state.failure === "transient" || state.failure === "policy")) {
+          return new Response(JSON.stringify({ error: { message: "Request failed", type: "invalid_request_error", code: state.failure === "policy" ? "content_policy_violation" : "test_error", param: null } }), { status: state.failure === "auth" ? 401 : state.failure === "policy" ? 400 : 429, headers: { "content-type": "application/json" } });
+        }
         return new Response(JSON.stringify({
           id: `resp_${state.requests.length}`,
           created_at: 1_790_000_000,
           model: "gpt-6-luna",
-          status: name === "paragraph_replacements" && state.failRepair ? "incomplete" : "completed",
-          incomplete_details: name === "paragraph_replacements" && state.failRepair ? { reason: "max_output_tokens" } : null,
-          output: [{ id: "msg_test", type: "message", role: "assistant", content: [{ type: "output_text", text: JSON.stringify(output), annotations: [] }] }],
+          status: repair && (state.failure === "length" || state.failure === "filter" || state.failure === "truncated-json") ? "incomplete" : "completed",
+          incomplete_details: repair && (state.failure === "length" || state.failure === "filter" || state.failure === "truncated-json") ? { reason: state.failure === "filter" ? "content_filter" : "max_output_tokens" } : null,
+          output: [{ id: "msg_test", type: "message", role: "assistant", content: repair && state.failure === "refusal" ? [{ type: "refusal", refusal: "Unable to help." }] : [{ type: "output_text", text: repair && state.failure === "truncated-json" ? "{" : JSON.stringify(output), annotations: [] }] }],
           usage: { input_tokens: 100, output_tokens: 10, input_tokens_details: { cached_tokens: 20, cache_write_tokens: 30 }, output_tokens_details: { reasoning_tokens: 0 } },
         }), { headers: { "content-type": "application/json" } });
       },
@@ -53,7 +57,7 @@ vi.mock("../../src/primitives/transcripts", () => ({
 
 beforeEach(() => {
   state.requests = [];
-  state.failRepair = false;
+  state.failure = "";
 });
 
 describe("production repair through the real AI SDK provider", () => {
@@ -71,10 +75,50 @@ describe("production repair through the real AI SDK provider", () => {
   });
 
   it("retains provider usage and stops when the real adapter receives incomplete repair output", async () => {
-    state.failRepair = true;
+    state.failure = "length";
     await expect(generateText("asset-test", { artifacts: [{ key: "post", channel: "x" }] })).rejects.toMatchObject({
       publicType: "processing_error",
+      retryable: false,
       usage: { totalTokens: 330, cacheWriteTokens: 90 },
+    });
+    expect(state.requests).toHaveLength(3);
+  });
+  it.each(["filter", "refusal"] as const)("preserves %s policy classification and usage with one repair request", async (failure) => {
+    state.failure = failure;
+    await expect(generateText("asset-test", { artifacts: [{ key: "post", channel: "x" }] })).rejects.toMatchObject({
+      publicType: "content_policy_error",
+      retryable: false,
+      usage: { totalTokens: 330, cachedInputTokens: 60, cacheWriteTokens: 90 },
+    });
+    expect(state.requests).toHaveLength(3);
+  });
+
+  it.each([["auth", false], ["transient", true]] as const)("keeps %s retryability without retrying inside repair", async (failure, retryable) => {
+    state.failure = failure;
+    await expect(generateText("asset-test", { artifacts: [{ key: "post", channel: "x" }] })).rejects.toMatchObject({
+      publicType: "processing_error",
+      retryable,
+      usage: { totalTokens: 220, cacheWriteTokens: 60 },
+    });
+    expect(state.requests).toHaveLength(3);
+  });
+  it("normalizes a truncated JSON exception before generateText can return, retaining usage", async () => {
+    state.failure = "truncated-json";
+    await expect(generateText("asset-test", { artifacts: [{ key: "post", channel: "x" }] })).rejects.toMatchObject({
+      publicType: "processing_error",
+      retryable: false,
+      finishReason: "length",
+      usage: { totalTokens: 330, cacheWriteTokens: 90 },
+    });
+    expect(state.requests).toHaveLength(3);
+  });
+
+  it("normalizes an OpenAI API policy failure before recording the repair error", async () => {
+    state.failure = "policy";
+    await expect(generateText("asset-test", { artifacts: [{ key: "post", channel: "x" }] })).rejects.toMatchObject({
+      publicType: "content_policy_error",
+      retryable: false,
+      usage: { totalTokens: 220 },
     });
     expect(state.requests).toHaveLength(3);
   });

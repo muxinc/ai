@@ -519,7 +519,7 @@ for (const variant of result.variants) {
 - `artifacts` (1-5, unique snake_case keys) are the deliverables. Each accepts an optional `channel` (`generic`, `x`, `linkedin`, `facebook`, `instagram`, `tiktok`, `youtube`) whose conventions guide the writing and set a default length cap, an optional `maxLength` hard cap in characters or words, an optional `format`, and optional bounded `instructions`. With the `generic` channel, the composition scales with the length budget: a short cap produces a tight standalone piece, a large cap produces developed prose.
 - `format` is `plain` (default) or `markdown`. Plain text forbids Markdown syntax entirely, so the output can be dropped into any text field; choose `markdown` for blog posts and newsletters that render it.
 - `variants` (1-5, unique keys) each receive the complete artifact set. A variant key is only an identifier. Omit `instructions` for an independent take on the same brief, or supply them for a deliberate angle. When `variants` is omitted a single `default` variant is written.
-- Length caps are enforced after generation using Unicode code points and locale-aware word segmentation. Prompts aim for about 90% of each cap. An over-cap draft uses the shared paragraph repair API: select spans, allocate budgets, send only those paragraphs, assemble locally, and recheck every cap. It allows at most two repair calls; unresolved limits or provider failures produce a retryable `processing_error` with attempt usage preserved. It uses the selected provider/model, disabling reasoning for supported OpenAI models. Empty or double-escaped drafts retain one full-prompt generation/format correction. Final artifacts still pass through the output-safety scrubber. `x` artifacts are held to 280 characters regardless of the requested unit.
+- Length caps are enforced after generation using Unicode code points and locale-aware word segmentation. Prompts aim for about 90% of each cap. An over-cap draft uses the shared paragraph repair API: select spans, allocate budgets, send only those paragraphs, assemble locally, and recheck every cap. It allows at most two repair calls and preserves attempt usage on failure. Unresolved limits produce a retryable `processing_error`; typed failures retain their public classification and retryability. Policy blocks/refusals remain non-retryable `content_policy_error`s, output-limit truncation remains a non-retryable `processing_error`, and provider failures retain their retryability. It uses the selected provider/model, disabling reasoning for supported OpenAI models. Empty or double-escaped drafts retain one full-prompt generation/format correction. Final artifacts still pass through the output-safety scrubber. `x` artifacts are held to 280 characters regardless of the requested unit.
 - Artifacts are written in parallel batches of five, and token usage from every completed call is preserved on the error when one fails.
 
 | Channel | Default cap |
@@ -570,6 +570,11 @@ DevKit, invoke model-backed repair inside a durable step; these helpers do not
 create steps or persist usage themselves. `generateText` already calls it from
 its artifact step and accounts every attempt. Helpers use the supplied model
 without switching providers, so callers own per-provider usage attribution.
+
+The repair adapter disables AI SDK transport retries and stops on provider
+failure. Callers own transient retry/backoff at the job orchestration level and
+must respect the failure's retryability. Wrapping the repair callback in a retry
+loop would expand the bounded two-call repair budget.
 
 ### Steering
 

@@ -614,8 +614,14 @@ interface GenerateTextResult {
 **Errors:**
 
 - `validation_error` - Invalid option bounds, malformed language tags, missing transcript, empty scope, or `useShots` on an audio-only asset. Thrown before any model call.
-- `processing_error` - An artifact was still empty after its generation retry, or bounded paragraph repair failed to meet all length caps within two calls (retryable), the editorial brief was suppressed by the output-safety scrubber (retryable), or the model stopped before producing a complete response.
-- `content_policy_error` - The provider blocked the transcript or an image under its content policy (non-retryable).
+- `processing_error` - An artifact was still empty after its generation retry (retryable), bounded paragraph repair failed to meet all length caps within two calls (retryable), the editorial brief was suppressed by the output-safety scrubber (retryable), or the model stopped before producing a complete response. Output-limit truncation is non-retryable; provider failures retain their retryability.
+- `content_policy_error` - The provider blocked the transcript or an image under its content policy, or refused a paragraph repair (non-retryable).
+
+Paragraph repair preserves typed errors' public classification and retryability,
+as well as attempt usage. It disables AI SDK transport retries and stops on
+provider failure; callers own transient retry/backoff at the job orchestration
+level and must respect the failure's retryability without expanding the two-call
+repair budget.
 
 ## `translateAudio(assetId, toLanguageCode, options?)`
 

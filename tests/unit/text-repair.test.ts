@@ -83,6 +83,15 @@ describe("bounded text repair", () => {
     expect(applyTextRepair("Changed.", plan, { p_0: "Short." }).accepted).toBe(false);
   });
 
+  it("preserves Markdown and existing literal escapes in repaired paragraphs", () => {
+    const content = `# Guide\r\n \r\n${String.raw`Use \n and \r with **care**. `}${"Long explanation. ".repeat(30)}`;
+    const plan = planTextRepair(content, [{ unit: "characters", value: 450 }])!;
+    expect(plan.spans).toHaveLength(1);
+    const replacement = String.raw`- Keep **care** when using \n and \r.`;
+    expect(applyTextRepair(content, plan, { p_2: replacement })).toEqual({ accepted: true, content: `# Guide\r\n \r\n${replacement}` });
+    expect(applyTextRepair(content, plan, { p_2: replacement + String.raw`\n` }).accepted).toBe(false);
+  });
+
   it("checks protected terms in edited spans even when they occur elsewhere", () => {
     const content = `Mux.\n\nMux ${"long ".repeat(30)}`;
     const plan = planTextRepair(content, [{ unit: "characters", value: 150 }], ["Mux", "absent"])!;

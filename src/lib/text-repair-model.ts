@@ -1,9 +1,10 @@
-import { generateText, jsonSchema, Output } from "ai";
+import { generateText, jsonSchema, NoObjectGeneratedError, Output } from "ai";
 
 import type { TokenUsage } from "../types.ts";
 
-import { getGeneratedOutputWithContentPolicyHandling } from "./content-policy-error.ts";
+import { getGeneratedOutputWithContentPolicyHandling, IncompleteGenerationError, withContentPolicyErrorHandling } from "./content-policy-error.ts";
 import { CANARY_TRIPWIRE, NON_DISCLOSURE_CONSTRAINT, promptDedent } from "./prompt-fragments.ts";
+import { getTextRepairProviderOptions } from "./text-repair-capabilities.ts";
 import { repairJsonSchema, runTextRepairLoop } from "./text-repair.ts";
 import type { RepairCall, RepairOptions, RepairPlan, RepairResult } from "./text-repair.ts";
 import { getErrorTokenUsage } from "./token-usage.ts";
@@ -23,6 +24,9 @@ export interface TextRepairModelOptions {
 /**
  * Builds an AI SDK callback for the model-independent repair kernel. It sends
  * only selected paragraphs and never retries transport/provider failures.
+ * Every invocation consumes one of the kernel's two calls. Transient backoff
+ * belongs to the caller's job orchestration; wrapping this callback in withRetry
+ * would silently expand that budget. Non-retryable failures must stay terminal.
  * Invoke it inside a durable step when using Workflow DevKit; it is not a step
  * itself so callers can choose their own orchestration and usage persistence.
  */
@@ -31,9 +35,9 @@ export function createTextRepairGenerator(options: TextRepairModelOptions) {
     let usage: TokenUsage | undefined;
     const started = Date.now();
     try {
-      const response = await generateText({
+      const response = await withContentPolicyErrorHandling(() => generateText({
         model: options.model,
-        providerOptions: options.providerOptions,
+        providerOptions: options.providerOptions ?? getTextRepairProviderOptions(options.model),
         maxRetries: 0,
         abortSignal: AbortSignal.timeout(options.timeoutMs ?? 30_000),
         maxOutputTokens: options.maxOutputTokens ?? Math.min(32768, Math.max(1024, plan.spans.reduce((total, span) =>
@@ -56,15 +60,22 @@ export function createTextRepairGenerator(options: TextRepairModelOptions) {
         onStepFinish: (step) => {
           usage = getErrorTokenUsage(step);
         },
-      });
+      }));
       usage = getErrorTokenUsage(response);
       const output = getGeneratedOutputWithContentPolicyHandling(response);
-      if (response.finishReason !== "stop" || !output) {
-        return { usage, elapsedMs: Date.now() - started, error: `Incomplete repair: ${response.finishReason}` };
+      // The helper already throws for non-stop finishes. Keep the missing-output
+      // guard for custom/model implementations that return no object on stop.
+      if (!output) {
+        return { usage, elapsedMs: Date.now() - started, error: "Repair output missing" };
       }
       return { replacements: output, usage, elapsedMs: Date.now() - started };
     } catch (error) {
-      return { usage: usage ?? getErrorTokenUsage(error), elapsedMs: Date.now() - started, error: error instanceof Error ? error.message : String(error) };
+      // Output.object can throw before generateText returns on a non-empty,
+      // non-stop response. Preserve that finish metadata too.
+      const cause = NoObjectGeneratedError.isInstance(error) && error.finishReason && error.finishReason !== "stop" ?
+          new IncompleteGenerationError(error.finishReason, undefined, getErrorTokenUsage(error)) :
+        error;
+      return { usage: usage ?? getErrorTokenUsage(cause), elapsedMs: Date.now() - started, error: cause instanceof Error ? cause.message : String(cause), errorCause: cause };
     }
   };
 }

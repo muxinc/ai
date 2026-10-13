@@ -40,6 +40,32 @@ const ContentPolicyUsageResponseSchema = z.object({
   }).nullish(),
 });
 
+// OpenAI structured-output refusals may finish with stop and fail JSON parsing.
+// Inspect the provider response shape rather than matching prose/error messages.
+const OpenAIRefusalResponseSchema = z.object({
+  output: z.array(z.object({
+    type: z.string(),
+    content: z.array(z.object({ type: z.string() })).max(32).optional(),
+  })).max(8),
+});
+
+const OpenAIUsageResponseSchema = z.object({
+  usage: z.object({
+    input_tokens: z.number().finite().nonnegative(),
+    output_tokens: z.number().finite().nonnegative(),
+    total_tokens: z.number().finite().nonnegative().optional(),
+    input_tokens_details: z.object({
+      cached_tokens: z.number().finite().nonnegative().nullish(),
+      cache_write_tokens: z.number().finite().nonnegative().nullish(),
+    }).nullish(),
+    output_tokens_details: z.object({ reasoning_tokens: z.number().finite().nonnegative().nullish() }).nullish(),
+  }),
+});
+
+const OpenAIPolicyErrorSchema = z.object({
+  error: z.object({ code: z.enum(["content_policy_violation", "content_filter"]) }),
+});
+
 const CONTENT_POLICY_REASONS = new Set([
   "BLOCKLIST",
   "ESCALATION",
@@ -180,8 +206,13 @@ export function extractContentPolicyBlock(error: unknown): ContentPolicyBlock | 
     return extractContentPolicyBlock(error.lastError);
   }
 
-  if (NoObjectGeneratedError.isInstance(error) && error.finishReason === "content-filter") {
-    return { reason: "CONTENT_FILTER" };
+  if (NoObjectGeneratedError.isInstance(error)) {
+    if (error.finishReason === "content-filter")
+      return { reason: "CONTENT_FILTER" };
+    const body = (error.response as { body?: unknown } | undefined)?.body;
+    const refusal = OpenAIRefusalResponseSchema.safeParse(body);
+    if (refusal.success && refusal.data.output.some(message => message.type === "message" && message.content?.some(part => part.type === "refusal")))
+      return { reason: "REFUSAL" };
   }
 
   if (!APICallError.isInstance(error) || !error.responseBody) {
@@ -189,7 +220,15 @@ export function extractContentPolicyBlock(error: unknown): ContentPolicyBlock | 
   }
 
   try {
-    const parsed = ContentPolicyResponseSchema.safeParse(JSON.parse(error.responseBody));
+    const body: unknown = JSON.parse(error.responseBody);
+    // Some provider versions reject refusal parts before returning a result,
+    // surfacing a 200 APICallError with the original body instead.
+    const refusal = OpenAIRefusalResponseSchema.safeParse(body);
+    if (refusal.success && refusal.data.output.some(message => message.type === "message" && message.content?.some(part => part.type === "refusal")))
+      return { reason: "REFUSAL" };
+    if (OpenAIPolicyErrorSchema.safeParse(body).success)
+      return { reason: "CONTENT_FILTER" };
+    const parsed = ContentPolicyResponseSchema.safeParse(body);
     if (!parsed.success) {
       return undefined;
     }
@@ -236,7 +275,20 @@ function getContentPolicyTokenUsage(error: unknown): TokenUsage | undefined {
   }
 
   try {
-    const parsed = ContentPolicyUsageResponseSchema.safeParse(JSON.parse(error.responseBody));
+    const body: unknown = JSON.parse(error.responseBody);
+    const openai = OpenAIUsageResponseSchema.safeParse(body);
+    if (openai.success) {
+      const usage = openai.data.usage;
+      return {
+        inputTokens: usage.input_tokens,
+        outputTokens: usage.output_tokens,
+        totalTokens: usage.total_tokens ?? usage.input_tokens + usage.output_tokens,
+        cachedInputTokens: usage.input_tokens_details?.cached_tokens ?? undefined,
+        cacheWriteTokens: usage.input_tokens_details?.cache_write_tokens ?? undefined,
+        reasoningTokens: usage.output_tokens_details?.reasoning_tokens ?? undefined,
+      };
+    }
+    const parsed = ContentPolicyUsageResponseSchema.safeParse(body);
     const usage = parsed.success ? parsed.data.usageMetadata : undefined;
     if (!usage) {
       return undefined;
