@@ -25,7 +25,7 @@ function createApiCallError(responseBody: string) {
   });
 }
 
-function createNoObjectGeneratedError(finishReason: "content-filter" | "error") {
+function createNoObjectGeneratedError(finishReason: "content-filter" | "error" | "stop") {
   return new NoObjectGeneratedError({
     message: "No object generated",
     response: {
@@ -171,6 +171,39 @@ describe("content policy errors", () => {
       retryable: false,
     });
 
+    expect(attempts).toBe(1);
+  });
+
+  it.each(["structured-output", "provider-api"] as const)("does not retry a refusal with nullable reasoning content (%s)", async (kind) => {
+    const body = {
+      output: [
+        { type: "reasoning", content: null },
+        { type: "message", content: [{ type: "refusal", refusal: "Unable to help." }] },
+      ],
+      usage: { input_tokens: 10, output_tokens: 2, total_tokens: 12 },
+    };
+    const error = kind === "structured-output" ?
+        createNoObjectGeneratedError("stop") :
+        new APICallError({
+          message: "Invalid provider response",
+          url: "https://example.com/generate-content",
+          requestBodyValues: {},
+          statusCode: 200,
+          isRetryable: true,
+          responseBody: JSON.stringify(body),
+        });
+    if (NoObjectGeneratedError.isInstance(error))
+      Object.assign(error.response!, { body });
+    let attempts = 0;
+
+    await expect(withContentPolicyAwareRetry(async () => {
+      attempts++;
+      throw error;
+    }, { maxRetries: 3, baseDelay: 0, maxDelay: 0 })).rejects.toMatchObject({
+      publicType: "content_policy_error",
+      retryable: false,
+      usage: { totalTokens: kind === "structured-output" ? 10 : 12 },
+    });
     expect(attempts).toBe(1);
   });
 

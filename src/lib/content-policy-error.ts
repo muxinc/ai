@@ -45,7 +45,7 @@ const ContentPolicyUsageResponseSchema = z.object({
 const OpenAIRefusalResponseSchema = z.object({
   output: z.array(z.object({
     type: z.string(),
-    content: z.array(z.object({ type: z.string() })).max(32).optional(),
+    content: z.array(z.object({ type: z.string() })).max(32).nullish(),
   })).max(8),
 });
 

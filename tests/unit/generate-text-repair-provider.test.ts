@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { generateText } from "../../src/workflows/generate-text.ts";
 
-const state = vi.hoisted(() => ({ requests: [] as Record<string, any>[], failure: "" as "" | "length" | "truncated-json" | "filter" | "refusal" | "policy" | "auth" | "transient" }));
+const state = vi.hoisted(() => ({ requests: [] as Record<string, any>[], failure: "" as "" | "length" | "truncated-json" | "filter" | "refusal" | "refusal-with-reasoning" | "policy" | "auth" | "transient" }));
 
 vi.mock("../../src/lib/providers", async () => {
   const { createOpenAI } = await import("@ai-sdk/openai");
@@ -29,13 +29,17 @@ vi.mock("../../src/lib/providers", async () => {
         if (repair && (state.failure === "auth" || state.failure === "transient" || state.failure === "policy")) {
           return new Response(JSON.stringify({ error: { message: "Request failed", type: "invalid_request_error", code: state.failure === "policy" ? "content_policy_violation" : "test_error", param: null } }), { status: state.failure === "auth" ? 401 : state.failure === "policy" ? 400 : 429, headers: { "content-type": "application/json" } });
         }
+        const refused = repair && (state.failure === "refusal" || state.failure === "refusal-with-reasoning");
         return new Response(JSON.stringify({
           id: `resp_${state.requests.length}`,
           created_at: 1_790_000_000,
           model: "gpt-6-luna",
           status: repair && (state.failure === "length" || state.failure === "filter" || state.failure === "truncated-json") ? "incomplete" : "completed",
           incomplete_details: repair && (state.failure === "length" || state.failure === "filter" || state.failure === "truncated-json") ? { reason: state.failure === "filter" ? "content_filter" : "max_output_tokens" } : null,
-          output: [{ id: "msg_test", type: "message", role: "assistant", content: repair && state.failure === "refusal" ? [{ type: "refusal", refusal: "Unable to help." }] : [{ type: "output_text", text: repair && state.failure === "truncated-json" ? "{" : JSON.stringify(output), annotations: [] }] }],
+          output: [
+            ...(repair && state.failure === "refusal-with-reasoning" ? [{ id: "rs_test", type: "reasoning", summary: [], content: null }] : []),
+            { id: "msg_test", type: "message", role: "assistant", content: refused ? [{ type: "refusal", refusal: "Unable to help." }] : [{ type: "output_text", text: repair && state.failure === "truncated-json" ? "{" : JSON.stringify(output), annotations: [] }] },
+          ],
           usage: { input_tokens: 100, output_tokens: 10, input_tokens_details: { cached_tokens: 20, cache_write_tokens: 30 }, output_tokens_details: { reasoning_tokens: 0 } },
         }), { headers: { "content-type": "application/json" } });
       },
@@ -83,7 +87,7 @@ describe("production repair through the real AI SDK provider", () => {
     });
     expect(state.requests).toHaveLength(3);
   });
-  it.each(["filter", "refusal"] as const)("preserves %s policy classification and usage with one repair request", async (failure) => {
+  it.each(["filter", "refusal", "refusal-with-reasoning"] as const)("preserves %s policy classification and usage with one repair request", async (failure) => {
     state.failure = failure;
     await expect(generateText("asset-test", { artifacts: [{ key: "post", channel: "x" }] })).rejects.toMatchObject({
       publicType: "content_policy_error",
