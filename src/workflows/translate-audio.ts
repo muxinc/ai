@@ -2,6 +2,7 @@ import { sleep } from "workflow";
 
 import env from "../env.ts";
 import { getApiKeyFromEnv } from "../lib/client-factory.ts";
+import { elevenLabsResponseError } from "../lib/elevenlabs-errors.ts";
 import { getLanguageCodePair, getLanguageName, toISO639_1, toISO639_3 } from "../lib/language-codes.ts";
 import type { LanguageCodePair, SupportedISO639_1 } from "../lib/language-codes.ts";
 import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
@@ -389,7 +390,7 @@ async function createElevenLabsDubbingJob({
   });
 
   if (!dubbingResponse.ok) {
-    throw new Error(`ElevenLabs API error: ${dubbingResponse.statusText}`);
+    throw await elevenLabsResponseError("ElevenLabs API error", dubbingResponse);
   }
 
   const dubbingData = await dubbingResponse.json() as any;
@@ -402,7 +403,7 @@ async function checkElevenLabsDubbingStatus({
 }: {
   dubbingId: string;
   credentials?: WorkflowCredentialsInput;
-}): Promise<{ status: string; targetLanguages: string[] }> {
+}): Promise<{ status: string; targetLanguages: string[]; error?: string }> {
   "use step";
   const elevenLabsApiKey = await getApiKeyFromEnv("elevenlabs", credentials);
 
@@ -413,13 +414,14 @@ async function checkElevenLabsDubbingStatus({
   });
 
   if (!statusResponse.ok) {
-    throw new Error(`Status check failed: ${statusResponse.statusText}`);
+    throw await elevenLabsResponseError("Status check failed", statusResponse);
   }
 
   const statusData = await statusResponse.json() as any;
   return {
     status: statusData.status,
     targetLanguages: statusData.target_languages ?? [],
+    error: typeof statusData.error === "string" && statusData.error ? statusData.error : undefined,
   };
 }
 
@@ -462,7 +464,7 @@ async function downloadAndUploadDubbedAudio({
   });
 
   if (!audioResponse.ok) {
-    throw new Error(`Failed to fetch dubbed audio: ${audioResponse.statusText}`);
+    throw await elevenLabsResponseError("Failed to fetch dubbed audio", audioResponse);
   }
 
   const dubbedAudio = new Uint8Array(await audioResponse.arrayBuffer());
@@ -540,7 +542,7 @@ async function downloadAndUploadDubTranscript({
   });
 
   if (!transcriptResponse.ok) {
-    throw new Error(`Failed to fetch dub transcript: ${transcriptResponse.statusText}`);
+    throw await elevenLabsResponseError("Failed to fetch dub transcript", transcriptResponse);
   }
 
   // The transcripts endpoint returns a JSON envelope (DubbingTranscriptsResponseModel)
@@ -743,6 +745,7 @@ export async function translateAudio(
     let dubbingStatus = "dubbing";
     let pollAttempts = 0;
     let targetLanguages: string[] = [];
+    let dubbingError: string | undefined;
 
     while (dubbingStatus !== "dubbed" && pollAttempts < maxPollAttempts) {
       await sleep(DUBBING_POLL_INTERVAL_MS);
@@ -755,11 +758,14 @@ export async function translateAudio(
         });
         dubbingStatus = statusResult.status;
         targetLanguages = statusResult.targetLanguages;
+        dubbingError = statusResult.error;
       } catch (error) {
         wrapError(error, "Failed to check dubbing status");
       }
 
       if (dubbingStatus === "failed") {
+        // The provider's reason stays in logs; the thrown message is customer-facing.
+        console.warn(`❌ ElevenLabs dubbing job ${dubbingId} failed: ${dubbingError ?? "no error reported"}`);
         throw new MuxAiError("ElevenLabs reported that the dubbing job failed.", { type: "processing_error" });
       }
     }

@@ -33,6 +33,7 @@ const { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } = await import
 const { resolveMuxClient } = await import("../../src/lib/workflow-credentials");
 const { getApiKeyFromEnv } = await import("../../src/lib/client-factory");
 const { translateAudio } = await import("../../src/workflows/translate-audio");
+const { MuxAiError } = await import("../../src/lib/mux-ai-error");
 
 const ASSET_ID = "asset-123";
 const CREATED_RENDITION_ID = "rendition-created-1";
@@ -251,6 +252,121 @@ describe("translateAudio static rendition cleanup", () => {
     const result = await translateAudio(ASSET_ID, "fr", BASE_OPTIONS);
 
     expect(result.staticRenditionCleanup).toBe("deleted");
+  });
+});
+
+function stubElevenLabsCreateFailure(response: Response) {
+  const fetchMock = vi.fn(async (input: any, init?: any) => {
+    if (String(input).endsWith("/v1/dubbing") && init?.method === "POST") {
+      return response;
+    }
+    throw new Error(`Unexpected fetch in test: ${String(input)}`);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+const UNSUPPORTED_LANGUAGE_BODY = {
+  detail: {
+    type: "validation_error",
+    code: "invalid_parameters",
+    message: "Target language 'ur' is not supported.",
+    status: "unsupported_target_language",
+    request_id: "ce841eacec9f38158a9ef2f4b66b0940",
+    param: "target_lang",
+  },
+};
+
+describe("translateAudio ElevenLabs error reporting", () => {
+  beforeEach(() => {
+    mockMuxClient({ initialAsset: readyRenditionAsset("rendition-pre-existing") });
+  });
+
+  it("includes the status and ElevenLabs reason when dub creation is rejected", async () => {
+    stubElevenLabsCreateFailure(new Response(JSON.stringify(UNSUPPORTED_LANGUAGE_BODY), { status: 400, statusText: "Bad Request" }));
+
+    const error = await captureRejection(translateAudio(ASSET_ID, "ur", BASE_OPTIONS));
+
+    expect((error as Error).message).toBe(
+      "Failed to create ElevenLabs dubbing job: ElevenLabs API error: 400 Bad Request: unsupported_target_language: Target language 'ur' is not supported. (param: target_lang, request_id: ce841eacec9f38158a9ef2f4b66b0940)",
+    );
+  });
+
+  it("keeps provider detail out of customer-safe errors", async () => {
+    stubElevenLabsCreateFailure(new Response(JSON.stringify(UNSUPPORTED_LANGUAGE_BODY), { status: 400, statusText: "Bad Request" }));
+
+    const error = await captureRejection(translateAudio(ASSET_ID, "ur", BASE_OPTIONS));
+
+    expect(MuxAiError.is(error)).toBe(false);
+  });
+
+  it("lists field errors from a 422 validation response", async () => {
+    stubElevenLabsCreateFailure(new Response(
+      JSON.stringify({ detail: [{ loc: ["body", "target_lang"], msg: "field required", type: "missing" }] }),
+      { status: 422, statusText: "Unprocessable Entity" },
+    ));
+
+    const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
+
+    expect((error as Error).message).toContain("422 Unprocessable Entity: body.target_lang: field required");
+  });
+
+  it("keeps the 429 status in the message so callers can still detect rate limits", async () => {
+    stubElevenLabsCreateFailure(new Response(
+      JSON.stringify({ detail: { status: "too_many_concurrent_requests", message: "Too many concurrent requests." } }),
+      { status: 429, statusText: "Too Many Requests" },
+    ));
+
+    const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
+
+    expect((error as Error).message).toContain("429 Too Many Requests: too_many_concurrent_requests: Too many concurrent requests.");
+  });
+
+  it("truncates a non-JSON error body", async () => {
+    stubElevenLabsCreateFailure(new Response(`<html>${"x".repeat(1000)}</html>`, { status: 502, statusText: "Bad Gateway" }));
+
+    const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
+
+    expect((error as Error).message).toContain("502 Bad Gateway: <html>xxx");
+    expect((error as Error).message).not.toContain("</html>");
+  });
+
+  it("includes the ElevenLabs reason when a status check is rejected", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: any, init?: any) => {
+      if (String(input).endsWith("/v1/dubbing") && init?.method === "POST") {
+        return new Response(JSON.stringify({ dubbing_id: "dub-1" }), { status: 200 });
+      }
+      return new Response(
+        JSON.stringify({ detail: { status: "dubbing_not_found", message: "Dubbing project not found." } }),
+        { status: 404, statusText: "Not Found" },
+      );
+    }));
+
+    const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
+
+    expect((error as Error).message).toBe(
+      "Failed to check dubbing status: Status check failed: 404 Not Found: dubbing_not_found: Dubbing project not found.",
+    );
+  });
+
+  it("logs the ElevenLabs reason for a failed dub without changing the customer-facing error", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: any, init?: any) => {
+      if (String(input).endsWith("/v1/dubbing") && init?.method === "POST") {
+        return new Response(JSON.stringify({ dubbing_id: "dub-1" }), { status: 200 });
+      }
+      return new Response(
+        JSON.stringify({ status: "failed", target_languages: [], error: "Source audio could not be decoded." }),
+        { status: 200 },
+      );
+    }));
+
+    const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
+
+    expect(error).toMatchObject({
+      publicType: "processing_error",
+      publicMessage: "ElevenLabs reported that the dubbing job failed.",
+    });
+    expect(console.warn).toHaveBeenCalledWith("❌ ElevenLabs dubbing job dub-1 failed: Source audio could not be decoded.");
   });
 });
 
