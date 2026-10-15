@@ -22,6 +22,15 @@ export type {
 export { MuxAiError, wrapError } from "./lib/mux-ai-error.ts";
 export type { MuxAiErrorType } from "./lib/mux-ai-error.ts";
 
+// Mux static renditions created by the deprecated `mp4_support` option
+export {
+  getLegacyMp4SupportRenditionSizeError,
+  resolveLegacyMp4SupportRendition,
+  STATIC_RENDITIONS_GUIDE_URL,
+  usesLegacyMp4Support,
+} from "./lib/mux-static-renditions.ts";
+export type { LegacyMp4SupportRendition } from "./lib/mux-static-renditions.ts";
+
 // Mux text track replacement
 export {
   buildMuxAiTrackPassthrough,
@@ -32,9 +41,11 @@ export {
   MUX_TRACK_PASSTHROUGH_MAX_CHARS,
   normalizeTrackLanguageCode,
   normalizeTrackName,
+  planSourceTrackReplacement,
   planTextTrackReplacement,
   replaceAndCreateTextTrack,
   replaceAndCreateTrack,
+  replaceSourceTrack,
   summarizeTextTrack,
   validateTrackPassthrough,
 } from "./lib/mux-tracks.ts";
@@ -44,12 +55,18 @@ export type {
   ReplaceAndCreateTextTrackResult,
   ReplaceAndCreateTrackInput,
   ReplaceExistingTracksPolicy,
+  ReplaceSourceTrackInput,
+  SourceTrackReplacementPolicy,
   TextTrackReplacementPlan,
   TextTrackSummary,
   TextTrackTarget,
   TrackSummary,
   TrackTarget,
 } from "./lib/mux-tracks.ts";
+
+// Mux playback URL utilities
+export { getMuxPlaybackOrigin } from "./lib/mux-url.ts";
+export type { MuxPlaybackService } from "./lib/mux-url.ts";
 
 // Workflow credential utilities
 export { setWorkflowCredentialsProvider } from "./lib/workflow-credentials.ts";

@@ -5,7 +5,7 @@ vi.mock("../../src/lib/workflow-credentials", () => ({
 }));
 
 const { resolveMuxClient } = await import("../../src/lib/workflow-credentials");
-const { replaceAndCreateTextTrack, replaceAndCreateTrack } = await import("../../src/lib/mux-tracks");
+const { replaceAndCreateTextTrack, replaceAndCreateTrack, replaceSourceTrack } = await import("../../src/lib/mux-tracks");
 
 const ASR_EN = { id: "asr-en", type: "text", text_type: "subtitles", status: "ready", language_code: "en", name: "English CC", text_source: "generated_vod" };
 const UPLOADED_EN = { id: "up-en", type: "text", text_type: "subtitles", status: "ready", language_code: "en", name: "English", text_source: "uploaded" };
@@ -168,5 +168,48 @@ describe("replaceAndCreateTextTrack", () => {
     await expect(replaceAndCreateTextTrack({ ...INPUT, policy: "replace_all" })).rejects.toThrow("mux down");
     expect(deleteTrack).not.toHaveBeenCalled();
     expect(createTrack).not.toHaveBeenCalled();
+  });
+});
+
+describe("replaceSourceTrack", () => {
+  const SOURCE_INPUT = { ...INPUT, sourceTrackId: "up-en" };
+
+  it("deletes only the source, then creates a text track under the target name", async () => {
+    retrieve.mockResolvedValue({ id: "asset-1", tracks: [ASR_EN, UPLOADED_EN] });
+    createTrack.mockResolvedValue({ id: "new" });
+
+    const result = await replaceSourceTrack({ ...SOURCE_INPUT, policy: "replace", closedCaptions: true });
+
+    expect(result).toEqual({ kind: "created", trackId: "new", deleted: [expect.objectContaining({ id: "up-en" })] });
+    expect(deleteTrack).toHaveBeenCalledTimes(1);
+    expect(deleteTrack).toHaveBeenCalledWith("asset-1", "up-en");
+    expect(createTrack).toHaveBeenCalledWith("asset-1", expect.objectContaining({ type: "text", text_type: "subtitles", name: "English", closed_captions: true }));
+  });
+
+  it("deletes nothing under fail and adds the track alongside the source", async () => {
+    retrieve.mockResolvedValue({ id: "asset-1", tracks: [ASR_EN, UPLOADED_EN] });
+    createTrack.mockResolvedValue({ id: "new" });
+
+    const result = await replaceSourceTrack({ ...SOURCE_INPUT, target: { languageCode: "en", name: "English (clean)" }, policy: "fail" });
+
+    expect(result).toEqual({ kind: "created", trackId: "new", deleted: [] });
+    expect(deleteTrack).not.toHaveBeenCalled();
+  });
+
+  it("reports the deleted source when the duplicate-name retry finds another track using the name", async () => {
+    const duplicate = { ...ASR_EN, id: "dup", name: "English" };
+    retrieve
+      .mockResolvedValueOnce({ id: "asset-1", tracks: [UPLOADED_EN] })
+      .mockResolvedValueOnce({ id: "asset-1", tracks: [duplicate] });
+    createTrack.mockRejectedValueOnce(duplicateNameError("English"));
+
+    const result = await replaceSourceTrack({ ...SOURCE_INPUT, policy: "replace" });
+
+    expect(result).toEqual({
+      kind: "blocked",
+      reason: expect.stringContaining("A text track already has the name 'English'"),
+      tracks: [expect.objectContaining({ id: "dup" })],
+      deleted: [expect.objectContaining({ id: "up-en" })],
+    });
   });
 });

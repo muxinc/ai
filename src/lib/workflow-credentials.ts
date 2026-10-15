@@ -185,8 +185,8 @@ function resolveDirectMuxCredentials(record: Record<string, unknown> | undefined
 function createWorkflowMuxClient(options: DirectMuxCredentials): WorkflowMuxClient {
   return {
     async createClient() {
-      // Dynamic import to avoid pulling mux-node into workflow VM bundles.
-      const { default: MuxClient } = await import("@mux/mux-node");
+      // Dynamic import to avoid pulling @mux/ts into workflow VM bundles.
+      const { default: MuxClient } = await import("@mux/ts");
       return new MuxClient({
         tokenId: options.tokenId,
         tokenSecret: options.tokenSecret,

@@ -32,6 +32,7 @@ describe("detectLeakReason", () => {
   it("identifies tag markers as the leak reason", () => {
     expect(detectLeakReason("<role> You are a video content analyst </role>")).toBe("prompt_tag");
     expect(detectLeakReason("My reasoning <task> is as follows")).toBe("prompt_tag");
+    expect(detectLeakReason("<scene_guidance>Follow the ordered scenes</scene_guidance>")).toBe("prompt_tag");
   });
 
   it("tolerates whitespace inside tag markers", () => {

@@ -2,6 +2,8 @@ import { getMuxClientFromEnv } from "../lib/client-factory.ts";
 import { MuxAiError } from "../lib/mux-ai-error.ts";
 import type { WorkflowCredentialsInput } from "../types.ts";
 
+import type { AssetShots } from "@mux/ts/resources/video/assets";
+
 export interface Shot {
   /** Start time of the shot in seconds from the beginning of the asset. */
   startTime: number;
@@ -29,7 +31,18 @@ export interface CompletedShotsResult {
   shots: Shot[];
 }
 
-export type ShotsResult = PendingShotsResult | ErroredShotsResult | CompletedShotsResult;
+/** Mux declined to run shot detection, e.g. the asset has no video track. */
+export interface SkippedShotsResult {
+  status: "skipped";
+  createdAt: string;
+}
+
+export interface DeletedShotsResult {
+  status: "deleted";
+  createdAt: string;
+}
+
+export type ShotsResult = PendingShotsResult | ErroredShotsResult | CompletedShotsResult | SkippedShotsResult | DeletedShotsResult;
 
 export interface ShotRequestOptions {
   /** Optional workflow credentials */
@@ -45,30 +58,6 @@ export interface WaitForShotsOptions extends ShotRequestOptions {
   createIfMissing?: boolean;
 }
 
-interface PendingShotsApiData {
-  status: "pending";
-  created_at: string;
-}
-
-interface ErroredShotsApiData {
-  status: "errored";
-  created_at: string;
-  error: {
-    type: string;
-    messages: string[];
-  };
-}
-
-interface CompletedShotsApiData {
-  status: "completed";
-  created_at: string;
-  shots_manifest_url: string;
-}
-
-interface ShotsApiResponse {
-  data: PendingShotsApiData | ErroredShotsApiData | CompletedShotsApiData;
-}
-
 interface ShotsManifestResponse {
   shots: Array<{
     start_time: number;
@@ -82,10 +71,6 @@ const DEFAULT_POLL_INTERVAL_MS = 2000;
 const MIN_POLL_INTERVAL_MS = 1000;
 const DEFAULT_MAX_ATTEMPTS = 60;
 const SHOTS_ALREADY_REQUESTED_MESSAGE = "shots generation has already been requested";
-
-function getShotsPath(assetId: string): string {
-  return `/video/v1/assets/${assetId}/shots`;
-}
 
 function mapManifestShots(
   shots: ShotsManifestResponse["shots"],
@@ -143,31 +128,35 @@ async function fetchShotsFromManifest(
   return mapManifestShots(manifest.shots);
 }
 
-async function transformShotsResponse(
-  response: ShotsApiResponse,
-): Promise<ShotsResult> {
-  switch (response.data.status) {
+async function transformShotsResponse(data: AssetShots): Promise<ShotsResult> {
+  switch (data.status) {
     case "pending":
+    case "skipped":
+    case "deleted":
       return {
-        status: "pending",
-        createdAt: response.data.created_at,
+        status: data.status,
+        createdAt: data.created_at,
       };
     case "errored":
       return {
         status: "errored",
-        createdAt: response.data.created_at,
-        error: response.data.error,
+        createdAt: data.created_at,
+        error: {
+          type: data.errors?.type ?? "unknown",
+          messages: data.errors?.messages ?? [],
+        },
       };
     case "completed":
+      if (!data.shots_manifest_url) {
+        throw new Error("Completed shots response is missing shots_manifest_url");
+      }
       return {
         status: "completed",
-        createdAt: response.data.created_at,
-        shots: await fetchShotsFromManifest(response.data.shots_manifest_url),
+        createdAt: data.created_at,
+        shots: await fetchShotsFromManifest(data.shots_manifest_url),
       };
-    default: {
-      const exhaustiveCheck: never = response.data;
-      throw new Error(`Unsupported shots response: ${JSON.stringify(exhaustiveCheck)}`);
-    }
+    default:
+      throw new Error(`Unsupported shots status '${data.status}'`);
   }
 }
 
@@ -177,7 +166,8 @@ function sleep(ms: number): Promise<void> {
 
 function isShotsAlreadyRequestedError(error: unknown): boolean {
   const statusCode = (error as any)?.status ?? (error as any)?.statusCode;
-  const messages: string[] | undefined = (error as any)?.error?.messages;
+  const body = (error as any)?.error;
+  const messages: string[] | undefined = body?.error?.messages ?? body?.messages;
   const lowerCaseMessages = messages?.map(message => message.toLowerCase()) ?? [];
   const errorMessage = error instanceof Error ? error.message.toLowerCase() : "";
 
@@ -201,11 +191,8 @@ export async function requestShotsForAsset(
   const { credentials } = options;
   const muxClient = await getMuxClientFromEnv(credentials);
   const mux = await muxClient.createClient();
-  const response = await mux.post(
-    getShotsPath(assetId),
-    { body: {} },
-  ) as ShotsApiResponse;
-  const result = await transformShotsResponse(response);
+  const data = await mux.video.assets.generateShots(assetId, {});
+  const result = await transformShotsResponse(data);
 
   if (result.status !== "pending") {
     throw new Error(
@@ -231,11 +218,9 @@ export async function getShotsForAsset(
   const { credentials } = options;
   const muxClient = await getMuxClientFromEnv(credentials);
   const mux = await muxClient.createClient();
-  const response = await mux.get(
-    getShotsPath(assetId),
-  ) as ShotsApiResponse;
+  const data = await mux.video.assets.retrieveShots(assetId);
 
-  return await transformShotsResponse(response);
+  return await transformShotsResponse(data);
 }
 
 /**
@@ -281,6 +266,17 @@ export async function waitForShotsForAsset(
 
     if (result.status === "errored") {
       throw new MuxAiError(`Shot generation failed for asset ${assetId}.`);
+    }
+
+    if (result.status === "skipped") {
+      throw new MuxAiError(
+        `Shot generation was skipped for asset ${assetId}; the asset may have no video track.`,
+        { type: "validation_error" },
+      );
+    }
+
+    if (result.status === "deleted") {
+      throw new MuxAiError(`Shots for asset ${assetId} have been deleted.`, { type: "validation_error" });
     }
 
     if (attempt < normalizedMaxAttempts - 1) {

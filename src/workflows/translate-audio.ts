@@ -2,10 +2,16 @@ import { sleep } from "workflow";
 
 import env from "../env.ts";
 import { getApiKeyFromEnv } from "../lib/client-factory.ts";
+import { elevenLabsResponseError } from "../lib/elevenlabs-errors.ts";
 import { getLanguageCodePair, getLanguageName, toISO639_1, toISO639_3 } from "../lib/language-codes.ts";
 import type { LanguageCodePair, SupportedISO639_1 } from "../lib/language-codes.ts";
 import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "../lib/mux-assets.ts";
+import {
+  getLegacyMp4SupportRenditionSizeError,
+  resolveLegacyMp4SupportRendition,
+  usesLegacyMp4Support,
+} from "../lib/mux-static-renditions.ts";
 import {
   buildMuxAiTrackPassthrough,
   planTextTrackReplacement,
@@ -141,8 +147,12 @@ export interface AudioTranslationOptions extends MuxAIOptions {
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
 
-const STATIC_RENDITION_POLL_INTERVAL_MS = 5000;
-const STATIC_RENDITION_MAX_ATTEMPTS = 36; // ~3 minutes
+const STATIC_RENDITION_POLL_INTERVAL_MS = 10_000;
+const STATIC_RENDITION_MAX_ATTEMPTS = 180; // 30 minutes
+
+// Conservative ElevenLabs dubbing source cap. Only checked for `mp4_support`
+// assets, the one case where the dubbing source can be a video MP4.
+const MAX_DUBBING_SOURCE_BYTES = 1_000_000_000;
 
 const DUBBING_POLL_INTERVAL_MS = 10_000;
 const DEFAULT_DUBBING_POLL_TIMEOUT_SECONDS = 7200; // 2 hours; override via options.dubbingPollTimeoutSeconds
@@ -294,6 +304,51 @@ async function waitForAudioStaticRendition({
   );
 }
 
+// Assets on the deprecated `mp4_support` option reject the Static Renditions
+// API, so this only waits for and reads their existing files, never modifying them.
+async function waitForLegacyMp4SupportRendition({
+  assetId,
+  initialAsset,
+  credentials,
+}: {
+  assetId: string;
+  initialAsset: any;
+  credentials?: WorkflowCredentialsInput;
+}): Promise<string> {
+  let rendition = resolveLegacyMp4SupportRendition(initialAsset);
+
+  for (let attempt = 1; rendition?.kind === "preparing" && attempt <= STATIC_RENDITION_MAX_ATTEMPTS; attempt++) {
+    console.warn(
+      `⌛ Waiting for mp4_support static renditions (attempt ${attempt}/${STATIC_RENDITION_MAX_ATTEMPTS})`,
+    );
+    await sleep(STATIC_RENDITION_POLL_INTERVAL_MS);
+    rendition = resolveLegacyMp4SupportRendition(await retrieveAsset(assetId, credentials));
+  }
+
+  if (!rendition) {
+    throw new MuxAiError(
+      "The asset's static rendition settings changed while waiting for them. Please try again.",
+      { type: "processing_error", retryable: true },
+    );
+  }
+  if (rendition.kind === "preparing") {
+    throw new MuxAiError(
+      "Timed out waiting for the static rendition to become ready. Please try again in a moment.",
+      { type: "timeout_error", retryable: true },
+    );
+  }
+  if (rendition.kind === "unusable") {
+    throw new MuxAiError(rendition.reason, { type: "validation_error" });
+  }
+
+  const sizeError = getLegacyMp4SupportRenditionSizeError(rendition, MAX_DUBBING_SOURCE_BYTES);
+  if (sizeError) {
+    throw new MuxAiError(sizeError, { type: "validation_error" });
+  }
+
+  return rendition.name;
+}
+
 async function createElevenLabsDubbingJob({
   sourceUrl,
   assetId,
@@ -335,7 +390,7 @@ async function createElevenLabsDubbingJob({
   });
 
   if (!dubbingResponse.ok) {
-    throw new Error(`ElevenLabs API error: ${dubbingResponse.statusText}`);
+    throw await elevenLabsResponseError("ElevenLabs API error", dubbingResponse);
   }
 
   const dubbingData = await dubbingResponse.json() as any;
@@ -348,7 +403,7 @@ async function checkElevenLabsDubbingStatus({
 }: {
   dubbingId: string;
   credentials?: WorkflowCredentialsInput;
-}): Promise<{ status: string; targetLanguages: string[] }> {
+}): Promise<{ status: string; targetLanguages: string[]; error?: string }> {
   "use step";
   const elevenLabsApiKey = await getApiKeyFromEnv("elevenlabs", credentials);
 
@@ -359,13 +414,14 @@ async function checkElevenLabsDubbingStatus({
   });
 
   if (!statusResponse.ok) {
-    throw new Error(`Status check failed: ${statusResponse.statusText}`);
+    throw await elevenLabsResponseError("Status check failed", statusResponse);
   }
 
   const statusData = await statusResponse.json() as any;
   return {
     status: statusData.status,
     targetLanguages: statusData.target_languages ?? [],
+    error: typeof statusData.error === "string" && statusData.error ? statusData.error : undefined,
   };
 }
 
@@ -408,7 +464,7 @@ async function downloadAndUploadDubbedAudio({
   });
 
   if (!audioResponse.ok) {
-    throw new Error(`Failed to fetch dubbed audio: ${audioResponse.statusText}`);
+    throw await elevenLabsResponseError("Failed to fetch dubbed audio", audioResponse);
   }
 
   const dubbedAudio = new Uint8Array(await audioResponse.arrayBuffer());
@@ -486,7 +542,7 @@ async function downloadAndUploadDubTranscript({
   });
 
   if (!transcriptResponse.ok) {
-    throw new Error(`Failed to fetch dub transcript: ${transcriptResponse.statusText}`);
+    throw await elevenLabsResponseError("Failed to fetch dub transcript", transcriptResponse);
   }
 
   // The transcripts endpoint returns a JSON envelope (DubbingTranscriptsResponseModel)
@@ -601,7 +657,8 @@ export async function translateAudio(
   // including poll timeouts.
   let currentAsset = initialAsset;
   let createdStaticRenditionId: string | undefined;
-  if (!hasReadyAudioStaticRendition(currentAsset)) {
+  const isLegacyMp4SupportAsset = usesLegacyMp4Support(initialAsset);
+  if (!isLegacyMp4SupportAsset && !hasReadyAudioStaticRendition(currentAsset)) {
     console.warn("❌ No ready audio static rendition found. Requesting one now...");
     const renditionStatus = currentAsset.static_renditions?.status ?? "not_requested";
     if (renditionStatus === "not_requested" || renditionStatus === "errored") {
@@ -622,25 +679,34 @@ export async function translateAudio(
   let captionsTrackId: string | undefined;
 
   try {
-    if (!hasReadyAudioStaticRendition(currentAsset)) {
-      currentAsset = await waitForAudioStaticRendition({
+    let sourceRenditionName = "audio.m4a";
+    if (isLegacyMp4SupportAsset) {
+      sourceRenditionName = await waitForLegacyMp4SupportRendition({
         assetId,
         initialAsset: currentAsset,
         credentials,
       });
-    }
+    } else {
+      if (!hasReadyAudioStaticRendition(currentAsset)) {
+        currentAsset = await waitForAudioStaticRendition({
+          assetId,
+          initialAsset: currentAsset,
+          credentials,
+        });
+      }
 
-    const audioRendition = getReadyAudioStaticRendition(currentAsset);
+      const audioRendition = getReadyAudioStaticRendition(currentAsset);
 
-    if (!audioRendition) {
-      throw new MuxAiError(
-        "Unable to obtain an audio-only static rendition for this asset. Please verify static renditions are enabled in Mux.",
-        { type: "validation_error" },
-      );
+      if (!audioRendition) {
+        throw new MuxAiError(
+          "Unable to obtain an audio-only static rendition for this asset. Please verify static renditions are enabled in Mux.",
+          { type: "validation_error" },
+        );
+      }
     }
 
     // Build audio URL (signed if needed)
-    let audioUrl = `${getMuxStreamOrigin()}/${playbackId}/audio.m4a`;
+    let audioUrl = `${await getMuxStreamOrigin(credentials)}/${playbackId}/${sourceRenditionName}`;
     if (policy === "signed") {
       audioUrl = await signUrl(audioUrl, playbackId, "video", undefined, credentials);
     }
@@ -679,6 +745,7 @@ export async function translateAudio(
     let dubbingStatus = "dubbing";
     let pollAttempts = 0;
     let targetLanguages: string[] = [];
+    let dubbingError: string | undefined;
 
     while (dubbingStatus !== "dubbed" && pollAttempts < maxPollAttempts) {
       await sleep(DUBBING_POLL_INTERVAL_MS);
@@ -691,11 +758,14 @@ export async function translateAudio(
         });
         dubbingStatus = statusResult.status;
         targetLanguages = statusResult.targetLanguages;
+        dubbingError = statusResult.error;
       } catch (error) {
         wrapError(error, "Failed to check dubbing status");
       }
 
       if (dubbingStatus === "failed") {
+        // The provider's reason stays in logs; the thrown message is customer-facing.
+        console.warn(`❌ ElevenLabs dubbing job ${dubbingId} failed: ${dubbingError ?? "no error reported"}`);
         throw new MuxAiError("ElevenLabs reported that the dubbing job failed.", { type: "processing_error" });
       }
     }

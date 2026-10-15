@@ -14,6 +14,7 @@ vi.mock("../../src/lib/mux-assets", () => ({
 
 vi.mock("../../src/lib/workflow-credentials", () => ({
   resolveMuxSigningContext: vi.fn(),
+  resolveWorkflowCredentials: async () => ({}),
 }));
 
 vi.mock("../../src/primitives/thumbnails", () => ({

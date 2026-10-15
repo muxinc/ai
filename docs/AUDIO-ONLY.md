@@ -41,6 +41,22 @@ const result = await generateChapters("your-audio-only-asset-id", {
 });
 ```
 
+### Text Generation (`generateText`)
+
+Writes posts and articles from the transcript alone. Audio-only assets skip the storyboard and reject `useShots`.
+
+```typescript
+import { generateText } from "@mux/ai/workflows";
+
+const result = await generateText("your-audio-only-asset-id", {
+  provider: "openai",
+  artifacts: [
+    { key: "linkedin_post", channel: "linkedin" },
+    { key: "newsletter", maxLength: { unit: "words", value: 600 }, format: "markdown" },
+  ],
+});
+```
+
 ### Embeddings (`generateEmbeddings`)
 
 Embeddings are computed from transcript text. Audio-only assets require a transcript (single-track fallback is supported).
@@ -110,7 +126,7 @@ const result = await translateAudio("your-audio-only-asset-id", "es", {
 
 - A ready text track (captions or transcript) is required for summarization, moderation, chapters, embeddings, and caption translation.
 - For caption translation, the source language code must match an existing track.
-- For dubbing, the asset must have an `audio.m4a` static rendition and S3-compatible storage configured.
+- For dubbing, the asset must have an `audio.m4a` static rendition (requested automatically if missing, or read from the existing files of an asset using the deprecated `mp4_support` option) and S3-compatible storage configured.
 
 ## Tips and Examples
 

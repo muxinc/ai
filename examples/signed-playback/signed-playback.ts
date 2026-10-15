@@ -8,7 +8,7 @@
  * - Transcript URL signing
  */
 
-import Mux from "@mux/mux-node";
+import Mux from "@mux/ts";
 import { Command } from "commander";
 
 import { buildTranscriptUrl, findCaptionTrack, getStoryboardUrl, getThumbnailUrls } from "@mux/ai/primitives";

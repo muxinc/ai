@@ -1,6 +1,6 @@
 import type { Encrypted } from "./lib/workflow-crypto.ts";
 
-import type Mux from "@mux/mux-node";
+import type Mux from "@mux/ts";
 
 /** Input shape for uploading objects through a storage adapter. */
 export interface StoragePutObjectInput {
@@ -95,6 +95,8 @@ export interface WorkflowCredentials {
   muxSigningKey?: string;
   /** Optional direct Mux private key for signed playback URL generation. */
   muxPrivateKey?: string;
+  /** Optional Mux custom domain (e.g. "media.example.com") used for image.* and stream.* playback URLs. */
+  muxCustomDomain?: string;
   /** Optional direct OpenAI API key for per-request credential injection. */
   openaiApiKey?: string;
   /** Optional direct Baseten API key for per-request credential injection. */
@@ -130,7 +132,7 @@ export type ToneType = "neutral" | "playful" | "professional";
 /** Common transport for image-based workflows. */
 export type ImageSubmissionMode = "url" | "base64";
 
-/** Result of calling mux-node's asset retrieval helper. */
+/** Result of calling the Mux SDK asset retrieval helper. */
 export type MuxAsset = Awaited<ReturnType<Mux["video"]["assets"]["retrieve"]>>;
 /** Single ready track extracted from a Mux asset. */
 export type AssetTextTrack = NonNullable<MuxAsset["tracks"]>[number];

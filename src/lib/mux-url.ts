@@ -1,9 +1,15 @@
 import env from "../env.ts";
+import type { WorkflowCredentialsInput } from "../types.ts";
 
-const DEFAULT_MUX_IMAGE_ORIGIN = "https://image.mux.com";
-const DEFAULT_MUX_STREAM_ORIGIN = "https://stream.mux.com";
+import { resolveWorkflowCredentials } from "./workflow-credentials.ts";
 
-function normalizeOrigin(value: string, envVarName: "MUX_IMAGE_URL_OVERRIDE" | "MUX_STREAM_URL_OVERRIDE"): string {
+export type MuxPlaybackService = "image" | "stream";
+
+const DEFAULT_MUX_DOMAIN = "mux.com";
+
+type LegacyOverrideEnvVarName = "MUX_IMAGE_URL_OVERRIDE" | "MUX_STREAM_URL_OVERRIDE";
+
+function normalizeOrigin(value: string, envVarName: LegacyOverrideEnvVarName): string {
   const trimmed = value.trim();
   const candidate = trimmed.includes("://") ? trimmed : `https://${trimmed}`;
 
@@ -37,33 +43,101 @@ function normalizeOrigin(value: string, envVarName: "MUX_IMAGE_URL_OVERRIDE" | "
   return parsed.origin;
 }
 
-export function getMuxImageOrigin(): string {
-  const override = env.MUX_IMAGE_URL_OVERRIDE;
-  if (!override) {
-    return DEFAULT_MUX_IMAGE_ORIGIN;
+function buildPlaybackOrigin(service: MuxPlaybackService, customDomain: string, source: string): string {
+  const invalidDomainError = new Error(
+    `Invalid ${source}. Provide a bare hostname (e.g. "media.example.com") ` +
+    `with no scheme, port, credentials, query params, hash fragments, or path.`,
+  );
+
+  const trimmed = customDomain.trim();
+  if (!trimmed) {
+    throw invalidDomainError;
   }
 
-  return normalizeOrigin(override, "MUX_IMAGE_URL_OVERRIDE");
-}
-
-export function getMuxStreamOrigin(): string {
-  const override = env.MUX_STREAM_URL_OVERRIDE;
-  if (!override) {
-    return DEFAULT_MUX_STREAM_ORIGIN;
+  let parsed: URL;
+  try {
+    parsed = new URL(`https://${service}.${trimmed}`);
+  } catch {
+    throw invalidDomainError;
   }
 
-  return normalizeOrigin(override, "MUX_STREAM_URL_OVERRIDE");
+  if (
+    parsed.port ||
+    parsed.username ||
+    parsed.password ||
+    parsed.search ||
+    parsed.hash ||
+    parsed.pathname !== "/"
+  ) {
+    throw invalidDomainError;
+  }
+
+  return parsed.origin;
 }
 
-export function getMuxImageBaseUrl(playbackId: string, assetType: "storyboard" | "thumbnail"): string {
-  const origin = getMuxImageOrigin();
+/**
+ * Builds the playback origin for a Mux domain, matching Mux Player's `customDomain`
+ * expansion (e.g. "media.example.com" becomes "https://image.media.example.com").
+ */
+export function getMuxPlaybackOrigin(
+  service: MuxPlaybackService,
+  customDomain: string = DEFAULT_MUX_DOMAIN,
+): string {
+  return buildPlaybackOrigin(service, customDomain, "custom domain");
+}
+
+async function resolveMuxPlaybackOrigin(
+  service: MuxPlaybackService,
+  credentials?: WorkflowCredentialsInput,
+): Promise<string> {
+  "use step";
+  const { muxCustomDomain } = await resolveWorkflowCredentials(credentials);
+  if (muxCustomDomain) {
+    return buildPlaybackOrigin(service, muxCustomDomain, "muxCustomDomain");
+  }
+
+  const legacyOverrideEnvVarName: LegacyOverrideEnvVarName = service === "image" ?
+    "MUX_IMAGE_URL_OVERRIDE" :
+    "MUX_STREAM_URL_OVERRIDE";
+  const legacyOverride = env[legacyOverrideEnvVarName];
+  if (legacyOverride) {
+    return normalizeOrigin(legacyOverride, legacyOverrideEnvVarName);
+  }
+
+  if (env.MUX_CUSTOM_DOMAIN) {
+    return buildPlaybackOrigin(service, env.MUX_CUSTOM_DOMAIN, "MUX_CUSTOM_DOMAIN");
+  }
+
+  return buildPlaybackOrigin(service, DEFAULT_MUX_DOMAIN, "custom domain");
+}
+
+export async function getMuxImageOrigin(credentials?: WorkflowCredentialsInput): Promise<string> {
+  return resolveMuxPlaybackOrigin("image", credentials);
+}
+
+export async function getMuxStreamOrigin(credentials?: WorkflowCredentialsInput): Promise<string> {
+  return resolveMuxPlaybackOrigin("stream", credentials);
+}
+
+export async function getMuxImageBaseUrl(
+  playbackId: string,
+  assetType: "storyboard" | "thumbnail",
+  credentials?: WorkflowCredentialsInput,
+): Promise<string> {
+  const origin = await getMuxImageOrigin(credentials);
   return `${origin}/${playbackId}/${assetType}.png`;
 }
 
-export function getMuxStoryboardBaseUrl(playbackId: string): string {
-  return getMuxImageBaseUrl(playbackId, "storyboard");
+export async function getMuxStoryboardBaseUrl(
+  playbackId: string,
+  credentials?: WorkflowCredentialsInput,
+): Promise<string> {
+  return getMuxImageBaseUrl(playbackId, "storyboard", credentials);
 }
 
-export function getMuxThumbnailBaseUrl(playbackId: string): string {
-  return getMuxImageBaseUrl(playbackId, "thumbnail");
+export async function getMuxThumbnailBaseUrl(
+  playbackId: string,
+  credentials?: WorkflowCredentialsInput,
+): Promise<string> {
+  return getMuxImageBaseUrl(playbackId, "thumbnail", credentials);
 }

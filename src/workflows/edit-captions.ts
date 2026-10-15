@@ -16,11 +16,11 @@ import {
   createTextTrackOnMux,
   fetchVttFromMux,
   normalizeTrackName,
-  planTextTrackReplacement,
-  replaceAndCreateTextTrack,
+  planSourceTrackReplacement,
+  replaceSourceTrack,
   validateTrackPassthrough,
 } from "../lib/mux-tracks.ts";
-import type { ReplaceExistingTracksPolicy, TextTrackSummary, TextTrackTarget } from "../lib/mux-tracks.ts";
+import type { SourceTrackReplacementPolicy, TextTrackSummary, TextTrackTarget } from "../lib/mux-tracks.ts";
 import { createSafetyReporter, detectUnexpectedKeysFromRawText } from "../lib/output-safety.ts";
 import type { SafetyReport } from "../lib/output-safety.ts";
 import { renderSection } from "../lib/prompt-builder.ts";
@@ -95,12 +95,12 @@ export interface EditCaptionsOptions<P extends SupportedProvider = SupportedProv
   /** Replacements applied only to bracketed speaker labels at the start of cues. */
   speakerReplacements?: SpeakerReplacement[];
   /**
-   * What to do with the source track and any other text track in the same
-   * language or with the same name as the edited track. Defaults to
-   * `"replace_all"`: the edited track takes the source track's place.
-   * `"fail"` keeps the source and requires `trackName`.
+   * What to do with the source track. Defaults to `"replace"`: the source is
+   * deleted and the edited track takes its place; no other track is touched.
+   * `"fail"` deletes nothing and adds the edited track alongside the source,
+   * so it requires a `trackName` different from the source's.
    */
-  replaceExistingTracks?: ReplaceExistingTracksPolicy;
+  replaceExistingTracks?: SourceTrackReplacementPolicy;
   /** Name for the edited Mux text track. Defaults to the source track's name. */
   trackName?: string;
   /**
@@ -161,7 +161,7 @@ export interface EditCaptionsResult {
     replacements: ReplacementRecord[];
   };
   uploadedTrackId?: string;
-  /** Existing text tracks deleted before the edited track was created. Includes the source track when it was replaced. */
+  /** Tracks deleted before the edited track was created: the source track, when it was replaced. */
   replacedTracks?: TextTrackSummary[];
   presignedUrl?: string;
   usage?: TokenUsage;
@@ -690,7 +690,13 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
       { type: "validation_error" },
     );
   }
-  const replaceExistingTracks: ReplaceExistingTracksPolicy = replaceExistingTracksOption ?? "replace_all";
+  if (replaceExistingTracksOption !== undefined && replaceExistingTracksOption !== "replace" && replaceExistingTracksOption !== "fail") {
+    throw new MuxAiError(
+      `replaceExistingTracks must be "replace" or "fail" for editCaptions (received "${String(replaceExistingTracksOption)}").`,
+      { type: "validation_error" },
+    );
+  }
+  const replaceExistingTracks: SourceTrackReplacementPolicy = replaceExistingTracksOption ?? "replace";
   if (!legacyTrackNaming && replaceExistingTracks === "fail" && !providedTrackName) {
     throw new MuxAiError(
       "trackName is required when replaceExistingTracks is \"fail\": the edited track cannot reuse the source track's name while the source is kept.",
@@ -763,19 +769,16 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
     languageCode: sourceLanguageCode,
     name: providedTrackName ?? sourceName,
   };
-  // Under `fail` the source track stays and is not a conflict; under the
-  // replace policies it is in the same-language set and gets deleted.
-  const keepTrackIds = replaceExistingTracks === "fail" ? [trackId] : [];
   if (replaceExistingTracks === "fail" && normalizeTrackName(outputTrack.name) === normalizeTrackName(sourceName)) {
     throw new MuxAiError(
-      `trackName "${outputTrack.name}" matches the source track's name. Mux track names must be unique; choose a different trackName or use replaceExistingTracks: "replace_all" to replace the source.`,
+      `trackName "${outputTrack.name}" matches the source track's name. Mux track names must be unique; choose a different trackName or use replaceExistingTracks: "replace" to replace the source.`,
       { type: "validation_error" },
     );
   }
   // Check against the asset we already have so a blocked policy rejects before
   // any tokens are spent. The create step re-plans against a fresh asset.
   if (uploadToMux && !legacyTrackNaming) {
-    const plan = planTextTrackReplacement(assetData, outputTrack, replaceExistingTracks, { keepTrackIds });
+    const plan = planSourceTrackReplacement(assetData, trackId, outputTrack, replaceExistingTracks);
     if (plan.kind === "blocked") {
       throw new MuxAiError(plan.reason, { type: "validation_error" });
     }
@@ -932,26 +935,25 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
         }
       }
     } else if (uploadToMux) {
-      let outcome: Awaited<ReturnType<typeof replaceAndCreateTextTrack>>;
+      let outcome: Awaited<ReturnType<typeof replaceSourceTrack>>;
       try {
-        outcome = await replaceAndCreateTextTrack({
+        outcome = await replaceSourceTrack({
           assetId,
+          sourceTrackId: trackId,
           target: outputTrack,
           policy: replaceExistingTracks,
           presignedUrl,
           closedCaptions: sourceTrack.closed_captions,
           passthrough: trackPassthrough,
-          keepTrackIds,
           credentials,
         });
       } catch (error) {
         wrapError(error, "Failed to add edited track to Mux asset");
       }
       if (outcome.kind !== "created") {
-        // In-place replacement deletes the source before creating the edited
-        // track. If the create then fails, or a conflict appears on the retry
-        // after deletes, put the source back from the VTT we fetched so the
-        // asset is not left without captions.
+        // `replace` deletes the source before creating the edited track. If the
+        // create then fails, or a name collision appears on the retry, put the
+        // source back from the VTT we fetched so the asset keeps its captions.
         const sourceWasDeleted = outcome.deleted.some(track => track.id === trackId);
         let restoreNote = "";
         if (sourceWasDeleted) {

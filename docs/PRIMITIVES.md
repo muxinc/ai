@@ -31,7 +31,7 @@ import {
 Fetches and optionally cleans transcript text from a Mux asset.
 
 ```typescript
-import Mux from "@mux/mux-node";
+import Mux from "@mux/ts";
 
 import { fetchTranscriptForAsset } from "@mux/ai/primitives";
 
@@ -208,8 +208,13 @@ interface Shot {
 
 type ShotsResult =
   | {
-      status: "pending";
+      status: "pending" | "skipped" | "deleted";
       createdAt: string;
+    }
+  | {
+      status: "errored";
+      createdAt: string;
+      error: { type: string; messages: string[] };
     }
   | {
       status: "completed";
@@ -217,6 +222,8 @@ type ShotsResult =
       shots: Shot[];
     };
 ```
+
+`skipped` means Mux declined to run shot detection, typically because the asset has no video track.
 
 ### `waitForShotsForAsset(assetId, options?)`
 
@@ -232,6 +239,8 @@ const result = await waitForShotsForAsset("asset-id", {
 
 console.log(result.shots);
 ```
+
+Resolves only with a `completed` result. Throws a `MuxAiError` when shots end in `errored`, `skipped`, or `deleted`, or when polling times out.
 
 **Options:**
 
@@ -359,7 +368,7 @@ Combine primitives to create custom AI workflows:
 
 ```typescript
 import { openai } from "@ai-sdk/openai";
-import Mux from "@mux/mux-node";
+import Mux from "@mux/ts";
 import { generateText } from "ai";
 
 import {
@@ -441,7 +450,7 @@ Drop down to primitives when you need complete control over the AI prompt and lo
 
 ```typescript
 import { openai } from "@ai-sdk/openai";
-import Mux from "@mux/mux-node";
+import Mux from "@mux/ts";
 import { generateText } from "ai";
 
 import { fetchTranscriptForAsset, getStoryboardUrl } from "@mux/ai/primitives";
@@ -522,7 +531,7 @@ Build your own workflow functions following the library patterns:
 
 ```typescript
 import { openai } from "@ai-sdk/openai";
-import Mux from "@mux/mux-node";
+import Mux from "@mux/ts";
 import { generateText } from "ai";
 
 import { fetchTranscriptForAsset } from "@mux/ai/primitives";

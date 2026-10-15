@@ -10,6 +10,11 @@ Easy to use, purpose-driven, cost effective, configurable **_workflow functions_
 
 Turn your Mux video and audio assets into structured, actionable data — summaries, chapters, moderation scores, translations, embeddings, and more — with a single function call. `@mux/ai` handles fetching media data from Mux, formatting it for AI providers, and returning typed results so you can focus on building your product instead of wrangling prompts and media pipelines.
 
+> [!TIP]
+> **🤖 Beep boop! And now a word from our sponsors:** [Mux Robots](https://www.mux.com/robots) gives you hosted versions of these workflows behind a single API request, with no pipeline to build or run and no need to BYO LLM. It also goes further than this SDK, with premium caption generation, key moment detection, thumbnail ranking, scene segmentation and more. The first 100,000 units each month are free.
+>
+> `@mux/ai` is the open-source part. We develop and maintain it in public, and it's the right choice when you want full control over prompts, providers and models, or need to build your own workflows from the primitives.
+
 ## Quick Start
 
 ### Install
@@ -74,6 +79,7 @@ Workflows are high-level functions that handle complete media AI tasks end-to-en
 | [`askQuestions`](./docs/WORKFLOWS.md#ask-questions) | Answer yes/no questions about asset content | OpenAI, Anthropic, Google, Baseten, OpenAI-compatible | Yes |
 | [`generateChapters`](./docs/WORKFLOWS.md#chapter-generation) | Create chapter markers from transcripts | OpenAI, Anthropic, Google, Baseten, OpenAI-compatible | Yes |
 | [`generateEmbeddings`](./docs/WORKFLOWS.md#embeddings) | Generate vector embeddings for semantic search | OpenAI, Google, Baseten, OpenAI-compatible | Yes |
+| [`generateText`](./docs/WORKFLOWS.md#text-generation) | Write source-grounded posts and articles from a video or audio asset | OpenAI, Anthropic, Google, Baseten, OpenAI-compatible | Yes |
 | [`translateCaptions`](./docs/WORKFLOWS.md#caption-translation) | Translate captions into other languages | OpenAI, Anthropic, Google, Baseten, OpenAI-compatible | Yes |
 | [`editCaptions`](./docs/WORKFLOWS.md#caption-editing) | Edit captions: censor profanity and/or apply static replacements | OpenAI, Anthropic, Google, Baseten, OpenAI-compatible | Yes |
 | [`translateAudio`](./docs/WORKFLOWS.md#audio-dubbing) | Create AI-dubbed audio tracks | ElevenLabs | Yes |

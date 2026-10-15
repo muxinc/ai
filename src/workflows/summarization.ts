@@ -1,5 +1,4 @@
 import { generateText, Output } from "ai";
-import dedent from "dedent";
 import { z } from "zod";
 
 import {
@@ -21,6 +20,7 @@ import { createSafetyReporter, detectUnexpectedKeysFromRawText } from "../lib/ou
 import type { SafetyReport } from "../lib/output-safety.ts";
 import type {
   PromptOverrides,
+  PromptSection,
 } from "../lib/prompt-builder.ts";
 import {
   createLanguageSection,
@@ -54,6 +54,8 @@ import {
 } from "../lib/workflow-scope.ts";
 import { getStoryboardUrl } from "../primitives/storyboards.ts";
 import { fetchTranscriptForAsset, getReadyTextTracks, getReliableLanguageCode } from "../primitives/transcripts.ts";
+import type { SceneContextItemV1 } from "../prompts/scene-context.ts";
+import { createSummarizationGuidance, DEFAULT_DESCRIPTION_LENGTH, DEFAULT_SUMMARY_KEYWORD_LIMIT } from "../prompts/summarization.ts";
 import type {
   ImageSubmissionMode,
   ScopedMuxAIOptions,
@@ -66,9 +68,7 @@ import type {
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const DEFAULT_SUMMARY_KEYWORD_LIMIT = 10;
-export const DEFAULT_TITLE_LENGTH = 10;
-export const DEFAULT_DESCRIPTION_LENGTH = 50;
+export { DEFAULT_DESCRIPTION_LENGTH, DEFAULT_SUMMARY_KEYWORD_LIMIT, DEFAULT_TITLE_LENGTH } from "../prompts/summarization.ts";
 
 /**
  * Length caps (`.max(...)`) on each free-text field are a mechanical
@@ -200,6 +200,11 @@ export interface SummarizationOptions extends ScopedMuxAIOptions {
   /** Fine-tune storyboard downloads when `imageSubmissionMode` === 'base64'. */
   imageDownloadOptions?: ImageDownloadOptions;
   /**
+   * Ordered, normalized scenes that augment the storyboard and any transcript
+   * with whole-asset progression. Scene context is treated as untrusted evidence.
+   */
+  sceneContext?: readonly SceneContextItemV1[];
+  /**
    * Override specific sections of the user prompt.
    * Useful for customizing the AI's output for specific use cases (SEO, social media, etc.)
    */
@@ -236,199 +241,125 @@ interface PromptConstraints {
   tagCount?: number;
 }
 
-const DESCRIPTION_LENGTH_THRESHOLD_SMALL = 25;
-const DESCRIPTION_LENGTH_THRESHOLD_LARGE = 100;
-
-function buildDescriptionGuidance(wordCount: number, contentType: "video" | "audio"): string {
-  if (wordCount < DESCRIPTION_LENGTH_THRESHOLD_SMALL) {
-    if (contentType === "video") {
-      return dedent`A brief summary of the video in no more than ${wordCount} words. Shorter is fine.
-        Focus on the single most important subject or action.
-        Write in present tense.`;
-    }
-    return dedent`A brief summary of the audio content in no more than ${wordCount} words. Shorter is fine.
-      Focus on the single most important topic or theme.
-      Write in present tense.`;
-  }
-
-  if (wordCount > DESCRIPTION_LENGTH_THRESHOLD_LARGE) {
-    if (contentType === "video") {
-      return dedent`A detailed summary that describes what happens across the video.
-        Never exceed ${wordCount} words, but shorter is perfectly fine. You may use multiple sentences.
-        Be thorough: cover subjects, actions, setting, progression, and any notable details visible across frames.
-        Write in present tense. Be specific about observable details rather than making assumptions.
-        If the transcript provides dialogue or narration, incorporate key points but prioritize visual content.`;
-    }
-    return dedent`A detailed summary that describes the audio content.
-      Never exceed ${wordCount} words, but shorter is perfectly fine. You may use multiple sentences.
-      Be thorough: cover topics, speakers, themes, progression, and any notable insights.
-      Write in present tense. Be specific about what is discussed or presented rather than making assumptions.
-      Focus on the spoken content and any key insights, dialogue, or narrative elements.`;
-  }
-
-  if (contentType === "video") {
-    return dedent`A summary that describes what happens across the video.
-      Never exceed ${wordCount} words, but shorter is perfectly fine. You may use multiple sentences.
-      Cover the main subjects, actions, setting, and any notable progression visible across frames.
-      Write in present tense. Be specific about observable details rather than making assumptions.
-      If the transcript provides dialogue or narration, incorporate key points but prioritize visual content.`;
-  }
-  return dedent`A summary that describes the audio content.
-    Never exceed ${wordCount} words, but shorter is perfectly fine. You may use multiple sentences.
-    Cover the main topics, speakers, themes, and any notable progression in the discussion or narration.
-    Write in present tense. Be specific about what is discussed or presented rather than making assumptions.
-    Focus on the spoken content and any key insights, dialogue, or narrative elements.`;
+interface SummarizationEvidence {
+  hasSceneContext?: boolean;
 }
 
-function createSummarizationBuilder({ titleLength, descriptionLength, tagCount }: PromptConstraints = {}) {
-  const titleLimit = titleLength ?? DEFAULT_TITLE_LENGTH;
-  const keywordLimit = tagCount ?? DEFAULT_SUMMARY_KEYWORD_LIMIT;
-
+function createSummarizationBuilder(
+  constraints: PromptConstraints = {},
+  { hasSceneContext = false }: SummarizationEvidence = {},
+) {
   return createPromptBuilder<SummarizationPromptSections>({
     template: {
       task: {
         tag: "task",
-        content: "Analyze the storyboard frames and generate metadata that captures the essence of the video content.",
+        content: hasSceneContext ?
+          "Analyze the storyboard frames and ordered scene context together, then generate metadata that captures the full progression of the video content." :
+          "Analyze the storyboard frames and generate metadata that captures the essence of the video content.",
       },
-      title: {
-        tag: "title_requirements",
-        content: dedent`
-          A concise, label-style title — not a sentence or description.
-          Never exceed ${titleLimit} words, but shorter is better.
-          Think of how a video card title, playlist entry, or file name would read — e.g. "Predator: Badlands Trailer" or "Chef Prepares Holiday Feast".
-          Start with the primary subject or topic. Never begin with "A video of" or similar phrasing.
-          Use specific nouns over lengthy descriptions. Avoid clauses, conjunctions, or narrative structure.`,
-      },
-      description: {
-        tag: "description_requirements",
-        content: buildDescriptionGuidance(descriptionLength ?? DEFAULT_DESCRIPTION_LENGTH, "video"),
-      },
-      keywords: {
-        tag: "keywords_requirements",
-        content: dedent`
-          Specific, searchable terms (up to ${keywordLimit}) that capture:
-          - Primary subjects (people, animals, objects)
-          - Actions and activities being performed
-          - Setting and environment
-          - Notable objects or tools
-          - Style or genre (if applicable)
-          Prefer concrete nouns and action verbs over abstract concepts.
-          Use lowercase. Avoid redundant or overly generic terms like "video" or "content".`,
-      },
-      qualityGuidelines: {
-        tag: "quality_guidelines",
-        content: dedent`
-          - Examine all frames to understand the full context and progression
-          - Be precise: "golden retriever" is better than "dog" when identifiable
-          - Capture the narrative: what begins, develops, and concludes
-          - Balance brevity with informativeness`,
-      },
+      ...createSummarizationGuidance({ ...constraints, hasSceneContext }),
     },
     sectionOrder: ["task", "title", "description", "keywords", "qualityGuidelines"],
   });
 }
 
-function createAudioOnlyBuilder({ titleLength, descriptionLength, tagCount }: PromptConstraints = {}) {
-  const titleLimit = titleLength ?? DEFAULT_TITLE_LENGTH;
-  const keywordLimit = tagCount ?? DEFAULT_SUMMARY_KEYWORD_LIMIT;
-
+function createAudioOnlyBuilder(constraints: PromptConstraints = {}) {
   return createPromptBuilder<SummarizationPromptSections>({
     template: {
       task: {
         tag: "task",
         content: "Analyze the transcript and generate metadata that captures the essence of the audio content.",
       },
-      title: {
-        tag: "title_requirements",
-        content: dedent`
-          A concise, label-style title — not a sentence or description.
-          Never exceed ${titleLimit} words, but shorter is better.
-          Think of how a podcast episode title or playlist entry would read — e.g. "Weekly News Roundup" or "Interview with Dr. Smith".
-          Start with the primary subject or topic. Never begin with "An audio of" or similar phrasing.
-          Use specific nouns over lengthy descriptions. Avoid clauses, conjunctions, or narrative structure.`,
-      },
-      description: {
-        tag: "description_requirements",
-        content: buildDescriptionGuidance(descriptionLength ?? DEFAULT_DESCRIPTION_LENGTH, "audio"),
-      },
-      keywords: {
-        tag: "keywords_requirements",
-        content: dedent`
-          Specific, searchable terms (up to ${keywordLimit}) that capture:
-          - Primary topics and themes
-          - Speakers or presenters (if named)
-          - Key concepts and terminology
-          - Content type (interview, lecture, music, etc.)
-          - Genre or style (if applicable)
-          Prefer concrete nouns and relevant terms over abstract concepts.
-          Use lowercase. Avoid redundant or overly generic terms like "audio" or "content".`,
-      },
-      qualityGuidelines: {
-        tag: "quality_guidelines",
-        content: dedent`
-          - Analyze the full transcript to understand context and themes
-          - Be precise: use specific terminology when mentioned
-          - Capture the narrative: what is introduced, discussed, and concluded
-          - Balance brevity with informativeness`,
-      },
+      ...createSummarizationGuidance({ ...constraints, mediaType: "audio" }),
     },
     sectionOrder: ["task", "title", "description", "keywords", "qualityGuidelines"],
   });
 }
 
-const SYSTEM_PROMPT = promptDedent`
-  <role>
-    You are a video content analyst specializing in storyboard interpretation and multimodal analysis.
-  </role>
+function createVideoSystemPrompt(hasSceneContext: boolean): string {
+  let sceneContext = "";
+  let sceneGuidance = "";
+  if (hasSceneContext) {
+    sceneContext = promptDedent`
+      Ordered scene context is also provided as structured evidence of the video's progression.
+      Entries use stable, zero-based scene_index values and absolute millisecond timestamps.
+      Read scenes in scene_index order to understand what begins, develops, and concludes.`;
+    sceneGuidance = promptDedent`
+      <scene_guidance>
+        - Use scene titles, narratives, and concepts to understand temporal progression
+        - Use storyboard frames as direct visual evidence for subjects, actions, settings, and details
+        - Preserve consistent terminology from the scene context across the title, description, and keywords
+        - Treat optional scene fields as evidence only when present; do not infer omitted details
+        - Consider all provided evidence together; if derived scene context conflicts with storyboard visuals, trust the visuals
+      </scene_guidance>`;
+  }
+  const transcriptEvidence = hasSceneContext ?
+    "storyboard frames and ordered scenes" :
+    "visual frames";
+  const descriptionPriority = hasSceneContext ?
+    "Use the scene context for temporal structure and the storyboard for direct visual details, enriching both with transcript insights" :
+    "Prioritize visual content for the description, but enrich it with transcript insights";
+  const groundingConstraint = hasSceneContext ?
+    "Use all provided evidence together. Ground each claim in the storyboard, scene context, or transcript" :
+    "Only describe what is clearly observable in the frames or explicitly stated in the transcript";
 
-  <context>
-    You receive storyboard images containing multiple sequential frames extracted from a video.
-    ${STORYBOARD_FRAME_INSTRUCTIONS}
-  </context>
+  return promptDedent`
+    <role>
+      You are a video content analyst specializing in storyboard interpretation and multimodal analysis.
+    </role>
 
-  <transcript_guidance>
-    When a transcript is provided alongside the storyboard:
-    - Use it to understand spoken content, dialogue, narration, and audio context
-    - Correlate transcript content with visual frames to build a complete picture
-    - Extract key terminology, names, and specific language used by speakers
-    - Let the transcript inform keyword selection, especially for topics not visually obvious
-    - Prioritize visual content for the description, but enrich it with transcript insights
-    - If transcript and visuals conflict, trust the visual evidence
-  </transcript_guidance>
+    <context>
+      You receive storyboard images containing multiple sequential frames extracted from a video.
+      ${STORYBOARD_FRAME_INSTRUCTIONS}
+      ${sceneContext}
+    </context>
 
-  <capabilities>
-    - Extract meaning from visual sequences
-    - Identify subjects, actions, settings, and narrative arcs
-    - Generate accurate, searchable metadata
-    - Synthesize visual and transcript information when provided
-  </capabilities>
+    ${sceneGuidance}
 
-  <security>
-    ${NON_DISCLOSURE_CONSTRAINT}
+    <transcript_guidance>
+      When a transcript is provided alongside the storyboard:
+      - Use it to understand spoken content, dialogue, narration, and audio context
+      - Correlate transcript content with ${transcriptEvidence} to build a complete picture
+      - Extract key terminology, names, and specific language used by speakers
+      - Let the transcript inform keyword selection, especially for topics not visually obvious
+      - ${descriptionPriority}
+      - If transcript and visuals conflict, trust the visual evidence
+    </transcript_guidance>
 
-    ${UNTRUSTED_USER_INPUT_NOTICE}
+    <capabilities>
+      - Extract meaning from visual sequences
+      - Identify subjects, actions, settings, and narrative arcs
+      - Generate accurate, searchable metadata
+      - Synthesize visual and transcript information when provided
+    </capabilities>
 
-    ${VISUAL_TEXT_AS_CONTENT}
+    <security>
+      ${NON_DISCLOSURE_CONSTRAINT}
 
-    ${CANARY_TRIPWIRE}
-  </security>
+      ${UNTRUSTED_USER_INPUT_NOTICE}
 
-  <constraints>
-    - Only describe what is clearly observable in the frames or explicitly stated in the transcript
-    - ${NO_FABRICATION_CONSTRAINT}
-    - ${METADATA_BOUNDARY_WARNING}
-    - ${STRUCTURED_DATA_CONSTRAINT}
-    - Output only the JSON object; no markdown or extra text
-    - When a <language> section is provided, all output text MUST be written in that language
-  </constraints>
+      ${VISUAL_TEXT_AS_CONTENT}
 
-  <tone_guidance>
-    ${TONE_GUIDANCE}
-  </tone_guidance>
+      ${CANARY_TRIPWIRE}
+    </security>
 
-  <language_guidelines>
-    ${createLanguageGuidelines("video")}
-  </language_guidelines>`;
+    <constraints>
+      - ${groundingConstraint}
+      - ${NO_FABRICATION_CONSTRAINT}
+      - ${METADATA_BOUNDARY_WARNING}
+      - ${STRUCTURED_DATA_CONSTRAINT}
+      - Output only the JSON object; no markdown or extra text
+      - When a <language> section is provided, all output text MUST be written in that language
+    </constraints>
+
+    <tone_guidance>
+      ${TONE_GUIDANCE}
+    </tone_guidance>
+
+    <language_guidelines>
+      ${createLanguageGuidelines("video")}
+    </language_guidelines>`;
+}
 
 const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
   <role>
@@ -491,6 +422,18 @@ interface UserPromptContext {
   descriptionLength?: number;
   tagCount?: number;
   languageName?: string;
+  sceneContext?: readonly SceneContextItemV1[];
+}
+
+function createSceneContextSection(sceneContext: readonly SceneContextItemV1[]): PromptSection {
+  return {
+    tag: "scene_context",
+    content: JSON.stringify(sceneContext),
+    attributes: {
+      format: "json",
+      order: "scene_index_ascending",
+    },
+  };
 }
 
 function buildUserPrompt({
@@ -503,6 +446,7 @@ function buildUserPrompt({
   descriptionLength,
   tagCount,
   languageName,
+  sceneContext,
 }: UserPromptContext): string {
   // Build dynamic context sections
   const contextSections = [createToneSection(TONE_INSTRUCTIONS[tone])];
@@ -521,10 +465,15 @@ function buildUserPrompt({
     contextSections.push(createTranscriptSection(transcriptText, format));
   }
 
+  const hasSceneContext = !isAudioOnly && Boolean(sceneContext?.length);
+  if (hasSceneContext && sceneContext) {
+    contextSections.push(createSceneContextSection(sceneContext));
+  }
+
   const constraints: PromptConstraints = { titleLength, descriptionLength, tagCount };
   const promptBuilder = isAudioOnly ?
       createAudioOnlyBuilder(constraints) :
-      createSummarizationBuilder(constraints);
+      createSummarizationBuilder(constraints, { hasSceneContext });
 
   return promptBuilder.buildWithContext(promptOverrides, contextSections);
 }
@@ -540,8 +489,8 @@ interface AnalysisResponse {
   unexpectedKeys: string[];
 }
 
-async function analyzeStoryboard(
-  imageDataUrl: string,
+async function analyzeVideo(
+  imageDataUrl: string | undefined,
   provider: SupportedProvider,
   modelId: string,
   userPrompt: string,
@@ -565,10 +514,12 @@ async function analyzeStoryboard(
     messages: [
       {
         role: "user",
-        content: [
-          { type: "text", text: userPrompt },
-          { type: "image", image: imageDataUrl },
-        ],
+        content: imageDataUrl ?
+            [
+              { type: "text", text: userPrompt },
+              { type: "image", image: imageDataUrl },
+            ] :
+          userPrompt,
       },
     ],
   }));
@@ -717,6 +668,7 @@ async function getSummaryAndTagsInternal(
     cleanTranscript = true,
     imageSubmissionMode = "url",
     imageDownloadOptions,
+    sceneContext,
     promptOverrides,
     credentials,
     titleLength,
@@ -747,6 +699,7 @@ async function getSummaryAndTagsInternal(
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
   // Detect if asset is audio-only
   const isAudioOnly = isAudioOnlyAsset(assetData);
+  const hasSceneContext = !isAudioOnly && Boolean(sceneContext?.length);
   const effectiveScope = hasWorkflowScopeBoundaries(scope) ? scope : undefined;
   const storyboardScope = isAudioOnly ?
     undefined :
@@ -769,7 +722,8 @@ async function getSummaryAndTagsInternal(
 
   // Resolve signing context for signed playback IDs
   const signingContext = await resolveMuxSigningContext(workflowCredentials);
-  if (policy === "signed" && !signingContext) {
+  const requiresSignedPlaybackAccess = includeTranscript || !isAudioOnly;
+  if (policy === "signed" && requiresSignedPlaybackAccess && !signingContext) {
     throw new MuxAiError(
       "Signed playback ID requires signing credentials. " +
       "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
@@ -808,13 +762,17 @@ async function getSummaryAndTagsInternal(
     descriptionLength,
     tagCount,
     languageName,
+    sceneContext: hasSceneContext ? sceneContext : undefined,
   });
 
   let analysisResponse: AnalysisResponse;
   let imageUrl: string | undefined;
 
   // Choose system prompt and analysis method based on asset type
-  const systemPrompt = isAudioOnly ? AUDIO_ONLY_SYSTEM_PROMPT : SYSTEM_PROMPT;
+  let systemPrompt = AUDIO_ONLY_SYSTEM_PROMPT;
+  if (!isAudioOnly) {
+    systemPrompt = createVideoSystemPrompt(hasSceneContext);
+  }
 
   // Word count used to scale the dynamic `description` cap in
   // `buildSummarySchema`. Falls back to the documented default so the
@@ -833,7 +791,7 @@ async function getSummaryAndTagsInternal(
         workflowCredentials,
       );
     } else {
-      // Video analysis: fetch storyboard and analyze with visual content
+      // Video analysis always preserves the existing storyboard evidence path.
       const storyboardUrl = await getStoryboardUrl(
         playbackId,
         640,
@@ -845,7 +803,7 @@ async function getSummaryAndTagsInternal(
 
       if (imageSubmissionMode === "base64") {
         const downloadResult = await downloadImageAsBase64(storyboardUrl, imageDownloadOptions);
-        analysisResponse = await analyzeStoryboard(
+        analysisResponse = await analyzeVideo(
           downloadResult.base64Data,
           modelConfig.provider,
           modelConfig.modelId,
@@ -855,7 +813,7 @@ async function getSummaryAndTagsInternal(
           workflowCredentials,
         );
       } else {
-        analysisResponse = await analyzeStoryboard(
+        analysisResponse = await analyzeVideo(
           storyboardUrl,
           modelConfig.provider,
           modelConfig.modelId,

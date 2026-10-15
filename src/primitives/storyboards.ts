@@ -23,7 +23,7 @@ export async function getStoryboardUrl(
   scope?: WorkflowScope,
 ): Promise<string> {
   "use step";
-  const baseUrl = getMuxStoryboardBaseUrl(playbackId);
+  const baseUrl = await getMuxStoryboardBaseUrl(playbackId, credentials);
   const params: Record<string, number> = { width };
 
   if (scope?.startTime !== undefined) {

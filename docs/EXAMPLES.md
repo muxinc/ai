@@ -36,6 +36,9 @@ npm run example:ask-questions <asset-id> "<question>"
 npm run example:ask-questions:multiple <asset-id> "<question1>" "<question2>" ...
 npm run example:ask-questions:audio-only [audio-only-asset-id] ["<question>"]
 
+# Text Generation (posts and articles)
+npm run example:generate-text <asset-id> [-- --provider provider --audience "..." --voice voice]
+
 # Summarization
 npm run example:summarization <asset-id> [provider]
 npm run example:summarization:compare <asset-id>
@@ -275,7 +278,7 @@ npm run dubbing-only <your-asset-id> fr
 
 **Audio Dubbing Workflow:**
 
-1. Checks asset has audio.m4a static rendition
+1. Checks asset has audio.m4a static rendition (or, for assets using the deprecated `mp4_support` option, picks the best existing file)
 2. Downloads default audio track from Mux
 3. Creates ElevenLabs dubbing job (source language auto-detected unless `--from` is set)
 4. Polls for completion (up to 30 minutes)

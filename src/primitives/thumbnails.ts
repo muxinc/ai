@@ -82,7 +82,7 @@ export async function getThumbnailUrls(
     timestamps = newTimestamps;
   }
 
-  const baseUrl = getMuxThumbnailBaseUrl(playbackId);
+  const baseUrl = await getMuxThumbnailBaseUrl(playbackId, credentials);
 
   const urlPromises = timestamps.map(async (time) => {
     const url = shouldSign ?

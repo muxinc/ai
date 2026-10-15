@@ -252,8 +252,9 @@ describe("getThumbnailUrls", () => {
         shouldSign: false,
       });
 
+      const imageOrigin = await getMuxImageOrigin();
       urls.forEach((entry) => {
-        expect(entry.url).toContain(`${getMuxImageOrigin()}/${testPlaybackId}/thumbnail.png`);
+        expect(entry.url).toContain(`${imageOrigin}/${testPlaybackId}/thumbnail.png`);
         expect(entry.url).toContain("time=");
         expect(entry.url).toContain("width=");
       });
@@ -270,6 +271,18 @@ describe("getThumbnailUrls", () => {
 
       urls.forEach((entry) => {
         expect(entry.url).toContain(`https://image.example.com/${testPlaybackId}/thumbnail.png`);
+      });
+    });
+
+    it("should use muxCustomDomain from credentials when provided", async () => {
+      const duration = 30;
+      const urls = await getThumbnailUrls(testPlaybackId, duration, {
+        shouldSign: false,
+        credentials: { muxCustomDomain: "media.example.com" },
+      });
+
+      urls.forEach((entry) => {
+        expect(entry.url).toContain(`https://image.media.example.com/${testPlaybackId}/thumbnail.png`);
       });
     });
   });

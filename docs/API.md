@@ -19,8 +19,8 @@ beginning up to 90 seconds. Times remain relative to the original asset in
 workflow outputs.
 
 `scope` is supported by `getSummaryAndTags`, `getModerationScores`,
-`hasBurnedInCaptions`, `askQuestions`, `generateChapters`, and
-`generateEmbeddings`. It bounds storyboard or thumbnail selection and
+`hasBurnedInCaptions`, `askQuestions`, `generateChapters`,
+`generateEmbeddings`, and `generateText`. It bounds storyboard or thumbnail selection and
 transcript cues as applicable. The workflow rejects negative, non-finite,
 empty, reversed, or out-of-asset ranges.
 
@@ -467,7 +467,7 @@ Edits a caption track using LLM-powered profanity censorship, static find/replac
 - `replacements?: Array<{ find: string; replace: string; caseSensitive?: boolean }>` - Static find/replace pairs (optional, no LLM needed). Each entry matches case-sensitively by default; set `caseSensitive: false` to match regardless of case.
 - `speakerReplacements?: Array<{ find: string; replace: string }>` - Replaces bracketed speaker labels at the start of cues without changing matching words in spoken caption content.
 - `uploadToMux?: boolean` - Whether to upload edited track to Mux (default: true)
-- `replaceExistingTracks?: 'fail' | 'replace_all' | 'replace_generated'` - What to do with the source track and any other text track in the same language or with the same name as the edited one (default: `'replace_all'`, so the edited track takes the source's place under the source's name). `'replace_generated'` does the same only when everything in the way is Mux-generated (ASR). `'fail'` keeps the source, requires `trackName`, and rejects if that name or language is already taken by another track.
+- `replaceExistingTracks?: 'replace' | 'fail'` - What to do with the source track (default: `'replace'`: the source is deleted and the edited track takes its place under the source's name; no other track is touched). `'fail'` deletes nothing and adds the edited track alongside the source, so it requires a `trackName` different from the source's. With either value, `editCaptions` rejects before editing if a track other than the source already has the edited track's name, since Mux requires unique track names. Other tracks in the same language are never touched.
 - `trackName?: string` - Name for the edited Mux text track (default: the source track's name)
 - `trackPassthrough?: string` - `passthrough` written on the edited track, max 255 characters (default: `{"mux_ai":{"workflow":"edit-captions"}}`)
 - `deleteOriginalTrack?: boolean` - **Deprecated**, use `replaceExistingTracks`. When set, the previous behaviour applies: create `<source name> (<trackNameSuffix>)`, then delete the source if `true`. Cannot be combined with `replaceExistingTracks` or `trackName`.
@@ -565,13 +565,71 @@ player.addChapters([
 ]);
 ```
 
+## `generateText(assetId, options)`
+
+Writes a set of source-grounded text artifacts from a video or audio asset. Extracts one editorial brief from the transcript (plus a scoped storyboard for video assets), then writes every variant × artifact combination from that brief in parallel.
+
+**Parameters:**
+
+- `assetId` (string) - Mux asset ID (video or audio-only, must have a ready caption track)
+- `options` - Configuration options
+
+**Options:**
+
+- `artifacts: GenerateTextArtifact[]` - Deliverables to write for every variant (1-5, unique lowercase snake_case keys). Each artifact accepts optional `instructions` (up to 500 characters).
+  - `{ key, channel?, maxLength?, format?, instructions? }`
+  - `channel` is one of `generic` (default), `x`, `linkedin`, `facebook`, `instagram`, `tiktok`, `youtube`. It guides the writing conventions and sets the default cap (300 words for `generic`).
+  - `maxLength` is `{ unit: "characters", value: 10-20000 }` or `{ unit: "words", value: 5-3000 }`. `x` artifacts are always held to 280 characters, even when `maxLength` is expressed in words.
+  - `format` is `"plain"` (default, no Markdown syntax) or `"markdown"`.
+- `variants?: Array<{ key: string; instructions?: string }>` - Named versions of the complete artifact set (1-5, unique keys). Defaults to `[{ key: "default" }]`. Omit `instructions` for an independent take on the same brief.
+- `provider?: 'openai' | 'anthropic' | 'google' | 'baseten' | 'openai-compatible'` - AI provider (default: 'openai')
+- `model?: string` - AI model to use. Defaults per provider: `gpt-5.6-luna` at medium reasoning (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google). Baseten and OpenAI-compatible endpoints have no default — pass `model` or set the `BASETEN_MODEL` / `OPENAI_COMPATIBLE_MODEL` environment variable.
+- `audience?: string` - Intended reader, used as best-effort guidance (up to 160 characters)
+- `voice?: 'conversational' | 'editorial' | 'playful' | 'professional'` - Best-effort writing voice for every artifact
+- `callToAction?: 'none' | 'soft' | 'direct'` - Whether and how the text should invite the reader to engage further
+- `brandTerms?: string[]` - Brand or domain terms to use exactly when the source supports them (1-10 terms, 40 characters each, 240 combined)
+- `useShots?: boolean` - Attach up to 24 evenly sampled shot frames as extra visual evidence when the asset's shots are already generated. When they are not ready, the workflow uses the storyboard alone. Generate shots beforehand with the shots primitives if you need them (default: false, video assets only)
+- `languageCode?: string` - BCP 47 language code for transcript track selection. When omitted, prefers English if available.
+- `outputLanguageCode?: string` - BCP 47 language code for the generated text. When omitted or `'auto'`, follows the selected transcript track's language when it is reliable.
+- `scope?: WorkflowScope` - Asset-relative execution window. Bounds transcript cues, the storyboard, and shot selection.
+
+**Returns:**
+
+```typescript
+interface GenerateTextResult {
+  assetId: string;
+  variants: Array<{
+    key: string;
+    artifacts: Array<{
+      key: string;
+      content: string; // Empty when suppressed by the output-safety scrubber
+    }>;
+  }>;
+  storyboardUrl?: string; // Storyboard attached to the brief (undefined for audio-only assets)
+  usage?: TokenUsage; // Aggregate usage across the brief and every artifact
+  safety?: SafetyReport; // Output-side scrubbing report
+}
+```
+
+**Errors:**
+
+- `validation_error` - Invalid option bounds, malformed language tags, missing transcript, empty scope, or `useShots` on an audio-only asset. Thrown before any model call.
+- `processing_error` - An artifact was still empty after its generation retry (retryable), bounded paragraph repair failed to meet all length caps within two calls (retryable), the editorial brief was suppressed by the output-safety scrubber (retryable), or the model stopped before producing a complete response. Output-limit truncation is non-retryable; provider failures retain their retryability.
+- `content_policy_error` - The provider blocked the transcript or an image under its content policy, or refused a paragraph repair (non-retryable).
+
+Paragraph repair preserves typed errors' public classification and retryability,
+as well as attempt usage. It disables AI SDK transport retries and stops on
+provider failure; callers own transient retry/backoff at the job orchestration
+level and must respect the failure's retryability without expanding the two-call
+repair budget.
+
 ## `translateAudio(assetId, toLanguageCode, options?)`
 
 Creates AI-dubbed audio tracks from existing media content using ElevenLabs voice cloning and translation. Uses the default audio track on your asset. Source language is auto-detected unless `fromLanguageCode` is provided.
 
 **Parameters:**
 
-- `assetId` (string) - Mux asset ID (video or audio-only; must have audio.m4a static rendition)
+- `assetId` (string) - Mux asset ID (video or audio-only; must have audio.m4a static rendition, or use the deprecated `mp4_support` option)
 - `toLanguageCode` (string) - Target language code (e.g., 'es', 'fr', 'de')
 - `options` (optional) - Configuration options
 
@@ -615,6 +673,7 @@ interface TranslateAudioResult {
 **Requirements:**
 
 - Asset must have an `audio.m4a` static rendition (auto-requested if missing, and deleted again afterwards by default — see `staticRenditionCleanup`)
+- Assets on the deprecated [`mp4_support`](https://www.mux.com/docs/guides/enable-static-mp4-renditions-using-mp4-support) option are dubbed from their existing files, never modified: `audio.m4a` for `audio-only` and `audio-only,capped-1080p`, `capped-1080p.mp4` for `capped-1080p`, and `low.mp4` for `standard`. A file over 1 GB is rejected before dubbing; move the asset to the [Static Renditions API](https://www.mux.com/docs/guides/enable-static-mp4-renditions) and add an `audio-only` rendition instead.
 - ElevenLabs API key with Creator plan or higher
 - S3-compatible storage for Mux ingestion
 

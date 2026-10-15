@@ -16,6 +16,7 @@ vi.mock("../../src/lib/workflow-credentials", () => ({
   resolveMuxClient: vi.fn(),
   resolveMuxSigningContext: vi.fn(),
   resolveProviderApiKey: vi.fn(),
+  resolveWorkflowCredentials: async () => ({}),
 }));
 
 vi.mock("../../src/lib/client-factory", () => ({
@@ -32,6 +33,7 @@ const { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } = await import
 const { resolveMuxClient } = await import("../../src/lib/workflow-credentials");
 const { getApiKeyFromEnv } = await import("../../src/lib/client-factory");
 const { translateAudio } = await import("../../src/workflows/translate-audio");
+const { MuxAiError } = await import("../../src/lib/mux-ai-error");
 
 const ASSET_ID = "asset-123";
 const CREATED_RENDITION_ID = "rendition-created-1";
@@ -221,6 +223,22 @@ describe("translateAudio static rendition cleanup", () => {
     expect(result.createdStaticRenditionId).toBe(CREATED_RENDITION_ID);
   });
 
+  it("waits up to 30 minutes for a requested rendition before timing out", async () => {
+    const { retrieve, deleteStaticRendition } = mockMuxClient({
+      initialAsset: buildAsset(),
+      polledAsset: buildAsset({
+        files: [{ id: CREATED_RENDITION_ID, name: "audio.m4a", status: "preparing" }],
+      }),
+    });
+    stubElevenLabsFetch();
+
+    const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
+
+    expect(error).toMatchObject({ publicType: "timeout_error", retryable: true });
+    expect(retrieve).toHaveBeenCalledTimes(180);
+    expect(deleteStaticRendition).toHaveBeenCalledWith(ASSET_ID, CREATED_RENDITION_ID);
+  });
+
   it("treats an already-deleted rendition (404) as deleted", async () => {
     const { deleteStaticRendition } = mockMuxClient({
       initialAsset: buildAsset(),
@@ -234,5 +252,208 @@ describe("translateAudio static rendition cleanup", () => {
     const result = await translateAudio(ASSET_ID, "fr", BASE_OPTIONS);
 
     expect(result.staticRenditionCleanup).toBe("deleted");
+  });
+});
+
+function stubElevenLabsCreateFailure(response: Response) {
+  const fetchMock = vi.fn(async (input: any, init?: any) => {
+    if (String(input).endsWith("/v1/dubbing") && init?.method === "POST") {
+      return response;
+    }
+    throw new Error(`Unexpected fetch in test: ${String(input)}`);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+const UNSUPPORTED_LANGUAGE_BODY = {
+  detail: {
+    type: "validation_error",
+    code: "invalid_parameters",
+    message: "Target language 'ur' is not supported.",
+    status: "unsupported_target_language",
+    request_id: "ce841eacec9f38158a9ef2f4b66b0940",
+    param: "target_lang",
+  },
+};
+
+describe("translateAudio ElevenLabs error reporting", () => {
+  beforeEach(() => {
+    mockMuxClient({ initialAsset: readyRenditionAsset("rendition-pre-existing") });
+  });
+
+  it("includes the status and ElevenLabs reason when dub creation is rejected", async () => {
+    stubElevenLabsCreateFailure(new Response(JSON.stringify(UNSUPPORTED_LANGUAGE_BODY), { status: 400, statusText: "Bad Request" }));
+
+    const error = await captureRejection(translateAudio(ASSET_ID, "ur", BASE_OPTIONS));
+
+    expect((error as Error).message).toBe(
+      "Failed to create ElevenLabs dubbing job: ElevenLabs API error: 400 Bad Request: unsupported_target_language: Target language 'ur' is not supported. (param: target_lang, request_id: ce841eacec9f38158a9ef2f4b66b0940)",
+    );
+  });
+
+  it("keeps provider detail out of customer-safe errors", async () => {
+    stubElevenLabsCreateFailure(new Response(JSON.stringify(UNSUPPORTED_LANGUAGE_BODY), { status: 400, statusText: "Bad Request" }));
+
+    const error = await captureRejection(translateAudio(ASSET_ID, "ur", BASE_OPTIONS));
+
+    expect(MuxAiError.is(error)).toBe(false);
+  });
+
+  it("lists field errors from a 422 validation response", async () => {
+    stubElevenLabsCreateFailure(new Response(
+      JSON.stringify({ detail: [{ loc: ["body", "target_lang"], msg: "field required", type: "missing" }] }),
+      { status: 422, statusText: "Unprocessable Entity" },
+    ));
+
+    const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
+
+    expect((error as Error).message).toContain("422 Unprocessable Entity: body.target_lang: field required");
+  });
+
+  it("keeps the 429 status in the message so callers can still detect rate limits", async () => {
+    stubElevenLabsCreateFailure(new Response(
+      JSON.stringify({ detail: { status: "too_many_concurrent_requests", message: "Too many concurrent requests." } }),
+      { status: 429, statusText: "Too Many Requests" },
+    ));
+
+    const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
+
+    expect((error as Error).message).toContain("429 Too Many Requests: too_many_concurrent_requests: Too many concurrent requests.");
+  });
+
+  it("truncates a non-JSON error body", async () => {
+    stubElevenLabsCreateFailure(new Response(`<html>${"x".repeat(1000)}</html>`, { status: 502, statusText: "Bad Gateway" }));
+
+    const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
+
+    expect((error as Error).message).toContain("502 Bad Gateway: <html>xxx");
+    expect((error as Error).message).not.toContain("</html>");
+  });
+
+  it("includes the ElevenLabs reason when a status check is rejected", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: any, init?: any) => {
+      if (String(input).endsWith("/v1/dubbing") && init?.method === "POST") {
+        return new Response(JSON.stringify({ dubbing_id: "dub-1" }), { status: 200 });
+      }
+      return new Response(
+        JSON.stringify({ detail: { status: "dubbing_not_found", message: "Dubbing project not found." } }),
+        { status: 404, statusText: "Not Found" },
+      );
+    }));
+
+    const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
+
+    expect((error as Error).message).toBe(
+      "Failed to check dubbing status: Status check failed: 404 Not Found: dubbing_not_found: Dubbing project not found.",
+    );
+  });
+
+  it("logs the ElevenLabs reason for a failed dub without changing the customer-facing error", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: any, init?: any) => {
+      if (String(input).endsWith("/v1/dubbing") && init?.method === "POST") {
+        return new Response(JSON.stringify({ dubbing_id: "dub-1" }), { status: 200 });
+      }
+      return new Response(
+        JSON.stringify({ status: "failed", target_languages: [], error: "Source audio could not be decoded." }),
+        { status: 200 },
+      );
+    }));
+
+    const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
+
+    expect(error).toMatchObject({
+      publicType: "processing_error",
+      publicMessage: "ElevenLabs reported that the dubbing job failed.",
+    });
+    expect(console.warn).toHaveBeenCalledWith("❌ ElevenLabs dubbing job dub-1 failed: Source audio could not be decoded.");
+  });
+});
+
+function legacyAsset(mp4Support: string, staticRenditions?: object) {
+  return { ...buildAsset(staticRenditions), mp4_support: mp4Support };
+}
+
+function dubbingSourceUrl(fetchMock: ReturnType<typeof vi.fn>): string | undefined {
+  const createCall = fetchMock.mock.calls.find(([input, init]) =>
+    String(input).endsWith("/v1/dubbing") && init?.method === "POST");
+  return (createCall?.[1]?.body as FormData | undefined)?.get("source_url")?.toString();
+}
+
+describe("translateAudio on assets using the deprecated mp4_support option", () => {
+  it.each([
+    ["capped-1080p", ["capped-1080p.mp4"], "capped-1080p.mp4"],
+    ["audio-only", ["audio.m4a"], "audio.m4a"],
+    ["audio-only,capped-1080p", ["audio.m4a", "capped-1080p.mp4"], "audio.m4a"],
+    ["standard", ["low.mp4", "medium.mp4", "high.mp4"], "low.mp4"],
+  ])("dubs from the existing files for mp4_support=%s without touching static renditions", async (mp4Support, fileNames, expected) => {
+    const { createStaticRendition, deleteStaticRendition } = mockMuxClient({
+      initialAsset: legacyAsset(mp4Support, { status: "ready", files: fileNames.map(name => ({ name, filesize: "1000" })) }),
+    });
+    const fetchMock = stubElevenLabsFetch();
+
+    const result = await translateAudio(ASSET_ID, "fr", BASE_OPTIONS);
+
+    expect(dubbingSourceUrl(fetchMock)).toMatch(new RegExp(`/playback-123/${expected.replace(".", "\\.")}$`));
+    expect(createStaticRendition).not.toHaveBeenCalled();
+    expect(deleteStaticRendition).not.toHaveBeenCalled();
+    expect(result.createdStaticRenditionId).toBeUndefined();
+    expect(result.staticRenditionCleanup).toBe("not_created");
+  });
+
+  it("waits for preparing mp4_support renditions instead of requesting new ones", async () => {
+    const { createStaticRendition, retrieve } = mockMuxClient({
+      initialAsset: legacyAsset("capped-1080p", { status: "preparing" }),
+      polledAsset: legacyAsset("capped-1080p", { status: "ready", files: [{ name: "capped-1080p.mp4" }] }),
+    });
+    const fetchMock = stubElevenLabsFetch();
+
+    await translateAudio(ASSET_ID, "fr", BASE_OPTIONS);
+
+    expect(retrieve).toHaveBeenCalled();
+    expect(createStaticRendition).not.toHaveBeenCalled();
+    expect(dubbingSourceUrl(fetchMock)).toMatch(/\/playback-123\/capped-1080p\.mp4$/);
+  });
+
+  it("rejects an mp4_support file too large to dub before calling ElevenLabs", async () => {
+    const { createStaticRendition, deleteStaticRendition } = mockMuxClient({
+      initialAsset: legacyAsset("capped-1080p", { status: "ready", files: [{ name: "capped-1080p.mp4", filesize: "1500000000" }] }),
+    });
+    const fetchMock = stubElevenLabsFetch();
+
+    const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
+
+    expect(error).toMatchObject({ publicType: "validation_error", retryable: false });
+    expect((error as Error).message).toContain("capped-1080p.mp4 static rendition (1.5 GB) is larger than the 1 GB");
+    expect((error as Error).message).toContain("Static Renditions API");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(createStaticRendition).not.toHaveBeenCalled();
+    expect(deleteStaticRendition).not.toHaveBeenCalled();
+  });
+
+  it("fails errored mp4_support renditions without re-requesting them", async () => {
+    const { createStaticRendition } = mockMuxClient({
+      initialAsset: legacyAsset("audio-only", { status: "errored" }),
+    });
+    const fetchMock = stubElevenLabsFetch();
+
+    const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
+
+    expect(error).toMatchObject({ publicType: "validation_error" });
+    expect((error as Error).message).toContain("static renditions are errored");
+    expect(createStaticRendition).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("times out after 30 minutes of preparing mp4_support renditions", async () => {
+    const { retrieve } = mockMuxClient({
+      initialAsset: legacyAsset("capped-1080p", { status: "preparing" }),
+    });
+    stubElevenLabsFetch();
+
+    const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
+
+    expect(error).toMatchObject({ publicType: "timeout_error", retryable: true });
+    expect(retrieve).toHaveBeenCalledTimes(180);
   });
 });

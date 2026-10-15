@@ -222,6 +222,8 @@ evalite("Moderation", {
     const result = await getModerationScores(assetId, {
       provider,
       maxSamples: MAX_SAMPLES,
+      // Google's URL fetcher intermittently cannot reach image.mux.com, so send image bytes.
+      ...(provider === "google-vision-api" && { imageSubmissionMode: "base64" as const }),
     });
     const latencyMs = performance.now() - startTime;
 

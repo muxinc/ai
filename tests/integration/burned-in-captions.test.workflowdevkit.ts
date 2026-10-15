@@ -43,7 +43,7 @@ describe("Burned-in Captions Integration Tests for Workflow DevKit", () => {
 
     // Verify storyboardUrl is a valid URL
     expect(typeof result.storyboardUrl).toBe("string");
-    expect(result.storyboardUrl).toContain(getMuxImageOrigin());
+    expect(result.storyboardUrl).toContain(await getMuxImageOrigin());
 
     // Verify usage stats
     expect(result.usage).toBeDefined();
