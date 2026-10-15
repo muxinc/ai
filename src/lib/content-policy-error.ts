@@ -6,7 +6,7 @@ import type { TokenUsage } from "../types.ts";
 import { MuxAiError } from "./mux-ai-error.ts";
 import { withRetry } from "./retry.ts";
 import type { RetryOptions } from "./retry.ts";
-import { getErrorTokenUsage } from "./token-usage.ts";
+import { aggregateTokenUsage, getErrorTokenUsage, rethrowWithTokenUsage } from "./token-usage.ts";
 
 const PolicyTokenSchema = z.string()
   .trim()
@@ -89,8 +89,8 @@ export interface ContentPolicyBlock {
  * Thrown when the model stopped for a reason other than a normal `stop`
  * (e.g. `length` when the output token limit was reached) so the structured
  * output was never parsed. The AI SDK would otherwise surface a metadata-free
- * `NoOutputGeneratedError`. Own properties survive workflow step
- * serialization; detect it with {@link isIncompleteGenerationError}.
+ * `NoOutputGeneratedError`. MuxAiError's custom Workflow codec preserves the
+ * metadata; detect it with {@link isIncompleteGenerationError}.
  */
 export class IncompleteGenerationError extends MuxAiError {
   readonly finishReason: string;
@@ -140,10 +140,60 @@ export async function withContentPolicyAwareRetry<T>(
   operation: () => Promise<T>,
   retryOptions?: RetryOptions,
 ): Promise<T> {
-  return withRetry(
-    () => withContentPolicyErrorHandling(operation),
-    retryOptions,
-  );
+  const retriedUsage: TokenUsage[] = [];
+  try {
+    const response = await withRetry(
+      () => withContentPolicyErrorHandling(operation),
+      {
+        ...retryOptions,
+        onRetry: (error, attempt) => {
+          const usage = getErrorTokenUsage(error);
+          if (usage) {
+            retriedUsage.push(usage);
+          }
+          retryOptions?.onRetry?.(error, attempt);
+        },
+      },
+    );
+    return includeRetriedUsage(response, retriedUsage);
+  } catch (error) {
+    rethrowWithTokenUsage(error, retriedUsage);
+  }
+}
+
+/** Preserve the SDK result's getters/prototype and provider-specific usage fields. */
+function includeRetriedUsage<T>(response: T, retriedUsage: TokenUsage[]): T {
+  if (!retriedUsage.length || typeof response !== "object" || response === null) {
+    return response;
+  }
+  const result = response as T & { usage?: Record<string, unknown>; totalUsage?: Record<string, unknown> };
+  const merge = (usage?: Record<string, unknown>) => {
+    const combined = aggregateTokenUsage([...retriedUsage, getErrorTokenUsage({ usage }) ?? {}]);
+    return {
+      ...usage,
+      ...combined,
+      ...(combined.cachedInputTokens !== undefined || combined.cacheWriteTokens !== undefined ?
+          {
+            inputTokenDetails: {
+              ...(usage?.inputTokenDetails as object | undefined),
+              ...(combined.cachedInputTokens !== undefined && { cacheReadTokens: combined.cachedInputTokens }),
+              ...(combined.cacheWriteTokens !== undefined && { cacheWriteTokens: combined.cacheWriteTokens }),
+            },
+          } :
+          {}),
+      ...(combined.reasoningTokens !== undefined ?
+          {
+            outputTokenDetails: { ...(usage?.outputTokenDetails as object | undefined), reasoningTokens: combined.reasoningTokens },
+          } :
+          {}),
+    };
+  };
+  const descriptors: PropertyDescriptorMap = Object.getOwnPropertyDescriptors(response);
+  descriptors.usage = { value: merge(result.usage), enumerable: true, configurable: true };
+  if ("totalUsage" in result) {
+    descriptors.totalUsage = { value: merge(result.totalUsage), enumerable: true, configurable: true };
+  }
+  return Object.create(Object.getPrototypeOf(response), descriptors);
 }
 
 export function rethrowContentPolicyError(error: unknown): never {

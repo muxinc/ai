@@ -1,3 +1,5 @@
+import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
+
 import type { TokenUsage } from "../types.ts";
 
 import { detectLeakReason } from "./output-safety.ts";
@@ -8,6 +10,24 @@ export type MuxAiErrorType = "validation_error" |
   "timeout_error" |
   "content_policy_error";
 
+export interface ModelCallDiagnostics {
+  phase: "brief" | "draft" | "format_repair" | "length_repair";
+  provider: string;
+  modelId: string;
+  maxOutputTokens?: number;
+}
+
+interface SerializedMuxAiError {
+  message: string;
+  publicType: MuxAiErrorType;
+  retryable: boolean;
+  stack?: string;
+  usage?: TokenUsage;
+  finishReason?: string;
+  rawFinishReason?: string;
+  diagnostics?: ModelCallDiagnostics;
+}
+
 /**
  * An error whose message is safe to surface verbatim to the customer.
  *
@@ -17,9 +37,8 @@ export type MuxAiErrorType = "validation_error" |
  * this brand (unexpected SDK failures, upstream provider errors, etc.)
  * should be treated as internal and obfuscated.
  *
- * Own properties (`publicMessage`, `publicType`, `retryable`) survive
- * JSON serialization across workflow step boundaries, unlike inherited
- * `Error.message`.
+ * Custom Workflow serializers preserve safe metadata across step boundaries.
+ * The runtime's built-in Error serializer drops arbitrary own properties.
  */
 export class MuxAiError extends Error {
   /** Structural brand for duck-type identification. */
@@ -33,6 +52,9 @@ export class MuxAiError extends Error {
 
   /** Whether the customer should retry the job. */
   readonly retryable: boolean;
+
+  declare usage?: TokenUsage;
+  declare diagnostics?: ModelCallDiagnostics;
 
   /** Internal diagnostic failure; non-enumerable and excluded from JSON. */
   declare readonly cause?: unknown;
@@ -59,6 +81,36 @@ export class MuxAiError extends Error {
       "__robots_error" in value &&
       value.__robots_error === true
     );
+  }
+
+  static [WORKFLOW_SERIALIZE](instance: MuxAiError): SerializedMuxAiError {
+    const incomplete = instance as MuxAiError & { finishReason?: string; rawFinishReason?: string };
+    return {
+      message: instance.publicMessage,
+      publicType: instance.publicType,
+      retryable: instance.retryable,
+      stack: instance.stack,
+      usage: getErrorTokenUsage(instance),
+      finishReason: incomplete.finishReason,
+      rawFinishReason: incomplete.rawFinishReason,
+      diagnostics: instance.diagnostics,
+    };
+  }
+
+  static [WORKFLOW_DESERIALIZE](value: SerializedMuxAiError): MuxAiError {
+    // Subclasses inherit this codec. Restore their safe fields for structural
+    // guards without depending on subclass constructor signatures or raw causes.
+    const error = new MuxAiError(value.message, { type: value.publicType, retryable: value.retryable });
+    Object.assign(error, {
+      usage: value.usage,
+      diagnostics: value.diagnostics,
+      ...(value.finishReason !== undefined && { finishReason: value.finishReason }),
+      ...(value.rawFinishReason !== undefined && { rawFinishReason: value.rawFinishReason }),
+    });
+    if (value.stack !== undefined) {
+      error.stack = value.stack;
+    }
+    return error;
   }
 }
 

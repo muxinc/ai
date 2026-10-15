@@ -8,7 +8,9 @@ import {
   withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
 import { getLanguageName } from "../lib/language-codes.ts";
+import { withModelCallDiagnostics } from "../lib/model-call-diagnostics.ts";
 import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
+import type { ModelCallDiagnostics } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -742,38 +744,40 @@ async function extractBriefWithModel(args: {
   credentials?: WorkflowCredentialsInput;
 }): Promise<{ brief: GenerateTextBrief; usage: TokenUsage; unexpectedKeys: string[] }> {
   "use step";
-  const model = await createLanguageModelFromConfig(args.provider, args.modelId, args.credentials);
+  return withModelCallDiagnostics({ phase: "brief", provider: args.provider, modelId: args.modelId }, async () => {
+    const model = await createLanguageModelFromConfig(args.provider, args.modelId, args.credentials);
 
-  const response = await withContentPolicyAwareRetry(() => generateTextWithModel({
-    model,
-    maxRetries: 0,
-    output: Output.object({
-      name: "editorial_brief",
-      description: "Source-grounded editorial brief used to write every requested artifact.",
-      schema: briefSchema,
-    }),
-    system: args.systemPrompt,
-    messages: [
-      {
-        role: "user",
-        content: [
-          { type: "text", text: args.userPrompt },
-          ...args.imageUrls.map(url => ({ type: "image" as const, image: url })),
-        ],
-      },
-    ],
-  }));
+    const response = await withContentPolicyAwareRetry(() => generateTextWithModel({
+      model,
+      maxRetries: 0,
+      output: Output.object({
+        name: "editorial_brief",
+        description: "Source-grounded editorial brief used to write every requested artifact.",
+        schema: briefSchema,
+      }),
+      system: args.systemPrompt,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: args.userPrompt },
+            ...args.imageUrls.map(url => ({ type: "image" as const, image: url })),
+          ],
+        },
+      ],
+    }));
 
-  const output = getGeneratedOutputWithContentPolicyHandling(response);
-  if (!output) {
-    throw new Error("Editorial brief output missing");
-  }
+    const output = getGeneratedOutputWithContentPolicyHandling(response);
+    if (!output) {
+      throw new Error("Editorial brief output missing");
+    }
 
-  return {
-    brief: clampBriefArrays(briefSchema.parse(output)),
-    usage: readUsage(response),
-    unexpectedKeys: detectUnexpectedKeysFromRawText(response.text, briefSchema.keyof().options),
-  };
+    return {
+      brief: clampBriefArrays(briefSchema.parse(output)),
+      usage: readUsage(response),
+      unexpectedKeys: detectUnexpectedKeysFromRawText(response.text, briefSchema.keyof().options),
+    };
+  });
 }
 
 const artifactSchema = z.object({ content: z.string() });
@@ -808,101 +812,99 @@ async function generateArtifactWithModel(args: {
   credentials?: WorkflowCredentialsInput;
 }): Promise<ArtifactStepResult> {
   "use step";
-  const model = await createLanguageModelFromConfig(args.provider, args.modelId, args.credentials);
+  const diagnostics: ModelCallDiagnostics = { phase: "draft", provider: args.provider, modelId: args.modelId };
+  return withModelCallDiagnostics(diagnostics, async () => {
+    const model = await createLanguageModelFromConfig(args.provider, args.modelId, args.credentials);
 
-  const attempt = async (messages: ModelMessage[]): Promise<ArtifactAttempt> => {
-    const response = await withContentPolicyAwareRetry(() => generateTextWithModel({
-      model,
-      maxRetries: 0,
-      output: Output.object({
-        name: "generated_text",
-        description: "One finished artifact written from the editorial brief.",
-        schema: artifactSchema,
-      }),
-      system: args.systemPrompt,
-      messages,
-    }));
-    const output = getGeneratedOutputWithContentPolicyHandling(response);
-    if (!output) {
-      throw new Error("Generated text output missing");
-    }
-    return {
-      content: artifactSchema.parse(output).content.trim(),
-      usage: readUsage(response),
-      unexpectedKeys: detectUnexpectedKeysFromRawText(response.text, artifactSchema.keyof().options),
+    const attempt = async (messages: ModelMessage[]): Promise<ArtifactAttempt> => {
+      const response = await withContentPolicyAwareRetry(() => generateTextWithModel({
+        model,
+        maxRetries: 0,
+        output: Output.object({
+          name: "generated_text",
+          description: "One finished artifact written from the editorial brief.",
+          schema: artifactSchema,
+        }),
+        system: args.systemPrompt,
+        messages,
+      }));
+      const output = getGeneratedOutputWithContentPolicyHandling(response);
+      if (!output) {
+        throw new Error("Generated text output missing");
+      }
+      return {
+        content: artifactSchema.parse(output).content.trim(),
+        usage: readUsage(response),
+        unexpectedKeys: detectUnexpectedKeysFromRawText(response.text, artifactSchema.keyof().options),
+      };
     };
-  };
 
-  const judge = (content: string): ArtifactStepResult["violation"] =>
-    content ? findGenerateTextLengthViolation(content, args.limits) : "empty";
+    const judge = (content: string): ArtifactStepResult["violation"] =>
+      content ? findGenerateTextLengthViolation(content, args.limits) : "empty";
 
-  const initialMessages: ModelMessage[] = [{ role: "user", content: args.userPrompt }];
-  const first = await attempt(initialMessages);
-  const firstViolation = judge(first.content);
-  const firstEscaped = hasEscapedLineBreaks(first.content);
-  if (!firstViolation && !firstEscaped) {
-    return { content: first.content, usages: [first.usage], unexpectedKeys: first.unexpectedKeys };
-  }
-
-  let candidate = first;
-  const usages = [first.usage];
-  const unexpectedKeys = [...first.unexpectedKeys];
-  // Empty/double-escaped content needs the existing generation/format repair.
-  // Length alone never triggers this full-prompt correction.
-  if (firstViolation === "empty" || firstEscaped) {
-    const feedback = [
-      firstViolation && firstViolation !== "empty" ? describeLengthRevision(firstViolation) : undefined,
-      firstEscaped ? ESCAPED_TEXT_REVISION : undefined,
-    ].filter((line): line is string => Boolean(line)).join("\n");
-    const revisionMessages: ModelMessage[] = firstViolation === "empty" ?
-        [{ role: "user", content: `${args.userPrompt}\n\n${renderSection({ tag: "revision_request", content: "The previous draft was empty. Write the complete artifact." })}` }] :
-        [...initialMessages, { role: "assistant", content: JSON.stringify({ content: first.content }) }, { role: "user", content: renderSection({ tag: "revision_request", content: feedback }) }];
-    candidate = await attempt(revisionMessages).catch((error: unknown) => rethrowWithTokenUsage(error, usages));
-    usages.push(candidate.usage);
-    unexpectedKeys.push(...candidate.unexpectedKeys);
-  }
-  const violation = judge(candidate.content);
-  if (!violation || violation === "empty") {
-    return { content: candidate.content, usages, unexpectedKeys, violation };
-  }
-
-  const repaired = await repairText({
-    content: candidate.content,
-    limits: args.limits,
-    protectedTerms: args.protectedTerms,
-    model,
-  });
-  usages.push(...repaired.attempts.flatMap(item => item.call.usage ? [item.call.usage] : []));
-  if (repaired.status !== "valid") {
-    const cause = repaired.attempts.at(-1)?.call.errorCause;
-    // Rebuild before adding aggregate usage: the failed call is already in usages.
-    // Retain customer-safe metadata, including errors serialized by callers.
-    let failure: Error;
-    if (isIncompleteGenerationError(cause)) {
-      failure = new IncompleteGenerationError(cause.finishReason, cause.rawFinishReason);
-    } else if (MuxAiError.is(cause)) {
-      failure = new MuxAiError(cause.publicMessage, { type: cause.publicType, retryable: cause.retryable });
-    } else {
-      const apiError = APICallError.isInstance(cause) ? cause : undefined;
-      // Log inside the step: workflow error serialization may discard cause.
-      // Select diagnostic fields rather than logging request bodies or headers.
-      console.warn("[@mux/ai] Bounded text repair failed.", {
-        provider: args.provider,
-        modelId: args.modelId,
-        reason: repaired.reason,
-        errorName: cause instanceof Error ? cause.name : undefined,
-        statusCode: apiError?.statusCode,
-        requestId: apiError?.responseHeaders?.["x-request-id"] ?? apiError?.responseHeaders?.["request-id"],
-      });
-      failure = new MuxAiError("Unable to complete text generation.", {
-        type: "processing_error",
-        retryable: apiError?.isRetryable ?? true,
-        cause,
-      });
+    const initialMessages: ModelMessage[] = [{ role: "user", content: args.userPrompt }];
+    const first = await attempt(initialMessages);
+    const firstViolation = judge(first.content);
+    const firstEscaped = hasEscapedLineBreaks(first.content);
+    if (!firstViolation && !firstEscaped) {
+      return { content: first.content, usages: [first.usage], unexpectedKeys: first.unexpectedKeys };
     }
-    rethrowWithTokenUsage(failure, usages);
-  }
-  return { content: repaired.content, usages, unexpectedKeys };
+
+    let candidate = first;
+    const usages = [first.usage];
+    const unexpectedKeys = [...first.unexpectedKeys];
+    // Empty/double-escaped content needs the existing generation/format repair.
+    // Length alone never triggers this full-prompt correction.
+    if (firstViolation === "empty" || firstEscaped) {
+      const feedback = [
+        firstViolation && firstViolation !== "empty" ? describeLengthRevision(firstViolation) : undefined,
+        firstEscaped ? ESCAPED_TEXT_REVISION : undefined,
+      ].filter((line): line is string => Boolean(line)).join("\n");
+      const revisionMessages: ModelMessage[] = firstViolation === "empty" ?
+          [{ role: "user", content: `${args.userPrompt}\n\n${renderSection({ tag: "revision_request", content: "The previous draft was empty. Write the complete artifact." })}` }] :
+          [...initialMessages, { role: "assistant", content: JSON.stringify({ content: first.content }) }, { role: "user", content: renderSection({ tag: "revision_request", content: feedback }) }];
+      diagnostics.phase = "format_repair";
+      candidate = await attempt(revisionMessages).catch((error: unknown) => rethrowWithTokenUsage(error, usages));
+      usages.push(candidate.usage);
+      unexpectedKeys.push(...candidate.unexpectedKeys);
+    }
+    const violation = judge(candidate.content);
+    if (!violation || violation === "empty") {
+      return { content: candidate.content, usages, unexpectedKeys, violation };
+    }
+
+    diagnostics.phase = "length_repair";
+    const repaired = await repairText({
+      content: candidate.content,
+      limits: args.limits,
+      protectedTerms: args.protectedTerms,
+      model,
+    });
+    usages.push(...repaired.attempts.flatMap(item => item.call.usage ? [item.call.usage] : []));
+    if (repaired.status !== "valid") {
+      const cause = repaired.attempts.at(-1)?.call.errorCause;
+      // Rebuild before adding aggregate usage: the failed call is already in usages.
+      // Retain customer-safe metadata, including errors serialized by callers.
+      let failure: Error;
+      if (isIncompleteGenerationError(cause)) {
+        failure = new IncompleteGenerationError(cause.finishReason, cause.rawFinishReason);
+      } else if (MuxAiError.is(cause)) {
+        failure = new MuxAiError(cause.publicMessage, { type: cause.publicType, retryable: cause.retryable });
+      } else {
+        const apiError = APICallError.isInstance(cause) ? cause : undefined;
+        failure = new MuxAiError("Unable to complete text generation.", {
+          type: "processing_error",
+          retryable: apiError?.isRetryable ?? true,
+          cause,
+        });
+      }
+      if (typeof cause === "object" && cause !== null && "diagnostics" in cause) {
+        (failure as MuxAiError).diagnostics = cause.diagnostics as ModelCallDiagnostics;
+      }
+      rethrowWithTokenUsage(failure, usages);
+    }
+    return { content: repaired.content, usages, unexpectedKeys };
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
