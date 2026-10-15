@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import { getApiKeyFromEnv } from "../lib/client-factory.ts";
 import type { ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImagesAsBase64 } from "../lib/image-download.ts";
@@ -346,6 +348,22 @@ function parseOpenAIModerationResponse(
   }
 }
 
+/**
+ * The parts of an OpenAI `/v1/moderations` response this workflow reads. The
+ * structure must match; a category missing from `category_scores` is read as
+ * 0 (the model did not flag it).
+ */
+const OpenAIModerationResponseSchema = z.object({
+  results: z.array(z.object({
+    category_scores: z.object({
+      sexual: z.number().finite().nullish(),
+      violence: z.number().finite().nullish(),
+    }),
+  })),
+});
+
+type OpenAIModerationResponse = z.infer<typeof OpenAIModerationResponseSchema>;
+
 async function callOpenAIModerationApi({
   model,
   input,
@@ -357,7 +375,7 @@ async function callOpenAIModerationApi({
     string[] |
     Array<{ type: "image_url"; image_url: { url: string } }>;
   credentials?: WorkflowCredentialsInput;
-}): Promise<any> {
+}): Promise<OpenAIModerationResponse> {
   "use step";
   const apiKey = await getApiKeyFromEnv("openai", credentials);
 
@@ -397,7 +415,14 @@ async function callOpenAIModerationApi({
         );
       }
 
-      return json;
+      const parsed = OpenAIModerationResponseSchema.safeParse(json);
+      if (!parsed.success) {
+        throw new OpenAIModerationRequestError(
+          `OpenAI moderation returned an unexpected response shape: ${compactBodySnippet(bodyText)}`,
+          { status: res.status, retriable: false },
+        );
+      }
+      return parsed.data;
     },
     {
       maxRetries: OPENAI_MODERATION_MAX_RETRIES,
@@ -436,7 +461,7 @@ async function moderateImageWithOpenAI(entry: {
 }): Promise<ThumbnailModerationScore> {
   "use step";
   try {
-    const json: any = await callOpenAIModerationApi({
+    const { results } = await callOpenAIModerationApi({
       model: entry.model,
       input: [
         {
@@ -448,13 +473,16 @@ async function moderateImageWithOpenAI(entry: {
       ],
       credentials: entry.credentials,
     });
-    const categoryScores = json.results?.[0]?.category_scores || {};
+    const result = results[0];
+    if (!result) {
+      throw new OpenAIModerationRequestError("OpenAI moderation returned no result for the image.", { retriable: false });
+    }
 
     return {
       url: entry.url,
       time: entry.time,
-      sexual: categoryScores.sexual || 0,
-      violence: categoryScores.violence || 0,
+      sexual: result.category_scores.sexual ?? 0,
+      violence: result.category_scores.violence ?? 0,
       error: false,
     };
   } catch (error) {
@@ -747,19 +775,26 @@ async function moderateTranscriptBatchWithOpenAI(
   }
 
   try {
-    const json: any = await callOpenAIModerationApi({
+    const { results } = await callOpenAIModerationApi({
       model,
       input: windows.map(window => window.text),
       credentials,
     });
-    const results: any[] = Array.isArray(json.results) ? json.results : [];
+    // `results` is index-aligned with `input`; a window with no result must
+    // not read as clean.
     return windows.map((window, index) => {
-      const categoryScores = results[index]?.category_scores || {};
+      const result = results[index];
+      if (!result) {
+        return transcriptErrorScore(
+          window,
+          new Error(`OpenAI moderation returned ${results.length} result(s) for ${windows.length} window(s); none for this window.`),
+        );
+      }
       return {
         startTime: window.startTime,
         endTime: window.endTime,
-        sexual: categoryScores.sexual || 0,
-        violence: categoryScores.violence || 0,
+        sexual: result.category_scores.sexual ?? 0,
+        violence: result.category_scores.violence ?? 0,
         error: false,
       };
     });

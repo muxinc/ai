@@ -242,6 +242,36 @@ describe("getModerationScores coverage metadata", () => {
     });
   });
 
+  it("scores a thumbnail as an error when OpenAI returns no result or an unexpected shape, and reads a missing category as 0", async () => {
+    vi.mocked(getThumbnailUrls).mockResolvedValue([
+      { url: "https://thumb.test/1.png", time: 0 },
+      { url: "https://thumb.test/2.png", time: 10 },
+      { url: "https://thumb.test/3.png", time: 20 },
+    ]);
+
+    mockFetch.mockImplementation(async (_url, init) => {
+      const body = JSON.parse(String(init?.body));
+      const imageUrl = body.input[0].image_url.url as string;
+      if (imageUrl.endsWith("/1.png")) {
+        return mockOpenAIModerationResponse({ status: 200, body: { results: [] } });
+      }
+      if (imageUrl.endsWith("/2.png")) {
+        return mockOpenAIModerationResponse({ status: 200, body: { results: [{ category_scores: { sexual: 0.3 } }] } });
+      }
+      return mockOpenAIModerationResponse({ status: 200, body: { unexpected: true } });
+    });
+
+    const result = await getModerationScores("asset-123", { provider: "openai" });
+
+    expect(result.thumbnailScores).toEqual([
+      expect.objectContaining({ url: "https://thumb.test/1.png", error: true, errorMessage: expect.stringContaining("no result") }),
+      { url: "https://thumb.test/2.png", time: 10, sexual: 0.3, violence: 0, error: false },
+      expect.objectContaining({ url: "https://thumb.test/3.png", error: true, errorMessage: expect.stringContaining("unexpected response shape") }),
+    ]);
+    expect(result.maxScores).toEqual({ sexual: 0.3, violence: 0 });
+    expect(result.coverage).toMatchObject({ successfulSampleCount: 1, failedSampleCount: 2, isPartial: true });
+  });
+
   it("keeps confidence normal when enough thumbnail samples succeed", async () => {
     const urls = [
       { url: "https://thumb.test/a.png", time: 0 },
@@ -876,6 +906,69 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
       isPartial: true,
       isLowConfidence: false,
     });
+  });
+
+  it("scores windows the batch response omits as errors instead of clean", async () => {
+    vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack());
+    vi.mocked(getThumbnailUrls).mockResolvedValue(THUMBNAIL_URLS);
+    const { vtt } = buildEvenlySpacedVtt(8, 5);
+
+    let windowCount = 0;
+    mockFetch.mockImplementation(async (url, init) => {
+      if (String(url).endsWith(".vtt")) {
+        return { ok: true, status: 200, statusText: "OK", text: vi.fn().mockResolvedValue(vtt) } as any;
+      }
+      const body = JSON.parse(String(init?.body));
+      if (Array.isArray(body.input) && typeof body.input[0] === "string") {
+        windowCount = body.input.length;
+        // One result short of the input.
+        return mockOpenAIModerationResponse({
+          status: 200,
+          body: { results: body.input.slice(1).map(() => ({ category_scores: { sexual: 0.5, violence: 0.1 } })) },
+        });
+      }
+      return mockOpenAIModerationResponse({
+        status: 200,
+        body: { results: [{ category_scores: { sexual: 0.02, violence: 0.03 } }] },
+      });
+    });
+
+    const result = await getModerationScores("asset-123", { provider: "openai" });
+
+    expect(windowCount).toBeGreaterThan(1);
+    expect(result.transcriptScores).toHaveLength(windowCount);
+    const failed = result.transcriptScores.filter(s => s.error);
+    expect(failed).toHaveLength(1);
+    expect(failed[0].errorMessage).toContain(`${windowCount - 1} result(s) for ${windowCount} window(s)`);
+    expect(result.transcriptModeration).toEqual({ status: "completed" });
+    expect(result.maxScores).toEqual({ sexual: 0.5, violence: 0.1 });
+    expect(result.coverage).toMatchObject({ isPartial: true, isLowConfidence: false });
+  });
+
+  it("reports the transcript surface as failed when the batch response has no results", async () => {
+    vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack());
+    vi.mocked(getThumbnailUrls).mockResolvedValue(THUMBNAIL_URLS);
+
+    mockFetch.mockImplementation(async (url, init) => {
+      if (String(url).endsWith(".vtt")) {
+        return { ok: true, status: 200, statusText: "OK", text: vi.fn().mockResolvedValue(VTT_BODY) } as any;
+      }
+      const body = JSON.parse(String(init?.body));
+      if (Array.isArray(body.input) && typeof body.input[0] === "string") {
+        return mockOpenAIModerationResponse({ status: 200, body: { results: [] } });
+      }
+      return mockOpenAIModerationResponse({
+        status: 200,
+        body: { results: [{ category_scores: { sexual: 0.02, violence: 0.03 } }] },
+      });
+    });
+
+    const result = await getModerationScores("asset-123", { provider: "openai" });
+
+    expect(result.transcriptModeration).toMatchObject({ status: "failed" });
+    expect(result.transcriptScores).toEqual([expect.objectContaining({ error: true })]);
+    expect(result.maxScores).toEqual({ sexual: 0.02, violence: 0.03 });
+    expect(result.coverage).toMatchObject({ isPartial: true, isLowConfidence: true });
   });
 
   it("batches multiple windows into a single array `input` request", async () => {
