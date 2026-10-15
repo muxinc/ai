@@ -530,48 +530,6 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it("moderates only the transcript when moderateThumbnails is false", async () => {
-    vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack());
-    vi.mocked(getThumbnailUrls).mockResolvedValue(THUMBNAIL_URLS);
-    const counts = mockOpenAIFetch({ vtt: VTT_BODY });
-
-    const result = await getModerationScores("asset-123", {
-      provider: "openai",
-      moderateThumbnails: false,
-    });
-
-    expect(result.mode).toBe("transcript");
-    expect(result.thumbnailModeration).toEqual({ status: "not_requested" });
-    expect(result.transcriptModeration).toEqual({ status: "completed" });
-    expect(result.thumbnailScores).toEqual([]);
-    expect(result.transcriptScores.length).toBe(1);
-    expect(counts.image).toBe(0);
-    expect(getThumbnailUrls).not.toHaveBeenCalled();
-    // No thumbnails were requested, so confidence is driven by the transcript.
-    expect(result.coverage.requestedSampleCount).toBe(0);
-    expect(result.coverage.isLowConfidence).toBe(false);
-    expect(result.usage?.metadata).not.toHaveProperty("thumbnailCount");
-  });
-
-  it("moderates only thumbnails when moderateTranscript is false", async () => {
-    vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack());
-    vi.mocked(getThumbnailUrls).mockResolvedValue(THUMBNAIL_URLS);
-    // `vtt` omitted: any transcript fetch throws.
-    const counts = mockOpenAIFetch({});
-
-    const result = await getModerationScores("asset-123", {
-      provider: "openai",
-      moderateTranscript: false,
-    });
-
-    expect(result.mode).toBe("thumbnails");
-    expect(result.thumbnailModeration).toEqual({ status: "completed" });
-    expect(result.transcriptModeration).toEqual({ status: "not_requested" });
-    expect(result.transcriptScores).toEqual([]);
-    expect(counts.transcript).toBe(0);
-    expect(counts.image).toBe(3);
-  });
-
   it("skips thumbnails with no_video_track for an audio-only asset and moderates the transcript", async () => {
     vi.mocked(isAudioOnlyAsset).mockReturnValue(true);
     vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack("asset-audio"));
@@ -600,39 +558,6 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
     expect(result.coverage.requestedSampleCount).toBe(0);
     expect(result.maxScores.violence).toBe(0.06);
     expect(result.exceedsThreshold).toBe(false);
-  });
-
-  it("throws a customer-safe error before fetching the asset when both surfaces are disabled", async () => {
-    const error = await getModerationScores("asset-123", {
-      provider: "openai",
-      moderateThumbnails: false,
-      moderateTranscript: false,
-    }).catch(e => e);
-
-    expect(MuxAiError.is(error)).toBe(true);
-    expect(error.publicType).toBe("validation_error");
-    expect(error.message).toBe("At least one of moderateThumbnails or moderateTranscript must be true.");
-    expect(getPlaybackIdForAsset).not.toHaveBeenCalled();
-    expect(mockFetch).not.toHaveBeenCalled();
-  });
-
-  it("throws a customer-safe error when an audio-only asset has moderateTranscript disabled", async () => {
-    vi.mocked(isAudioOnlyAsset).mockReturnValue(true);
-    vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack("asset-audio"));
-    mockOpenAIFetch({});
-
-    const error = await getModerationScores("asset-audio", {
-      provider: "openai",
-      moderateTranscript: false,
-    }).catch(e => e);
-
-    expect(MuxAiError.is(error)).toBe(true);
-    expect(error.publicType).toBe("validation_error");
-    expect(error.message).toBe(
-      "Nothing to moderate. Thumbnails skipped: Asset has no video track, so there are no thumbnails to moderate. " +
-      "Transcript not requested (moderateTranscript: false).",
-    );
-    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it("throws a customer-safe error when an audio-only asset has no caption track", async () => {

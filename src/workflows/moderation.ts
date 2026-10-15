@@ -54,18 +54,17 @@ export interface TranscriptModerationScore {
 
 /**
  * Outcome of moderating one surface (thumbnails or transcript) of an asset.
- * Lets callers audit whether a surface was moderated, skipped (and why), or
- * simply not requested, instead of inferring it from an empty scores array.
+ * Lets callers audit whether a surface was moderated or skipped (and why),
+ * instead of inferring it from an empty scores array.
  */
 export interface ModerationSurfaceStatus<Reason extends string> {
   /**
    * - `"completed"` — moderation ran (at least one item was moderated;
    *   individual items may still carry a per-item `error`).
-   * - `"skipped"` — moderation was enabled but nothing could be moderated;
+   * - `"skipped"` — nothing could be moderated on this surface;
    *   see {@link skipReason} / {@link skipMessage}.
-   * - `"not_requested"` — the caller disabled this surface.
    */
-  status: "completed" | "skipped" | "not_requested";
+  status: "completed" | "skipped";
   /** Present only when `status === "skipped"`. Machine-readable reason. */
   skipReason?: Reason;
   /** Present only when `status === "skipped"`. Human-readable explanation. */
@@ -193,25 +192,6 @@ export interface ModerationOptions extends ScopedMuxAIOptions {
   imageSubmissionMode?: ImageSubmissionMode;
   /** Download tuning used when `imageSubmissionMode` === 'base64'. */
   imageDownloadOptions?: ImageDownloadOptions;
-  /**
-   * Moderate sampled storyboard thumbnails (image moderation). Audio-only
-   * assets have no thumbnails, so this surface is reported as skipped for them
-   * in {@link ModerationResult.thumbnailModeration}.
-   * At least one of `moderateThumbnails` / `moderateTranscript` must be true.
-   * @default true
-   */
-  moderateThumbnails?: boolean;
-  /**
-   * Moderate the caption transcript text (text moderation). If no ready caption
-   * track exists, or the track has nothing to moderate, this surface is
-   * reported as skipped in {@link ModerationResult.transcriptModeration} with a
-   * machine-readable `skipReason`; the call still succeeds and thumbnails still
-   * moderate. Transcription is never triggered. Only provider 'openai' supports
-   * text moderation; other providers report the surface as skipped.
-   * At least one of `moderateThumbnails` / `moderateTranscript` must be true.
-   * @default true
-   */
-  moderateTranscript?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1158,17 +1138,6 @@ async function requestThumbnailModeration(
   }
 }
 
-/** One sentence for the nothing-to-moderate error; `skipMessage` already ends with a period. */
-function describeSurfaceStatus(
-  label: string,
-  optionName: string,
-  status: ModerationSurfaceStatus<string>,
-): string {
-  return status.status === "skipped" ?
-    `${label} skipped: ${status.skipMessage}` :
-    `${label} not requested (${optionName}: false).`;
-}
-
 /**
  * Moderate a Mux asset. By default both surfaces are moderated where available:
  * - Thumbnails: sampled storyboard frames (image moderation). Skipped for audio-only assets.
@@ -1203,18 +1172,10 @@ export async function getModerationScores(
     maxConcurrent = 5,
     imageSubmissionMode = "url",
     imageDownloadOptions,
-    moderateThumbnails = true,
-    moderateTranscript = true,
     credentials: providedCredentials,
     scope,
   } = options;
   const credentials = providedCredentials;
-  if (!moderateThumbnails && !moderateTranscript) {
-    throw new MuxAiError(
-      "At least one of moderateThumbnails or moderateTranscript must be true.",
-      { type: "validation_error" },
-    );
-  }
   // Fetch asset data and playback ID from Mux via helper
   const { asset, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials, options.assetSnapshot);
   const videoTrackDurationSeconds = getVideoTrackDurationSecondsFromAsset(asset);
@@ -1258,16 +1219,16 @@ export async function getModerationScores(
   // that ends up with nothing to moderate fails without spending API calls,
   // and so both surfaces can then run in parallel.
 
-  let thumbnailModeration: ThumbnailModerationStatus = { status: "not_requested" };
+  let thumbnailModeration: ThumbnailModerationStatus = { status: "completed" };
   let thumbnailUrls: Array<{ url: string; time: number }> = [];
   let shouldRunThumbnails = false;
-  if (moderateThumbnails && isAudioOnly) {
+  if (isAudioOnly) {
     thumbnailModeration = {
       status: "skipped",
       skipReason: "no_video_track",
       skipMessage: "Asset has no video track, so there are no thumbnails to moderate.",
     };
-  } else if (moderateThumbnails && renderableScope && renderableScope.startTime >= renderableScope.endTime) {
+  } else if (renderableScope && renderableScope.startTime >= renderableScope.endTime) {
     // The scope sits entirely in trailing non-video media (asset duration
     // exceeds the video track). Nothing to sample, but caption cues can still
     // exist there, so this is a skip rather than a failure.
@@ -1276,7 +1237,7 @@ export async function getModerationScores(
       skipReason: "no_video_in_scope",
       skipMessage: "The requested scope does not include any renderable video, so there are no thumbnails to moderate.",
     };
-  } else if (moderateThumbnails) {
+  } else {
     // Cheaply estimate how many thumbnails the interval would produce so we
     // can skip generating (and potentially JWT-signing) URLs we'd discard.
     const scopedDuration = renderableScope ?
@@ -1321,16 +1282,16 @@ export async function getModerationScores(
     shouldRunThumbnails = true;
   }
 
-  let transcriptModeration: TranscriptModerationStatus = { status: "not_requested" };
+  let transcriptModeration: TranscriptModerationStatus = { status: "completed" };
   let transcriptCues: VTTCue[] = [];
   let shouldRunTranscript = false;
-  if (moderateTranscript && provider !== "openai") {
+  if (provider !== "openai") {
     transcriptModeration = {
       status: "skipped",
       skipReason: "unsupported_provider",
       skipMessage: `Provider '${provider}' is image-only and cannot moderate transcript text; use provider 'openai'.`,
     };
-  } else if (moderateTranscript && !findCaptionTrack(asset, languageCode)) {
+  } else if (!findCaptionTrack(asset, languageCode)) {
     transcriptModeration = {
       status: "skipped",
       skipReason: "no_ready_text_track",
@@ -1338,7 +1299,7 @@ export async function getModerationScores(
         `No ready caption/subtitle track found for language '${languageCode}'.` :
         "No ready caption/subtitle track found for this asset.",
     };
-  } else if (moderateTranscript) {
+  } else {
     // Fetch the raw VTT (cleanTranscript: false) so per-cue timecodes survive
     // for time-window segmentation. `required: true` throws a validation
     // MuxAiError for the valid-but-empty cases (blank body, no cues in scope),
@@ -1380,11 +1341,11 @@ export async function getModerationScores(
 
   if (!shouldRunThumbnails && !shouldRunTranscript) {
     // Never return a result with nothing scored: `exceedsThreshold: false`
-    // would read as "clean" to anything automating off it.
-    const thumbnailsDetail = describeSurfaceStatus("Thumbnails", "moderateThumbnails", thumbnailModeration);
-    const transcriptDetail = describeSurfaceStatus("Transcript", "moderateTranscript", transcriptModeration);
+    // would read as "clean" to anything automating off it. Both surfaces are
+    // skipped here, and every skipMessage already ends with a period.
     throw new MuxAiError(
-      `Nothing to moderate. ${thumbnailsDetail} ${transcriptDetail}`,
+      `Nothing to moderate. Thumbnails skipped: ${thumbnailModeration.skipMessage} ` +
+      `Transcript skipped: ${transcriptModeration.skipMessage}`,
       { type: "validation_error" },
     );
   }
@@ -1409,12 +1370,6 @@ export async function getModerationScores(
         ) :
         Promise.resolve<TranscriptModerationScore[]>([]),
   ]);
-  if (shouldRunThumbnails) {
-    thumbnailModeration = { status: "completed" };
-  }
-  if (shouldRunTranscript) {
-    transcriptModeration = { status: "completed" };
-  }
 
   const mode: ModerationResult["mode"] =
     shouldRunThumbnails && shouldRunTranscript ?

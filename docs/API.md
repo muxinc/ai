@@ -79,7 +79,7 @@ By default it moderates everything that's available on the asset and reports wha
 - **Thumbnails** — sampled storyboard frames (image moderation). Skipped for audio-only assets.
 - **Transcript** — the caption track's text, in time windows (text moderation). Skipped when the asset has no ready caption track or the track has nothing to moderate. Only `openai` supports text moderation; `hive` and `google-vision-api` are image-only and report the transcript as skipped.
 
-Each surface can be turned off with `moderateThumbnails: false` / `moderateTranscript: false`. The call throws if neither surface can be moderated (both disabled, or an audio-only asset with no usable caption track), since a result with nothing scored would read as "clean".
+Both surfaces are always moderated when available; there is no per-surface switch. The call throws if neither surface can be moderated (an audio-only asset with no usable caption track, or an audio-only asset with an image-only provider), since a result with nothing scored would read as "clean".
 
 **Parameters:**
 
@@ -103,8 +103,6 @@ Each surface can be turned off with `moderateThumbnails: false` / `moderateTrans
   - `retryDelay?: number` - Base delay between retries in milliseconds (default: 1000)
   - `maxRetryDelay?: number` - Maximum delay between retries in milliseconds (default: 10000)
   - `exponentialBackoff?: boolean` - Whether to use exponential backoff (default: true)
-- `moderateThumbnails?: boolean` - Moderate sampled storyboard thumbnails (default: `true`). Audio-only assets have no thumbnails, so the surface is reported as `skipped` in `thumbnailModeration` (`skipReason: "no_video_track"`); the same applies when `scope` lies entirely past the end of the video track (`skipReason: "no_video_in_scope"`). At least one of `moderateThumbnails` / `moderateTranscript` must be `true`.
-- `moderateTranscript?: boolean` - Moderate the caption transcript text (default: `true`). If no ready caption track exists, or the track has nothing to moderate, the surface is reported as `skipped` in `transcriptModeration` (`skipReason: "no_ready_text_track"` / `"no_cues"`) — the call still succeeds and thumbnails still moderate. Transcription is never triggered. Only provider `openai` supports text moderation; other providers report `skipReason: "unsupported_provider"`. Transcript scores are returned in the dedicated `transcriptScores` array, separate from `thumbnailScores`; they never enter the thumbnail `coverage` denominator. At least one of `moderateThumbnails` / `moderateTranscript` must be `true`.
 
 **Hive note:** this workflow uses Hive for image moderation only. Transcript text is never sent to Hive; with `provider: "hive"` the transcript surface is reported as skipped (`unsupported_provider`), and an audio-only asset therefore throws because nothing can be moderated.
 
@@ -137,9 +135,8 @@ Each surface can be turned off with `moderateThumbnails: false` / `moderateTrans
   }>;
   thumbnailModeration: { // Audit trail for the thumbnail surface
     // 'completed' — ran (individual thumbnails may still carry a per-item `error`).
-    // 'skipped'   — enabled but nothing to moderate (see `skipReason` / `skipMessage`).
-    // 'not_requested' — moderateThumbnails: false.
-    status: 'completed' | 'skipped' | 'not_requested';
+    // 'skipped'   — nothing to moderate (see `skipReason` / `skipMessage`).
+    status: 'completed' | 'skipped';
     // Present only when status === 'skipped':
     //   'no_video_track'    — the asset has no video track, so there are no thumbnails.
     //   'no_video_in_scope' — the requested `scope` lies entirely past the end of the video track.
@@ -148,9 +145,8 @@ Each surface can be turned off with `moderateThumbnails: false` / `moderateTrans
   };
   transcriptModeration: { // Audit trail for the transcript surface
     // 'completed' — ran (individual windows may still carry a per-item `error`).
-    // 'skipped'   — enabled but nothing to moderate (see `skipReason` / `skipMessage`).
-    // 'not_requested' — moderateTranscript: false.
-    status: 'completed' | 'skipped' | 'not_requested';
+    // 'skipped'   — nothing to moderate (see `skipReason` / `skipMessage`).
+    status: 'completed' | 'skipped';
     // Present only when status === 'skipped':
     //   'no_ready_text_track'  — no ready caption/subtitle track (or none matching languageCode).
     //   'no_cues'              — a track exists but produced nothing to moderate: empty VTT body,
@@ -180,7 +176,7 @@ Each surface can be turned off with `moderateThumbnails: false` / `moderateTrans
 }
 ```
 
-**Skipped surfaces are auditable, not silent.** The result always carries `thumbnailModeration` and `transcriptModeration`, each describing whether that surface was `not_requested`, `completed`, or `skipped` — and, when skipped, a machine-readable `skipReason` plus a human-readable `skipMessage`. This lets callers tell "moderated cleanly with no findings" apart from "nothing was moderated" without inspecting an empty scores array. Skips are for expected conditions only (no caption track, an empty track, an image-only provider); a caption track that exists but cannot be fetched is an error, not a skip. If both surfaces end up skipped or disabled, the call throws rather than returning `exceedsThreshold: false` for an asset nothing was checked on.
+**Skipped surfaces are auditable, not silent.** The result always carries `thumbnailModeration` and `transcriptModeration`, each describing whether that surface was `completed` or `skipped` — and, when skipped, a machine-readable `skipReason` plus a human-readable `skipMessage`. This lets callers tell "moderated cleanly with no findings" apart from "nothing was moderated" without inspecting an empty scores array. Skips are for expected conditions only (no caption track, an empty track, an image-only provider); a caption track that exists but cannot be fetched is an error, not a skip. If both surfaces end up skipped, the call throws rather than returning `exceedsThreshold: false` for an asset nothing was checked on.
 
 **Transcript moderation uses dynamic, overlapping time windows.** Each `transcriptScores` entry is a moderated **time window** carrying `startTime`/`endTime` (in seconds) — directly analogous to how a flagged thumbnail carries its `time` — so consumers can locate flagged speech on the timeline rather than receiving a single verdict for the whole transcript. Window **size scales with the asset's duration** (`windowSeconds = clamp(duration / 40, 20s, 120s)`), and consecutive windows **overlap** (~15% of the window size, at least 5 seconds) so content that straddles a window boundary is still scored intact in at least one window. Windows are aligned to caption-cue boundaries (a single cue is never split across windows) so the reported timecodes stay accurate. Because windows overlap by design, **consecutive `transcriptScores` entries' `[startTime, endTime]` ranges may overlap** by roughly the overlap amount. Windows are sent to OpenAI as **batched array requests** (multiple window texts per `/v1/moderations` call via the array `input`, with `results[]` mapped back index-aligned); if a batch is rejected as too large it is split in half and retried down to a single window. When both thumbnails and transcript windows are moderated, `mode` is `'combined'`; `maxScores`/`exceedsThreshold` aggregate the highest `sexual`/`violence` across thumbnails **and** all transcript windows.
 
