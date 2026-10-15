@@ -264,7 +264,7 @@ describe("getModerationScores coverage metadata", () => {
     const result = await getModerationScores("asset-123", { provider: "openai" });
 
     expect(result.thumbnailScores).toEqual([
-      expect.objectContaining({ url: "https://thumb.test/1.png", error: true, errorMessage: expect.stringContaining("no result") }),
+      expect.objectContaining({ url: "https://thumb.test/1.png", error: true, errorMessage: expect.stringContaining("0 result(s) for 1 input(s)") }),
       { url: "https://thumb.test/2.png", time: 10, sexual: 0.3, violence: 0, error: false },
       expect.objectContaining({ url: "https://thumb.test/3.png", error: true, errorMessage: expect.stringContaining("unexpected response shape") }),
     ]);
@@ -927,7 +927,7 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
     });
   });
 
-  it("scores windows the batch response omits as errors instead of clean", async () => {
+  it("fails the whole batch when the response has fewer results than windows", async () => {
     vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack());
     vi.mocked(getThumbnailUrls).mockResolvedValue(THUMBNAIL_URLS);
     const { vtt } = buildEvenlySpacedVtt(8, 5);
@@ -956,12 +956,16 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
 
     expect(windowCount).toBeGreaterThan(1);
     expect(result.transcriptScores).toHaveLength(windowCount);
-    const failed = result.transcriptScores.filter(s => s.error);
-    expect(failed).toHaveLength(1);
-    expect(failed[0].errorMessage).toContain(`${windowCount - 1} result(s) for ${windowCount} window(s)`);
-    expect(result.transcriptModeration).toEqual({ status: "completed" });
-    expect(result.maxScores).toEqual({ sexual: 0.5, violence: 0.1 });
-    expect(result.coverage).toMatchObject({ isPartial: true, isLowConfidence: false });
+    for (const score of result.transcriptScores) {
+      expect(score).toMatchObject({
+        error: true,
+        errorMessage: expect.stringContaining(`${windowCount - 1} result(s) for ${windowCount} input(s)`),
+      });
+    }
+    expect(result.transcriptModeration).toMatchObject({ status: "failed" });
+    // None of the misaligned scores leak into the aggregate.
+    expect(result.maxScores).toEqual({ sexual: 0.02, violence: 0.03 });
+    expect(result.coverage).toMatchObject({ isPartial: true, isLowConfidence: true });
   });
 
   it("reports the transcript surface as failed when the batch response has no results", async () => {

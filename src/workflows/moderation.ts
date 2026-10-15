@@ -350,8 +350,9 @@ function parseOpenAIModerationResponse(
 
 /**
  * The parts of an OpenAI `/v1/moderations` response this workflow reads. The
- * structure must match; a category missing from `category_scores` is read as
- * 0 (the model did not flag it).
+ * structure must match and `results` must be index-aligned with `input` (one
+ * result per item); a category missing from `category_scores` is read as 0
+ * (the model did not flag it).
  */
 const OpenAIModerationResponseSchema = z.object({
   results: z.array(z.object({
@@ -422,6 +423,13 @@ async function callOpenAIModerationApi({
           { status: res.status, retriable: false },
         );
       }
+      const expectedResultCount = Array.isArray(input) ? input.length : 1;
+      if (parsed.data.results.length !== expectedResultCount) {
+        throw new OpenAIModerationRequestError(
+          `OpenAI moderation returned ${parsed.data.results.length} result(s) for ${expectedResultCount} input(s).`,
+          { status: res.status, retriable: false },
+        );
+      }
       return parsed.data;
     },
     {
@@ -473,10 +481,7 @@ async function moderateImageWithOpenAI(entry: {
       ],
       credentials: entry.credentials,
     });
-    const result = results[0];
-    if (!result) {
-      throw new OpenAIModerationRequestError("OpenAI moderation returned no result for the image.", { retriable: false });
-    }
+    const [result] = results;
 
     return {
       url: entry.url,
@@ -757,7 +762,9 @@ function transcriptErrorScore(
 
 /**
  * Moderate a batch of transcript windows in a single array-`input` request,
- * mapping each `results[i]` back to window `i`.
+ * mapping each `results[i]` back to window `i`. A response with a different
+ * number of results than windows is rejected by {@link callOpenAIModerationApi}
+ * and fails the whole batch, since it cannot be mapped back reliably.
  *
  * Fallback: if the request fails with a 400 (too large) and the batch holds
  * more than one window, split the batch in half and retry each half
@@ -780,16 +787,8 @@ async function moderateTranscriptBatchWithOpenAI(
       input: windows.map(window => window.text),
       credentials,
     });
-    // `results` is index-aligned with `input`; a window with no result must
-    // not read as clean.
     return windows.map((window, index) => {
       const result = results[index];
-      if (!result) {
-        return transcriptErrorScore(
-          window,
-          new Error(`OpenAI moderation returned ${results.length} result(s) for ${windows.length} window(s); none for this window.`),
-        );
-      }
       return {
         startTime: window.startTime,
         endTime: window.endTime,
