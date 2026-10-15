@@ -510,8 +510,8 @@ function clamp(value: number, min: number, max: number): number {
  * emitted sub-window carries its own cue span as `[startTime, endTime]`.
  *
  * A single cue whose text alone already exceeds the cap is emitted as its own
- * sub-window (its text is sent as-is — OpenAI truncation is acceptable — so the
- * timecodes stay accurate).
+ * sub-window and sent as-is, so the timecodes stay accurate. If it is large
+ * enough for the provider to reject, that window scores as an error.
  */
 function splitCuesUnderCharCeiling(
   cues: VTTCue[],
@@ -1323,7 +1323,9 @@ export async function getModerationScores(
     }
 
     if (transcriptText !== undefined) {
-      transcriptCues = parseVTTCues(transcriptText);
+      // No cue cap: the text goes to a classifier, not a prompt, and a
+      // truncated cue would hide whatever follows the cut from moderation.
+      transcriptCues = parseVTTCues(transcriptText, { capCueText: false });
       const windows = transcriptCues.length === 0 ?
           [] :
           buildTranscriptWindows(transcriptCues, duration);

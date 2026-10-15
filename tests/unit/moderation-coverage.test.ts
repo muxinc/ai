@@ -721,6 +721,43 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
     expect(containing.length).toBeGreaterThanOrEqual(2);
   });
 
+  it("sends a cue longer than the parser's default cap to the provider untruncated", async () => {
+    vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack());
+    vi.mocked(getThumbnailUrls).mockResolvedValue([{ url: "https://thumb.test/a.png", time: 0 }]);
+
+    const longCue = "a".repeat(3000);
+    const transcriptInputs: string[] = [];
+    mockFetch.mockImplementation(async (url, init) => {
+      if (String(url).endsWith(".vtt")) {
+        return {
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          text: vi.fn().mockResolvedValue(`WEBVTT\n\n00:00:01.000 --> 00:00:04.000\n${longCue}\n`),
+        } as any;
+      }
+      const body = JSON.parse(String(init?.body));
+      if (Array.isArray(body.input) && typeof body.input[0] === "string") {
+        transcriptInputs.push(...body.input);
+        return mockOpenAIModerationResponse({
+          status: 200,
+          body: { results: body.input.map(() => ({ category_scores: { sexual: 0.01, violence: 0.02 } })) },
+        });
+      }
+      return mockOpenAIModerationResponse({
+        status: 200,
+        body: { results: [{ category_scores: { sexual: 0.0, violence: 0.0 } }] },
+      });
+    });
+
+    const result = await getModerationScores("asset-123", { provider: "openai" });
+
+    expect(result.transcriptModeration).toEqual({ status: "completed" });
+    expect(transcriptInputs).toHaveLength(1);
+    expect(transcriptInputs[0]).toContain(longCue);
+    expect(transcriptInputs[0]).not.toContain("[…truncated]");
+  });
+
   it("batches multiple windows into a single array `input` request", async () => {
     vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack());
     vi.mocked(getVideoTrackDurationSecondsFromAsset).mockReturnValue(40);

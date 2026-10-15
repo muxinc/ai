@@ -497,15 +497,29 @@ export function extractTimestampedTranscript(vttContent: string): string {
   );
 }
 
+export interface ParseVTTCuesOptions {
+  /**
+   * Truncate each cue's text to {@link MAX_CUE_TEXT_CHARS}. Defaults to
+   * `true`, which is right for any consumer that puts cue text into an LLM
+   * prompt. Pass `false` when the text goes to a classifier instead
+   * (e.g. moderation), where truncating would hide content from the check
+   * rather than defend against injection.
+   */
+  capCueText?: boolean;
+}
+
 /**
  * Parses VTT content into structured cues with timing.
  *
  * @param vttContent - Raw VTT file content
+ * @param options - See {@link ParseVTTCuesOptions}
  * @returns Array of VTT cues with start/end times and text
  */
-export function parseVTTCues(vttContent: string): VTTCue[] {
+export function parseVTTCues(vttContent: string, options: ParseVTTCuesOptions = {}): VTTCue[] {
   if (!vttContent.trim())
     return [];
+
+  const { capCueText = true } = options;
 
   const lines = vttContent.split("\n");
   const cues: VTTCue[] = [];
@@ -556,15 +570,16 @@ export function parseVTTCues(vttContent: string): VTTCue[] {
         .filter(Boolean);
 
       if (textLines.length > 0) {
+        const sanitized = sanitizeUntrustedText(textLines.join(" "));
         cues.push({
           startTime,
           endTime,
           // Sanitize at the cue boundary so every downstream consumer
           // (engagement-insights, translate-captions chunked path, etc.)
           // receives text free of invisible / bidi obfuscation. Length-
-          // cap the result so an adversarially oversized cue cannot
-          // smuggle a large injection payload into the prompt.
-          text: capCueTextLength(sanitizeUntrustedText(textLines.join(" "))),
+          // cap the result by default so an adversarially oversized cue
+          // cannot smuggle a large injection payload into a prompt.
+          text: capCueText ? capCueTextLength(sanitized) : sanitized,
         });
       }
 
