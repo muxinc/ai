@@ -79,7 +79,6 @@ By default it moderates everything that's available on the asset and reports wha
 - **Thumbnails** — sampled storyboard frames (image moderation). Skipped for audio-only assets.
 - **Transcript** — the caption track's text, in time windows (text moderation). Skipped when the asset has no ready caption track or the track has nothing to moderate. Only `openai` supports text moderation; `hive` and `google-vision-api` are image-only and report the transcript as skipped.
 
-Both surfaces are always moderated when available; there is no per-surface switch. The call throws if neither surface can be moderated (an audio-only asset with no usable caption track, or an audio-only asset with an image-only provider), since a result with nothing scored would read as "clean".
 
 **Parameters:**
 
