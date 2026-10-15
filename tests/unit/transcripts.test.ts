@@ -7,6 +7,7 @@ import {
   buildVttFromTranslatedCueBlocks,
   concatenateVttSegments,
   extractTextFromVTT,
+  fetchTranscriptDataForUrl,
   fetchTranscriptForAsset,
   filterVttByScope,
   findCaptionTrack,
@@ -182,6 +183,37 @@ describe("fetchTranscriptForAsset", () => {
     await expect(fetchTranscriptForAsset(asset, "playback-1", {
       required: true,
     })).rejects.toThrow("Transcript track is missing an id.");
+  });
+
+  it("fetchTranscriptDataForUrl reports why a transcript is empty instead of throwing", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    fetchMock.mockResolvedValueOnce({ ok: true, text: vi.fn().mockResolvedValue("WEBVTT\n") });
+    await expect(fetchTranscriptDataForUrl("https://stream.mux.com/p/text/t.vtt")).resolves.toEqual({
+      transcriptText: "",
+      emptyReason: "empty_body",
+    });
+
+    const vtt = dedent`
+      WEBVTT
+
+      00:00:00.000 --> 00:00:03.000
+      Hello there.
+    `;
+    fetchMock.mockResolvedValueOnce({ ok: true, text: vi.fn().mockResolvedValue(vtt) });
+    await expect(fetchTranscriptDataForUrl("https://stream.mux.com/p/text/t.vtt", {
+      cleanTranscript: false,
+      scope: { startTime: 100, endTime: 110 },
+    })).resolves.toMatchObject({ emptyReason: "no_scoped_cues" });
+
+    fetchMock.mockResolvedValueOnce({ ok: true, text: vi.fn().mockResolvedValue(vtt) });
+    await expect(fetchTranscriptDataForUrl("https://stream.mux.com/p/text/t.vtt")).resolves.toEqual({
+      transcriptText: "Hello there.",
+    });
+
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 503, text: vi.fn().mockResolvedValue("") });
+    await expect(fetchTranscriptDataForUrl("https://stream.mux.com/p/text/t.vtt")).rejects.toThrow("Failed to fetch transcript");
   });
 
   it("throws when required and no cues survive the requested scope", async () => {

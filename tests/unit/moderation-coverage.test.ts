@@ -606,6 +606,25 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
+  it("fails rather than skipping when the caption track is missing an id", async () => {
+    vi.mocked(getPlaybackIdForAsset).mockResolvedValue({
+      asset: {
+        id: "asset-123",
+        tracks: [{ type: "text", status: "ready", text_type: "subtitles", language_code: "en" }],
+      },
+      playbackId: "playback-123",
+      policy: "public",
+    } as any);
+    vi.mocked(getThumbnailUrls).mockResolvedValue(THUMBNAIL_URLS);
+    mockOpenAIFetch({});
+
+    const error = await getModerationScores("asset-123", { provider: "openai" }).catch(e => e);
+
+    expect(MuxAiError.is(error)).toBe(true);
+    expect(error.publicType).toBe("validation_error");
+    expect(error.publicMessage).toBe("Transcript track is missing an id.");
+  });
+
   it("fails rather than skipping when the caption track exists but the VTT fetch fails", async () => {
     vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack());
     vi.mocked(getThumbnailUrls).mockResolvedValue(THUMBNAIL_URLS);

@@ -57,6 +57,23 @@ console.log(result.track); // Mux track metadata
 - `shouldSign?: boolean` - For signed playback policies
 - `required?: boolean` - Throw a customer-safe `MuxAiError` if no usable transcript can be retrieved (default: false, returns an empty `transcriptText` instead)
 
+### `fetchTranscriptDataForUrl(transcriptUrl, options?)`
+
+The fetch-and-parse half of `fetchTranscriptForAsset`, for callers that already have a transcript URL (see `buildTranscriptUrl`) and want to decide for themselves what an empty transcript means. Nothing-to-read is reported, not thrown; a failed HTTP fetch still throws.
+
+```typescript
+import { buildTranscriptUrl, fetchTranscriptDataForUrl } from "@mux/ai/primitives";
+
+const url = await buildTranscriptUrl("playback-id", "track-id");
+const { transcriptText, emptyReason } = await fetchTranscriptDataForUrl(url, {
+  cleanTranscript: false,
+  scope: { startTime: 30, endTime: 90 },
+});
+// emptyReason: undefined | "empty_body" | "no_scoped_cues"
+```
+
+**Options:** `cleanTranscript` and `scope`, as for `fetchTranscriptForAsset`.
+
 ### `extractTextFromVTT(vttContent)`
 
 Cleans VTT content to plain text by removing timestamps, formatting, and metadata.
@@ -76,9 +93,9 @@ const cleanText = extractTextFromVTT(vttContent);
 // "Hello and welcome to the video. Today we'll be discussing AI."
 ```
 
-### `parseVTTCues(vttContent)`
+### `parseVTTCues(vttContent, options?)`
 
-Parses VTT into structured cues with timing information.
+Parses VTT into structured cues with timing information. Each cue's text is sanitized and, by default, capped at `MAX_CUE_TEXT_CHARS` (2,000) as a prompt-injection defense. Pass `{ capCueText: false }` when the text goes to a classifier rather than a prompt, so nothing is hidden from the check.
 
 ```typescript
 import { parseVTTCues } from "@mux/ai/primitives";

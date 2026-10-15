@@ -19,7 +19,7 @@ import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
 import { hasWorkflowScopeBoundaries, resolveWorkflowScope } from "../lib/workflow-scope.ts";
 import { getThumbnailUrls } from "../primitives/thumbnails.ts";
 import type { VTTCue } from "../primitives/transcripts.ts";
-import { fetchTranscriptForAsset, findCaptionTrack, parseVTTCues } from "../primitives/transcripts.ts";
+import { buildTranscriptUrl, fetchTranscriptDataForUrl, findCaptionTrack, parseVTTCues } from "../primitives/transcripts.ts";
 import type {
   ImageSubmissionMode,
   ScopedMuxAIOptions,
@@ -1337,13 +1337,14 @@ export async function getModerationScores(
   let transcriptModeration: TranscriptModerationStatus = { status: "completed" };
   let transcriptCues: VTTCue[] = [];
   let shouldRunTranscript = false;
+  const captionTrack = provider === "openai" ? findCaptionTrack(asset, languageCode) : undefined;
   if (provider !== "openai") {
     transcriptModeration = {
       status: "skipped",
       skipReason: "unsupported_provider",
       skipMessage: `Provider '${provider}' is image-only and cannot moderate transcript text; use provider 'openai'.`,
     };
-  } else if (!findCaptionTrack(asset, languageCode)) {
+  } else if (!captionTrack) {
     transcriptModeration = {
       status: "skipped",
       skipReason: "no_ready_text_track",
@@ -1352,29 +1353,27 @@ export async function getModerationScores(
         "No ready caption/subtitle track found for this asset.",
     };
   } else {
-    // Fetch the raw VTT (cleanTranscript: false) so per-cue timecodes survive
-    // for time-window segmentation. `required: true` throws a validation
-    // MuxAiError for the valid-but-empty cases (blank body, no cues in scope),
-    // which we downgrade to a skip; anything else (the VTT fetch itself failed)
-    // is a genuine error and propagates.
-    let transcriptText: string | undefined;
-    try {
-      ({ transcriptText } = await fetchTranscriptForAsset(asset, playbackId, {
-        languageCode,
-        cleanTranscript: false,
-        shouldSign: policy === "signed",
-        credentials,
-        required: true,
-        scope: effectiveScope,
-      }));
-    } catch (error) {
-      if (!(MuxAiError.is(error) && error.publicType === "validation_error")) {
-        throw error;
-      }
-      transcriptModeration = { status: "skipped", skipReason: "no_cues", skipMessage: error.publicMessage };
+    if (!captionTrack.id) {
+      throw new MuxAiError("Transcript track is missing an id.", { type: "validation_error" });
     }
+    // Fetch the raw VTT (cleanTranscript: false) so per-cue timecodes survive
+    // for time-window segmentation. An empty transcript is a skip; a failed
+    // fetch propagates.
+    const transcriptUrl = await buildTranscriptUrl(playbackId, captionTrack.id, policy === "signed", credentials);
+    const { transcriptText, emptyReason } = await fetchTranscriptDataForUrl(transcriptUrl, {
+      cleanTranscript: false,
+      scope: effectiveScope,
+    });
 
-    if (transcriptText !== undefined) {
+    if (emptyReason) {
+      transcriptModeration = {
+        status: "skipped",
+        skipReason: "no_cues",
+        skipMessage: emptyReason === "no_scoped_cues" ?
+          "Transcript has no cues in the requested scope." :
+          "Transcript is empty.",
+      };
+    } else {
       // No cue cap: the text goes to a classifier, not a prompt, and a
       // truncated cue would hide whatever follows the cut from moderation.
       transcriptCues = parseVTTCues(transcriptText, { capCueText: false });

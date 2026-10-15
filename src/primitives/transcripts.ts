@@ -780,26 +780,30 @@ export async function buildTranscriptUrl(
   return baseUrl;
 }
 
-interface TranscriptFetchStepResult {
+/**
+ * Why a fetched transcript had nothing usable:
+ * - `"empty_body"` — the VTT had no text at all.
+ * - `"no_scoped_cues"` — the VTT had cues, but none inside the requested `scope`.
+ */
+export type TranscriptEmptyReason = "empty_body" | "no_scoped_cues";
+
+export interface TranscriptFetchStepResult {
   transcriptText: string;
-  /**
-   * Set when `transcriptText` came back empty. Never part of the public
-   * `TranscriptResult` shape returned to callers — internal to this module.
-   */
-  emptyReason?: "empty_body" | "no_scoped_cues";
+  /** Set when `transcriptText` came back empty. */
+  emptyReason?: TranscriptEmptyReason;
 }
 
 /**
- * Does the actual network fetch and VTT parsing for an already-resolved
- * transcript URL. Deliberately never throws a customer-safe error for "no
- * usable transcript" itself — the {@link fetchTranscriptForAsset} wrapper
- * handles propagating errors.
+ * Fetches and parses the VTT at an already-resolved transcript URL (see
+ * {@link buildTranscriptUrl}). An empty transcript is reported through
+ * `emptyReason` rather than thrown, so callers decide whether that is an
+ * error or a skip; {@link fetchTranscriptForAsset} is the wrapper that turns
+ * it into a customer-safe error when `required`.
  *
- * Still throws (uncaught) on a transient HTTP/network failure while
- * fetching the VTT file, so Workflow DevKit's normal step-retry applies to
- * that specific, genuinely-transient case.
+ * Throws on an HTTP/network failure while fetching the VTT file, so Workflow
+ * DevKit's normal step-retry applies to that genuinely-transient case.
  */
-async function fetchTranscriptDataForUrl(
+export async function fetchTranscriptDataForUrl(
   transcriptUrl: string,
   options: Pick<TranscriptFetchOptions, "cleanTranscript" | "scope"> = {},
 ): Promise<TranscriptFetchStepResult> {
