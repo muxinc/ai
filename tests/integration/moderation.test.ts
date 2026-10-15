@@ -35,7 +35,7 @@ describe("moderation Integration Tests", () => {
       expect(result.thumbnailModeration).toEqual({ status: "completed" });
       // Transcript moderation is on by default; whether it ran depends on the
       // fixture having captions, but it must always be reported.
-      expect(["completed", "skipped"]).toContain(result.transcriptModeration.status);
+      expect(["completed", "skipped", "failed"]).toContain(result.transcriptModeration.status);
 
       // Assert not violent and not sexual
       expect(result.maxScores.violence).toBeLessThan(VIOLENCE_THRESHOLD);

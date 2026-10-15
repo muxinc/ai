@@ -758,6 +758,126 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
     expect(transcriptInputs[0]).not.toContain("[…truncated]");
   });
 
+  it("reports the transcript surface as failed when every window errors, and lowers confidence", async () => {
+    vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack());
+    vi.mocked(getThumbnailUrls).mockResolvedValue(THUMBNAIL_URLS);
+
+    mockFetch.mockImplementation(async (url, init) => {
+      if (String(url).endsWith(".vtt")) {
+        return { ok: true, status: 200, statusText: "OK", text: vi.fn().mockResolvedValue(VTT_BODY) } as any;
+      }
+      const body = JSON.parse(String(init?.body));
+      if (Array.isArray(body.input) && typeof body.input[0] === "string") {
+        return mockOpenAIModerationResponse({ status: 400, body: { error: { message: "text rejected" } } });
+      }
+      return mockOpenAIModerationResponse({
+        status: 200,
+        body: { results: [{ category_scores: { sexual: 0.02, violence: 0.03 } }] },
+      });
+    });
+
+    const result = await getModerationScores("asset-123", { provider: "openai" });
+
+    expect(result.mode).toBe("combined");
+    expect(result.thumbnailModeration).toEqual({ status: "completed" });
+    expect(result.transcriptModeration).toEqual({
+      status: "failed",
+      errorMessage: expect.stringContaining("All 1 transcript window(s) failed to moderate"),
+    });
+    expect(result.transcriptModeration.errorMessage).toContain("text rejected");
+    expect(result.transcriptScores).toHaveLength(1);
+    expect(result.transcriptScores[0].error).toBe(true);
+    expect(result.maxScores).toEqual({ sexual: 0.02, violence: 0.03 });
+    expect(result.coverage).toEqual({
+      requestedSampleCount: 3,
+      successfulSampleCount: 3,
+      failedSampleCount: 0,
+      sampleCoverage: 1,
+      isPartial: true,
+      isLowConfidence: true,
+    });
+  });
+
+  it("reports the thumbnail surface as failed when every thumbnail errors, and lowers confidence", async () => {
+    vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack());
+    vi.mocked(getThumbnailUrls).mockResolvedValue(THUMBNAIL_URLS);
+
+    mockFetch.mockImplementation(async (url, init) => {
+      if (String(url).endsWith(".vtt")) {
+        return { ok: true, status: 200, statusText: "OK", text: vi.fn().mockResolvedValue(VTT_BODY) } as any;
+      }
+      const body = JSON.parse(String(init?.body));
+      if (Array.isArray(body.input) && typeof body.input[0] === "string") {
+        return mockOpenAIModerationResponse({
+          status: 200,
+          body: { results: body.input.map(() => ({ category_scores: { sexual: 0.4, violence: 0.1 } })) },
+        });
+      }
+      return mockOpenAIModerationResponse({ status: 400, body: { error: { message: "invalid image payload" } } });
+    });
+
+    const result = await getModerationScores("asset-123", { provider: "openai" });
+
+    expect(result.mode).toBe("combined");
+    expect(result.thumbnailModeration).toEqual({
+      status: "failed",
+      errorMessage: expect.stringContaining("All 3 thumbnail(s) failed to moderate"),
+    });
+    expect(result.thumbnailModeration.errorMessage).toContain("invalid image payload");
+    expect(result.transcriptModeration).toEqual({ status: "completed" });
+    expect(result.maxScores).toEqual({ sexual: 0.4, violence: 0.1 });
+    expect(result.coverage).toEqual({
+      requestedSampleCount: 3,
+      successfulSampleCount: 0,
+      failedSampleCount: 3,
+      sampleCoverage: 0,
+      isPartial: true,
+      isLowConfidence: true,
+    });
+  });
+
+  it("keeps the transcript surface completed when only some windows error, but marks the result partial", async () => {
+    vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack());
+    vi.mocked(getThumbnailUrls).mockResolvedValue(THUMBNAIL_URLS);
+
+    const { vtt } = buildEvenlySpacedVtt(8, 5);
+
+    mockFetch.mockImplementation(async (url, init) => {
+      if (String(url).endsWith(".vtt")) {
+        return { ok: true, status: 200, statusText: "OK", text: vi.fn().mockResolvedValue(vtt) } as any;
+      }
+      const body = JSON.parse(String(init?.body));
+      if (Array.isArray(body.input) && typeof body.input[0] === "string") {
+        // Reject batches so each window is scored alone, then reject only the
+        // window(s) carrying cue 3.
+        const reject = body.input.length > 1 || body.input[0].includes("cue 3 content");
+        if (reject) {
+          return mockOpenAIModerationResponse({ status: 400, body: { error: { message: "rejected" } } });
+        }
+        return mockOpenAIModerationResponse({
+          status: 200,
+          body: { results: [{ category_scores: { sexual: 0.01, violence: 0.02 } }] },
+        });
+      }
+      return mockOpenAIModerationResponse({
+        status: 200,
+        body: { results: [{ category_scores: { sexual: 0.02, violence: 0.03 } }] },
+      });
+    });
+
+    const result = await getModerationScores("asset-123", { provider: "openai" });
+
+    expect(result.transcriptModeration).toEqual({ status: "completed" });
+    const failedWindows = result.transcriptScores.filter(s => s.error);
+    expect(failedWindows.length).toBeGreaterThan(0);
+    expect(failedWindows.length).toBeLessThan(result.transcriptScores.length);
+    expect(result.coverage).toMatchObject({
+      failedSampleCount: 0,
+      isPartial: true,
+      isLowConfidence: false,
+    });
+  });
+
   it("batches multiple windows into a single array `input` request", async () => {
     vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack());
     vi.mocked(getVideoTrackDurationSecondsFromAsset).mockReturnValue(40);

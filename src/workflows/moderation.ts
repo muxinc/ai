@@ -59,16 +59,22 @@ export interface TranscriptModerationScore {
  */
 export interface ModerationSurfaceStatus<Reason extends string> {
   /**
-   * - `"completed"` — moderation ran (at least one item was moderated;
-   *   individual items may still carry a per-item `error`).
+   * - `"completed"` — moderation ran and at least one item was scored
+   *   (individual items may still carry a per-item `error`).
    * - `"skipped"` — nothing could be moderated on this surface;
    *   see {@link skipReason} / {@link skipMessage}.
+   * - `"failed"` — moderation ran but every item errored, so this surface
+   *   contributed no scores; see {@link errorMessage}. The result is still
+   *   returned when the other surface succeeded, with
+   *   `coverage.isLowConfidence` set.
    */
-  status: "completed" | "skipped";
+  status: "completed" | "skipped" | "failed";
   /** Present only when `status === "skipped"`. Machine-readable reason. */
   skipReason?: Reason;
   /** Present only when `status === "skipped"`. Human-readable explanation. */
   skipMessage?: string;
+  /** Present only when `status === "failed"`. Summarizes the per-item errors. */
+  errorMessage?: string;
 }
 
 /**
@@ -117,9 +123,9 @@ export interface ModerationResult {
    * `transcriptModeration.status` is `"completed"`.
    */
   transcriptScores: TranscriptModerationScore[];
-  /** Audit trail for the thumbnail surface: completed, skipped (and why), or not requested. */
+  /** Audit trail for the thumbnail surface: completed, skipped (and why), or failed (and why). */
   thumbnailModeration: ThumbnailModerationStatus;
-  /** Audit trail for the transcript surface: completed, skipped (and why), or not requested. */
+  /** Audit trail for the transcript surface: completed, skipped (and why), or failed (and why). */
   transcriptModeration: TranscriptModerationStatus;
   /** Coverage metadata describing how many requested moderation samples actually succeeded. */
   coverage: {
@@ -128,12 +134,15 @@ export interface ModerationResult {
     failedSampleCount: number;
     /** Fraction of requested samples that produced a usable moderation result. */
     sampleCoverage: number;
-    /** True when at least one sample failed but the workflow still returned a result. */
+    /**
+     * True when at least one thumbnail or transcript window failed but the
+     * workflow still returned a result.
+     */
     isPartial: boolean;
     /**
-     * True when threshold interpretation should be treated cautiously.
-     * For thumbnail moderation, this means we either covered less than half of planned samples
-     * or ended up with fewer than 3 successful thumbnails.
+     * True when threshold interpretation should be treated cautiously: fewer
+     * than half of the planned thumbnails (or fewer than 3) succeeded, or a
+     * surface that ran failed entirely.
      */
     isLowConfidence: boolean;
   };
@@ -498,6 +507,14 @@ interface TranscriptWindow {
   startTime: number;
   endTime: number;
   text: string;
+}
+
+function describeSurfaceFailure(
+  itemLabel: string,
+  scores: ReadonlyArray<{ error?: boolean; errorMessage?: string }>,
+): string {
+  const messages = Array.from(new Set(scores.map(s => s.errorMessage || "Unknown error")));
+  return `All ${scores.length} ${itemLabel}(s) failed to moderate: ${messages.join("; ")}`;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -1402,6 +1419,23 @@ export async function getModerationScores(
     );
   }
 
+  // A surface that ran but scored nothing must not read as completed: its
+  // empty contribution to maxScores would look like a clean result.
+  const thumbnailsFailed = shouldRunThumbnails && thumbnailScores.length > 0 && thumbnailScores.every(s => s.error);
+  const transcriptFailed = shouldRunTranscript && transcriptScores.length > 0 && transcriptScores.every(s => s.error);
+  if (thumbnailsFailed) {
+    thumbnailModeration = {
+      status: "failed",
+      errorMessage: describeSurfaceFailure("thumbnail", thumbnailScores),
+    };
+  }
+  if (transcriptFailed) {
+    transcriptModeration = {
+      status: "failed",
+      errorMessage: describeSurfaceFailure("transcript window", transcriptScores),
+    };
+  }
+
   // Find highest scores across both thumbnails and transcript time windows.
   const maxSexual = Math.max(...successful.map(s => s.sexual));
   const maxViolence = Math.max(...successful.map(s => s.violence));
@@ -1429,7 +1463,8 @@ export async function getModerationScores(
     const hasEnoughSuccessfulSamples =
       successfulSampleCount >= MIN_SUCCESSFUL_THUMBNAILS_FOR_CONFIDENT_THRESHOLDING;
     isLowConfidence = sampleCoverage < MIN_SAMPLE_COVERAGE_FOR_CONFIDENT_THRESHOLDING ||
-      !hasEnoughSuccessfulSamples;
+      !hasEnoughSuccessfulSamples ||
+      transcriptFailed;
   }
 
   return {
@@ -1445,7 +1480,7 @@ export async function getModerationScores(
       successfulSampleCount,
       failedSampleCount,
       sampleCoverage,
-      isPartial: failedSampleCount > 0,
+      isPartial: failed.length > 0,
       isLowConfidence,
     },
     usage: {
