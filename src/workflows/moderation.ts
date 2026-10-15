@@ -212,27 +212,6 @@ export interface ModerationOptions extends ScopedMuxAIOptions {
    * @default true
    */
   moderateTranscript?: boolean;
-  /**
-   * Tuning for transcript time-windowing. All optional; sensible defaults applied.
-   *
-   * Transcript moderation splits the caption track into overlapping time windows
-   * whose size scales with the asset's duration:
-   *   `windowSeconds = clamp(duration / targetWindowCount, minWindowSeconds, maxWindowSeconds)`
-   * and consecutive windows overlap by `max(minOverlapSeconds, windowSeconds * overlapFraction)`
-   * so content straddling a window boundary is still scored intact in at least one window.
-   */
-  transcriptWindowing?: {
-    /** Divisor used to derive the base window size from duration. @default 40 */
-    targetWindowCount?: number;
-    /** Lower clamp on window size, in seconds. @default 20 */
-    minWindowSeconds?: number;
-    /** Upper clamp on window size, in seconds. @default 120 */
-    maxWindowSeconds?: number;
-    /** Fraction (0..1) of the window size used as overlap. @default 0.15 */
-    overlapFraction?: number;
-    /** Lower clamp on the overlap, in seconds. @default 5 */
-    minOverlapSeconds?: number;
-  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -261,8 +240,6 @@ const MIN_SUCCESSFUL_THUMBNAILS_FOR_CONFIDENT_THRESHOLDING = 3;
  *   overlapSeconds = max(minOverlapSeconds, windowSeconds * overlapFraction)
  *   stride         = max(windowSeconds - overlapSeconds, 1)
  *
- * Callers may override any of these via `ModerationOptions.transcriptWindowing`.
- *
  * Exported so callers can approximate window count from duration alone (e.g. for a
  * pre-flight cost estimate before fetching/parsing the real transcript).
  */
@@ -273,15 +250,6 @@ export const DEFAULT_TRANSCRIPT_WINDOWING = {
   overlapFraction: 0.15,
   minOverlapSeconds: 5,
 } as const;
-
-/** Fully-resolved transcript windowing parameters (no optionals). */
-interface ResolvedTranscriptWindowingParams {
-  targetWindowCount: number;
-  minWindowSeconds: number;
-  maxWindowSeconds: number;
-  overlapFraction: number;
-  minOverlapSeconds: number;
-}
 
 /**
  * Maximum number of UTF-16 code units of concatenated cue text we send to
@@ -628,7 +596,6 @@ function splitCuesUnderCharCeiling(
 export function buildTranscriptWindows(
   cues: VTTCue[],
   duration: number,
-  params: ResolvedTranscriptWindowingParams = DEFAULT_TRANSCRIPT_WINDOWING,
 ): TranscriptWindow[] {
   const usableCues = cues
     .filter(cue => cue.text.trim().length > 0)
@@ -642,14 +609,16 @@ export function buildTranscriptWindows(
   // Fall back to the last cue's end time when the asset duration is missing/0.
   const effectiveDuration = duration && duration > 0 ? duration : lastCueEnd;
 
+  const { targetWindowCount, minWindowSeconds, maxWindowSeconds, overlapFraction, minOverlapSeconds } =
+    DEFAULT_TRANSCRIPT_WINDOWING;
   const windowSeconds = clamp(
-    effectiveDuration / params.targetWindowCount,
-    params.minWindowSeconds,
-    params.maxWindowSeconds,
+    effectiveDuration / targetWindowCount,
+    minWindowSeconds,
+    maxWindowSeconds,
   );
   const overlapSeconds = Math.max(
-    params.minOverlapSeconds,
-    windowSeconds * params.overlapFraction,
+    minOverlapSeconds,
+    windowSeconds * overlapFraction,
   );
   const stride = Math.max(windowSeconds - overlapSeconds, 1);
 
@@ -820,7 +789,6 @@ async function requestOpenAITranscriptModeration(
   model: string,
   maxConcurrent: number = 5,
   credentials?: WorkflowCredentialsInput,
-  windowingParams: ResolvedTranscriptWindowingParams = DEFAULT_TRANSCRIPT_WINDOWING,
 ): Promise<TranscriptModerationScore[]> {
   "use step";
   // Build dynamic, overlapping time windows whose size scales with the asset's
@@ -828,7 +796,7 @@ async function requestOpenAITranscriptModeration(
   // a score carrying its timecodes, mirroring the "max over segments" behavior
   // used for thumbnail moderation. Consecutive windows' [startTime, endTime]
   // ranges may overlap by design.
-  const windows = buildTranscriptWindows(cues, duration, windowingParams);
+  const windows = buildTranscriptWindows(cues, duration);
   if (!windows.length) {
     return [];
   }
@@ -1237,7 +1205,6 @@ export async function getModerationScores(
     imageDownloadOptions,
     moderateThumbnails = true,
     moderateTranscript = true,
-    transcriptWindowing,
     credentials: providedCredentials,
     scope,
   } = options;
@@ -1248,11 +1215,6 @@ export async function getModerationScores(
       { type: "validation_error" },
     );
   }
-  // Merge any caller overrides over the module-level defaults.
-  const windowingParams: ResolvedTranscriptWindowingParams = {
-    ...DEFAULT_TRANSCRIPT_WINDOWING,
-    ...transcriptWindowing,
-  };
   // Fetch asset data and playback ID from Mux via helper
   const { asset, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials, options.assetSnapshot);
   const videoTrackDurationSeconds = getVideoTrackDurationSecondsFromAsset(asset);
@@ -1403,7 +1365,7 @@ export async function getModerationScores(
       transcriptCues = parseVTTCues(transcriptText);
       const windows = transcriptCues.length === 0 ?
           [] :
-          buildTranscriptWindows(transcriptCues, duration, windowingParams);
+          buildTranscriptWindows(transcriptCues, duration);
       if (windows.length === 0) {
         transcriptModeration = {
           status: "skipped",
@@ -1444,7 +1406,6 @@ export async function getModerationScores(
           model || "omni-moderation-latest",
           maxConcurrent,
           credentials,
-          windowingParams,
         ) :
         Promise.resolve<TranscriptModerationScore[]>([]),
   ]);
