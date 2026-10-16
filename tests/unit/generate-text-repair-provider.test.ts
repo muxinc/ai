@@ -117,10 +117,13 @@ describe("production repair through the real AI SDK provider", () => {
     expect(Object.getOwnPropertyDescriptor(error, "cause")?.enumerable).toBe(false);
     expect(JSON.stringify(error)).not.toContain(state.providerMessage);
     expect(JSON.stringify(error)).not.toContain("req-repair-test");
-    expect(console.warn).toHaveBeenCalledExactlyOnceWith("[@mux/ai] Bounded text repair failed.", {
-      provider: "openai",
+    expect(console.warn).toHaveBeenCalledExactlyOnceWith("[@mux/ai] Model call failed.", {
+      phase: "length_repair",
+      maxOutputTokens: 1024,
+      finishReason: undefined,
+      usage: undefined,
+      provider: "openai.responses",
       modelId: "gpt-6-luna",
-      reason: state.providerMessage,
       errorName: "AI_APICallError",
       statusCode,
       requestId: "req-repair-test",

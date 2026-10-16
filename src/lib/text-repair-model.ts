@@ -3,6 +3,7 @@ import { generateText, jsonSchema, NoObjectGeneratedError, Output } from "ai";
 import type { TokenUsage } from "../types.ts";
 
 import { getGeneratedOutputWithContentPolicyHandling, IncompleteGenerationError, withContentPolicyErrorHandling } from "./content-policy-error.ts";
+import { recordModelCallFailure } from "./model-call-diagnostics.ts";
 import { CANARY_TRIPWIRE, NON_DISCLOSURE_CONSTRAINT, promptDedent } from "./prompt-fragments.ts";
 import { getTextRepairProviderOptions } from "./text-repair-capabilities.ts";
 import { repairJsonSchema, runTextRepairLoop } from "./text-repair.ts";
@@ -34,14 +35,15 @@ export function createTextRepairGenerator(options: TextRepairModelOptions) {
   return async (plan: RepairPlan): Promise<RepairCall<TokenUsage>> => {
     let usage: TokenUsage | undefined;
     const started = Date.now();
+    const maxOutputTokens = options.maxOutputTokens ?? Math.min(32768, Math.max(1024, plan.spans.reduce((total, span) =>
+      total + Math.min(...span.budgets.map(limit => limit.value * (limit.unit === "words" ? 4 : 2))), 0) + 128));
     try {
       const response = await withContentPolicyErrorHandling(() => generateText({
         model: options.model,
         providerOptions: options.providerOptions ?? getTextRepairProviderOptions(options.model),
         maxRetries: 0,
         abortSignal: AbortSignal.timeout(options.timeoutMs ?? 30_000),
-        maxOutputTokens: options.maxOutputTokens ?? Math.min(32768, Math.max(1024, plan.spans.reduce((total, span) =>
-          total + Math.min(...span.budgets.map(limit => limit.value * (limit.unit === "words" ? 4 : 2))), 0) + 128)),
+        maxOutputTokens,
         output: Output.object({ schema: jsonSchema<Record<string, string>>(repairJsonSchema(plan)), name: "paragraph_replacements" }),
         system: promptDedent`
           ${NON_DISCLOSURE_CONSTRAINT}
@@ -75,6 +77,12 @@ export function createTextRepairGenerator(options: TextRepairModelOptions) {
       const cause = NoObjectGeneratedError.isInstance(error) && error.finishReason && error.finishReason !== "stop" ?
           new IncompleteGenerationError(error.finishReason, undefined, getErrorTokenUsage(error)) :
         error;
+      recordModelCallFailure(cause, {
+        phase: "length_repair",
+        provider: typeof options.model === "object" ? options.model.provider : "gateway",
+        modelId: typeof options.model === "object" ? options.model.modelId : options.model,
+        maxOutputTokens,
+      }, usage ?? getErrorTokenUsage(cause));
       return { usage: usage ?? getErrorTokenUsage(cause), elapsedMs: Date.now() - started, error: cause instanceof Error ? cause.message : String(cause), errorCause: cause };
     }
   };

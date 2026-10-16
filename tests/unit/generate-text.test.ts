@@ -147,6 +147,21 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("generateText", () => {
+  it.each(["brief", "draft", "format_repair", "length_repair"] as const)("identifies a %s output-limit failure without logging source text", async (phase) => {
+    if (phase !== "brief") {
+      queueGenerations(phase === "format_repair" ? [""] : phase === "length_repair" ? ["x".repeat(281)] : []);
+    }
+    vi.mocked(generateTextWithModel).mockResolvedValueOnce({ ...modelResponse({}, 7), finishReason: "length" });
+    const error = await generateText("asset-123", { artifacts: [{ key: "post", channel: "x" }] }).catch(error => error);
+    expect(error).toMatchObject({
+      finishReason: "length",
+      diagnostics: { phase, modelId: "test-model", ...(phase === "length_repair" && { maxOutputTokens: 1024 }) },
+      usage: { totalTokens: phase === "brief" ? 7 : phase === "draft" ? 107 : 117 },
+    });
+    expect(console.warn).toHaveBeenCalledExactlyOnceWith("[@mux/ai] Model call failed.", expect.objectContaining({ phase, finishReason: "length" }));
+    expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain("A grounded source");
+  });
+
   it("extracts one brief with the scoped storyboard, then writes every variant × artifact in request order", async () => {
     queueGenerations(["one:x_post", "one:blog_post", "insight_led:x_post", "insight_led:blog_post"]);
 
@@ -395,7 +410,7 @@ describe("generateText", () => {
       cause,
       usage: { totalTokens: 117 },
     });
-    expect(console.warn).toHaveBeenCalledWith("[@mux/ai] Bounded text repair failed.", expect.objectContaining({ reason: "provider exploded", errorName: "Error" }));
+    expect(console.warn).toHaveBeenCalledWith("[@mux/ai] Model call failed.", expect.objectContaining({ phase: "length_repair", errorName: "Error", maxOutputTokens: 1024 }));
     expect(generateTextWithModel).toHaveBeenCalledTimes(3);
   });
 
@@ -405,7 +420,7 @@ describe("generateText", () => {
     const error = await generateText("asset-123", { artifacts: [{ key: "x_post", channel: "x" }] }).catch(error => error);
     expect(error).toMatchObject({ publicMessage: "Unable to complete text generation.", retryable: true, cause: "internal provider detail", usage: { totalTokens: 110 } });
     expect(JSON.stringify(error)).not.toContain("internal provider detail");
-    expect(console.warn).toHaveBeenCalledWith("[@mux/ai] Bounded text repair failed.", expect.objectContaining({ reason: "internal provider detail" }));
+    expect(console.warn).toHaveBeenCalledWith("[@mux/ai] Model call failed.", expect.objectContaining({ phase: "length_repair" }));
     expect(generateTextWithModel).toHaveBeenCalledTimes(3);
   });
 
@@ -559,7 +574,7 @@ That draft contains literal escape sequences such as \n and \" instead of real l
     })).rejects.toMatchObject({
       publicMessage: "Unable to complete text generation.",
     });
-    expect(console.warn).toHaveBeenCalledWith("[@mux/ai] Bounded text repair failed.", expect.objectContaining({ reason: "Repair budget exhausted without a valid output" }));
+    expect(console.warn).toHaveBeenCalledWith("[@mux/ai] Model call failed.", expect.objectContaining({ phase: "length_repair" }));
     expect(systemPrompt(1)).toContain("Aim for about 45 words and 252 characters. This is a hard cap: never exceed 50 words or 280 characters.");
   });
 

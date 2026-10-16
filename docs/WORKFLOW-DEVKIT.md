@@ -110,6 +110,12 @@ async function emailSummaryToAdmins(summary: any) {
 const run = await start(processVideoSummary, [assetId]);
 ```
 
+## Failure diagnostics and usage
+
+SDK errors use custom Workflow serialization to preserve their safe message, error type, retryability, token usage, and incomplete-generation finish reason across step boundaries. Raw provider causes are excluded. Check errors structurally rather than relying on a specific subclass surviving deserialization.
+
+`generateText` logs failures inside the step with the phase (`brief`, `draft`, `format_repair`, or `length_repair`), provider, model, reported usage, and the explicit output-token budget when one was set. These records omit prompts and generated text. The shared model retry helper includes usage reported by earlier failed attempts in the successful result or terminal error. Calls that report no usage still cannot be counted accurately.
+
 ## Features
 
 Workflow DevKit gives you:

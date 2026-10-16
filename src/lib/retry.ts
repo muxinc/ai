@@ -8,9 +8,11 @@ export interface RetryOptions {
   baseDelay?: number;
   maxDelay?: number;
   shouldRetry?: (error: Error, attempt: number) => boolean;
+  /** Called only for failures followed by another attempt. */
+  onRetry?: (error: unknown, attempt: number) => void;
 }
 
-const DEFAULT_RETRY_OPTIONS: Required<Omit<RetryOptions, "shouldRetry">> = {
+const DEFAULT_RETRY_OPTIONS: Required<Pick<RetryOptions, "maxRetries" | "baseDelay" | "maxDelay">> = {
   maxRetries: 3,
   baseDelay: 2000,
   maxDelay: 10000,
@@ -89,6 +91,7 @@ export async function withRetry<T>(
     baseDelay = DEFAULT_RETRY_OPTIONS.baseDelay,
     maxDelay = DEFAULT_RETRY_OPTIONS.maxDelay,
     shouldRetry = defaultShouldRetry,
+    onRetry,
   }: RetryOptions = {},
 ): Promise<T> {
   let lastError: unknown;
@@ -105,6 +108,7 @@ export async function withRetry<T>(
         throw error;
       }
 
+      onRetry?.(error, attempt + 1);
       const delay = calculateDelay(attempt + 1, baseDelay, maxDelay);
       console.warn(
         `Attempt ${attempt + 1} failed: ${retryError.message}. Retrying in ${Math.round(delay)}ms...`,
