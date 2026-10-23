@@ -95,11 +95,13 @@ export type ThumbnailModerationSkipReason = "no_video_track" | "no_video_in_scop
  *   body was empty, had no parseable cues, or no cue fell inside `scope`.
  *   Treated as valid-but-empty, not as an error.
  * - `"unsupported_provider"` — the selected provider is image-only.
+ * - `"disabled"` — the caller passed `includeTranscript: false` for a video asset.
  */
 export type TranscriptModerationSkipReason =
   | "no_ready_text_track" |
   "no_cues" |
-  "unsupported_provider";
+  "unsupported_provider" |
+  "disabled";
 
 export type ThumbnailModerationStatus = ModerationSurfaceStatus<ThumbnailModerationSkipReason>;
 export type TranscriptModerationStatus = ModerationSurfaceStatus<TranscriptModerationSkipReason>;
@@ -186,6 +188,12 @@ export interface ModerationOptions extends ScopedMuxAIOptions {
    * subtitles track is preferred and otherwise the first ready text track is used.
    */
   languageCode?: string;
+  /**
+   * Moderate the caption transcript alongside thumbnails (defaults to true). When false,
+   * video assets are moderated on thumbnails only. Ignored for audio-only assets, where
+   * the transcript is the only surface that can be moderated.
+   */
+  includeTranscript?: boolean;
   /** Override the default sexual/violence thresholds (0-1). */
   thresholds?: {
     sexual?: number;
@@ -1193,7 +1201,8 @@ async function requestThumbnailModeration(
  * Moderate a Mux asset. By default both surfaces are moderated where available:
  * - Thumbnails: sampled storyboard frames (image moderation). Skipped for audio-only assets.
  * - Transcript: caption text in time windows (text moderation). Skipped when no
- *   usable caption track exists or the provider is image-only.
+ *   usable caption track exists, the provider is image-only, or `includeTranscript`
+ *   is false for a video asset.
  *
  * Each surface reports its outcome in `thumbnailModeration` / `transcriptModeration`.
  * Throws when neither surface can be moderated, since a result with nothing
@@ -1216,6 +1225,7 @@ export async function getModerationScores(
     provider = DEFAULT_PROVIDER,
     model = provider === "openai" ? "omni-moderation-latest" : undefined,
     languageCode,
+    includeTranscript = true,
     thresholds = DEFAULT_THRESHOLDS,
     thumbnailInterval = 10,
     thumbnailWidth = 640,
@@ -1336,8 +1346,16 @@ export async function getModerationScores(
   let transcriptModeration: TranscriptModerationStatus = { status: "completed" };
   let transcriptCues: VTTCue[] = [];
   let shouldRunTranscript = false;
-  const captionTrack = provider === "openai" ? findCaptionTrack(asset, languageCode) : undefined;
-  if (provider !== "openai") {
+  // Audio-only assets have no other surface, so the transcript always runs for them.
+  const transcriptEnabled = includeTranscript || isAudioOnly;
+  const captionTrack = transcriptEnabled && provider === "openai" ? findCaptionTrack(asset, languageCode) : undefined;
+  if (!transcriptEnabled) {
+    transcriptModeration = {
+      status: "skipped",
+      skipReason: "disabled",
+      skipMessage: "Transcript moderation was disabled with includeTranscript: false.",
+    };
+  } else if (provider !== "openai") {
     transcriptModeration = {
       status: "skipped",
       skipReason: "unsupported_provider",

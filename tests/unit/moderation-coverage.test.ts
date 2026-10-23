@@ -446,6 +446,58 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
     expect(result.exceedsThreshold).toBe(false);
   });
 
+  it("skips the transcript with disabled when includeTranscript is false, without fetching captions", async () => {
+    vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack());
+    vi.mocked(getThumbnailUrls).mockResolvedValue(THUMBNAIL_URLS);
+    const counts = mockOpenAIFetch({});
+
+    const result = await getModerationScores("asset-123", { provider: "openai", includeTranscript: false });
+
+    expect(result.mode).toBe("thumbnails");
+    expect(result.thumbnailModeration).toEqual({ status: "completed" });
+    expect(result.transcriptModeration).toEqual({
+      status: "skipped",
+      skipReason: "disabled",
+      skipMessage: "Transcript moderation was disabled with includeTranscript: false.",
+    });
+    expect(result.transcriptScores).toEqual([]);
+    expect(counts.transcript).toBe(0);
+    expect(counts.image).toBe(3);
+  });
+
+  it("ignores includeTranscript: false for an audio-only asset and still moderates the transcript", async () => {
+    vi.mocked(isAudioOnlyAsset).mockReturnValue(true);
+    vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack("asset-audio"));
+    const counts = mockOpenAIFetch({ vtt: VTT_BODY });
+
+    const result = await getModerationScores("asset-audio", { provider: "openai", includeTranscript: false });
+
+    expect(result.mode).toBe("transcript");
+    expect(result.transcriptModeration).toEqual({ status: "completed" });
+    expect(result.transcriptScores).toHaveLength(1);
+    expect(counts.transcript).toBe(1);
+  });
+
+  it("throws a customer-safe error when includeTranscript is false and the scope has no renderable video", async () => {
+    vi.mocked(getVideoTrackDurationSecondsFromAsset).mockReturnValue(30);
+    vi.mocked(getAssetDurationSecondsFromAsset).mockReturnValue(60);
+    vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack());
+    mockOpenAIFetch({});
+
+    const error = await getModerationScores("asset-123", {
+      provider: "openai",
+      includeTranscript: false,
+      scope: { startTime: 40, endTime: 50 },
+    }).catch(e => e);
+
+    expect(MuxAiError.is(error)).toBe(true);
+    expect(error.message).toBe(
+      "Nothing to moderate. Thumbnails skipped: The requested scope does not include any renderable video, so there are no thumbnails to moderate. " +
+      "Transcript skipped: Transcript moderation was disabled with includeTranscript: false.",
+    );
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it("names the language in the skip message when languageCode matches no track", async () => {
     vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack());
     vi.mocked(getThumbnailUrls).mockResolvedValue(THUMBNAIL_URLS);

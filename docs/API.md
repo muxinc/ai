@@ -77,7 +77,7 @@ Analyzes a Mux asset for inappropriate content using OpenAI's Moderation API, Hi
 By default it moderates everything that's available on the asset and reports what it skipped:
 
 - **Thumbnails** — sampled storyboard frames (image moderation). Skipped for audio-only assets.
-- **Transcript** — the caption track's text, in time windows (text moderation). Skipped when the asset has no ready caption track or the track has nothing to moderate. Only `openai` supports text moderation; `hive` and `google-vision-api` are image-only and report the transcript as skipped.
+- **Transcript** — the caption track's text, in time windows (text moderation). Skipped when the asset has no ready caption track, the track has nothing to moderate, or `includeTranscript` is `false` on a video asset. Only `openai` supports text moderation; `hive` and `google-vision-api` are image-only and report the transcript as skipped.
 
 
 **Parameters:**
@@ -90,6 +90,7 @@ By default it moderates everything that's available on the asset and reports wha
 - `provider?: 'openai' | 'hive' | 'google-vision-api'` - Moderation provider (default: 'openai')
 - `model?: string` - OpenAI moderation model to use (default: `omni-moderation-latest`); ignored for `hive` and `google-vision-api`
 - `languageCode?: string` - Language code of the caption track to moderate. When omitted, an English subtitles track is preferred and otherwise the first ready text track is used.
+- `includeTranscript?: boolean` - Moderate the caption transcript alongside thumbnails (default: true). When `false`, video assets are moderated on thumbnails only and `transcriptModeration` is skipped with `skipReason: 'disabled'`. Ignored for audio-only assets, where the transcript is the only surface that can be moderated.
 - `thresholds?: { sexual?: number; violence?: number }` - Custom thresholds (default: {sexual: 0.7, violence: 0.8})
 - `thumbnailInterval?: number` - Seconds between thumbnails for long videos (default: 10)
 - `thumbnailWidth?: number` - Thumbnail width in pixels (default: 640)
@@ -154,7 +155,8 @@ By default it moderates everything that's available on the asset and reports wha
     //   'no_cues'              — a track exists but produced nothing to moderate: empty VTT body,
     //                            no parseable cues, or no cue inside `scope`. Valid-but-empty, not an error.
     //   'unsupported_provider' — the provider is image-only (hive / google-vision-api).
-    skipReason?: 'no_ready_text_track' | 'no_cues' | 'unsupported_provider';
+    //   'disabled'             — `includeTranscript: false` was passed for a video asset.
+    skipReason?: 'no_ready_text_track' | 'no_cues' | 'unsupported_provider' | 'disabled';
     skipMessage?: string; // Present only when status === 'skipped'. Human-readable explanation.
     errorMessage?: string; // Present only when status === 'failed'. Summarizes the per-item errors.
   };
@@ -181,7 +183,7 @@ By default it moderates everything that's available on the asset and reports wha
 }
 ```
 
-**Skipped surfaces are auditable, not silent.** The result always carries `thumbnailModeration` and `transcriptModeration`, each describing whether that surface was `completed` or `skipped` — and, when skipped, a machine-readable `skipReason` plus a human-readable `skipMessage`. This lets callers tell "moderated cleanly with no findings" apart from "nothing was moderated" without inspecting an empty scores array. Skips are for expected conditions only (no caption track, an empty track, an image-only provider); a caption track that exists but cannot be fetched is an error, not a skip. If both surfaces end up skipped, the call throws rather than returning `exceedsThreshold: false` for an asset nothing was checked on.
+**Skipped surfaces are auditable, not silent.** The result always carries `thumbnailModeration` and `transcriptModeration`, each describing whether that surface was `completed` or `skipped` — and, when skipped, a machine-readable `skipReason` plus a human-readable `skipMessage`. This lets callers tell "moderated cleanly with no findings" apart from "nothing was moderated" without inspecting an empty scores array. Skips are for expected conditions only (no caption track, an empty track, an image-only provider, `includeTranscript: false`); a caption track that exists but cannot be fetched is an error, not a skip. If both surfaces end up skipped, the call throws rather than returning `exceedsThreshold: false` for an asset nothing was checked on.
 
 **Failed surfaces are reported, not folded into `completed`.** If a surface ran but every item errored (for example every transcript window was rejected by the provider), its status is `failed` with an `errorMessage`, and `coverage.isLowConfidence` is set because `maxScores` and `exceedsThreshold` then reflect only the other surface. If every item on every surface failed, the call throws.
 

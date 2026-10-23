@@ -68,6 +68,19 @@ describe("moderation Integration Tests", () => {
       expect(Array.isArray(result.thumbnailScores)).toBe(true);
       expect(result.thumbnailScores.length).toBeGreaterThan(0);
     });
+
+    it("should moderate thumbnails only when includeTranscript is false", async () => {
+      const result = await getModerationScores(safeAsset, {
+        provider: "openai",
+        model: "omni-moderation-latest",
+        includeTranscript: false,
+      });
+
+      expect(result.mode).toBe("thumbnails");
+      expect(result.transcriptScores).toEqual([]);
+      expect(result.transcriptModeration).toMatchObject({ status: "skipped", skipReason: "disabled" });
+      expect(result.thumbnailScores.filter(s => !s.error).length).toBeGreaterThan(0);
+    });
   });
 
   describe("hive provider", () => {
