@@ -28,7 +28,7 @@ import type { AssetTextTrack, MuxAsset } from "../../src/types";
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("vttTimestampToSeconds", () => {
-  describe("hH:MM:SS.mmm", () => {
+  describe("with hours (HH:MM:SS.mmm)", () => {
     it.each([
       ["00:00:00.000", 0],
       ["00:01:30.500", 90.5],
@@ -44,7 +44,7 @@ describe("vttTimestampToSeconds", () => {
     });
   });
 
-  describe("mM:SS.mmm", () => {
+  describe("without hours (MM:SS.mmm)", () => {
     it.each([
       ["00:00.000", 0],
       ["00:05.250", 5.25],
