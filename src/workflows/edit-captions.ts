@@ -248,7 +248,7 @@ export function transformCueText(
   const transformed = lines.map((line) => {
     if (line.includes("-->")) {
       const startTimestamp = line.split("-->")[0].trim();
-      currentCueStartTime = vttTimestampToSeconds(startTimestamp);
+      currentCueStartTime = vttTimestampToSeconds(startTimestamp) ?? currentCueStartTime;
       inCueText = true;
       return line;
     }
@@ -288,7 +288,7 @@ function transformCueTextBlocks(
     if (line.includes("-->")) {
       flushCueText();
       const startTimestamp = line.split("-->")[0].trim();
-      currentCueStartTime = vttTimestampToSeconds(startTimestamp);
+      currentCueStartTime = vttTimestampToSeconds(startTimestamp) ?? currentCueStartTime;
       transformed.push(line);
       cueTextLines = [];
       continue;

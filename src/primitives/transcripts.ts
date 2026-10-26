@@ -428,16 +428,21 @@ export function extractTextFromVTT(vttContent: string): string {
   );
 }
 
-export function vttTimestampToSeconds(timestamp: string): number {
-  const parts = timestamp.split(":");
-  if (parts.length !== 3)
-    return 0;
+const VTT_TIMESTAMP_RE = /^(?:(\d+):)?(\d{2}):(\d{2})(?:\.(\d{3}))?$/;
 
-  const hours = Number.parseInt(parts[0], 10) || 0;
-  const minutes = Number.parseInt(parts[1], 10) || 0;
-  const seconds = Number.parseFloat(parts[2]) || 0;
+/**
+ * Converts a WebVTT timestamp (`HH:MM:SS.mmm` or `MM:SS.mmm`) to seconds.
+ *
+ * @param timestamp - The timestamp to convert
+ * @returns The timestamp in seconds, or `undefined` if it is malformed
+ */
+export function vttTimestampToSeconds(timestamp: string): number | undefined {
+  const match = VTT_TIMESTAMP_RE.exec(timestamp);
+  if (!match)
+    return undefined;
 
-  return hours * 3600 + minutes * 60 + seconds;
+  const [, hours = "0", minutes, seconds, millis = "0"] = match;
+  return Number(hours) * 3600 + Number(minutes) * 60 + Number(seconds) + Number(millis) / 1000;
 }
 
 /**
@@ -473,6 +478,8 @@ export function extractTimestampedTranscript(vttContent: string): string {
     if (line.includes("-->")) {
       const startTime = line.split(" --> ")[0].trim();
       const timeInSeconds = vttTimestampToSeconds(startTime);
+      if (timeInSeconds === undefined)
+        continue;
 
       let j = i + 1;
       while (j < lines.length && !lines[j].trim()) {
@@ -531,7 +538,7 @@ export function parseVTTCues(vttContent: string, options: ParseVTTCuesOptions = 
     if (isTimingLine(line)) {
       const [startStr, endStr] = line.split(" --> ").map(s => s.trim());
       const startTime = vttTimestampToSeconds(startStr);
-      const endTime = vttTimestampToSeconds(endStr.split(" ")[0]); // Handle cue settings
+      const endTime = vttTimestampToSeconds(endStr?.split(" ")[0] ?? ""); // Handle cue settings
       const currentCueIdentifierLine = lines[i - 1]?.trim() ?? "";
       const currentCueIdentifier: number | null = isLikelyCueIdentifier({
         line: currentCueIdentifierLine,
@@ -540,6 +547,12 @@ export function parseVTTCues(vttContent: string, options: ParseVTTCuesOptions = 
       }) ?
           parseNumericCueIdentifier(currentCueIdentifierLine) :
         null;
+
+      // Advance the identifier even for a skipped cue
+      if (startTime === undefined || endTime === undefined) {
+        previousCueIdentifier = currentCueIdentifier;
+        continue;
+      }
 
       // Collect text lines until empty line or next timestamp
       const rawTextLines: string[] = [];
