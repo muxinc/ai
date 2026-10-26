@@ -745,6 +745,19 @@ describe("parseVTTCues", () => {
     ]);
   });
 
+  it("parses a cue whose settings are separated from the end timestamp by a tab", () => {
+    const vttContent = [
+      "WEBVTT",
+      "",
+      "00:00:01.000 --> 00:00:02.000\talign:start",
+      "Tab before settings.",
+    ].join("\n");
+
+    expect(parseVTTCues(vttContent)).toEqual([
+      { startTime: 1, endTime: 2, text: "Tab before settings." },
+    ]);
+  });
+
   it("parses a file mixing MM:SS.mmm and HH:MM:SS.mmm cue timings", () => {
     const vttContent = dedent`
       WEBVTT

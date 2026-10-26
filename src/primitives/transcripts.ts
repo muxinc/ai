@@ -538,7 +538,7 @@ export function parseVTTCues(vttContent: string, options: ParseVTTCuesOptions = 
     if (isTimingLine(line)) {
       const [startStr, endStr] = line.split(" --> ").map(s => s.trim());
       const startTime = vttTimestampToSeconds(startStr);
-      const endTime = vttTimestampToSeconds(endStr?.split(" ")[0] ?? ""); // Handle cue settings
+      const endTime = vttTimestampToSeconds(endStr?.split(/\s+/)[0] ?? ""); // Handle cue settings
       const currentCueIdentifierLine = lines[i - 1]?.trim() ?? "";
       const currentCueIdentifier: number | null = isLikelyCueIdentifier({
         line: currentCueIdentifierLine,
