@@ -7,6 +7,7 @@ import {
   buildVttFromTranslatedCueBlocks,
   concatenateVttSegments,
   extractTextFromVTT,
+  extractTimestampedTranscript,
   fetchTranscriptDataForUrl,
   fetchTranscriptForAsset,
   filterVttByScope,
@@ -27,21 +28,52 @@ import type { AssetTextTrack, MuxAsset } from "../../src/types";
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("vttTimestampToSeconds", () => {
-  it("converts HH:MM:SS.mmm format to seconds", () => {
-    expect(vttTimestampToSeconds("00:01:30.500")).toBe(90.5);
+  describe("hH:MM:SS.mmm", () => {
+    it.each([
+      ["00:00:00.000", 0],
+      ["00:01:30.500", 90.5],
+      ["01:30:00.000", 5400],
+      ["10:00:00.001", 36000.001],
+      ["123:00:00.000", 442800],
+    ])("converts %s to %s seconds", (timestamp, expected) => {
+      expect(vttTimestampToSeconds(timestamp)).toBeCloseTo(expected, 3);
+    });
+
+    it("converts HH:MM:SS without milliseconds", () => {
+      expect(vttTimestampToSeconds("00:02:15")).toBe(135);
+    });
   });
 
-  it("converts HH:MM:SS format to seconds", () => {
-    expect(vttTimestampToSeconds("00:02:15")).toBe(135);
+  describe("mM:SS.mmm", () => {
+    it.each([
+      ["00:00.000", 0],
+      ["00:05.250", 5.25],
+      ["01:30.500", 90.5],
+      ["59:59.999", 3599.999],
+    ])("converts %s to %s seconds", (timestamp, expected) => {
+      expect(vttTimestampToSeconds(timestamp)).toBeCloseTo(expected, 3);
+    });
+
+    it("converts MM:SS without milliseconds", () => {
+      expect(vttTimestampToSeconds("01:30")).toBe(90);
+    });
+
+    it("matches the equivalent HH:MM:SS.mmm value", () => {
+      expect(vttTimestampToSeconds("12:34.567")).toBe(vttTimestampToSeconds("00:12:34.567"));
+    });
   });
 
-  it("handles hours correctly", () => {
-    expect(vttTimestampToSeconds("01:30:00.000")).toBe(5400);
-  });
-
-  it("returns 0 for invalid format", () => {
-    expect(vttTimestampToSeconds("1:30")).toBe(0);
-    expect(vttTimestampToSeconds("invalid")).toBe(0);
+  describe("malformed input", () => {
+    it.each([
+      "",
+      "invalid",
+      "30.500",
+      "00:00:00:00.000",
+      "aa:bb.ccc",
+      "00:aa:00.000",
+    ])("returns undefined for %j", (timestamp) => {
+      expect(vttTimestampToSeconds(timestamp)).toBeUndefined();
+    });
   });
 });
 
@@ -694,6 +726,171 @@ describe("parseVTTCues", () => {
     expect(cues[0].text).toBe("Yellow!");
     expect(cues[1].text).toBe("Cyan!");
     expect(cues[2].text).toBe("I like lime.");
+  });
+
+  it("parses MM:SS.mmm cue timings", () => {
+    const vttContent = dedent`
+      WEBVTT
+
+      00:05.250 --> 00:08.000
+      Short form.
+
+      01:30.500 --> 01:35.000 align:start position:10%
+      With cue settings.
+    `;
+
+    expect(parseVTTCues(vttContent)).toEqual([
+      { startTime: 5.25, endTime: 8, text: "Short form." },
+      { startTime: 90.5, endTime: 95, text: "With cue settings." },
+    ]);
+  });
+
+  it("parses a file mixing MM:SS.mmm and HH:MM:SS.mmm cue timings", () => {
+    const vttContent = dedent`
+      WEBVTT
+
+      59:58.000 --> 01:00:01.000
+      Crossing the hour.
+
+      01:00:01.000 --> 01:00:04.000
+      Past the hour.
+    `;
+
+    expect(parseVTTCues(vttContent)).toEqual([
+      { startTime: 3598, endTime: 3601, text: "Crossing the hour." },
+      { startTime: 3601, endTime: 3604, text: "Past the hour." },
+    ]);
+  });
+
+  it("skips a cue with a malformed start timestamp and keeps the rest", () => {
+    const vttContent = dedent`
+      WEBVTT
+
+      00:00:01.000 --> 00:00:02.000
+      Before.
+
+      not-a-time --> 00:00:04.000
+      Broken.
+
+      00:00:05.000 --> 00:00:06.000
+      After.
+    `;
+
+    expect(parseVTTCues(vttContent)).toEqual([
+      { startTime: 1, endTime: 2, text: "Before." },
+      { startTime: 5, endTime: 6, text: "After." },
+    ]);
+  });
+
+  it("skips a cue with a malformed end timestamp", () => {
+    const vttContent = dedent`
+      WEBVTT
+
+      00:00:01.000 --> 00:aa:02.000
+      Broken.
+
+      00:00:05.000 --> 00:00:06.000
+      After.
+    `;
+
+    expect(parseVTTCues(vttContent)).toEqual([
+      { startTime: 5, endTime: 6, text: "After." },
+    ]);
+  });
+
+  it("keeps recognizing cue identifiers after skipping a malformed cue", () => {
+    const vttContent = dedent`
+      WEBVTT
+
+      1
+      00:00:01.000 --> 00:00:02.000
+      Before.
+      2
+      not-a-time --> 00:00:04.000
+      Broken.
+      3
+      00:00:05.000 --> 00:00:06.000
+      After.
+      4
+      00:00:07.000 --> 00:00:08.000
+      Last.
+    `;
+
+    expect(parseVTTCues(vttContent)).toEqual([
+      { startTime: 1, endTime: 2, text: "Before." },
+      { startTime: 5, endTime: 6, text: "After." },
+      { startTime: 7, endTime: 8, text: "Last." },
+    ]);
+  });
+
+  it("returns no cues when every timing line is malformed", () => {
+    const vttContent = dedent`
+      WEBVTT
+
+      garbage --> garbage
+      Broken.
+    `;
+
+    expect(parseVTTCues(vttContent)).toEqual([]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// extractTimestampedTranscript
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("extractTimestampedTranscript", () => {
+  it("prefixes HH:MM:SS.mmm cues with their start second", () => {
+    const vttContent = dedent`
+      WEBVTT
+
+      00:01:30.500 --> 00:01:35.000
+      Hello there.
+    `;
+
+    expect(extractTimestampedTranscript(vttContent)).toBe("[90s] Hello there.");
+  });
+
+  it("prefixes MM:SS.mmm cues with their start second", () => {
+    const vttContent = dedent`
+      WEBVTT
+
+      00:05.250 --> 00:08.000
+      Short form.
+
+      01:30.500 --> 01:35.000
+      Later.
+    `;
+
+    expect(extractTimestampedTranscript(vttContent)).toBe("[5s] Short form.\n[90s] Later.");
+  });
+
+  it("skips a cue with a malformed timestamp and keeps the rest", () => {
+    const vttContent = dedent`
+      WEBVTT
+
+      00:00:01.000 --> 00:00:02.000
+      Before.
+
+      not-a-time --> 00:00:04.000
+      Broken.
+
+      00:00:05.000 --> 00:00:06.000
+      After.
+    `;
+
+    expect(extractTimestampedTranscript(vttContent)).toBe("[1s] Before.\n[5s] After.");
+  });
+
+  it("returns an empty string when every timing line is malformed", () => {
+    const vttContent = dedent`
+      WEBVTT
+
+      garbage --> garbage
+      Broken.
+    `;
+
+    expect(extractTimestampedTranscript(vttContent)).toBe("");
   });
 });
 

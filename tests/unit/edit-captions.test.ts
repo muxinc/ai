@@ -102,6 +102,62 @@ describe("transformCueText", () => {
     });
     expect(times).toEqual([90, 120.5]);
   });
+
+  it("passes MM:SS.mmm cue start times to the transform callback", () => {
+    const vtt = [
+      "WEBVTT",
+      "",
+      "01:30.000 --> 01:35.000",
+      "First cue",
+      "",
+      "02:00.500 --> 02:05.000",
+      "Second cue",
+      "",
+    ].join("\n");
+    const times: number[] = [];
+    transformCueText(vtt, (line, cueStartTime) => {
+      times.push(cueStartTime);
+      return line;
+    });
+    expect(times).toEqual([90, 120.5]);
+  });
+
+  it("transforms a cue with a malformed timestamp using the previous cue's start time", () => {
+    const vtt = [
+      "WEBVTT",
+      "",
+      "00:01:30.000 --> 00:01:35.000",
+      "First cue",
+      "",
+      "not-a-time --> 00:01:40.000",
+      "Broken cue",
+      "",
+    ].join("\n");
+    const calls: Array<[string, number]> = [];
+    const result = transformCueText(vtt, (line, cueStartTime) => {
+      calls.push([line, cueStartTime]);
+      return line.toUpperCase();
+    });
+    expect(result).toContain("BROKEN CUE");
+    expect(calls).toEqual([["First cue", 90], ["Broken cue", 90]]);
+  });
+
+  it("uses 0 as the start time when the first cue has a malformed timestamp", () => {
+    const vtt = [
+      "WEBVTT",
+      "",
+      "not-a-time --> 00:00:05.000",
+      "Broken cue",
+      "",
+    ].join("\n");
+    const times: number[] = [];
+    const result = transformCueText(vtt, (line, cueStartTime) => {
+      times.push(cueStartTime);
+      return line.toUpperCase();
+    });
+    expect(result).toContain("BROKEN CUE");
+    expect(times).toEqual([0]);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -618,6 +674,47 @@ describe("applyReplacements", () => {
     expect(replacements[0]).toEqual({ cueStartTime: 30, before: "Mucks", after: "Mux" });
     expect(replacements[1]).toEqual({ cueStartTime: 60, before: "Mucks", after: "Mux" });
     expect(replacements[2]).toEqual({ cueStartTime: 60, before: "Mucks", after: "Mux" });
+  });
+
+  it("records MM:SS.mmm cue start times", () => {
+    const vtt = [
+      "WEBVTT",
+      "",
+      "00:30.000 --> 00:35.000",
+      "Welcome to Mucks platform.",
+      "",
+      "01:00.000 --> 01:05.000",
+      "Mucks is great.",
+      "",
+    ].join("\n");
+    const { replacements } = applyReplacements(vtt, [
+      { find: "Mucks", replace: "Mux" },
+    ]);
+    expect(replacements).toEqual([
+      { cueStartTime: 30, before: "Mucks", after: "Mux" },
+      { cueStartTime: 60, before: "Mucks", after: "Mux" },
+    ]);
+  });
+
+  it("still replaces in a cue with a malformed timestamp, recording the previous cue's start time", () => {
+    const vtt = [
+      "WEBVTT",
+      "",
+      "00:00:30.000 --> 00:00:35.000",
+      "Welcome to Mucks platform.",
+      "",
+      "not-a-time --> 00:01:05.000",
+      "Mucks is great.",
+      "",
+    ].join("\n");
+    const { editedVtt, replacements } = applyReplacements(vtt, [
+      { find: "Mucks", replace: "Mux" },
+    ]);
+    expect(editedVtt).toContain("Mux is great.");
+    expect(replacements).toEqual([
+      { cueStartTime: 30, before: "Mucks", after: "Mux" },
+      { cueStartTime: 30, before: "Mucks", after: "Mux" },
+    ]);
   });
 });
 
