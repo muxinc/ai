@@ -322,7 +322,7 @@ export function resolveGenerateTextOptions(options: GenerateTextOptions): Genera
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Models miscount length, so drafts aim below the hard cap to leave headroom. */
-const LENGTH_TARGET_RATIO = 0.9;
+const LENGTH_TARGET_RATIO = 0.85;
 
 function resolveLengthTarget(limit: GenerateTextLengthLimit): number {
   return Math.max(1, Math.floor(limit.value * LENGTH_TARGET_RATIO));

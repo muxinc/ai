@@ -307,7 +307,7 @@ describe("generateText", () => {
 
     const plainSystem = systemPrompt(1);
     expect(plainSystem).toContain("The variant key is not a writing instruction.");
-    expect(plainSystem).toContain("Aim for about 270 words. This is a hard cap: never exceed 300 words.");
+    expect(plainSystem).toContain("Aim for about 255 words. This is a hard cap: never exceed 300 words.");
     expect(plainSystem).toContain("LinkedIn post");
     expect(plainSystem).not.toContain("editorial point of view");
     expect(plainSystem).not.toContain("Robots");
@@ -340,11 +340,28 @@ describe("generateText", () => {
     });
 
     expect(systemPrompt(1)).toContain("Write a short, self-contained piece");
+    expect(systemPrompt(1)).toContain("Aim for about 85 words. This is a hard cap: never exceed 100 words.");
     expect(systemPrompt(1)).toContain("Write plain text only. Do not use Markdown");
     expect(systemPrompt(2)).toContain("Write a focused piece that develops one idea");
+    expect(systemPrompt(2)).toContain("Aim for about 2550 characters. This is a hard cap: never exceed 3000 characters.");
     expect(systemPrompt(3)).toContain("Write developed, cohesive prose suitable for a blog post");
+    expect(systemPrompt(3)).toContain("Aim for about 1275 words. This is a hard cap: never exceed 1500 words.");
     expect(systemPrompt(3)).toContain("Format the text as Markdown.");
     expect(systemPrompt(3)).not.toContain("Write plain text only.");
+  });
+
+  it.each([
+    ["words", 300, "word ".repeat(290).trim()],
+    ["characters", 280, "A grounded source helps people understand the story. ".repeat(5).trim()],
+  ] as const)("accepts text above the guided target but within the hard %s cap without repair", async (unit, value, content) => {
+    queueGenerations([content]);
+
+    const result = await generateText("asset-123", {
+      artifacts: [{ key: "post", maxLength: { unit, value } }],
+    });
+
+    expect(result.variants[0].artifacts[0].content).toBe(content);
+    expect(generateTextWithModel).toHaveBeenCalledTimes(2);
   });
 
   it("repairs over-cap text with selected paragraphs only and preserves untouched text", async () => {
@@ -575,7 +592,7 @@ That draft contains literal escape sequences such as \n and \" instead of real l
       publicMessage: "Unable to complete text generation.",
     });
     expect(console.warn).toHaveBeenCalledWith("[@mux/ai] Model call failed.", expect.objectContaining({ phase: "length_repair" }));
-    expect(systemPrompt(1)).toContain("Aim for about 45 words and 252 characters. This is a hard cap: never exceed 50 words or 280 characters.");
+    expect(systemPrompt(1)).toContain("Aim for about 42 words and 238 characters. This is a hard cap: never exceed 50 words or 280 characters.");
   });
 
   it("runs the matrix in batches of five and keeps usage from fulfilled siblings when one fails", async () => {
