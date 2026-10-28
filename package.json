@@ -1,7 +1,7 @@
 {
   "name": "@mux/ai",
   "type": "module",
-  "version": "0.55.0",
+  "version": "0.56.0",
   "description": "AI library for Mux",
   "author": "Mux",
   "license": "Apache-2.0",
@@ -128,7 +128,7 @@
     "@ai-sdk/google": "^3.0.10",
     "@ai-sdk/openai": "^3.0.124",
     "@ai-sdk/openai-compatible": "^2.0.51",
-    "@mux/ts": "^15.5.0",
+    "@mux/ts": "^16.0.0",
     "@noble/ciphers": "^2.1.1",
     "ai": "^6.0.42",
     "dedent": "^1.7.0",
