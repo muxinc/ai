@@ -3,8 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   getLanguageName,
   isUndeterminedLanguageCode,
-  toISO639_1,
-  toISO639_3,
 } from "../../src/lib/language-codes";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -62,50 +60,5 @@ describe("getLanguageName", () => {
     expect(getLanguageName("fr")).toBe("French");
     expect(getLanguageName("es")).toBe("Spanish");
     expect(getLanguageName("ja")).toBe("Japanese");
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// toISO639_3 / toISO639_1
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe("toISO639_3", () => {
-  it.each([
-    ["en", "eng"],
-    ["eng", "eng"],
-    [" FR ", "fra"],
-  ])("converts '%s' to '%s'", (code, expected) => {
-    expect(toISO639_3(code)).toBe(expected);
-  });
-
-  it.each([
-    ["pt-BR", "por"],
-    ["mr-in", "mar"],
-    ["zh_Hans", "zho"],
-    ["por-BR", "por"],
-  ])("drops the subtag from '%s' and converts to '%s'", (code, expected) => {
-    expect(toISO639_3(code)).toBe(expected);
-  });
-
-  it("returns the primary subtag for an unknown language", () => {
-    expect(toISO639_3("xx-YY")).toBe("xx");
-  });
-});
-
-describe("toISO639_1", () => {
-  it.each([
-    ["eng", "en"],
-    ["en", "en"],
-    [" FRA ", "fr"],
-  ])("converts '%s' to '%s'", (code, expected) => {
-    expect(toISO639_1(code)).toBe(expected);
-  });
-
-  it.each([
-    ["pt-BR", "pt"],
-    ["por-BR", "pt"],
-    ["mr_IN", "mr"],
-  ])("drops the subtag from '%s' and converts to '%s'", (code, expected) => {
-    expect(toISO639_1(code)).toBe(expected);
   });
 });

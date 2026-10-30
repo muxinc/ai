@@ -349,6 +349,15 @@ async function waitForLegacyMp4SupportRendition({
   return rendition.name;
 }
 
+/**
+ * ElevenLabs dubbing takes a bare language and rejects BCP-47 region or script
+ * subtags ("pt-BR" -> 400 unsupported_target_language), so drop them before
+ * converting. Mux tracks keep the caller's full tag.
+ */
+function toElevenLabsBaseLanguage(code: string): string {
+  return code.trim().split(/[-_]/)[0];
+}
+
 async function createElevenLabsDubbingJob({
   sourceUrl,
   assetId,
@@ -715,9 +724,9 @@ export async function translateAudio(
     console.warn("🎙️ Creating dubbing job in ElevenLabs...");
 
     // ElevenLabs uses ISO 639-3 (3-letter) codes, so normalize the input
-    const elevenLabsLangCode = toISO639_3(toLanguageCode);
+    const elevenLabsLangCode = toISO639_3(toElevenLabsBaseLanguage(toLanguageCode));
     const normalizedFromLanguageCode = fromLanguageCode?.trim();
-    const elevenLabsSourceLangCode = normalizedFromLanguageCode ? toISO639_3(normalizedFromLanguageCode) : undefined;
+    const elevenLabsSourceLangCode = normalizedFromLanguageCode ? toISO639_3(toElevenLabsBaseLanguage(normalizedFromLanguageCode)) : undefined;
     console.warn(
       `🔍 Creating dubbing job for asset ${assetId}: ${elevenLabsSourceLangCode ?? "auto"} -> ${elevenLabsLangCode}`,
     );
@@ -783,7 +792,7 @@ export async function translateAudio(
       // endpoint expects one of those codes. A single-target dub yields exactly
       // one entry, so use it directly; fall back to the ISO 639-1 form of the
       // requested language if the array is unexpectedly empty.
-      const downloadLangCode = targetLanguages[0] ?? toISO639_1(toLanguageCode);
+      const downloadLangCode = targetLanguages[0] ?? toISO639_1(toElevenLabsBaseLanguage(toLanguageCode));
 
       try {
         presignedUrl = await downloadAndUploadDubbedAudio({
