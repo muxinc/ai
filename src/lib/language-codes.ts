@@ -127,20 +127,29 @@ const ISO639_3_TO_1 = Object.fromEntries(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
+ * Lowercases a language tag and keeps only its primary subtag, so a BCP-47
+ * tag such as "pt-BR" or "zh_Hans" converts like its base language.
+ */
+function toPrimarySubtag(code: string): string {
+  return code.trim().toLowerCase().split(/[-_]/)[0];
+}
+
+/**
  * Converts an ISO 639-1 (2-letter) code to ISO 639-3 (3-letter) code.
  *
- * @param code - ISO 639-1 two-letter language code (e.g., "en", "fr")
- * @returns ISO 639-3 three-letter code, or the original if not found
+ * @param code - ISO 639-1 two-letter language code (e.g., "en", "fr"); a region or script subtag is dropped
+ * @returns ISO 639-3 three-letter code, or the primary subtag if not found
  *
  * @example
  * ```typescript
  * toISO639_3("en") // "eng"
  * toISO639_3("fr") // "fra"
  * toISO639_3("ja") // "jpn"
+ * toISO639_3("pt-BR") // "por"
  * ```
  */
 export function toISO639_3(code: string): ISO639_3 {
-  const normalized = code.toLowerCase().trim();
+  const normalized = toPrimarySubtag(code);
 
   // If it's already a 3-letter code, return as-is
   if (normalized.length === 3) {
@@ -153,18 +162,19 @@ export function toISO639_3(code: string): ISO639_3 {
 /**
  * Converts an ISO 639-3 (3-letter) code to ISO 639-1 (2-letter) code.
  *
- * @param code - ISO 639-3 three-letter language code (e.g., "eng", "fra")
- * @returns ISO 639-1 two-letter code, or the original if not found
+ * @param code - ISO 639-3 three-letter language code (e.g., "eng", "fra"); a region or script subtag is dropped
+ * @returns ISO 639-1 two-letter code, or the primary subtag if not found
  *
  * @example
  * ```typescript
  * toISO639_1("eng") // "en"
  * toISO639_1("fra") // "fr"
  * toISO639_1("jpn") // "ja"
+ * toISO639_1("pt-BR") // "pt"
  * ```
  */
 export function toISO639_1(code: string): ISO639_1 {
-  const normalized = code.toLowerCase().trim();
+  const normalized = toPrimarySubtag(code);
 
   // If it's already a 2-letter code, return as-is
   if (normalized.length === 2) {
