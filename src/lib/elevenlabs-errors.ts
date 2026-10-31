@@ -17,6 +17,19 @@ export async function elevenLabsResponseError(context: string, response: Respons
   return error;
 }
 
+/** Keep SDK failures on the same internal diagnostic and retry path as raw HTTP failures. */
+export async function elevenLabsSdkError(context: string, error: unknown): Promise<Error> {
+  const failure = error as { statusCode?: number; body?: unknown; rawResponse?: Response; message?: string } | undefined;
+  if (failure?.statusCode) {
+    const body = typeof failure.body === "string" ? failure.body : JSON.stringify(failure.body);
+    return elevenLabsResponseError(context, new Response(body, {
+      status: failure.statusCode,
+      statusText: failure.rawResponse?.statusText,
+    }));
+  }
+  return new Error(`${context}: ${failure?.message ?? String(error)}`);
+}
+
 export function isRetryableElevenLabsStatus(status: number): boolean {
   // 425 Too Early: the dubbed output is not ready to download yet.
   return status === 408 || status === 425 || status === 429 || status >= 500;

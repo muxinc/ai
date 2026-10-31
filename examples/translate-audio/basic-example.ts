@@ -12,7 +12,7 @@ program
   .argument("<asset-id>", "Mux asset ID to translate")
   .option("-f, --from <language>", "Source language code (defaults to auto-detect)")
   .option("-t, --to <language>", "Target language code", "es")
-  .option("-s, --speakers <number>", "Number of speakers (0 for auto-detect)", "0")
+  .option("-s, --speakers <number>", "Speaker count (only 0, auto-detect, is supported by the project API)", "0")
   .option("--no-upload", "Skip uploading translated audio to Mux (returns presigned URL only)")
   .addHelpText("after", `
 Notes:
@@ -28,8 +28,8 @@ Notes:
     const numSpeakers = Number.parseInt(options.speakers, 10);
     const fromLanguageCode = options.from?.trim() || undefined;
 
-    if (Number.isNaN(numSpeakers) || numSpeakers < 0) {
-      console.error("❌ Invalid number of speakers. Must be a non-negative integer.");
+    if (numSpeakers !== 0) {
+      console.error("❌ The project API only supports --speakers 0 (auto-detect).");
       process.exit(1);
     }
 
@@ -51,7 +51,7 @@ Notes:
       console.log("\n📊 Audio Dubbing Results:");
       console.log(`Target Language: ${result.targetLanguageCode}`);
       console.log(`Asset ID: ${result.assetId}`);
-      console.log(`ElevenLabs Dubbing ID: ${result.dubbingId}`);
+      console.log(`ElevenLabs Project ID: ${result.dubbingId}`);
 
       if (result.uploadedTrackId) {
         console.log(`🎬 Mux Audio Track ID: ${result.uploadedTrackId}`);

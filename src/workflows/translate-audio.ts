@@ -2,9 +2,11 @@ import { sleep } from "workflow";
 
 import env from "../env.ts";
 import { getApiKeyFromEnv } from "../lib/client-factory.ts";
-import { elevenLabsResponseError } from "../lib/elevenlabs-errors.ts";
-import { getLanguageCodePair, getLanguageName, toISO639_1, toISO639_3 } from "../lib/language-codes.ts";
-import type { LanguageCodePair, SupportedISO639_1 } from "../lib/language-codes.ts";
+import { getDubbingLanguageCodePair, normalizeDubbingLanguageCode, normalizeDubbingSourceLanguageCode } from "../lib/dubbing-languages.ts";
+import type { DubbingLanguageCode } from "../lib/dubbing-languages.ts";
+import { elevenLabsResponseError, elevenLabsSdkError } from "../lib/elevenlabs-errors.ts";
+import { getLanguageName } from "../lib/language-codes.ts";
+import type { LanguageCodePair } from "../lib/language-codes.ts";
 import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "../lib/mux-assets.ts";
 import {
@@ -43,13 +45,14 @@ export type StaticRenditionCleanupOutcome = "deleted" | "delete_failed" | "kept"
 /** Output returned from `translateAudio`. */
 export interface AudioTranslationResult {
   assetId: string;
-  /** Target language code (ISO 639-1 two-letter format). */
-  targetLanguageCode: SupportedISO639_1;
+  /** Target language BCP-47 base tag, including three-letter tags such as `yue`. */
+  targetLanguageCode: DubbingLanguageCode;
   /**
-   * Target language codes in both ISO 639-1 (2-letter) and ISO 639-3 (3-letter) formats.
-   * Use `iso639_1` for browser players (BCP-47 compliant) and `iso639_3` for ElevenLabs API.
+   * Legacy language-code pair. `iso639_1` contains the BCP-47 base tag, which
+   * can have three letters when a language has no ISO 639-1 code.
    */
   targetLanguage: LanguageCodePair;
+  /** ElevenLabs project ID; legacy callers retain the `dubbingId` field. */
   dubbingId: string;
   uploadedTrackId?: string;
   presignedUrl?: string;
@@ -75,12 +78,12 @@ export interface AudioTranslationOptions extends MuxAIOptions {
   /** Audio dubbing provider (currently ElevenLabs only). */
   provider?: "elevenlabs";
   /**
-   * Optional source language code for ElevenLabs `source_lang`.
+   * Optional source language code for ElevenLabs `source_language`.
    * Accepts ISO 639-1 (e.g. "en") or ISO 639-3 (e.g. "eng").
    * Defaults to auto-detect when omitted.
    */
   fromLanguageCode?: string;
-  /** Number of speakers supplied to ElevenLabs (0 = auto-detect, default). */
+  /** Only 0 (auto-detect) is supported by the project API. Nonzero overrides are rejected before billing. */
   numSpeakers?: number;
   /** Optional override for the S3-compatible endpoint used for uploads. */
   s3Endpoint?: string;
@@ -354,75 +357,93 @@ async function createElevenLabsDubbingJob({
   assetId,
   elevenLabsLangCode,
   elevenLabsSourceLangCode,
-  numSpeakers,
   credentials,
 }: {
   sourceUrl: string;
   assetId: string;
   elevenLabsLangCode: string;
   elevenLabsSourceLangCode?: string;
-  numSpeakers: number;
   credentials?: WorkflowCredentialsInput;
-}): Promise<string> {
+}): Promise<{ kind: "created"; projectId: string; languageId: string } | { kind: "failed"; message: string }> {
   "use step";
-  const elevenLabsApiKey = await getApiKeyFromEnv("elevenlabs", credentials);
-
-  // Hand ElevenLabs the Mux audio URL directly so it fetches the source itself,
-  // instead of downloading the bytes onto the workflow runner and re-uploading them.
-  const formData = new FormData();
-  formData.append("source_url", sourceUrl);
-  formData.append("target_lang", elevenLabsLangCode);
-  if (elevenLabsSourceLangCode) {
-    formData.append("source_lang", elevenLabsSourceLangCode);
+  const { ElevenLabsClient } = await import("@elevenlabs/elevenlabs-js");
+  const client = new ElevenLabsClient({ apiKey: await getApiKeyFromEnv("elevenlabs", credentials), maxRetries: 0 });
+  try {
+    const project = await client.dubbing.project.create({
+      sourceUrl,
+      sourceLanguage: elevenLabsSourceLangCode,
+      targetLanguage: elevenLabsLangCode,
+      modelId: "dubbing_v1",
+      reference: `Mux Asset ${assetId} - ${elevenLabsSourceLangCode ?? "auto"} to ${elevenLabsLangCode}`,
+    });
+    const languageId = project.languageIds?.[0];
+    if (!languageId) {
+      return { kind: "failed", message: `ElevenLabs project ${project.projectId} returned no language target. Check the project before retrying.` };
+    }
+    return { kind: "created", projectId: project.projectId, languageId };
+  } catch (error) {
+    // A create may already have been billed even when its response is lost. Return
+    // the failure so neither SDK nor WDK retries this paid mutation automatically.
+    return { kind: "failed", message: (await elevenLabsSdkError("ElevenLabs API error", error)).message };
   }
-  formData.append("num_speakers", numSpeakers.toString());
-  formData.append(
-    "name",
-    `Mux Asset ${assetId} - ${elevenLabsSourceLangCode ?? "auto"} to ${elevenLabsLangCode}`,
-  );
-
-  const dubbingResponse = await fetch("https://api.elevenlabs.io/v1/dubbing", {
-    method: "POST",
-    headers: {
-      "xi-api-key": elevenLabsApiKey,
-    },
-    body: formData,
-  });
-
-  if (!dubbingResponse.ok) {
-    throw await elevenLabsResponseError("ElevenLabs API error", dubbingResponse);
-  }
-
-  const dubbingData = await dubbingResponse.json() as any;
-  return dubbingData.dubbing_id;
 }
 
 async function checkElevenLabsDubbingStatus({
   dubbingId,
+  languageId,
   credentials,
 }: {
   dubbingId: string;
+  languageId: string;
   credentials?: WorkflowCredentialsInput;
-}): Promise<{ status: string; targetLanguages: string[]; error?: string }> {
+}): Promise<{ status: string; error?: string }> {
   "use step";
-  const elevenLabsApiKey = await getApiKeyFromEnv("elevenlabs", credentials);
-
-  const statusResponse = await fetch(`https://api.elevenlabs.io/v1/dubbing/${dubbingId}`, {
-    headers: {
-      "xi-api-key": elevenLabsApiKey,
-    },
-  });
-
-  if (!statusResponse.ok) {
-    throw await elevenLabsResponseError("Status check failed", statusResponse);
+  const { ElevenLabsClient } = await import("@elevenlabs/elevenlabs-js");
+  const client = new ElevenLabsClient({ apiKey: await getApiKeyFromEnv("elevenlabs", credentials), maxRetries: 0 });
+  try {
+    const [project, language] = await Promise.all([
+      client.dubbing.project.get(dubbingId),
+      client.dubbing.project.language.get(dubbingId, languageId),
+    ]);
+    return {
+      status: project.status === "failed" ? "failed" : language.status,
+      error: project.error?.error ?? language.error?.error,
+    };
+  } catch (error) {
+    throw await elevenLabsSdkError("Status check failed", error);
   }
+}
 
-  const statusData = await statusResponse.json() as any;
-  return {
-    status: statusData.status,
-    targetLanguages: statusData.target_languages ?? [],
-    error: typeof statusData.error === "string" && statusData.error ? statusData.error : undefined,
-  };
+async function fetchDubbingOutput(
+  dubbingId: string,
+  languageId: string,
+  output: "losslessAudio" | "subtitles",
+  credentials?: WorkflowCredentialsInput,
+): Promise<{ response: Response; url: string }> {
+  const { ElevenLabsClient } = await import("@elevenlabs/elevenlabs-js");
+  const client = new ElevenLabsClient({ apiKey: await getApiKeyFromEnv("elevenlabs", credentials), maxRetries: 0 });
+  // Re-read inside the download step so a durable retry gets a fresh signed URL.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let url: string | undefined;
+    try {
+      const target = await client.dubbing.project.language.get(dubbingId, languageId);
+      url = target.outputs?.[output];
+    } catch (error) {
+      throw await elevenLabsSdkError("Failed to retrieve dubbing output", error);
+    }
+    if (!url) {
+      throw new Error(`ElevenLabs target has no ${output} output`);
+    }
+    // Signed storage URLs do not receive the ElevenLabs API key.
+    const response = await fetch(url);
+    if (response.ok) {
+      return { response, url };
+    }
+    if (response.status !== 403 || attempt === 1) {
+      throw await elevenLabsResponseError("Failed to fetch dubbed output", response);
+    }
+  }
+  throw new Error("Failed to fetch dubbed output");
 }
 
 /**
@@ -432,7 +453,7 @@ async function checkElevenLabsDubbingStatus({
  */
 async function downloadAndUploadDubbedAudio({
   dubbingId,
-  languageCode,
+  languageId,
   assetId,
   toLanguageCode,
   s3Endpoint,
@@ -443,7 +464,7 @@ async function downloadAndUploadDubbedAudio({
   credentials,
 }: {
   dubbingId: string;
-  languageCode: string;
+  languageId: string;
   assetId: string;
   toLanguageCode: string;
   s3Endpoint: string;
@@ -454,17 +475,21 @@ async function downloadAndUploadDubbedAudio({
   credentials?: WorkflowCredentialsInput;
 }): Promise<string> {
   "use step";
-  const elevenLabsApiKey = await getApiKeyFromEnv("elevenlabs", credentials);
-
-  const audioUrl = `https://api.elevenlabs.io/v1/dubbing/${dubbingId}/audio/${languageCode}`;
-  const audioResponse = await fetch(audioUrl, {
-    headers: {
-      "xi-api-key": elevenLabsApiKey,
-    },
-  });
-
-  if (!audioResponse.ok) {
-    throw await elevenLabsResponseError("Failed to fetch dubbed audio", audioResponse);
+  const { response: audioResponse, url } = await fetchDubbingOutput(dubbingId, languageId, "losslessAudio", credentials);
+  const mime = audioResponse.headers.get("content-type")?.split(";")[0].trim();
+  const formats: Record<string, string> = {
+    "audio/flac": "flac",
+    "audio/x-flac": "flac",
+    "audio/wav": "wav",
+    "audio/x-wav": "wav",
+    "audio/mp4": "m4a",
+    "audio/mpeg": "mp3",
+  };
+  const pathExtension = new URL(url).pathname.split(".").pop()?.toLowerCase();
+  const extension = (mime ? formats[mime] : undefined) ??
+    Object.values(formats).find(format => format === pathExtension);
+  if (!extension) {
+    throw new Error(`Unsupported dubbed audio content type: ${mime ?? "missing"}`);
   }
 
   const dubbedAudio = new Uint8Array(await audioResponse.arrayBuffer());
@@ -473,7 +498,7 @@ async function downloadAndUploadDubbedAudio({
   const s3SecretAccessKey = env.S3_SECRET_ACCESS_KEY;
 
   // Create unique key for the audio file
-  const audioKey = `audio-translations/${assetId}/auto-to-${toLanguageCode}-${Date.now()}.m4a`;
+  const audioKey = `audio-translations/${assetId}/auto-to-${toLanguageCode}-${Date.now()}.${extension}`;
 
   await putObjectWithStorageAdapter({
     accessKeyId: s3AccessKeyId,
@@ -483,7 +508,7 @@ async function downloadAndUploadDubbedAudio({
     bucket: s3Bucket,
     key: audioKey,
     body: dubbedAudio,
-    contentType: "audio/mp4",
+    contentType: Object.keys(formats).find(type => formats[type] === extension)!,
   }, storageAdapter);
 
   const presignedUrl = await createPresignedGetUrlWithStorageAdapter({
@@ -510,7 +535,7 @@ async function downloadAndUploadDubbedAudio({
  */
 async function downloadAndUploadDubTranscript({
   dubbingId,
-  languageCode,
+  languageId,
   assetId,
   toLanguageCode,
   s3Endpoint,
@@ -521,7 +546,7 @@ async function downloadAndUploadDubTranscript({
   credentials,
 }: {
   dubbingId: string;
-  languageCode: string;
+  languageId: string;
   assetId: string;
   toLanguageCode: string;
   s3Endpoint: string;
@@ -532,24 +557,9 @@ async function downloadAndUploadDubTranscript({
   credentials?: WorkflowCredentialsInput;
 }): Promise<string> {
   "use step";
-  const elevenLabsApiKey = await getApiKeyFromEnv("elevenlabs", credentials);
-
-  const transcriptUrl = `https://api.elevenlabs.io/v1/dubbing/${dubbingId}/transcripts/${languageCode}/format/webvtt`;
-  const transcriptResponse = await fetch(transcriptUrl, {
-    headers: {
-      "xi-api-key": elevenLabsApiKey,
-    },
-  });
-
-  if (!transcriptResponse.ok) {
-    throw await elevenLabsResponseError("Failed to fetch dub transcript", transcriptResponse);
-  }
-
-  // The transcripts endpoint returns a JSON envelope (DubbingTranscriptsResponseModel)
-  // with the cue text in the field matching the requested format — not raw VTT.
-  const transcriptBody = await transcriptResponse.json() as { webvtt?: string | null };
-  const transcriptVtt = transcriptBody.webvtt;
-  if (!transcriptVtt) {
+  const { response: transcriptResponse } = await fetchDubbingOutput(dubbingId, languageId, "subtitles", credentials);
+  const transcriptVtt = await transcriptResponse.text();
+  if (!transcriptVtt.trim()) {
     throw new Error("Dub transcript response did not include webvtt content");
   }
 
@@ -610,6 +620,11 @@ export async function translateAudio(
     throw new MuxAiError("Only ElevenLabs provider is currently supported for audio translation.", { type: "validation_error" });
   }
 
+  const targetLanguageCode = normalizeDubbingLanguageCode(toLanguageCode);
+  if (numSpeakers !== 0) {
+    throw new MuxAiError("The ElevenLabs project API does not support numSpeakers overrides. Omit it or use 0 for auto-detection.", { type: "validation_error" });
+  }
+
   const credentials = providedCredentials;
   const effectiveStorageAdapter = storageAdapter;
   const trackPassthrough = validateTrackPassthrough(providedTrackPassthrough) ?? buildMuxAiTrackPassthrough("translate-audio");
@@ -617,8 +632,8 @@ export async function translateAudio(
   const uploadToMux = uploadToMuxOption !== false; // Default to true
   const uploadToS3 = uploadToS3Option || uploadToMux || uploadCaptionsToMux; // Defaults to uploadToMux; Mux uploads force S3 staging
 
-  // Mux uses ISO 639-1 (2-letter) codes for track language_code
-  const muxLangCode = toISO639_1(toLanguageCode);
+  // Use the same normalized BCP-47 base tag for provider requests and Mux tracks.
+  const muxLangCode = targetLanguageCode;
   const trackName = providedTrackName ?? `${getLanguageName(muxLangCode) ?? muxLangCode.toUpperCase()} (Auto-dubbed)`;
   const audioTrackTarget: TextTrackTarget = { type: "audio", languageCode: muxLangCode, name: trackName };
   const captionsTrackTarget: TextTrackTarget = { type: "text", languageCode: muxLangCode, name: trackName };
@@ -672,6 +687,7 @@ export async function translateAudio(
 
   let staticRenditionCleanup: StaticRenditionCleanupOutcome = "not_created";
   let dubbingId!: string;
+  let languageId!: string;
   let presignedUrl: string | undefined;
   let uploadedTrackId: string | undefined;
   let replacedTracks: TextTrackSummary[] | undefined;
@@ -714,23 +730,25 @@ export async function translateAudio(
     // Create dubbing job in ElevenLabs
     console.warn("🎙️ Creating dubbing job in ElevenLabs...");
 
-    // ElevenLabs uses ISO 639-3 (3-letter) codes, so normalize the input
-    const elevenLabsLangCode = toISO639_3(toLanguageCode);
-    const normalizedFromLanguageCode = fromLanguageCode?.trim();
-    const elevenLabsSourceLangCode = normalizedFromLanguageCode ? toISO639_3(normalizedFromLanguageCode) : undefined;
+    const elevenLabsLangCode = targetLanguageCode;
+    const elevenLabsSourceLangCode = normalizeDubbingSourceLanguageCode(fromLanguageCode);
     console.warn(
       `🔍 Creating dubbing job for asset ${assetId}: ${elevenLabsSourceLangCode ?? "auto"} -> ${elevenLabsLangCode}`,
     );
 
     try {
-      dubbingId = await createElevenLabsDubbingJob({
+      const created = await createElevenLabsDubbingJob({
         sourceUrl: audioUrl,
         assetId,
         elevenLabsLangCode,
         elevenLabsSourceLangCode,
-        numSpeakers,
         credentials,
       });
+      if (created.kind === "failed") {
+        throw new Error(created.message);
+      }
+      dubbingId = created.projectId;
+      languageId = created.languageId;
       console.warn(`✅ Dubbing job created with ID: ${dubbingId}`);
     } catch (error) {
       wrapError(error, "Failed to create ElevenLabs dubbing job");
@@ -744,20 +762,19 @@ export async function translateAudio(
 
     let dubbingStatus = "dubbing";
     let pollAttempts = 0;
-    let targetLanguages: string[] = [];
     let dubbingError: string | undefined;
 
-    while (dubbingStatus !== "dubbed" && pollAttempts < maxPollAttempts) {
+    while (dubbingStatus !== "completed" && pollAttempts < maxPollAttempts) {
       await sleep(DUBBING_POLL_INTERVAL_MS);
       pollAttempts++;
 
       try {
         const statusResult = await checkElevenLabsDubbingStatus({
           dubbingId,
+          languageId,
           credentials,
         });
         dubbingStatus = statusResult.status;
-        targetLanguages = statusResult.targetLanguages;
         dubbingError = statusResult.error;
       } catch (error) {
         wrapError(error, "Failed to check dubbing status");
@@ -770,7 +787,7 @@ export async function translateAudio(
       }
     }
 
-    if (dubbingStatus !== "dubbed") {
+    if (dubbingStatus !== "completed") {
       throw new MuxAiError("Audio translation timed out or failed. Please try again.", { type: "timeout_error", retryable: true });
     }
 
@@ -779,16 +796,10 @@ export async function translateAudio(
     if (uploadToS3) {
       console.warn("📥 Downloading dubbed audio from ElevenLabs and staging to S3...");
 
-      // ElevenLabs reports target_languages in ISO 639-1 and the download
-      // endpoint expects one of those codes. A single-target dub yields exactly
-      // one entry, so use it directly; fall back to the ISO 639-1 form of the
-      // requested language if the array is unexpectedly empty.
-      const downloadLangCode = targetLanguages[0] ?? toISO639_1(toLanguageCode);
-
       try {
         presignedUrl = await downloadAndUploadDubbedAudio({
           dubbingId,
-          languageCode: downloadLangCode,
+          languageId,
           assetId,
           toLanguageCode,
           s3Endpoint: s3Endpoint!,
@@ -841,7 +852,7 @@ export async function translateAudio(
         console.warn("📥 Downloading dub transcript from ElevenLabs and staging to S3...");
         captionsPresignedUrl = await downloadAndUploadDubTranscript({
           dubbingId,
-          languageCode: downloadLangCode,
+          languageId,
           assetId,
           toLanguageCode,
           s3Endpoint: s3Endpoint!,
@@ -894,10 +905,10 @@ export async function translateAudio(
     }
   }
 
-  const targetLanguage = getLanguageCodePair(toLanguageCode);
+  const targetLanguage = getDubbingLanguageCodePair(targetLanguageCode);
   return {
     assetId,
-    targetLanguageCode: targetLanguage.iso639_1 as SupportedISO639_1,
+    targetLanguageCode,
     targetLanguage,
     dubbingId,
     uploadedTrackId,

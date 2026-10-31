@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { dubbingLanguage, dubbingProject } from "../helpers/elevenlabs-dubbing.ts";
+
 vi.mock("workflow", () => ({
   sleep: vi.fn(async () => {}),
   getWorkflowMetadata: vi.fn(() => {
@@ -79,17 +81,20 @@ function mockAsset(tracks: unknown[]) {
 function stubElevenLabsFetch() {
   const fetchMock = vi.fn(async (input: any, init?: any) => {
     const url = String(input);
-    if (url.endsWith("/v1/dubbing") && init?.method === "POST") {
-      return new Response(JSON.stringify({ dubbing_id: "dub-1" }), { status: 200 });
+    if (url.endsWith("/v1/dubbing/project") && init?.method === "POST") {
+      return new Response(JSON.stringify(dubbingProject()), { status: 200 });
     }
-    if (url.endsWith("/v1/dubbing/dub-1")) {
-      return new Response(JSON.stringify({ status: "dubbed", target_languages: ["es"] }), { status: 200 });
+    if (url.endsWith("/v1/dubbing/project/proj_1")) {
+      return new Response(JSON.stringify(dubbingProject()));
+    }
+    if (url.endsWith("/v1/dubbing/project/proj_1/language/lang_1")) {
+      return new Response(JSON.stringify(dubbingLanguage()), { status: 200 });
     }
     if (url.includes("/audio/")) {
-      return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
+      return new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { "content-type": "audio/flac" } });
     }
     if (url.includes("/transcripts/")) {
-      return new Response(JSON.stringify({ webvtt: "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nHola\n" }), { status: 200 });
+      return new Response("WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nHola\n", { status: 200 });
     }
     throw new Error(`Unexpected fetch in test: ${url}`);
   });
@@ -217,5 +222,41 @@ describe("translateAudio track replacement", () => {
     expect(result.uploadedTrackId).toBe("new-dub");
     expect(result.captionsTrackId).toBeUndefined();
     expect(result.captionsPresignedUrl).toBe("https://s3.example.test/presigned");
+  });
+});
+
+describe("project output storage", () => {
+  it("stores native lossless audio and raw WebVTT without sending provider credentials to signed URLs", async () => {
+    const fetchMock = stubElevenLabsFetch();
+    await translateAudio(ASSET_ID, "es", { uploadToMux: false, uploadToS3: true });
+    expect(putObjectWithStorageAdapter).toHaveBeenCalledWith(expect.objectContaining({
+      key: expect.stringMatching(/\.flac$/),
+      contentType: "audio/flac",
+      body: new Uint8Array([1, 2, 3]),
+    }), undefined);
+    expect(putObjectWithStorageAdapter).toHaveBeenCalledWith(expect.objectContaining({
+      key: expect.stringMatching(/\.vtt$/),
+      contentType: "text/vtt",
+      body: expect.stringContaining("WEBVTT"),
+    }), undefined);
+    for (const [input, init] of fetchMock.mock.calls.filter(([input]) => String(input).startsWith("https://storage.example.test"))) {
+      expect(init).toBeUndefined();
+      expect(String(input)).toMatch(/output\.(flac|vtt)$/);
+    }
+  });
+
+  it("refreshes an expired output URL without creating another paid project", async () => {
+    const fetchMock = stubElevenLabsFetch();
+    const original = fetchMock.getMockImplementation()!;
+    let downloads = 0;
+    fetchMock.mockImplementation(async (input, init) => {
+      if (String(input).includes("/audio/") && downloads++ === 0) {
+        return new Response("expired", { status: 403 });
+      }
+      return original(input, init);
+    });
+    await translateAudio(ASSET_ID, "es", { uploadToMux: false, uploadToS3: true });
+    expect(downloads).toBe(2);
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
   });
 });

@@ -899,7 +899,7 @@ const result = await translateAudio(
   }
 );
 
-console.log(result.dubbingId); // ElevenLabs dubbing job ID
+console.log(result.dubbingId); // ElevenLabs project ID (legacy result field)
 console.log(result.uploadedTrackId); // New Mux audio track ID
 console.log(result.presignedUrl); // S3 audio file URL
 ```
@@ -913,15 +913,15 @@ console.log(result.presignedUrl); // S3 audio file URL
 
 ### Supported Languages
 
-ElevenLabs supports 32+ languages with automatic language name detection via `Intl.DisplayNames`. Supported languages include English, Spanish, French, German, Italian, Portuguese, Polish, Japanese, Korean, Chinese, Russian, Arabic, Hindi, Thai, and many more. Track names are automatically generated (e.g., "Polish (Auto-dubbed)").
+The project API uses the [dubbing v1 language list](https://elevenlabs.io/docs/help-center/product/dubbing/which-languages-are-supported-in-dubbing#dubbing-v1). Pass a supported base tag or ISO 639-3 alias; regional dialect tags are rejected. Three-letter base tags such as `yue`, `fil`, and `ast` are supported. Track names are automatically generated (e.g., "Polish (Auto-dubbed)"). Nonzero `numSpeakers` overrides are no longer supported; use the default auto-detection.
 
 ### Audio Dubbing Workflow
 
 1. Checks asset has audio.m4a static rendition (requests one if missing, waiting up to 30 minutes for it; `mp4_support` assets use their existing files instead)
-2. Downloads default audio track from Mux
-3. Creates ElevenLabs dubbing job (source language auto-detected unless `fromLanguageCode` is set)
-4. Polls for completion (up to 30 minutes)
-5. Downloads dubbed audio file
+2. Hands ElevenLabs the default audio rendition URL, signing it for signed playback assets
+3. Creates an ElevenLabs project with `dubbing_v1` and the first target language (source language auto-detected unless `fromLanguageCode` is set)
+4. Polls the project and language target until the target completes (default two-hour dubbing timeout)
+5. Downloads native-format audio from the target's signed URL and stages it with the matching content type
 6. Uploads to S3-compatible storage
 7. Generates presigned URL (default 24-hour expiry, configurable via `s3SignedUrlExpirySeconds`)
 8. Adds new audio track to Mux asset, replacing existing same-language or same-name audio tracks according to `replaceExistingTracks`

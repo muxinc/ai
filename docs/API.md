@@ -682,6 +682,12 @@ repair budget.
 
 Creates AI-dubbed audio tracks from existing media content using ElevenLabs voice cloning and translation. Uses the default audio track on your asset. Source language is auto-detected unless `fromLanguageCode` is provided.
 
+Uses the project API with `dubbing_v1` explicitly selected. Targets accept the [dubbing v1 base language tags](https://elevenlabs.io/docs/help-center/product/dubbing/which-languages-are-supported-in-dubbing#dubbing-v1) and their supported ISO 639-3 aliases. Regional dialect tags are rejected. For languages without a two-letter code, `targetLanguageCode` and the legacy `targetLanguage.iso639_1` field contain the three-letter BCP-47 base tag.
+
+The staged audio uses the provider's native format (for example FLAC), with the matching extension and content type; callers must not assume M4A. `dubbingId` now identifies a project and cannot be used with legacy dubbing endpoints.
+
+Project creation is a paid mutation. SDK and workflow automatic retries are disabled for a rejected or ambiguous create attempt; inspect ElevenLabs before manually retrying a job whose create response was lost. A worker crash after the provider accepted a request but before its result was persisted remains an at-least-once execution risk; `reference` is a label, not an idempotency key. Status reads and downloads retain workflow step retries. The SDK applies its 240-second HTTP request timeout in addition to the workflow's existing dubbing polling timeout.
+
 **Parameters:**
 
 - `assetId` (string) - Mux asset ID (video or audio-only; must have audio.m4a static rendition, or use the deprecated `mp4_support` option)
@@ -691,8 +697,8 @@ Creates AI-dubbed audio tracks from existing media content using ElevenLabs voic
 **Options:**
 
 - `provider?: 'elevenlabs'` - AI provider (default: 'elevenlabs')
-- `fromLanguageCode?: string` - Optional source language code passed to ElevenLabs `source_lang` (ISO 639-1 or ISO 639-3, default: auto-detect)
-- `numSpeakers?: number` - Number of speakers (default: 0 for auto-detect)
+- `fromLanguageCode?: string` - Optional source language code passed to ElevenLabs `source_language` (ISO 639-1 or ISO 639-3, default: auto-detect)
+- `numSpeakers?: number` - Only `0` (auto-detect) is supported by the project API; nonzero overrides fail before billing.
 - `uploadToMux?: boolean` - Whether to upload dubbed track to Mux (default: true)
 - `uploadCaptionsToMux?: boolean` - Also attach the dub's translated transcript as a subtitles text track (default: false)
 - `replaceExistingTracks?: 'fail' | 'replace_all' | 'replace_generated'` - What to do when the asset already has an audio track (or, with `uploadCaptionsToMux`, a text track) in the target language or with the target name (default: `'fail'`, which rejects before dubbing starts). `'replace_all'` deletes them first. Audio tracks are never Mux-generated, so `'replace_generated'` only ever removes ASR captions. The asset's primary audio track is never deleted under any policy.
@@ -713,7 +719,7 @@ interface TranslateAudioResult {
   assetId: string;
   targetLanguageCode: string;
   targetLanguage: LanguageCodePair; // { iso639_1: string; iso639_3: string }
-  dubbingId: string; // ElevenLabs dubbing job ID
+  dubbingId: string; // ElevenLabs project ID (legacy field name)
   uploadedTrackId?: string; // Mux audio track ID (if uploaded)
   presignedUrl?: string; // S3 presigned URL (default expiry: 24 hours)
   replacedTracks?: TextTrackSummary[]; // Existing audio/text tracks deleted before the uploads; `type` says which group
