@@ -350,11 +350,14 @@ async function waitForLegacyMp4SupportRendition({
 }
 
 /**
- * ElevenLabs dubbing takes a bare language and rejects BCP-47 region or script
- * subtags ("pt-BR" -> 400 unsupported_target_language), so drop them before
- * converting. Mux tracks keep the caller's full tag.
+ * Returns the primary language subtag of a BCP-47-style tag, dropping any
+ * region or script subtags ("pt-BR" -> "pt", "en_US" -> "en").
+ *
+ * Used at the ElevenLabs boundary: its dubbing endpoint takes a bare
+ * ISO 639-1/639-3 code and rejects region subtags ("pt-BR" -> 400
+ * unsupported_target_language). Mux tracks keep the caller's full tag.
  */
-function toElevenLabsBaseLanguage(code: string): string {
+function toBaseLanguageCode(code: string): string {
   return code.trim().split(/[-_]/)[0];
 }
 
@@ -724,9 +727,9 @@ export async function translateAudio(
     console.warn("🎙️ Creating dubbing job in ElevenLabs...");
 
     // ElevenLabs uses ISO 639-3 (3-letter) codes, so normalize the input
-    const elevenLabsLangCode = toISO639_3(toElevenLabsBaseLanguage(toLanguageCode));
+    const elevenLabsLangCode = toISO639_3(toBaseLanguageCode(toLanguageCode));
     const normalizedFromLanguageCode = fromLanguageCode?.trim();
-    const elevenLabsSourceLangCode = normalizedFromLanguageCode ? toISO639_3(toElevenLabsBaseLanguage(normalizedFromLanguageCode)) : undefined;
+    const elevenLabsSourceLangCode = normalizedFromLanguageCode ? toISO639_3(toBaseLanguageCode(normalizedFromLanguageCode)) : undefined;
     console.warn(
       `🔍 Creating dubbing job for asset ${assetId}: ${elevenLabsSourceLangCode ?? "auto"} -> ${elevenLabsLangCode}`,
     );
@@ -792,7 +795,7 @@ export async function translateAudio(
       // endpoint expects one of those codes. A single-target dub yields exactly
       // one entry, so use it directly; fall back to the ISO 639-1 form of the
       // requested language if the array is unexpectedly empty.
-      const downloadLangCode = targetLanguages[0] ?? toISO639_1(toElevenLabsBaseLanguage(toLanguageCode));
+      const downloadLangCode = targetLanguages[0] ?? toISO639_1(toBaseLanguageCode(toLanguageCode));
 
       try {
         presignedUrl = await downloadAndUploadDubbedAudio({
