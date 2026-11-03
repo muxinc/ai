@@ -277,6 +277,35 @@ const UNSUPPORTED_LANGUAGE_BODY = {
   },
 };
 
+describe("translateAudio ElevenLabs language codes", () => {
+  beforeEach(() => {
+    mockMuxClient({ initialAsset: readyRenditionAsset("rendition-pre-existing") });
+  });
+
+  function sentDubbingForm(fetchMock: ReturnType<typeof stubElevenLabsFetch>): FormData {
+    const call = fetchMock.mock.calls.find(([input, init]) => String(input).endsWith("/v1/dubbing") && init?.method === "POST");
+    return call![1].body as FormData;
+  }
+
+  it("drops region subtags from the target and source languages", async () => {
+    const fetchMock = stubElevenLabsFetch();
+
+    await translateAudio(ASSET_ID, "pt-BR", { ...BASE_OPTIONS, fromLanguageCode: "en_US" });
+
+    const form = sentDubbingForm(fetchMock);
+    expect(form.get("target_lang")).toBe("por");
+    expect(form.get("source_lang")).toBe("eng");
+  });
+
+  it("still converts bare codes to ISO 639-3", async () => {
+    const fetchMock = stubElevenLabsFetch();
+
+    await translateAudio(ASSET_ID, "fr", BASE_OPTIONS);
+
+    expect(sentDubbingForm(fetchMock).get("target_lang")).toBe("fra");
+  });
+});
+
 describe("translateAudio ElevenLabs error reporting", () => {
   beforeEach(() => {
     mockMuxClient({ initialAsset: readyRenditionAsset("rendition-pre-existing") });
