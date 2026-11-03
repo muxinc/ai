@@ -7,7 +7,7 @@ import { z } from "zod";
 
 import { isValidISO639_1, isValidISO639_3, toISO639_1, toISO639_3 } from "../../src/lib/language-codes";
 import { getPlaybackIdForAsset } from "../../src/lib/mux-assets";
-import { calculateModelCost, EVAL_MODEL_CONFIGS } from "../../src/lib/providers";
+import { calculateModelCost } from "../../src/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "../../src/lib/providers";
 import { getReadyTextTracks } from "../../src/primitives/transcripts";
 import type { TokenUsage } from "../../src/types";
@@ -15,6 +15,8 @@ import { translateCaptions } from "../../src/workflows";
 import type { TranslationResult } from "../../src/workflows";
 import { getLatencyPerformanceDescription, scoreLatencyPerformance } from "../helpers/latency-performance";
 import { muxTestAssets } from "../helpers/mux-test-assets";
+
+import { EVAL_MODEL_CONFIGS } from "./model-configs";
 
 /**
  * Caption Translation Evaluation

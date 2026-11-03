@@ -1,13 +1,15 @@
 import { evalite } from "evalite";
 import { reportTrace } from "evalite/traces";
 
-import { calculateModelCost, EVAL_MODEL_CONFIGS } from "../../src/lib/providers";
+import { calculateModelCost } from "../../src/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "../../src/lib/providers";
 import type { TokenUsage } from "../../src/types";
 import { getSummaryAndTags } from "../../src/workflows";
 import type { SummaryAndTagsResult } from "../../src/workflows";
 import { getLatencyPerformanceDescription, scoreLatencyPerformance } from "../helpers/latency-performance";
 import { muxTestAssets } from "../helpers/mux-test-assets";
+
+import { EVAL_MODEL_CONFIGS } from "./model-configs";
 
 /**
  * Summarization Language Cost Eval

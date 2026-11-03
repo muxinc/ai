@@ -375,12 +375,6 @@ export function resolveEvalModelConfigsFromEnv(environment: Env = env): EvalMode
   });
 }
 
-/**
- * Flattened list of (provider, modelId) pairs for evaluation iteration.
- * Resolved from env so eval runs can target default models, all models, or an explicit list.
- */
-export const EVAL_MODEL_CONFIGS: EvalModelConfig[] = resolveEvalModelConfigsFromEnv();
-
 export function resolveLanguageModelConfig<P extends SupportedProvider = SupportedProvider>(
   options: ModelRequestOptions<P> = {},
 ): { provider: P; modelId: ModelIdByProvider[P] } {

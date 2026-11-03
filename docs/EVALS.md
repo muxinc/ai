@@ -224,10 +224,10 @@ All evals iterate over `EVAL_MODEL_CONFIGS`, which is resolved at runtime and ca
 - all configured models (`MUX_AI_EVAL_MODEL_SET=all`)
 - an explicit list (`MUX_AI_EVAL_MODELS=provider:model,...`)
 
-The `EVAL_MODEL_CONFIGS` constant provides the flattened `(provider, model)` pairs for each run:
+The `EVAL_MODEL_CONFIGS` constant (`tests/eval/model-configs.ts`) provides the flattened `(provider, model)` pairs for each run:
 
 ```typescript
-import { EVAL_MODEL_CONFIGS } from "../../src/lib/providers";
+import { EVAL_MODEL_CONFIGS } from "./model-configs";
 
 const data = EVAL_MODEL_CONFIGS.flatMap(({ provider, modelId }) =>
   testAssets.map(asset => ({

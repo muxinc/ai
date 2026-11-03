@@ -4,7 +4,7 @@ import { evalite } from "evalite";
 import { answerSimilarity } from "evalite/scorers";
 import { reportTrace } from "evalite/traces";
 
-import { calculateModelCost, EVAL_MODEL_CONFIGS } from "../../src/lib/providers";
+import { calculateModelCost } from "../../src/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "../../src/lib/providers";
 import type { TokenUsage } from "../../src/types";
 import { generateChapters } from "../../src/workflows";
@@ -12,6 +12,8 @@ import type { ChaptersResult } from "../../src/workflows";
 import type { ChaptersPromptOverrides } from "../../src/workflows/chapters";
 import { getLatencyPerformanceDescription, scoreLatencyPerformance } from "../helpers/latency-performance";
 import { muxTestAssets } from "../helpers/mux-test-assets";
+
+import { EVAL_MODEL_CONFIGS } from "./model-configs";
 
 /**
  * Chapters Evaluation
