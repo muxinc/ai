@@ -192,7 +192,7 @@ describe("translateAudio static rendition cleanup", () => {
 
     const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
 
-    expect(error).toMatchObject({ publicMessage: "Audio dubbing failed." });
+    expect(error).toMatchObject({ message: "Audio dubbing failed." });
     expect(deleteStaticRendition).toHaveBeenCalledWith(ASSET_ID, CREATED_RENDITION_ID);
   });
 
@@ -241,7 +241,7 @@ describe("translateAudio static rendition cleanup", () => {
 
     const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
 
-    expect(error).toMatchObject({ publicType: "timeout_error", retryable: true });
+    expect(error).toMatchObject({ type: "timeout_error", retryable: true });
     expect(retrieve).toHaveBeenCalledTimes(180);
     expect(deleteStaticRendition).toHaveBeenCalledWith(ASSET_ID, CREATED_RENDITION_ID);
   });
@@ -308,7 +308,7 @@ const TEMPORARILY_UNAVAILABLE = "The dubbing service is temporarily unavailable.
 
 function expectCustomerError(error: unknown, expected: { type: string; message: string; retryable: boolean }) {
   expect(MuxAiError.is(error)).toBe(true);
-  expect(error).toMatchObject({ publicType: expected.type, publicMessage: expected.message, retryable: expected.retryable });
+  expect(error).toMatchObject({ type: expected.type, message: expected.message, retryable: expected.retryable });
 }
 
 function jsonError(detail: unknown, status: number, statusText: string) {
@@ -554,7 +554,7 @@ describe("translateAudio on assets using the deprecated mp4_support option", () 
 
     const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
 
-    expect(error).toMatchObject({ publicType: "validation_error", retryable: false });
+    expect(error).toMatchObject({ type: "validation_error", retryable: false });
     expect((error as Error).message).toContain("capped-1080p.mp4 static rendition (1.5 GB) is larger than the 1 GB");
     expect((error as Error).message).toContain("Static Renditions API");
     expect(fetchMock).not.toHaveBeenCalled();
@@ -570,7 +570,7 @@ describe("translateAudio on assets using the deprecated mp4_support option", () 
 
     const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
 
-    expect(error).toMatchObject({ publicType: "validation_error" });
+    expect(error).toMatchObject({ type: "validation_error" });
     expect((error as Error).message).toContain("static renditions are errored");
     expect(createStaticRendition).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
@@ -584,7 +584,7 @@ describe("translateAudio on assets using the deprecated mp4_support option", () 
 
     const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
 
-    expect(error).toMatchObject({ publicType: "timeout_error", retryable: true });
+    expect(error).toMatchObject({ type: "timeout_error", retryable: true });
     expect(retrieve).toHaveBeenCalledTimes(180);
   });
 });
@@ -610,7 +610,7 @@ describe("translateAudio project API", () => {
     stubElevenLabsFetch({ dubbingStatus: "queued" });
     await expect(translateAudio(ASSET_ID, "fr", { ...BASE_OPTIONS, dubbingPollTimeoutSeconds: 1 }))
       .rejects
-      .toMatchObject({ publicType: "timeout_error" });
+      .toMatchObject({ type: "timeout_error" });
   });
 
   it.each([
@@ -631,8 +631,8 @@ describe("translateAudio project API", () => {
       { status: 400, statusText: "Bad Request" },
     ));
     await expect(translateAudio(ASSET_ID, "eu", BASE_OPTIONS)).rejects.toMatchObject({
-      publicType: "validation_error",
-      publicMessage: "Audio dubbing does not support the target language \"eu\".",
+      type: "validation_error",
+      message: "Audio dubbing does not support the target language \"eu\".",
     });
     expect(getPlaybackIdForAsset).toHaveBeenCalledOnce();
     expect(fetchMock).toHaveBeenCalledOnce();
@@ -656,7 +656,7 @@ describe("translateAudio project API", () => {
     const fetchMock = stubElevenLabsFetch();
     await expect(translateAudio(ASSET_ID, "fr", { ...BASE_OPTIONS, numSpeakers: 2 }))
       .rejects
-      .toMatchObject({ publicType: "validation_error", publicMessage: expect.stringContaining("numSpeakers") });
+      .toMatchObject({ type: "validation_error", message: expect.stringContaining("numSpeakers") });
     expect(getPlaybackIdForAsset).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });

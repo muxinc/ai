@@ -1,6 +1,6 @@
 import type { WorkflowScope } from "../types.ts";
 
-import { MuxAiError } from "./mux-ai-error.ts";
+import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCE_VALUES, MUX_AI_ERROR_TYPE_VALUES, MuxAiError } from "./mux-ai-error.ts";
 
 /** A workflow scope with both asset-relative boundaries resolved. */
 export interface ResolvedWorkflowScope {
@@ -30,7 +30,10 @@ export function resolveWorkflowScope(
     !Number.isFinite(assetDurationSeconds) ||
     assetDurationSeconds <= 0
   ) {
-    throw new MuxAiError("Asset has no valid duration.", { type: "validation_error" });
+    throw new MuxAiError("Asset has no valid duration.", {
+      type: MUX_AI_ERROR_TYPE_VALUES.validation_error,
+      source: MUX_AI_ERROR_SOURCE_VALUES.asset,
+    });
   }
 
   const startTime = scope?.startTime ?? 0;
@@ -39,28 +42,28 @@ export function resolveWorkflowScope(
   if (!Number.isFinite(startTime) || startTime < 0) {
     throw new MuxAiError(
       `scope.startTime must be a finite, non-negative number (received ${startTime}).`,
-      { type: "validation_error" },
+      { code: MUX_AI_ERROR_CODES.invalid_scope },
     );
   }
 
   if (!Number.isFinite(endTime) || endTime < 0) {
     throw new MuxAiError(
       `scope.endTime must be a finite, non-negative number (received ${endTime}).`,
-      { type: "validation_error" },
+      { code: MUX_AI_ERROR_CODES.invalid_scope },
     );
   }
 
   if (endTime > assetDurationSeconds) {
     throw new MuxAiError(
       `scope.endTime (${endTime}) cannot exceed the asset duration (${assetDurationSeconds}).`,
-      { type: "validation_error" },
+      { code: MUX_AI_ERROR_CODES.invalid_scope },
     );
   }
 
   if (startTime >= endTime) {
     throw new MuxAiError(
       `scope.startTime (${startTime}) must be less than scope.endTime (${endTime}).`,
-      { type: "validation_error" },
+      { code: MUX_AI_ERROR_CODES.invalid_scope },
     );
   }
 
@@ -96,7 +99,7 @@ export function resolveRenderableVideoScope(
 
   if (renderableScope.startTime >= renderableScope.endTime) {
     throw new MuxAiError("The requested scope does not include any renderable video.", {
-      type: "validation_error",
+      code: MUX_AI_ERROR_CODES.invalid_scope,
     });
   }
 

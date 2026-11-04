@@ -9,7 +9,7 @@ import type { ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImageAsBase64 } from "../lib/image-download.ts";
 import { getLanguageName } from "../lib/language-codes.ts";
 import { normalizeMarkdownDescription } from "../lib/markdown-normalization.ts";
-import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
+import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCE_VALUES, MUX_AI_ERROR_TYPE_VALUES, MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -682,7 +682,7 @@ async function getSummaryAndTagsInternal(
   if (!VALID_TONES.includes(tone)) {
     throw new MuxAiError(
       `Invalid tone "${tone}". Valid tones are: ${VALID_TONES.join(", ")}.`,
-      { type: "validation_error" },
+      { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.request },
     );
   }
 
@@ -716,7 +716,7 @@ async function getSummaryAndTagsInternal(
   if (isAudioOnly && !includeTranscript) {
     throw new MuxAiError(
       "Audio-only assets require a transcript. Set includeTranscript: true and ensure the asset has a ready text track (captions/subtitles).",
-      { type: "validation_error" },
+      { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.request },
     );
   }
 
@@ -727,7 +727,7 @@ async function getSummaryAndTagsInternal(
     throw new MuxAiError(
       "Signed playback ID requires signing credentials. " +
       "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
-      { type: "validation_error" },
+      { code: MUX_AI_ERROR_CODES.signing_credentials_missing },
     );
   }
 
@@ -833,15 +833,15 @@ async function getSummaryAndTagsInternal(
 
   if (!analysisResponse.result) {
     const contentType = isAudioOnly ? "audio" : "video";
-    throw new MuxAiError(`Failed to analyze ${contentType} content for asset ${assetId}.`);
+    throw new MuxAiError(`Failed to analyze ${contentType} content for asset ${assetId}.`, { code: MUX_AI_ERROR_CODES.model_output_missing });
   }
 
   if (!analysisResponse.result.title) {
-    throw new MuxAiError(`Failed to generate title for asset ${assetId}.`);
+    throw new MuxAiError(`Failed to generate title for asset ${assetId}.`, { code: MUX_AI_ERROR_CODES.model_output_missing });
   }
 
   if (!analysisResponse.result.description) {
-    throw new MuxAiError(`Failed to generate description for asset ${assetId}.`);
+    throw new MuxAiError(`Failed to generate description for asset ${assetId}.`, { code: MUX_AI_ERROR_CODES.model_output_missing });
   }
 
   // Scrub model-generated free-text fields for signs of a system-prompt

@@ -64,10 +64,10 @@ async function loadErrors(mode: "step" | "workflow") {
 }
 
 describe("sDK errors across Workflow step boundaries", () => {
-  it("preserves incomplete-generation metadata through the compiler and real serializer", async () => {
+  it("preserves incomplete-generation classification and metadata through the compiler and real serializer", async () => {
     const [step, workflow] = await Promise.all([loadErrors("step"), loadErrors("workflow")]);
     const usage = { inputTokens: 100, outputTokens: 1024, totalTokens: 1124, cachedInputTokens: 20 };
-    const error = new step.IncompleteGenerationError("length", "MAX_TOKENS", usage);
+    const error = new step.IncompleteGenerationError("length", "MAX_TOKENS", usage, { call: "generate_chapters", provider: "openai", model: "test-model" });
     error.diagnostics = { phase: "length_repair", provider: "openai", modelId: "test-model", maxOutputTokens: 1024 };
     Object.defineProperty(error, "cause", { value: { prompt: "private source", headers: { authorization: "secret" } } });
 
@@ -75,11 +75,15 @@ describe("sDK errors across Workflow step boundaries", () => {
     const restored = await hydrateStepError(bytes, "wrun_offline", undefined, workflow.global);
     expect(workflow.isIncompleteGenerationError(restored)).toBe(true);
     expect(restored).toMatchObject({
-      __robots_error: true,
+      __mux_ai_error: true,
       name: "FatalError",
-      publicType: "processing_error",
-      publicMessage: error.publicMessage,
+      type: "processing_error",
+      source: "internal",
+      dependency: "ai_provider",
+      code: "model_output_truncated",
+      facts: { call: "generate_chapters", provider: "openai", model: "test-model", finishReason: "length", rawFinishReason: "MAX_TOKENS" },
       retryable: false,
+      transient: false,
       finishReason: "length",
       rawFinishReason: "MAX_TOKENS",
       usage,
@@ -92,16 +96,50 @@ describe("sDK errors across Workflow step boundaries", () => {
     // The SDK's workflow catch rethrows into Robots: preserve a second crossing.
     const rethrown = await hydrateStepError(await dehydrateStepError(restored, "wrun_offline", undefined, [], workflow.global), "wrun_offline", undefined, step.global);
     expect(step.isIncompleteGenerationError(rethrown)).toBe(true);
-    expect(rethrown).toMatchObject({ usage, diagnostics: error.diagnostics });
+    expect(rethrown).toMatchObject({ code: "model_output_truncated", usage, diagnostics: error.diagnostics });
   });
 
-  it("preserves customer-safe error classification and attached usage", async () => {
+  it("preserves a classified error's source, dependency, facts, cause summary and usage", async () => {
     const [step, workflow] = await Promise.all([loadErrors("step"), loadErrors("workflow")]);
-    const error = new step.MuxAiError("Unable to complete text generation.", { type: "processing_error", retryable: true });
+    const upstream = Object.assign(new Error("Service Unavailable"), { status: 503 });
+    const error = new step.MuxAiError("Failed to fetch VTT", {
+      type: "processing_error",
+      source: "upstream",
+      dependency: "mux_video",
+      facts: { call: "fetch_vtt", status: 503 },
+      retryable: true,
+      cause: upstream,
+    });
     error.usage = { totalTokens: 300 };
     const restored = await hydrateStepError(await dehydrateStepError(error, "wrun_offline", undefined, [], step.global), "wrun_offline", undefined, workflow.global);
     expect(workflow.MuxAiError.is(restored)).toBe(true);
-    expect(restored).toMatchObject({ retryable: true, publicType: "processing_error", usage: { totalTokens: 300 } });
+    expect(restored).toMatchObject({
+      type: "processing_error",
+      source: "upstream",
+      dependency: "mux_video",
+      facts: { call: "fetch_vtt", status: 503 },
+      retryable: true,
+      transient: true,
+      name: "Error",
+      usage: { totalTokens: 300 },
+    });
+    // Non-enumerable, so it stays out of JSON and logs of the error object.
+    expect((restored as MuxAiError).causes).toEqual([{ name: "Error", message: "Service Unavailable", status: 503 }]);
+    expect(restored).not.toHaveProperty("cause");
     expect(workflow.isIncompleteGenerationError(restored)).toBe(false);
+  });
+
+  it("keeps a transient error retryable by the step runner", async () => {
+    const [step, workflow] = await Promise.all([loadErrors("step"), loadErrors("workflow")]);
+    const error = new step.MuxAiError("Failed to fetch transcript", {
+      type: "processing_error",
+      source: "upstream",
+      dependency: "mux_video",
+      facts: { call: "fetch_transcript", status: 502 },
+      transient: true,
+    });
+    expect(error.name).toBe("Error");
+    const restored = await hydrateStepError(await dehydrateStepError(error, "wrun_offline", undefined, [], step.global), "wrun_offline", undefined, workflow.global);
+    expect(restored).toMatchObject({ name: "Error", transient: true });
   });
 });

@@ -142,7 +142,7 @@ describe("wrapError usage propagation", () => {
   });
 
   it("rethrows MuxAiError instances as-is, preserving any attached usage", () => {
-    const error = Object.assign(new MuxAiError("customer-safe"), {
+    const error = Object.assign(new MuxAiError("customer-safe", { type: "processing_error", source: "upstream" }), {
       usage: { totalTokens: 7 },
     });
 

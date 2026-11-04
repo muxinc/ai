@@ -150,7 +150,7 @@ describe("translateAudio on assets Mux can't add an audio track to", () => {
     const error = await captureRejection(translateAudio(ASSET_ID, "es"));
 
     expect(MuxAiError.is(error)).toBe(true);
-    expect((error as InstanceType<typeof MuxAiError>).publicType).toBe("validation_error");
+    expect((error as InstanceType<typeof MuxAiError>).type).toBe("validation_error");
     expect(error.message).toBe(message);
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -162,7 +162,7 @@ describe("translateAudio on assets Mux can't add an audio track to", () => {
     const error = await captureRejection(translateAudio(ASSET_ID, "es"));
 
     expect(MuxAiError.is(error)).toBe(true);
-    expect((error as InstanceType<typeof MuxAiError>).publicType).toBe("validation_error");
+    expect((error as InstanceType<typeof MuxAiError>).type).toBe("validation_error");
     expect(error.message).toBe(AUDIO_ONLY_MESSAGE);
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -187,7 +187,7 @@ describe("translateAudio on a video-only asset", () => {
     const error = await captureRejection(translateAudio(ASSET_ID, "es", { uploadToMux }));
 
     expect(MuxAiError.is(error)).toBe(true);
-    expect((error as InstanceType<typeof MuxAiError>).publicType).toBe("validation_error");
+    expect((error as InstanceType<typeof MuxAiError>).type).toBe("validation_error");
     expect(error.message).toBe("Asset asset-123 has no audio track, so there is no audio to dub.");
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -362,8 +362,8 @@ describe("project output storage", () => {
 
     expect(MuxAiError.is(error)).toBe(true);
     expect(error).toMatchObject({
-      publicType: "processing_error",
-      publicMessage: "Could not download the dubbed audio. The dubbing service is temporarily unavailable. Please try again.",
+      type: "processing_error",
+      message: "Could not download the dubbed audio. The dubbing service is temporarily unavailable. Please try again.",
       retryable: true,
     });
     expect(audioDownloads(fetchMock)).toHaveLength(3);
@@ -388,7 +388,7 @@ describe("project output storage", () => {
 
     const error = await captureRejection(translateAudio(ASSET_ID, "es", { uploadToMux: false, uploadToS3: true }));
 
-    expect(error).toMatchObject({ publicType: "processing_error", publicMessage: "Could not download the dubbed audio.", retryable: false });
+    expect(error).toMatchObject({ type: "processing_error", message: "Could not download the dubbed audio.", retryable: false });
     expect(audioDownloads(fetchMock)).toHaveLength(1);
     expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("404 Not Found: missing"));
   });

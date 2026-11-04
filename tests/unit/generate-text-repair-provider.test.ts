@@ -85,7 +85,7 @@ describe("production repair through the real AI SDK provider", () => {
   it("retains provider usage and stops when the real adapter receives incomplete repair output", async () => {
     state.failure = "length";
     await expect(generateText("asset-test", { artifacts: [{ key: "post", channel: "x" }] })).rejects.toMatchObject({
-      publicType: "processing_error",
+      type: "processing_error",
       retryable: false,
       usage: { totalTokens: 330, cacheWriteTokens: 90 },
     });
@@ -94,7 +94,7 @@ describe("production repair through the real AI SDK provider", () => {
   it.each(["filter", "refusal", "refusal-with-reasoning"] as const)("preserves %s policy classification and usage with one repair request", async (failure) => {
     state.failure = failure;
     await expect(generateText("asset-test", { artifacts: [{ key: "post", channel: "x" }] })).rejects.toMatchObject({
-      publicType: "content_policy_error",
+      type: "content_policy_error",
       retryable: false,
       usage: { totalTokens: 330, cachedInputTokens: 60, cacheWriteTokens: 90 },
     });
@@ -105,10 +105,10 @@ describe("production repair through the real AI SDK provider", () => {
     state.failure = failure;
     const error = await generateText("asset-test", { artifacts: [{ key: "post", channel: "x" }] }).catch(error => error);
     expect(error).toMatchObject({
-      __robots_error: true,
+      __mux_ai_error: true,
       message: "Unable to complete text generation.",
-      publicMessage: "Unable to complete text generation.",
-      publicType: "processing_error",
+      message: "Unable to complete text generation.",
+      type: "processing_error",
       retryable,
       usage: { inputTokens: 200, outputTokens: 20, totalTokens: 220, cachedInputTokens: 40, cacheWriteTokens: 60, reasoningTokens: 0 },
     });
@@ -133,7 +133,7 @@ describe("production repair through the real AI SDK provider", () => {
   it("normalizes a truncated JSON exception before generateText can return, retaining usage", async () => {
     state.failure = "truncated-json";
     await expect(generateText("asset-test", { artifacts: [{ key: "post", channel: "x" }] })).rejects.toMatchObject({
-      publicType: "processing_error",
+      type: "processing_error",
       retryable: false,
       finishReason: "length",
       usage: { totalTokens: 330, cacheWriteTokens: 90 },
@@ -144,7 +144,7 @@ describe("production repair through the real AI SDK provider", () => {
   it("normalizes an OpenAI API policy failure before recording the repair error", async () => {
     state.failure = "policy";
     await expect(generateText("asset-test", { artifacts: [{ key: "post", channel: "x" }] })).rejects.toMatchObject({
-      publicType: "content_policy_error",
+      type: "content_policy_error",
       retryable: false,
       usage: { totalTokens: 220 },
     });

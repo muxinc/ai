@@ -3,7 +3,8 @@ import { z } from "zod";
 
 import type { TokenUsage } from "../types.ts";
 
-import { MuxAiError } from "./mux-ai-error.ts";
+import type { MuxAiErrorFacts } from "./mux-ai-error.ts";
+import { MUX_AI_ERROR_CODES, MuxAiError } from "./mux-ai-error.ts";
 import { withRetry } from "./retry.ts";
 import type { RetryOptions } from "./retry.ts";
 import { aggregateTokenUsage, getErrorTokenUsage, rethrowWithTokenUsage } from "./token-usage.ts";
@@ -92,19 +93,36 @@ export interface ContentPolicyBlock {
  * `NoOutputGeneratedError`. MuxAiError's custom Workflow codec preserves the
  * metadata; detect it with {@link isIncompleteGenerationError}.
  */
+/**
+ * Which model call failed, for the facts of the error it raises. Every model
+ * failure carries the call's name, provider and model.
+ */
+export interface ModelCallContext {
+  call: string;
+  provider: string;
+  model?: string;
+}
+
+function modelCallFacts(context?: ModelCallContext): MuxAiErrorFacts {
+  return context ? { call: context.call, provider: context.provider, ...(context.model && { model: context.model }) } : {};
+}
+
 export class IncompleteGenerationError extends MuxAiError {
   readonly finishReason: string;
   readonly rawFinishReason?: string;
   readonly usage?: TokenUsage;
 
-  constructor(finishReason: string, rawFinishReason?: string, usage?: TokenUsage) {
+  constructor(finishReason: string, rawFinishReason?: string, usage?: TokenUsage, context?: ModelCallContext) {
     const reason = rawFinishReason ?? finishReason;
-    const message = finishReason === "length" ?
+    const truncated = finishReason === "length";
+    const message = truncated ?
       `The model reached its output limit before producing a complete response (finish reason: ${reason}).` :
       `The model stopped before producing a complete response (finish reason: ${reason}).`;
+    // Hitting the output limit is deterministic (the same input hits it again) and
+    // is ours to fix by splitting the work; any other early stop is the provider's.
     super(message, {
-      type: "processing_error",
-      retryable: finishReason !== "length",
+      code: truncated ? MUX_AI_ERROR_CODES.model_output_truncated : MUX_AI_ERROR_CODES.model_output_incomplete,
+      facts: { ...modelCallFacts(context), finishReason, ...(rawFinishReason && { rawFinishReason }) },
     });
     this.finishReason = finishReason;
     this.rawFinishReason = rawFinishReason;
@@ -123,11 +141,11 @@ interface GeneratedOutput<T> {
   usage?: unknown;
 }
 
-export async function withContentPolicyErrorHandling<T>(operation: () => Promise<T>): Promise<T> {
+export async function withContentPolicyErrorHandling<T>(operation: () => Promise<T>, context?: ModelCallContext): Promise<T> {
   try {
     return await operation();
   } catch (error) {
-    rethrowContentPolicyError(error);
+    rethrowContentPolicyError(error, context);
   }
 }
 
@@ -139,11 +157,12 @@ export async function withContentPolicyErrorHandling<T>(operation: () => Promise
 export async function withContentPolicyAwareRetry<T>(
   operation: () => Promise<T>,
   retryOptions?: RetryOptions,
+  context?: ModelCallContext,
 ): Promise<T> {
   const retriedUsage: TokenUsage[] = [];
   try {
     const response = await withRetry(
-      () => withContentPolicyErrorHandling(operation),
+      () => withContentPolicyErrorHandling(operation, context),
       {
         ...retryOptions,
         onRetry: (error, attempt) => {
@@ -196,13 +215,13 @@ function includeRetriedUsage<T>(response: T, retriedUsage: TokenUsage[]): T {
   return Object.create(Object.getPrototypeOf(response), descriptors);
 }
 
-export function rethrowContentPolicyError(error: unknown): never {
+export function rethrowContentPolicyError(error: unknown, context?: ModelCallContext): never {
   const block = extractContentPolicyBlock(error);
   if (!block) {
     throw error;
   }
 
-  throwContentPolicyError(block, getContentPolicyTokenUsage(error));
+  throwContentPolicyError(block, getContentPolicyTokenUsage(error), context);
 }
 
 /**
@@ -214,14 +233,14 @@ export function rethrowContentPolicyError(error: unknown): never {
  * `other`, ...) becomes an {@link IncompleteGenerationError} that keeps the
  * finish reason and token usage.
  */
-export function getGeneratedOutputWithContentPolicyHandling<T>(response: GeneratedOutput<T>): T {
+export function getGeneratedOutputWithContentPolicyHandling<T>(response: GeneratedOutput<T>, context?: ModelCallContext): T {
   if (response.finishReason === "content-filter") {
     const rawReason = PolicyTokenSchema.safeParse(response.rawFinishReason);
     const reason = rawReason.success && isContentPolicyReason(rawReason.data) ?
       rawReason.data :
       "CONTENT_FILTER";
 
-    throwContentPolicyError({ reason }, getErrorTokenUsage(response));
+    throwContentPolicyError({ reason }, getErrorTokenUsage(response), context);
   }
 
   if (response.finishReason !== "stop") {
@@ -230,23 +249,24 @@ export function getGeneratedOutputWithContentPolicyHandling<T>(response: Generat
       response.finishReason,
       rawReason.success ? rawReason.data : undefined,
       getErrorTokenUsage(response),
+      context,
     );
   }
 
   return response.output;
 }
 
-function throwContentPolicyError(block: ContentPolicyBlock, usage?: TokenUsage): never {
+function throwContentPolicyError(block: ContentPolicyBlock, usage?: TokenUsage, context?: ModelCallContext): never {
   const category = block.category ? `; category: ${block.category}` : "";
   const contentPolicyError = new MuxAiError(
     `The supplied content was blocked by a content policy (reason: ${block.reason}${category}).`,
     {
-      type: "content_policy_error",
-      retryable: false,
+      code: MUX_AI_ERROR_CODES.content_policy_blocked,
+      facts: { ...modelCallFacts(context), reason: block.reason, ...(block.category && { category: block.category }) },
     },
   );
   if (usage) {
-    (contentPolicyError as MuxAiError & { usage?: TokenUsage }).usage = usage;
+    contentPolicyError.usage = usage;
   }
   throw contentPolicyError;
 }

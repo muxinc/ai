@@ -6,7 +6,7 @@ import {
   getGeneratedOutputWithContentPolicyHandling,
   withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
-import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
+import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCE_VALUES, MUX_AI_ERROR_TYPE_VALUES, MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -676,31 +676,31 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
   const hasReplacements = !!replacementsOption && replacementsOption.length > 0;
   const hasSpeakerReplacements = !!speakerReplacementsOption && speakerReplacementsOption.length > 0;
   if (!hasAutoCensor && !hasReplacements && !hasSpeakerReplacements) {
-    throw new MuxAiError("At least one of autoCensorProfanity, replacements, or speakerReplacements must be provided.", { type: "validation_error" });
+    throw new MuxAiError("At least one of autoCensorProfanity, replacements, or speakerReplacements must be provided.", { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.request });
   }
 
   if (autoCensorOption && !provider) {
-    throw new MuxAiError("provider is required when using autoCensorProfanity.", { type: "validation_error" });
+    throw new MuxAiError("provider is required when using autoCensorProfanity.", { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.request });
   }
 
   const legacyTrackNaming = deleteOriginalTrack !== undefined || trackNameSuffix !== undefined;
   if (legacyTrackNaming && (replaceExistingTracksOption !== undefined || providedTrackName !== undefined)) {
     throw new MuxAiError(
       "deleteOriginalTrack and trackNameSuffix are deprecated and cannot be combined with replaceExistingTracks or trackName.",
-      { type: "validation_error" },
+      { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.request },
     );
   }
   if (replaceExistingTracksOption !== undefined && replaceExistingTracksOption !== "replace" && replaceExistingTracksOption !== "fail") {
     throw new MuxAiError(
       `replaceExistingTracks must be "replace" or "fail" for editCaptions (received "${String(replaceExistingTracksOption)}").`,
-      { type: "validation_error" },
+      { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.request },
     );
   }
   const replaceExistingTracks: SourceTrackReplacementPolicy = replaceExistingTracksOption ?? "replace";
   if (!legacyTrackNaming && replaceExistingTracks === "fail" && !providedTrackName) {
     throw new MuxAiError(
       "trackName is required when replaceExistingTracks is \"fail\": the edited track cannot reuse the source track's name while the source is kept.",
-      { type: "validation_error" },
+      { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.request },
     );
   }
   const trackPassthrough = validateTrackPassthrough(providedTrackPassthrough) ?? buildMuxAiTrackPassthrough("edit-captions");
@@ -714,7 +714,7 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
     if (!replacement.find || !replacement.replace || hasInvalidFindCharacter || hasInvalidReplaceCharacter) {
       throw new MuxAiError(
         "Speaker replacement labels must be non-empty and must not contain square brackets or newlines.",
-        { type: "validation_error" },
+        { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.request },
       );
     }
   }
@@ -731,7 +731,7 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
       "Storage configuration is required for uploading. Provide s3Endpoint and s3Bucket. " +
       "If no storageAdapter is supplied, also provide s3AccessKeyId and s3SecretAccessKey in options " +
       "or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.",
-      { type: "validation_error" },
+      { code: MUX_AI_ERROR_CODES.storage_not_configured },
     );
   }
 
@@ -745,7 +745,7 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
     throw new MuxAiError(
       "Signed playback ID requires signing credentials. " +
       "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
-      { type: "validation_error" },
+      { code: MUX_AI_ERROR_CODES.signing_credentials_missing },
     );
   }
 
@@ -759,7 +759,7 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
       .join(", ");
     throw new MuxAiError(
       `Track ${trackId} not found or not ready on asset ${assetId}. Available track IDs: ${availableTrackIds || "none"}.`,
-      { type: "validation_error" },
+      { code: MUX_AI_ERROR_CODES.caption_track_not_found },
     );
   }
 
@@ -772,7 +772,7 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
   if (replaceExistingTracks === "fail" && normalizeTrackName(outputTrack.name) === normalizeTrackName(sourceName)) {
     throw new MuxAiError(
       `trackName "${outputTrack.name}" matches the source track's name. Mux track names must be unique; choose a different trackName or use replaceExistingTracks: "replace" to replace the source.`,
-      { type: "validation_error" },
+      { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.request },
     );
   }
   // Check against the asset we already have so a blocked policy rejects before
@@ -780,7 +780,7 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
   if (uploadToMux && !legacyTrackNaming) {
     const plan = planSourceTrackReplacement(assetData, trackId, outputTrack, replaceExistingTracks);
     if (plan.kind === "blocked") {
-      throw new MuxAiError(plan.reason, { type: "validation_error" });
+      throw new MuxAiError(plan.reason, { code: MUX_AI_ERROR_CODES.track_replacement_blocked });
     }
   }
 
@@ -806,7 +806,7 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
 
     const plainText = extractTextFromVTT(vttContent);
     if (!plainText.trim()) {
-      throw new MuxAiError("Track transcript is empty; nothing to censor.", { type: "validation_error" });
+      throw new MuxAiError("Track transcript is empty; nothing to censor.", { code: MUX_AI_ERROR_CODES.transcript_empty });
     }
 
     const modelConfig = resolveLanguageModelConfig({
@@ -973,7 +973,7 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
           }
         }
         if (outcome.kind === "blocked") {
-          throw new MuxAiError(`${outcome.reason}${restoreNote}`, { type: "validation_error" });
+          throw new MuxAiError(`${outcome.reason}${restoreNote}`, { code: MUX_AI_ERROR_CODES.track_replacement_blocked });
         }
         throw new Error(`Failed to add edited track to Mux asset: ${outcome.reason}.${restoreNote}`);
       }

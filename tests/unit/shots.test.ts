@@ -362,8 +362,8 @@ describe("waitForShotsForAsset", () => {
       maxAttempts: 3,
     });
     const expectation = expect(promise).rejects.toMatchObject({
-      publicType: "validation_error",
-      publicMessage: "Shot generation was skipped for asset test-asset-123; the asset may have no video track.",
+      type: "validation_error",
+      message: "Shot generation was skipped for asset test-asset-123; the asset may have no video track.",
     });
 
     await vi.runAllTimersAsync();
