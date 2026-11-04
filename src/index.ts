@@ -92,6 +92,8 @@ export type {
   TrackReplacementBlockedReason,
   TrackSummary,
   TrackTarget,
+  TrackWriteCall,
+  TrackWriteFailed,
 } from "./lib/mux-tracks.ts";
 
 // Mux playback URL utilities

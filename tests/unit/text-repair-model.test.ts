@@ -43,10 +43,14 @@ describe("repair model configuration and defensive output handling", () => {
     }
   });
 
-  it("retains the defensive missing-output guard and call usage", async () => {
+  it("reports missing output as model_output_missing and keeps call usage", async () => {
     vi.mocked(generateText).mockResolvedValueOnce({ finishReason: "stop", output: undefined, usage: { totalTokens: 12 } } as any);
     const result = await createTextRepairGenerator({ model: "custom/model" })(plan);
-    expect(result).toMatchObject({ error: "Repair output missing", usage: { totalTokens: 12 } });
+    expect(result).toMatchObject({
+      error: "repair_text returned no output",
+      usage: { totalTokens: 12 },
+      errorCause: { code: "model_output_missing", facts: { call: "repair_text", provider: "gateway", model: "custom/model" } },
+    });
     expect(result).not.toHaveProperty("replacements");
   });
 });

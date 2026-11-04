@@ -248,6 +248,57 @@ describe("fetchTranscriptForAsset", () => {
     await expect(fetchTranscriptDataForUrl("https://stream.mux.com/p/text/t.vtt")).rejects.toThrow("Failed to fetch transcript");
   });
 
+  it("fetchTranscriptDataForUrl classifies fetch failures, keeping transient ones retryable by the step", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const url = "https://stream.mux.com/p/text/t.vtt";
+
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 503, headers: new Headers({ "x-request-id": "req-1" }) });
+    await expect(fetchTranscriptDataForUrl(url)).rejects.toMatchObject({
+      name: "Error",
+      source: "upstream",
+      dependency: "mux_video",
+      transient: true,
+      facts: { call: "fetch_transcript", status: 503, requestId: "req-1" },
+    });
+
+    fetchMock.mockRejectedValueOnce(new TypeError("fetch failed"));
+    await expect(fetchTranscriptDataForUrl(url)).rejects.toMatchObject({ source: "upstream", transient: true });
+
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 404 });
+    await expect(fetchTranscriptDataForUrl(url)).rejects.toMatchObject({
+      name: "FatalError",
+      type: "validation_error",
+      source: "asset",
+      transient: false,
+      facts: { call: "fetch_transcript", status: 404 },
+    });
+
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 403 });
+    await expect(fetchTranscriptDataForUrl(url)).rejects.toMatchObject({ source: "account", transient: false });
+  });
+
+  it("uses the caption_track_not_found and transcript_empty codes", async () => {
+    const noTrack = await fetchTranscriptForAsset({ tracks: [] } as unknown as MuxAsset, "playback-1", {
+      required: true,
+      languageCode: "fr",
+    }).catch(e => e);
+    expect(noTrack).toMatchObject({
+      code: "caption_track_not_found",
+      source: "asset",
+      facts: { languageCode: "fr", availableLanguages: [] },
+    });
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, text: vi.fn().mockResolvedValue("WEBVTT\n\n") }));
+    const asset = {
+      tracks: [{ type: "text", id: "track-1", status: "ready", text_type: "subtitles", language_code: "en" }],
+    } as MuxAsset;
+    await expect(fetchTranscriptForAsset(asset, "playback-1", { required: true })).rejects.toMatchObject({
+      code: "transcript_empty",
+      facts: { trackId: "track-1", reason: "empty_body" },
+    });
+  });
+
   it("throws when required and no cues survive the requested scope", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,

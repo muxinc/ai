@@ -1,4 +1,4 @@
-import { APICallError, generateText, NoObjectGeneratedError, Output, RetryError } from "ai";
+import { APICallError, DownloadError, generateText, NoObjectGeneratedError, Output, RetryError } from "ai";
 import { MockLanguageModelV3 } from "ai/test";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -490,5 +490,34 @@ describe("content policy errors", () => {
     });
 
     expect(() => rethrowContentPolicyError(retryError)).toThrow(retryError);
+  });
+});
+
+describe("classifying AI SDK output and download failures", () => {
+  it("classifies an unparseable response as invalid model output, keeping the step retry", async () => {
+    const error = new NoObjectGeneratedError({ message: "No object generated: could not parse the response.", text: "{", response: { id: "r", timestamp: new Date(0), modelId: "m" }, usage: { inputTokens: 5, outputTokens: 1, totalTokens: 6 } as any, finishReason: "stop" });
+
+    await expect(withContentPolicyErrorHandling(async () => {
+      throw error;
+    }, { call: "generate_chapters", provider: "openai", model: "m" })).rejects.toMatchObject({
+      code: "model_output_invalid",
+      source: "upstream",
+      dependency: "ai_provider",
+      facts: { call: "generate_chapters", provider: "openai", model: "m" },
+      transient: true,
+    });
+  });
+
+  it("classifies a download failure without the signed URL", async () => {
+    const error = new DownloadError({ url: "https://image.mux.com/abc/storyboard.png?token=SECRET_JWT", statusCode: 403, statusText: "Forbidden" });
+
+    const classified = await withContentPolicyErrorHandling(async () => {
+      throw error;
+    }, { call: "ask_questions", provider: "baseten" }).catch(caught => caught);
+
+    expect(classified).toMatchObject({ source: "account", dependency: "mux_video", facts: { call: "download_image", status: 403, host: "image.mux.com" } });
+    expect(JSON.stringify(classified.facts)).not.toContain("SECRET_JWT");
+    expect(classified.message).not.toContain("SECRET_JWT");
+    expect(JSON.stringify(classified.causes)).not.toContain("SECRET_JWT");
   });
 });

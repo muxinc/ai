@@ -1,6 +1,8 @@
 import { embed } from "ai";
 
 import { withContentPolicyAwareRetry } from "../lib/content-policy-error.ts";
+import type { ModelCallContext } from "../lib/content-policy-error.ts";
+import { internalError, wrapError } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -8,6 +10,7 @@ import {
 import type { EmbeddingModelIdByProvider, SupportedEmbeddingProvider } from "../lib/providers.ts";
 import { createEmbeddingModelFromConfig, resolveEmbeddingModelConfig } from "../lib/providers.ts";
 import { getErrorTokenUsage, rethrowWithTokenUsage } from "../lib/token-usage.ts";
+import { signingCredentialsMissingError } from "../lib/url-signing.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
 import { hasWorkflowScopeBoundaries, resolveWorkflowScope } from "../lib/workflow-scope.ts";
 import { chunkText, chunkVTTCues } from "../primitives/text-chunking.ts";
@@ -97,14 +100,14 @@ async function generateSingleChunkEmbedding({
 }): Promise<{ chunk: ChunkEmbedding; usage?: TokenUsage }> {
   "use step";
 
+  const context: ModelCallContext = { call: "embed_chunk", provider, model: modelId };
   const model = await createEmbeddingModelFromConfig(provider, modelId, credentials);
   const response = await withContentPolicyAwareRetry(() =>
     embed({
       model,
       maxRetries: 0,
       value: chunk.text,
-    }),
-  );
+    }), undefined, context);
 
   return {
     chunk: {
@@ -180,10 +183,7 @@ async function generateEmbeddingsInternal(
   // Resolve signing context for signed playback IDs
   const signingContext = await resolveMuxSigningContext(credentials);
   if (policy === "signed" && !signingContext) {
-    throw new Error(
-      "Signed playback ID requires signing credentials. " +
-      "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
-    );
+    throw signingCredentialsMissingError();
   }
 
   // Fetch transcript (raw VTT for VTT strategy, cleaned text otherwise)
@@ -208,55 +208,58 @@ async function generateEmbeddingsInternal(
       ) :
       chunkText(transcriptText, chunkingStrategy);
   if (chunks.length === 0) {
-    throw new Error("No chunks generated from transcript");
+    // `fetchTranscriptForAsset({ required: true })` already rejects an empty transcript.
+    throw internalError("No chunks generated from transcript", { chunkingStrategy: chunkingStrategy.type });
   }
 
   // Generate embeddings for all chunks (process in batches)
   const chunkEmbeddings: ChunkEmbedding[] = [];
-  try {
-    for (let i = 0; i < chunks.length; i += batchSize) {
-      const batch = chunks.slice(i, i + batchSize);
+  for (let i = 0; i < chunks.length; i += batchSize) {
+    const batch = chunks.slice(i, i + batchSize);
 
-      const batchOutcomes = await Promise.allSettled(
-        batch.map(chunk =>
-          generateSingleChunkEmbedding({
-            chunk,
-            provider: embeddingModel.provider,
-            modelId: embeddingModel.modelId as string,
-            credentials,
-          }),
-        ),
-      );
+    const batchOutcomes = await Promise.allSettled(
+      batch.map(chunk =>
+        generateSingleChunkEmbedding({
+          chunk,
+          provider: embeddingModel.provider,
+          modelId: embeddingModel.modelId as string,
+          credentials,
+        }),
+      ),
+    );
 
-      // The catch below replaces the error with a message-only Error, so
-      // usage from every settled call must be recorded here to survive.
-      const failures: unknown[] = [];
-      for (const outcome of batchOutcomes) {
-        if (outcome.status === "fulfilled") {
-          if (outcome.value.usage) {
-            collectedUsage.push(outcome.value.usage);
-          }
-          chunkEmbeddings.push(outcome.value.chunk);
-        } else {
-          const failureUsage = getErrorTokenUsage(outcome.reason);
-          if (failureUsage) {
-            collectedUsage.push(failureUsage);
-          }
-          failures.push(outcome.reason);
+    const failures: unknown[] = [];
+    for (const outcome of batchOutcomes) {
+      if (outcome.status === "fulfilled") {
+        if (outcome.value.usage) {
+          collectedUsage.push(outcome.value.usage);
         }
-      }
-      if (failures.length > 0) {
-        throw failures[0];
+        chunkEmbeddings.push(outcome.value.chunk);
+      } else {
+        failures.push(outcome.reason);
       }
     }
-  } catch (error) {
-    throw new Error(
-      `Failed to generate embeddings with ${provider}: ${error instanceof Error ? error.message : "Unknown error"}`,
-    );
+    if (failures.length > 0) {
+      // The first failure keeps its own usage (the outer rethrow adds it), so
+      // record only the others' here.
+      for (const failure of failures.slice(1)) {
+        const failureUsage = getErrorTokenUsage(failure);
+        if (failureUsage) {
+          collectedUsage.push(failureUsage);
+        }
+      }
+      wrapError(failures[0], `Failed to generate embeddings with ${provider}`, {
+        call: "embed_chunk",
+        provider: embeddingModel.provider,
+        model: embeddingModel.modelId as string,
+        chunkCount: chunks.length,
+        failedCount: failures.length,
+      });
+    }
   }
 
   if (chunkEmbeddings.length === 0) {
-    throw new Error("No embeddings generated");
+    throw internalError("No embeddings generated", { chunkCount: chunks.length });
   }
 
   // Calculate averaged embedding

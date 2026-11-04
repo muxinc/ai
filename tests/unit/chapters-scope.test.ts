@@ -256,7 +256,9 @@ describe("generateChapters scene context", () => {
       ],
     })).rejects.toMatchObject({
       type: "validation_error",
+      source: "request",
       message: "Scene context has no chapter boundaries within the requested scope.",
+      facts: { sceneCount: 1, scopeStart: 80, scopeEnd: 120 },
     });
     expect(generateText).not.toHaveBeenCalled();
   });

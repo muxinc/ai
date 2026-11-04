@@ -1,3 +1,5 @@
+import { internalError } from "./mux-ai-error.ts";
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -73,7 +75,7 @@ export function renderSection(section: PromptSection): string {
 
   const assertValidXmlName = (name: string, context: "tag" | "attribute"): void => {
     if (!XML_NAME_PATTERN.test(name)) {
-      throw new Error(`Invalid XML ${context} name: "${name}"`);
+      throw internalError(`Invalid XML ${context} name: "${name}"`, { context, name });
     }
   };
 

@@ -6,7 +6,16 @@ import {
   getGeneratedOutputWithContentPolicyHandling,
   withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
-import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "../lib/mux-ai-error.ts";
+import type { ModelCallContext } from "../lib/content-policy-error.ts";
+import { dependencyErrorFrom } from "../lib/dependency-error.ts";
+import {
+  MUX_AI_ERROR_CODES,
+  MUX_AI_ERROR_DEPENDENCIES,
+  MUX_AI_ERROR_SOURCES,
+  MUX_AI_ERROR_TYPES,
+  MuxAiError,
+  wrapError,
+} from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -30,7 +39,7 @@ import {
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
 import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
-import { signUrl } from "../lib/url-signing.ts";
+import { signingCredentialsMissingError, signUrl } from "../lib/url-signing.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
 import type { HeatmapResponse } from "../primitives/heatmap.ts";
 import { getHeatmapForAsset } from "../primitives/heatmap.ts";
@@ -478,6 +487,20 @@ async function getThumbnailUrlsForHotspots(
 /**
  * Fetches engagement data (peaks, valleys, and heatmap) in parallel.
  */
+/**
+ * Classifies a Mux Data engagement call failure where its status is still in hand.
+ * No views yet or Data not enabled surfaces as a 404 (`asset`) or 401/403 (`account`).
+ */
+function engagementDataError(error: unknown, call: string, assetId: string, timeframe: string): MuxAiError {
+  return dependencyErrorFrom(error, `Failed to fetch engagement data for asset ${assetId}.`, {
+    dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO,
+    call,
+    facts: { assetId, timeframe },
+    notFoundSource: MUX_AI_ERROR_SOURCES.ASSET,
+    authSource: MUX_AI_ERROR_SOURCES.ACCOUNT,
+  });
+}
+
 async function fetchEngagementData(
   assetId: string,
   options: {
@@ -499,16 +522,22 @@ async function fetchEngagementData(
       orderDirection: "desc",
       timeframe,
       credentials,
+    }).catch((error: unknown) => {
+      throw engagementDataError(error, "get_hotspots", assetId, timeframe);
     }),
     getHotspotsForAsset(assetId, {
       limit: hotspotLimit,
       orderDirection: "asc",
       timeframe,
       credentials,
+    }).catch((error: unknown) => {
+      throw engagementDataError(error, "get_hotspots", assetId, timeframe);
     }),
     getHeatmapForAsset(assetId, {
       timeframe,
       credentials,
+    }).catch((error: unknown) => {
+      throw engagementDataError(error, "get_heatmap", assetId, timeframe);
     }),
   ]);
 
@@ -544,6 +573,7 @@ async function generateInsightsWithAI(
   "use step";
 
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
+  const context: ModelCallContext = { call: "generate_engagement_insights", provider, model: modelId };
 
   const response = await withContentPolicyAwareRetry(() => generateText({
     model,
@@ -560,12 +590,8 @@ async function generateInsightsWithAI(
         ],
       },
     ],
-  }));
-  const output = getGeneratedOutputWithContentPolicyHandling(response);
-
-  if (!output) {
-    throw new Error("AI returned empty or unparseable response");
-  }
+  }), undefined, context);
+  const output = getGeneratedOutputWithContentPolicyHandling(response, context);
 
   // Detect schema-smuggling at each nested level. zod.strip() has
   // already removed the extras from response.output, so we re-parse
@@ -667,7 +693,11 @@ async function generateEngagementInsightsInternal(
   } = options;
 
   if (!Number.isInteger(hotspotLimit) || hotspotLimit < 1 || hotspotLimit > 10) {
-    throw new MuxAiError("hotspotLimit must be an integer between 1 and 10.", { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST });
+    throw new MuxAiError("hotspotLimit must be an integer between 1 and 10.", {
+      type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+      source: MUX_AI_ERROR_SOURCES.REQUEST,
+      facts: { parameter: "hotspotLimit", value: hotspotLimit, min: 1, max: 10 },
+    });
   }
 
   const modelConfig = resolveLanguageModelConfig({
@@ -681,18 +711,18 @@ async function generateEngagementInsightsInternal(
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(asset);
 
   if (!assetDurationSeconds) {
-    throw new MuxAiError(`Asset ${assetId} has no valid duration.`, { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET });
+    throw new MuxAiError(`Asset ${assetId} has no valid duration.`, {
+      type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+      source: MUX_AI_ERROR_SOURCES.ASSET,
+      facts: { assetId },
+    });
   }
 
   const audioOnly = isAudioOnlyAsset(asset);
 
   const signingContext = await resolveMuxSigningContext(credentials);
   if (policy === "signed" && !signingContext) {
-    throw new MuxAiError(
-      "Signed playback ID requires signing credentials. " +
-      "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
-      { code: MUX_AI_ERROR_CODES.SIGNING_CREDENTIALS_MISSING },
-    );
+    throw signingCredentialsMissingError();
   }
 
   const shouldSign = policy === "signed";
@@ -738,9 +768,7 @@ async function generateEngagementInsightsInternal(
   // Validate engagement data — check for rejected promise first (upstream error),
   // then check for empty data
   if (engagementResult.status === "rejected") {
-    throw new Error(
-      `Failed to fetch engagement data for asset ${assetId}: ${engagementResult.reason}`,
-    );
+    wrapError(engagementResult.reason, `Failed to fetch engagement data for asset ${assetId}`, { assetId, timeframe });
   }
 
   const { hotspots, heatmap } = engagementResult.value;
@@ -835,8 +863,17 @@ async function generateEngagementInsightsInternal(
   const { result: aiInsights, usage } = aiStepResult;
   collectedUsage.push(usage);
 
+  const modelOutputFacts = {
+    call: "generate_engagement_insights",
+    provider: modelConfig.provider,
+    model: modelConfig.modelId,
+    assetId,
+  };
   if (!aiInsights.momentInsights || aiInsights.momentInsights.length === 0) {
-    throw new MuxAiError(`Failed to generate insights for asset ${assetId}.`, { code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_MISSING });
+    throw new MuxAiError(`Failed to generate insights for asset ${assetId}.`, {
+      code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_MISSING,
+      facts: modelOutputFacts,
+    });
   }
 
   // Step 6: Transform — re-associate AI output with hotspots by hotspotIndex.
@@ -894,7 +931,10 @@ async function generateEngagementInsightsInternal(
   if (momentInsights.length === 0) {
     throw new MuxAiError(
       `Failed to generate valid insights for asset ${assetId}.`,
-      { code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID },
+      {
+        code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID,
+        facts: { ...modelOutputFacts, returnedCount: aiInsights.momentInsights.length },
+      },
     );
   }
 

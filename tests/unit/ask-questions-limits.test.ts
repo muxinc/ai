@@ -83,6 +83,8 @@ describe("askQuestions question-count cap", () => {
 
     await expect(askQuestions("asset-123", tooMany)).rejects.toMatchObject({
       type: "validation_error",
+      source: "request",
+      facts: { count: ASK_QUESTIONS_MAX_QUESTIONS_PER_CALL + 1, max: ASK_QUESTIONS_MAX_QUESTIONS_PER_CALL },
       message: expect.stringContaining(
         `at most ${ASK_QUESTIONS_MAX_QUESTIONS_PER_CALL} are allowed per call`,
       ),
@@ -116,5 +118,33 @@ describe("askQuestions question-count cap", () => {
 
     expect(generateText).toHaveBeenCalledTimes(1);
     expect(result.answers).toHaveLength(ASK_QUESTIONS_MAX_QUESTIONS_PER_CALL);
+  });
+});
+
+describe("askQuestions answer validation", () => {
+  it("keeps an out-of-options model answer out of the error", async () => {
+    const answers = [
+      { question: "q", answer: "LEAKED_SYSTEM_PROMPT_FRAGMENT", confidence: 0.9, reasoning: "ok", skipped: false },
+      { question: "q", answer: "A free-form reply.", confidence: 0.9, reasoning: "ok", skipped: false },
+    ];
+    vi.mocked(generateText).mockResolvedValue({
+      finishReason: "stop",
+      output: { answers },
+      text: JSON.stringify({ answers }),
+      usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+    } as any);
+
+    const error = await askQuestions("asset-123", [
+      { question: "Which color?", answerOptions: ["red", "blue"] },
+      { question: "Describe it.", freeFormReply: true },
+    ]).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      code: "model_output_invalid",
+      source: "upstream",
+      dependency: "ai_provider",
+      facts: { call: "ask_questions", questionIndex: 0, allowedCount: 2 },
+    });
+    expect((error as Error).message).not.toContain("LEAKED_SYSTEM_PROMPT_FRAGMENT");
   });
 });

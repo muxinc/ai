@@ -1,7 +1,8 @@
 import type { MuxAsset, PlaybackAsset, PlaybackPolicy, WorkflowCredentialsInput, WorkflowMuxClient } from "../types.ts";
 
 import { getMuxClientFromEnv } from "./client-factory.ts";
-import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
+import { dependencyErrorFrom } from "./dependency-error.ts";
+import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_DEPENDENCIES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
 
 /**
  * Finds a usable playback ID for the given asset.
@@ -26,7 +27,10 @@ function getPlaybackId(asset: MuxAsset): { id: string; policy: PlaybackPolicy } 
 
   throw new MuxAiError(
     "No public or signed playback ID found for this asset. DRM playback IDs are not currently supported.",
-    { code: MUX_AI_ERROR_CODES.PLAYBACK_ID_NOT_FOUND },
+    {
+      code: MUX_AI_ERROR_CODES.PLAYBACK_ID_NOT_FOUND,
+      facts: { playbackPolicies: [...new Set(playbackIds.map(pid => pid.policy).filter(Boolean))] as string[] },
+    },
   );
 }
 
@@ -70,6 +74,7 @@ export async function getPlaybackIdForAsset(
     throw new MuxAiError("Asset snapshot does not match the requested asset ID.", {
       type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
       source: MUX_AI_ERROR_SOURCES.REQUEST,
+      facts: { assetId, snapshotAssetId: asset.id },
     });
   }
   return toPlaybackAsset(asset);
@@ -95,8 +100,7 @@ export async function getMuxAsset(
 ): Promise<MuxAsset> {
   "use step";
   const muxClient = await getMuxClientFromEnv(credentials);
-  const mux = await muxClient.createClient();
-  return mux.video.assets.retrieve(assetId);
+  return getMuxAssetWithClient(assetId, muxClient);
 }
 
 export async function getMuxAssetWithClient(
@@ -105,7 +109,18 @@ export async function getMuxAssetWithClient(
 ): Promise<MuxAsset> {
   // Do not mark this as a workflow step for the same serialization reason as above.
   const client = await muxClient.createClient();
-  return client.video.assets.retrieve(assetId);
+  try {
+    return await client.video.assets.retrieve(assetId);
+  } catch (error) {
+    // A 404 means the caller's asset ID doesn't exist in this environment.
+    throw dependencyErrorFrom(error, "Failed to retrieve Mux asset", {
+      dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO,
+      call: "get_asset",
+      facts: { assetId },
+      notFoundSource: MUX_AI_ERROR_SOURCES.REQUEST,
+      authSource: MUX_AI_ERROR_SOURCES.ACCOUNT,
+    });
+  }
 }
 
 export async function getAssetDurationSeconds(

@@ -1,16 +1,21 @@
-import { APICallError, generateText as generateTextWithModel, Output } from "ai";
+import { generateText as generateTextWithModel, NoObjectGeneratedError, NoOutputGeneratedError, Output } from "ai";
 import { z } from "zod";
 
 import {
   getGeneratedOutputWithContentPolicyHandling,
-  IncompleteGenerationError,
-  isIncompleteGenerationError,
   withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
+import type { ModelCallContext } from "../lib/content-policy-error.ts";
 import { getLanguageName } from "../lib/language-codes.ts";
 import { withModelCallDiagnostics } from "../lib/model-call-diagnostics.ts";
-import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
-import type { ModelCallDiagnostics } from "../lib/mux-ai-error.ts";
+import {
+  MUX_AI_ERROR_CODES,
+  MUX_AI_ERROR_SOURCES,
+  MUX_AI_ERROR_TYPES,
+  MuxAiError,
+  wrapError,
+} from "../lib/mux-ai-error.ts";
+import type { ModelCallDiagnostics, MuxAiErrorFacts } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -36,6 +41,7 @@ import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
 import { findGenerateTextLengthViolation } from "../lib/text-length.ts";
 import { repairText } from "../lib/text-repair-model.ts";
 import { aggregateTokenUsage, getErrorTokenUsage, rethrowWithTokenUsage } from "../lib/token-usage.ts";
+import { signingCredentialsMissingError } from "../lib/url-signing.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
 import {
   hasWorkflowScopeBoundaries,
@@ -204,38 +210,53 @@ const KEY_PATTERN = /^[a-z][a-z0-9_]{0,63}$/;
 const LANGUAGE_TAG_PATTERN = /^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/i;
 const LENGTH_UNITS = ["characters", "words"] as const;
 
-function validationError(message: string): MuxAiError {
-  return new MuxAiError(message, { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST });
+function validationError(message: string, facts?: MuxAiErrorFacts): MuxAiError {
+  return new MuxAiError(message, {
+    type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+    source: MUX_AI_ERROR_SOURCES.REQUEST,
+    facts,
+  });
 }
 
 function assertOneOf<T extends string>(value: string, allowed: readonly T[], label: string): void {
   if (!allowed.includes(value as T)) {
-    throw validationError(`Invalid ${label} "${value}". Valid values are: ${allowed.join(", ")}.`);
+    throw validationError(`Invalid ${label} "${value}". Valid values are: ${allowed.join(", ")}.`, {
+      parameter: label,
+      value: String(value),
+      allowed: [...allowed],
+    });
   }
 }
 
 function assertBoundedText(value: string, max: number, label: string): number {
   const length = value.trim().length;
   if (length === 0 || length > max) {
-    throw validationError(`${label} must be 1-${max} characters.`);
+    throw validationError(`${label} must be 1-${max} characters.`, { parameter: label, length, max });
   }
   return length;
 }
 
 function assertKeyedItems(items: readonly GenerateTextKeyedItem[], noun: string, max: number): void {
   if (items.length === 0) {
-    throw validationError(`At least one ${noun} is required.`);
+    throw validationError(`At least one ${noun} is required.`, { parameter: `${noun}s` });
   }
   if (items.length > max) {
-    throw validationError(`At most ${max} ${noun}s are supported (received ${items.length}).`);
+    throw validationError(`At most ${max} ${noun}s are supported (received ${items.length}).`, {
+      parameter: `${noun}s`,
+      max,
+      received: items.length,
+    });
   }
   const seen = new Set<string>();
   for (const { key, instructions } of items) {
     if (!KEY_PATTERN.test(key ?? "")) {
-      throw validationError(`${noun} key "${key}" must be lowercase snake_case beginning with a letter, up to 64 characters.`);
+      throw validationError(`${noun} key "${key}" must be lowercase snake_case beginning with a letter, up to 64 characters.`, {
+        parameter: `${noun}s`,
+        key: String(key),
+      });
     }
     if (seen.has(key)) {
-      throw validationError(`Duplicate ${noun} key "${key}".`);
+      throw validationError(`Duplicate ${noun} key "${key}".`, { parameter: `${noun}s`, key });
     }
     seen.add(key);
     if (instructions !== undefined) {
@@ -258,18 +279,29 @@ function assertArtifact(artifact: GenerateTextArtifact): void {
   assertOneOf(unit, LENGTH_UNITS, `artifact "${artifact.key}" maxLength.unit`);
   const bounds = GENERATE_TEXT_LENGTH_BOUNDS[unit];
   if (!Number.isInteger(value) || value < bounds.min || value > bounds.max) {
-    throw validationError(`Artifact "${artifact.key}" maxLength.value must be an integer between ${bounds.min} and ${bounds.max} (received ${value}).`);
+    throw validationError(`Artifact "${artifact.key}" maxLength.value must be an integer between ${bounds.min} and ${bounds.max} (received ${value}).`, {
+      parameter: `artifact "${artifact.key}" maxLength.value`,
+      min: bounds.min,
+      max: bounds.max,
+      received: Number.isFinite(value) ? value : String(value),
+    });
   }
 
   const ceiling = artifact.channel ? GENERATE_TEXT_CHANNEL_CEILINGS[artifact.channel] : undefined;
   if (ceiling && ceiling.unit === unit && value > ceiling.value) {
-    throw validationError(`Artifact "${artifact.key}" targets ${artifact.channel} and supports at most ${ceiling.value} ${ceiling.unit}.`);
+    throw validationError(`Artifact "${artifact.key}" targets ${artifact.channel} and supports at most ${ceiling.value} ${ceiling.unit}.`, {
+      parameter: `artifact "${artifact.key}" maxLength.value`,
+      channel: artifact.channel ?? null,
+      max: ceiling.value,
+      unit: ceiling.unit,
+      received: value,
+    });
   }
 }
 
 function assertLanguageTag(value: string, label: string): void {
   if (value.length > 35 || !LANGUAGE_TAG_PATTERN.test(value)) {
-    throw validationError(`${label} must be a BCP 47 language tag such as "en" or "pt-BR".`);
+    throw validationError(`${label} must be a BCP 47 language tag such as "en" or "pt-BR".`, { parameter: label, value });
   }
 }
 
@@ -298,14 +330,22 @@ export function resolveGenerateTextOptions(options: GenerateTextOptions): Genera
   }
   if (options.brandTerms !== undefined) {
     if (options.brandTerms.length === 0 || options.brandTerms.length > GENERATE_TEXT_MAX_BRAND_TERMS) {
-      throw validationError(`brandTerms must contain 1-${GENERATE_TEXT_MAX_BRAND_TERMS} terms.`);
+      throw validationError(`brandTerms must contain 1-${GENERATE_TEXT_MAX_BRAND_TERMS} terms.`, {
+        parameter: "brandTerms",
+        max: GENERATE_TEXT_MAX_BRAND_TERMS,
+        received: options.brandTerms.length,
+      });
     }
     const total = options.brandTerms.reduce(
       (sum, term) => sum + assertBoundedText(term, GENERATE_TEXT_MAX_BRAND_TERM_CHARS, "Each brand term"),
       0,
     );
     if (total > GENERATE_TEXT_MAX_BRAND_TERMS_TOTAL_CHARS) {
-      throw validationError(`Combined brandTerms must be ${GENERATE_TEXT_MAX_BRAND_TERMS_TOTAL_CHARS} characters or fewer.`);
+      throw validationError(`Combined brandTerms must be ${GENERATE_TEXT_MAX_BRAND_TERMS_TOTAL_CHARS} characters or fewer.`, {
+        parameter: "brandTerms",
+        max: GENERATE_TEXT_MAX_BRAND_TERMS_TOTAL_CHARS,
+        received: total,
+      });
     }
   }
   if (options.languageCode !== undefined) {
@@ -463,18 +503,25 @@ function clampBriefArrays(brief: GenerateTextBrief): GenerateTextBrief {
  * input. Leaked list entries are dropped; a leaked headline field fails the
  * run because every artifact would be written from it.
  */
-function scrubBrief(brief: GenerateTextBrief, safety: SafetyReporter): GenerateTextBrief {
+function scrubBrief(brief: GenerateTextBrief, safety: SafetyReporter, context: ModelCallContext): GenerateTextBrief {
   const centralIdea = safety.scrubDetailed(brief.centralIdea, "editorial_brief.centralIdea");
   const readerValue = safety.scrubDetailed(brief.readerValue, "editorial_brief.readerValue");
   if (centralIdea.leaked || readerValue.leaked || !centralIdea.text.trim()) {
+    // The model returned a brief that can't be used; a fresh generation usually succeeds.
+    const leaked = centralIdea.leaked || readerValue.leaked;
     throw new MuxAiError(
-      "The editorial brief was suppressed by the output safety filter.",
+      leaked ? "The editorial brief was suppressed by the output safety filter." : "The editorial brief was empty.",
       {
-        code: centralIdea.leaked || readerValue.leaked ?
-          MUX_AI_ERROR_CODES.MODEL_OUTPUT_SUPPRESSED :
-          MUX_AI_ERROR_CODES.MODEL_OUTPUT_MISSING,
-        // As before (pre-classification).
+        code: leaked ? MUX_AI_ERROR_CODES.MODEL_OUTPUT_SUPPRESSED : MUX_AI_ERROR_CODES.MODEL_OUTPUT_MISSING,
+        // As before; see the model-output follow-up.
         retryable: true,
+        facts: {
+          ...modelCallFacts(context),
+          suppressedFields: [
+            ...(centralIdea.leaked || !centralIdea.text.trim() ? ["centralIdea"] : []),
+            ...(readerValue.leaked ? ["readerValue"] : []),
+          ],
+        },
       },
     );
   }
@@ -742,6 +789,48 @@ function readUsage(response: { usage: unknown }): TokenUsage {
   return getErrorTokenUsage(response) ?? {};
 }
 
+const BRIEF_CALL = "extract_editorial_brief";
+const ARTIFACT_CALL = "generate_text_artifact";
+const LENGTH_REPAIR_CALL = "repair_text";
+
+function modelCallFacts(context: ModelCallContext): MuxAiErrorFacts {
+  return { call: context.call, provider: context.provider, ...(context.model && { model: context.model }) };
+}
+
+/** Adds the model call's facts to an already-classified error (its own values win). */
+function withModelCallFacts(error: MuxAiError, context: ModelCallContext): MuxAiError {
+  Object.assign(error, { facts: { ...modelCallFacts(context), ...error.facts } });
+  return error;
+}
+
+/**
+ * Reads structured output. The content-policy helpers already classify provider
+ * API failures and empty output; an unparseable response (the AI SDK throws on
+ * access) is also unusable output, and a fresh generation usually succeeds.
+ */
+function readModelOutput<T>(read: () => T, context: ModelCallContext): T {
+  try {
+    return read();
+  } catch (error) {
+    if (!NoObjectGeneratedError.isInstance(error) && !NoOutputGeneratedError.isInstance(error)) {
+      throw error;
+    }
+    // No output at all is missing; output that couldn't be parsed into the schema is invalid.
+    const unusable = new MuxAiError(`${context.call} returned no usable output`, {
+      code: NoOutputGeneratedError.isInstance(error) ? MUX_AI_ERROR_CODES.MODEL_OUTPUT_MISSING : MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID,
+      facts: modelCallFacts(context),
+      // As before: the raw error was retried by the step runner. See the model-output follow-up.
+      transient: true,
+      cause: error,
+    });
+    const usage = getErrorTokenUsage(error);
+    if (usage) {
+      unusable.usage = usage;
+    }
+    throw unusable;
+  }
+}
+
 async function extractBriefWithModel(args: {
   provider: SupportedProvider;
   modelId: string;
@@ -751,6 +840,7 @@ async function extractBriefWithModel(args: {
   credentials?: WorkflowCredentialsInput;
 }): Promise<{ brief: GenerateTextBrief; usage: TokenUsage; unexpectedKeys: string[] }> {
   "use step";
+  const context: ModelCallContext = { call: BRIEF_CALL, provider: args.provider, model: args.modelId };
   return withModelCallDiagnostics({ phase: "brief", provider: args.provider, modelId: args.modelId }, async () => {
     const model = await createLanguageModelFromConfig(args.provider, args.modelId, args.credentials);
 
@@ -772,12 +862,9 @@ async function extractBriefWithModel(args: {
           ],
         },
       ],
-    }));
+    }), undefined, context);
 
-    const output = getGeneratedOutputWithContentPolicyHandling(response);
-    if (!output) {
-      throw new Error("Editorial brief output missing");
-    }
+    const output = readModelOutput(() => getGeneratedOutputWithContentPolicyHandling(response, context), context);
 
     return {
       brief: clampBriefArrays(briefSchema.parse(output)),
@@ -820,6 +907,7 @@ async function generateArtifactWithModel(args: {
 }): Promise<ArtifactStepResult> {
   "use step";
   const diagnostics: ModelCallDiagnostics = { phase: "draft", provider: args.provider, modelId: args.modelId };
+  const context: ModelCallContext = { call: ARTIFACT_CALL, provider: args.provider, model: args.modelId };
   return withModelCallDiagnostics(diagnostics, async () => {
     const model = await createLanguageModelFromConfig(args.provider, args.modelId, args.credentials);
 
@@ -834,11 +922,8 @@ async function generateArtifactWithModel(args: {
         }),
         system: args.systemPrompt,
         messages,
-      }));
-      const output = getGeneratedOutputWithContentPolicyHandling(response);
-      if (!output) {
-        throw new Error("Generated text output missing");
-      }
+      }), undefined, context);
+      const output = readModelOutput(() => getGeneratedOutputWithContentPolicyHandling(response, context), context);
       return {
         content: artifactSchema.parse(output).content.trim(),
         usage: readUsage(response),
@@ -890,30 +975,29 @@ async function generateArtifactWithModel(args: {
     usages.push(...repaired.attempts.flatMap(item => item.call.usage ? [item.call.usage] : []));
     if (repaired.status !== "valid") {
       const cause = repaired.attempts.at(-1)?.call.errorCause;
-      // Rebuild before adding aggregate usage: the failed call is already in usages.
-      // Retain customer-safe metadata, including errors serialized by callers.
-      let failure: Error;
-      if (isIncompleteGenerationError(cause)) {
-        failure = new IncompleteGenerationError(cause.finishReason, cause.rawFinishReason);
-      } else if (MuxAiError.is(cause)) {
-        failure = new MuxAiError(cause.message, {
-          ...(cause.code ? { code: cause.code } : { type: cause.type, source: cause.source }),
-          dependency: cause.dependency,
-          // As before (pre-classification): keep the cause's retryable, and stay fatal.
-          retryable: cause.retryable,
-          transient: false,
-        });
+      const repairContext: ModelCallContext = { ...context, call: LENGTH_REPAIR_CALL };
+      // A classified cause (provider failure, content policy, incomplete output)
+      // is rethrown as is, keeping its whole classification; its own usage is
+      // cleared because the failed call is already in usages.
+      let failure: MuxAiError;
+      if (MuxAiError.is(cause)) {
+        failure = withModelCallFacts(cause, repairContext);
+        failure.usage = undefined;
+        // As before (always fatal): repair is already the retry of this generation, so
+        // a step retry would redo draft, format repair and length repair.
+        Object.assign(failure, { transient: false, name: "FatalError" });
       } else {
-        const apiError = APICallError.isInstance(cause) ? cause : undefined;
+        // A parse or validation failure on the repair model's response.
         failure = new MuxAiError("Unable to complete text generation.", {
           code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID,
-          // As before (pre-classification).
-          retryable: apiError?.isRetryable ?? true,
+          facts: modelCallFacts(repairContext),
+          // As before; see the model-output follow-up.
+          retryable: true,
           cause,
         });
       }
       if (typeof cause === "object" && cause !== null && "diagnostics" in cause) {
-        (failure as MuxAiError).diagnostics = cause.diagnostics as ModelCallDiagnostics;
+        failure.diagnostics = cause.diagnostics as ModelCallDiagnostics;
       }
       rethrowWithTokenUsage(failure, usages);
     }
@@ -974,7 +1058,12 @@ async function generateArtifactsInBatches(
           collectedUsage.push(usage);
         }
       }
-      wrapError(failures[0], `Failed to generate text with ${provider}`);
+      // A classified failure passes through with these facts merged in; its usage
+      // rides on the error, the other failures' usage is recorded above.
+      wrapError(failures[0], `Failed to generate text with ${provider}`, {
+        failedCount: failures.length,
+        generationCount: requests.length,
+      });
     }
   }
   return results;
@@ -1025,22 +1114,20 @@ async function generateTextInternal(
     throw new MuxAiError("useShots is not supported for audio-only assets.", {
       type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
       source: MUX_AI_ERROR_SOURCES.REQUEST,
+      facts: { parameter: "useShots", assetId },
     });
   }
   if (useShots && assetDurationSeconds === undefined) {
     throw new MuxAiError("Asset has no valid duration.", {
       type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
       source: MUX_AI_ERROR_SOURCES.ASSET,
+      facts: { assetId },
     });
   }
 
   const signingContext = await resolveMuxSigningContext(credentials);
   if (policy === "signed" && !signingContext) {
-    throw new MuxAiError(
-      "Signed playback ID requires signing credentials. " +
-      "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
-      { code: MUX_AI_ERROR_CODES.SIGNING_CREDENTIALS_MISSING },
-    );
+    throw signingCredentialsMissingError();
   }
   const shouldSign = policy === "signed";
 
@@ -1059,13 +1146,16 @@ async function generateTextInternal(
 
   const transcriptText = transcriptResult.transcriptText.trim();
   if (!transcriptText) {
-    throw new MuxAiError(
-      effectiveScope ? "Transcript has no usable content in the requested scope." : "Transcript has no usable content.",
-      // An empty window is the caller's choice of scope; an empty transcript is the asset's.
-      effectiveScope ?
-          { code: MUX_AI_ERROR_CODES.INVALID_SCOPE, facts: { reason: "no_transcript", ...scopeFacts(effectiveScope) } } :
-          { code: MUX_AI_ERROR_CODES.TRANSCRIPT_EMPTY },
-    );
+    // An empty window is the caller's choice of scope; an empty transcript is the asset's.
+    throw effectiveScope ?
+        new MuxAiError("Transcript has no usable content in the requested scope.", {
+          code: MUX_AI_ERROR_CODES.INVALID_SCOPE,
+          facts: { reason: "no_transcript", assetId, ...scopeFacts(effectiveScope) },
+        }) :
+        new MuxAiError("Transcript has no usable content.", {
+          code: MUX_AI_ERROR_CODES.TRANSCRIPT_EMPTY,
+          facts: { assetId },
+        });
   }
 
   const resolvedLanguageCode = outputLanguageCode && outputLanguageCode !== "auto" ?
@@ -1088,12 +1178,20 @@ async function generateTextInternal(
     userPrompt: buildBriefUserPrompt({ transcriptText, imageCount: imageUrls.length, audience, languageName }),
     imageUrls,
     credentials,
-  }).catch((error: unknown) => wrapError(error, `Failed to extract editorial brief with ${provider}`));
+  }).catch((error: unknown) => wrapError(error, `Failed to extract editorial brief with ${provider}`, {
+    call: BRIEF_CALL,
+    provider: modelConfig.provider,
+    model: modelConfig.modelId,
+  }));
   collectedUsage.push(briefStep.usage);
   for (const key of briefStep.unexpectedKeys) {
     safety.record(`editorial_brief.${key}`, "unexpected_key");
   }
-  const brief = scrubBrief(briefStep.brief, safety);
+  const brief = scrubBrief(briefStep.brief, safety, {
+    call: BRIEF_CALL,
+    provider: modelConfig.provider,
+    model: modelConfig.modelId,
+  });
 
   const matrix = variants.flatMap(variant => artifacts.map(artifact => ({
     variant,
@@ -1118,10 +1216,18 @@ async function generateTextInternal(
       for (const key of item.unexpectedKeys) {
         safety.record(`${field}.${key}`, "unexpected_key");
       }
+      const artifactFacts = {
+        call: ARTIFACT_CALL,
+        provider: modelConfig.provider,
+        model: modelConfig.modelId,
+        variantKey: variant.key,
+        artifactKey: artifact.key,
+      };
       if (item.violation === "empty") {
         throw new MuxAiError(`Generated text for ${field} was empty after a retry.`, {
           code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_MISSING,
-          // As before (pre-classification).
+          facts: artifactFacts,
+          // As before; see the model-output follow-up.
           retryable: true,
         });
       }
@@ -1130,7 +1236,13 @@ async function generateTextInternal(
           `Generated text for ${field} exceeded the ${item.violation.limit.value} ${item.violation.limit.unit} limit after a retry (${item.violation.actual} returned).`,
           {
             code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID,
-            // As before (pre-classification).
+            facts: {
+              ...artifactFacts,
+              limit: item.violation.limit.value,
+              unit: item.violation.limit.unit,
+              actual: item.violation.actual,
+            },
+            // As before; see the model-output follow-up.
             retryable: true,
           },
         );

@@ -1,6 +1,8 @@
 import env from "../env.ts";
 import type { WorkflowCredentialsInput } from "../types.ts";
 
+import type { MuxAiErrorSource } from "./mux-ai-error.ts";
+import { MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
 import { resolveWorkflowCredentials } from "./workflow-credentials.ts";
 
 export type MuxPlaybackService = "image" | "stream";
@@ -8,6 +10,17 @@ export type MuxPlaybackService = "image" | "stream";
 const DEFAULT_MUX_DOMAIN = "mux.com";
 
 type LegacyOverrideEnvVarName = "MUX_IMAGE_URL_OVERRIDE" | "MUX_STREAM_URL_OVERRIDE";
+
+/** A misconfigured playback domain: the caller's argument, or the service's configuration. */
+function invalidPlaybackDomainError(message: string, setting: string, source: MuxAiErrorSource): MuxAiError {
+  return new MuxAiError(message, {
+    type: source === MUX_AI_ERROR_SOURCES.INTERNAL ?
+      MUX_AI_ERROR_TYPES.SERVER_ERROR :
+      MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+    source,
+    facts: { setting },
+  });
+}
 
 function normalizeOrigin(value: string, envVarName: LegacyOverrideEnvVarName): string {
   const trimmed = value.trim();
@@ -21,9 +34,11 @@ function normalizeOrigin(value: string, envVarName: LegacyOverrideEnvVarName): s
   try {
     parsed = new URL(candidate);
   } catch {
-    throw new Error(
+    throw invalidPlaybackDomainError(
       `Invalid ${envVarName}. Provide a hostname (e.g. "${exampleHostname}") ` +
       `or a URL origin (e.g. "https://${exampleHostname}").`,
+      envVarName,
+      MUX_AI_ERROR_SOURCES.INTERNAL,
     );
   }
 
@@ -34,9 +49,11 @@ function normalizeOrigin(value: string, envVarName: LegacyOverrideEnvVarName): s
     parsed.hash ||
     (parsed.pathname && parsed.pathname !== "/")
   ) {
-    throw new Error(
+    throw invalidPlaybackDomainError(
       `Invalid ${envVarName}. Only a hostname/origin is allowed ` +
       `(no credentials, query params, hash fragments, or path).`,
+      envVarName,
+      MUX_AI_ERROR_SOURCES.INTERNAL,
     );
   }
 
@@ -44,9 +61,13 @@ function normalizeOrigin(value: string, envVarName: LegacyOverrideEnvVarName): s
 }
 
 function buildPlaybackOrigin(service: MuxPlaybackService, customDomain: string, source: string): string {
-  const invalidDomainError = new Error(
+  // A domain passed straight to `getMuxPlaybackOrigin` is the caller's input; one
+  // from credentials or the environment is the configuration of the service.
+  const invalidDomainError = invalidPlaybackDomainError(
     `Invalid ${source}. Provide a bare hostname (e.g. "media.example.com") ` +
     `with no scheme, port, credentials, query params, hash fragments, or path.`,
+    source,
+    source === "custom domain" ? MUX_AI_ERROR_SOURCES.REQUEST : MUX_AI_ERROR_SOURCES.INTERNAL,
   );
 
   const trimmed = customDomain.trim();

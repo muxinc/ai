@@ -34,6 +34,7 @@ export function resolveWorkflowScope(
     throw new MuxAiError("Asset has no valid duration.", {
       type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
       source: MUX_AI_ERROR_SOURCES.ASSET,
+      facts: { assetDurationSeconds: assetDurationSeconds ?? null },
     });
   }
 
@@ -43,28 +44,28 @@ export function resolveWorkflowScope(
   if (!Number.isFinite(startTime) || startTime < 0) {
     throw new MuxAiError(
       `scope.startTime must be a finite, non-negative number (received ${startTime}).`,
-      { code: MUX_AI_ERROR_CODES.INVALID_SCOPE, facts: { reason: "invalid_start_time", received: String(startTime) } },
+      { code: MUX_AI_ERROR_CODES.INVALID_SCOPE, facts: { reason: "invalid_start_time", field: "scope.startTime", received: String(startTime) } },
     );
   }
 
   if (!Number.isFinite(endTime) || endTime < 0) {
     throw new MuxAiError(
       `scope.endTime must be a finite, non-negative number (received ${endTime}).`,
-      { code: MUX_AI_ERROR_CODES.INVALID_SCOPE, facts: { reason: "invalid_end_time", received: String(endTime) } },
+      { code: MUX_AI_ERROR_CODES.INVALID_SCOPE, facts: { reason: "invalid_end_time", field: "scope.endTime", received: String(endTime) } },
     );
   }
 
   if (endTime > assetDurationSeconds) {
     throw new MuxAiError(
       `scope.endTime (${endTime}) cannot exceed the asset duration (${assetDurationSeconds}).`,
-      { code: MUX_AI_ERROR_CODES.INVALID_SCOPE, facts: { reason: "exceeds_duration", endTime, assetDurationSeconds } },
+      { code: MUX_AI_ERROR_CODES.INVALID_SCOPE, facts: { reason: "exceeds_duration", field: "scope.endTime", endTime, assetDurationSeconds } },
     );
   }
 
   if (startTime >= endTime) {
     throw new MuxAiError(
       `scope.startTime (${startTime}) must be less than scope.endTime (${endTime}).`,
-      { code: MUX_AI_ERROR_CODES.INVALID_SCOPE, facts: { reason: "empty_range", startTime, endTime } },
+      { code: MUX_AI_ERROR_CODES.INVALID_SCOPE, facts: { reason: "empty_range", field: "scope.startTime", startTime, endTime } },
     );
   }
 
@@ -101,7 +102,12 @@ export function resolveRenderableVideoScope(
   if (renderableScope.startTime >= renderableScope.endTime) {
     throw new MuxAiError("The requested scope does not include any renderable video.", {
       code: MUX_AI_ERROR_CODES.INVALID_SCOPE,
-      facts: { reason: "no_video", startTime: resolvedScope.startTime, endTime: resolvedScope.endTime },
+      facts: {
+        reason: "no_video",
+        startTime: resolvedScope.startTime,
+        endTime: resolvedScope.endTime,
+        videoTrackDurationSeconds: videoTrackDurationSeconds ?? null,
+      },
     });
   }
 

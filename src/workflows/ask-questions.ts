@@ -6,9 +6,16 @@ import {
   getGeneratedOutputWithContentPolicyHandling,
   withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
+import type { ModelCallContext } from "../lib/content-policy-error.ts";
 import type { ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImageAsBase64 } from "../lib/image-download.ts";
-import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
+import {
+  MUX_AI_ERROR_CODES,
+  MUX_AI_ERROR_SOURCES,
+  MUX_AI_ERROR_TYPES,
+  MuxAiError,
+  wrapError,
+} from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -35,6 +42,7 @@ import {
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
 import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
+import { signingCredentialsMissingError } from "../lib/url-signing.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
 import {
   hasWorkflowScopeBoundaries,
@@ -526,7 +534,7 @@ function normalizeQuestion(q: Question, idx: number): NormalizedQuestion {
   if (hasOptions && isFreeForm) {
     throw new MuxAiError(
       `Question at index ${idx} sets both answerOptions and freeFormReply: true. These are mutually exclusive — pick one.`,
-      { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
+      { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST, facts: { questionIndex: idx } },
     );
   }
 
@@ -543,7 +551,7 @@ function normalizeQuestion(q: Question, idx: number): NormalizedQuestion {
     if (!options.length) {
       throw new MuxAiError(
         `Question at index ${idx} has invalid answerOptions: must include at least one non-empty value.`,
-        { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
+        { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST, facts: { questionIndex: idx } },
       );
     }
     return {
@@ -714,6 +722,7 @@ async function analyzeQuestions({
 }: AnalyzeQuestionsInput): Promise<AnalysisResponse> {
   "use step";
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
+  const context: ModelCallContext = { call: "ask_questions", provider, model: modelId };
 
   const responseSchema = buildResponseSchemaForQuestions(
     normalizedQuestions,
@@ -737,12 +746,8 @@ async function analyzeQuestions({
           userPrompt,
       },
     ],
-  }));
-  const output = getGeneratedOutputWithContentPolicyHandling(response);
-
-  if (!output) {
-    throw new Error("Ask-questions output missing");
-  }
+  }), undefined, context);
+  const output = getGeneratedOutputWithContentPolicyHandling(response, context);
 
   const parsed = responseSchema.parse(output);
 
@@ -848,7 +853,7 @@ async function askQuestionsInternal(
   if (questions.length > ASK_QUESTIONS_MAX_QUESTIONS_PER_CALL) {
     throw new MuxAiError(
       `Too many questions: received ${questions.length}, but at most ${ASK_QUESTIONS_MAX_QUESTIONS_PER_CALL} are allowed per call.`,
-      { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
+      { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST, facts: { count: questions.length, max: ASK_QUESTIONS_MAX_QUESTIONS_PER_CALL } },
     );
   }
 
@@ -858,13 +863,13 @@ async function askQuestionsInternal(
     if (!q.question || typeof q.question !== "string" || !q.question.trim()) {
       throw new MuxAiError(
         `Question at index ${idx} is invalid: must have a non-empty question field.`,
-        { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
+        { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST, facts: { questionIndex: idx } },
       );
     }
     if (q.question.length > ASK_QUESTIONS_MAX_QUESTION_LENGTH) {
       throw new MuxAiError(
         `Question at index ${idx} exceeds the ${ASK_QUESTIONS_MAX_QUESTION_LENGTH}-character limit (received ${q.question.length}).`,
-        { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
+        { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST, facts: { questionIndex: idx, length: q.question.length, maxLength: ASK_QUESTIONS_MAX_QUESTION_LENGTH } },
       );
     }
   });
@@ -879,7 +884,7 @@ async function askQuestionsInternal(
   if (!Number.isFinite(maxAnswerOptionLength) || maxAnswerOptionLength <= 0) {
     throw new MuxAiError(
       `maxAnswerOptionLength must be a positive number (received ${maxAnswerOptionLength}).`,
-      { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
+      { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST, facts: { parameter: "maxAnswerOptionLength", value: maxAnswerOptionLength } },
     );
   }
   questions.forEach((q, idx) => {
@@ -891,7 +896,7 @@ async function askQuestionsInternal(
       if (typeof opt === "string" && opt.length > maxAnswerOptionLength) {
         throw new MuxAiError(
           `Question at index ${idx} has an answerOption exceeding the ${maxAnswerOptionLength}-character limit (received ${opt.length}). Answer options should be short labels, not sentences.`,
-          { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
+          { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST, facts: { questionIndex: idx, length: opt.length, maxLength: maxAnswerOptionLength } },
         );
       }
     }
@@ -903,7 +908,7 @@ async function askQuestionsInternal(
   if (!Number.isFinite(maxFreeFormAnswerLength) || maxFreeFormAnswerLength <= 0) {
     throw new MuxAiError(
       `maxFreeFormAnswerLength must be a positive number (received ${maxFreeFormAnswerLength}).`,
-      { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
+      { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST, facts: { parameter: "maxFreeFormAnswerLength", value: maxFreeFormAnswerLength } },
     );
   }
 
@@ -955,11 +960,7 @@ async function askQuestionsInternal(
   // Resolve signing context for signed playback IDs
   const signingContext = await resolveMuxSigningContext(credentials);
   if (policy === "signed" && !signingContext) {
-    throw new MuxAiError(
-      "Signed playback ID requires signing credentials. " +
-      "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
-      { code: MUX_AI_ERROR_CODES.SIGNING_CREDENTIALS_MISSING },
-    );
+    throw signingCredentialsMissingError();
   }
 
   const transcriptResult =
@@ -985,72 +986,74 @@ async function askQuestionsInternal(
   });
   const systemPrompt = buildSystemPrompt(isAudioOnly, hasFreeForm, maxFreeFormAnswerLength);
 
-  let analysisResponse: AnalysisResponse;
   let imageUrl: string | undefined;
+  let imageDataUrl: string | undefined;
 
-  try {
-    if (isAudioOnly) {
-      analysisResponse = await analyzeQuestions({
-        provider: modelConfig.provider,
-        modelId: modelConfig.modelId,
-        userPrompt,
-        systemPrompt,
-        normalizedQuestions,
-        maxFreeFormAnswerLength,
-        credentials,
-      });
-    } else {
-      // Generate storyboard URL (signed if needed)
-      const storyboardUrl = await getStoryboardUrl(
+  // Storyboard signing, the image fetch and the model call each get their own
+  // `try`, so a Mux or signing failure isn't reported as the provider's.
+  if (!isAudioOnly) {
+    // Generate storyboard URL (signed if needed)
+    let storyboardUrl: string;
+    try {
+      storyboardUrl = await getStoryboardUrl(
         playbackId,
         storyboardWidth,
         policy === "signed",
         credentials,
         storyboardScope,
       );
-      imageUrl = storyboardUrl;
-
-      if (imageSubmissionMode === "base64") {
-        const base64Data = await fetchImageAsBase64(storyboardUrl, imageDownloadOptions);
-        analysisResponse = await analyzeQuestions({
-          provider: modelConfig.provider,
-          modelId: modelConfig.modelId,
-          userPrompt,
-          systemPrompt,
-          normalizedQuestions,
-          maxFreeFormAnswerLength,
-          imageDataUrl: base64Data,
-          credentials,
-        });
-      } else {
-        analysisResponse = await analyzeQuestions({
-          provider: modelConfig.provider,
-          modelId: modelConfig.modelId,
-          userPrompt,
-          systemPrompt,
-          normalizedQuestions,
-          maxFreeFormAnswerLength,
-          imageDataUrl: storyboardUrl,
-          credentials,
-        });
-      }
+    } catch (error: unknown) {
+      wrapError(error, "Failed to build storyboard URL", { assetId });
     }
+    imageUrl = storyboardUrl;
+
+    if (imageSubmissionMode === "base64") {
+      try {
+        imageDataUrl = await fetchImageAsBase64(storyboardUrl, imageDownloadOptions);
+      } catch (error: unknown) {
+        wrapError(error, "Failed to download storyboard image", { assetId });
+      }
+    } else {
+      imageDataUrl = storyboardUrl;
+    }
+  }
+
+  const contentType = isAudioOnly ? "audio" : "video";
+  const modelFacts = { provider: modelConfig.provider, model: modelConfig.modelId };
+  let analysisResponse: AnalysisResponse;
+  try {
+    analysisResponse = await analyzeQuestions({
+      provider: modelConfig.provider,
+      modelId: modelConfig.modelId,
+      userPrompt,
+      systemPrompt,
+      normalizedQuestions,
+      maxFreeFormAnswerLength,
+      imageDataUrl,
+      credentials,
+    });
   } catch (error: unknown) {
-    const contentType = isAudioOnly ? "audio" : "video";
-    wrapError(error, `Failed to analyze ${contentType} questions with ${provider}`);
+    wrapError(error, `Failed to analyze ${contentType} questions with ${provider}`, { ...modelFacts, contentType });
   }
 
   collectedUsage.push(analysisResponse.usage);
 
+  const modelOutputFacts = { call: "ask_questions", ...modelFacts, assetId };
   if (!analysisResponse.result?.answers) {
-    throw new MuxAiError(`Failed to generate answers for asset ${assetId}.`, { code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_MISSING });
+    throw new MuxAiError(`Failed to generate answers for asset ${assetId}.`, {
+      code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_MISSING,
+      facts: modelOutputFacts,
+    });
   }
 
   // Validate we got answers for all questions
   if (analysisResponse.result.answers.length !== questions.length) {
     throw new MuxAiError(
       `Failed to generate answers for all questions for asset ${assetId}.`,
-      { code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID },
+      {
+        code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID,
+        facts: { ...modelOutputFacts, expected: questions.length, received: analysisResponse.result.answers.length },
+      },
     );
   }
 
@@ -1124,9 +1127,13 @@ async function askQuestionsInternal(
     if (!isSkipped && !isFreeForm) {
       const allowed = allowedAnswersForQuestion(question);
       if (!allowed.includes(raw.answer)) {
+        // The raw answer is unscrubbed model output, so it stays out of the error.
         throw new MuxAiError(
-          `Answer "${raw.answer}" for question ${idx} is not in allowed options: ${allowed.join(", ")}`,
-          { code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID },
+          `Answer for question ${idx} is not in its allowed options.`,
+          {
+            code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID,
+            facts: { ...modelOutputFacts, questionIndex: idx, allowedCount: allowed.length },
+          },
         );
       }
     }
