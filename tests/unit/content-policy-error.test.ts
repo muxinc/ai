@@ -1,4 +1,4 @@
-import { APICallError, generateText, NoObjectGeneratedError, Output, RetryError } from "ai";
+import { APICallError, DownloadError, generateText, NoObjectGeneratedError, Output, RetryError } from "ai";
 import { MockLanguageModelV3 } from "ai/test";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -138,8 +138,12 @@ describe("content policy errors", () => {
       throw error;
     })).rejects.toMatchObject({
       name: "FatalError",
-      publicType: "content_policy_error",
-      publicMessage: "The supplied content was blocked by a content policy (reason: PROHIBITED_CONTENT).",
+      type: "content_policy_error",
+      source: "asset",
+      dependency: "ai_provider",
+      code: "content_policy_blocked",
+      facts: { reason: "PROHIBITED_CONTENT" },
+      message: "The supplied content was blocked by a content policy (reason: PROHIBITED_CONTENT).",
       retryable: false,
     });
   });
@@ -167,7 +171,7 @@ describe("content policy errors", () => {
       baseDelay: 0,
       maxDelay: 0,
     })).rejects.toMatchObject({
-      publicType: "content_policy_error",
+      type: "content_policy_error",
       retryable: false,
     });
 
@@ -200,7 +204,7 @@ describe("content policy errors", () => {
       attempts++;
       throw error;
     }, { maxRetries: 3, baseDelay: 0, maxDelay: 0 })).rejects.toMatchObject({
-      publicType: "content_policy_error",
+      type: "content_policy_error",
       retryable: false,
       usage: { totalTokens: kind === "structured-output" ? 10 : 12 },
     });
@@ -274,7 +278,7 @@ describe("content policy errors", () => {
     }).catch(error => error);
 
     expect(normalizedError).toMatchObject({
-      publicType: "content_policy_error",
+      type: "content_policy_error",
       usage: {
         inputTokens: 10,
         outputTokens: 0,
@@ -302,7 +306,7 @@ describe("content policy errors", () => {
     }).catch(error => error);
 
     expect(normalizedError).toMatchObject({
-      publicType: "content_policy_error",
+      type: "content_policy_error",
       usage: {
         inputTokens: 100,
         outputTokens: 6,
@@ -340,8 +344,8 @@ describe("content policy errors", () => {
     }).catch(error => error);
 
     expect(normalizedError).toMatchObject({
-      publicType: "content_policy_error",
-      publicMessage: "The supplied content was blocked by a content policy (reason: PROHIBITED_CONTENT).",
+      type: "content_policy_error",
+      message: "The supplied content was blocked by a content policy (reason: PROHIBITED_CONTENT).",
       retryable: false,
       usage: {
         inputTokens: 100,
@@ -377,8 +381,8 @@ describe("content policy errors", () => {
 
     expect(outputRead).toBe(false);
     expect(normalizedError).toMatchObject({
-      publicType: "content_policy_error",
-      publicMessage: "The supplied content was blocked by a content policy (reason: PROHIBITED_CONTENT).",
+      type: "content_policy_error",
+      message: "The supplied content was blocked by a content policy (reason: PROHIBITED_CONTENT).",
       retryable: false,
       usage: response.usage,
     });
@@ -403,8 +407,8 @@ describe("content policy errors", () => {
     expect(isIncompleteGenerationError(error)).toBe(true);
     expect(error).toMatchObject({
       name: "FatalError",
-      publicType: "processing_error",
-      publicMessage: "The model reached its output limit before producing a complete response (finish reason: MAX_TOKENS).",
+      type: "processing_error",
+      message: "The model reached its output limit before producing a complete response (finish reason: MAX_TOKENS).",
       retryable: false,
       finishReason: "length",
       rawFinishReason: "MAX_TOKENS",
@@ -420,7 +424,7 @@ describe("content policy errors", () => {
     }));
 
     expect(error).toMatchObject({
-      publicMessage: "The model stopped before producing a complete response (finish reason: error).",
+      message: "The model stopped before producing a complete response (finish reason: error).",
       retryable: true,
       finishReason: "error",
       rawFinishReason: undefined,
@@ -438,10 +442,9 @@ describe("content policy errors", () => {
 
   it("preserves content policy metadata across a serialized workflow step boundary", () => {
     const serializedError = {
-      __robots_error: true,
+      __mux_ai_error: true,
       message: "The supplied content was blocked by a content policy (reason: PROHIBITED_CONTENT).",
-      publicMessage: "The supplied content was blocked by a content policy (reason: PROHIBITED_CONTENT).",
-      publicType: "content_policy_error",
+      type: "content_policy_error",
       retryable: false,
     };
 
@@ -451,10 +454,9 @@ describe("content policy errors", () => {
 
   it("preserves serialized content policy errors through the retry wrapper", async () => {
     const serializedError = {
-      __robots_error: true,
+      __mux_ai_error: true,
       message: "The supplied content was blocked by a content policy (reason: PROHIBITED_CONTENT).",
-      publicMessage: "The supplied content was blocked by a content policy (reason: PROHIBITED_CONTENT).",
-      publicType: "content_policy_error",
+      type: "content_policy_error",
       retryable: false,
     };
 
@@ -488,5 +490,34 @@ describe("content policy errors", () => {
     });
 
     expect(() => rethrowContentPolicyError(retryError)).toThrow(retryError);
+  });
+});
+
+describe("classifying AI SDK output and download failures", () => {
+  it("classifies an unparseable response as invalid model output, keeping the step retry", async () => {
+    const error = new NoObjectGeneratedError({ message: "No object generated: could not parse the response.", text: "{", response: { id: "r", timestamp: new Date(0), modelId: "m" }, usage: { inputTokens: 5, outputTokens: 1, totalTokens: 6 } as any, finishReason: "stop" });
+
+    await expect(withContentPolicyErrorHandling(async () => {
+      throw error;
+    }, { call: "generate_chapters", provider: "openai", model: "m" })).rejects.toMatchObject({
+      code: "model_output_invalid",
+      source: "upstream",
+      dependency: "ai_provider",
+      facts: { call: "generate_chapters", provider: "openai", model: "m" },
+      transient: true,
+    });
+  });
+
+  it("classifies a download failure without the signed URL", async () => {
+    const error = new DownloadError({ url: "https://image.mux.com/abc/storyboard.png?token=SECRET_JWT", statusCode: 403, statusText: "Forbidden" });
+
+    const classified = await withContentPolicyErrorHandling(async () => {
+      throw error;
+    }, { call: "ask_questions", provider: "baseten" }).catch(caught => caught);
+
+    expect(classified).toMatchObject({ source: "account", dependency: "mux_video", facts: { call: "download_image", status: 403, host: "image.mux.com" } });
+    expect(JSON.stringify(classified.facts)).not.toContain("SECRET_JWT");
+    expect(classified.message).not.toContain("SECRET_JWT");
+    expect(JSON.stringify(classified.causes)).not.toContain("SECRET_JWT");
   });
 });

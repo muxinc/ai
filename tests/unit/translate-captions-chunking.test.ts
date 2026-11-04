@@ -157,10 +157,12 @@ describe("translateCaptions chunking for short assets", () => {
     } as any);
 
     await expect(translateCaptions("asset-123", "track-1", "es", SHORT_ASSET_OPTIONS)).rejects.toMatchObject({
-      publicType: "processing_error",
-      publicMessage: "The model reached its output limit before producing a complete response (finish reason: MAX_TOKENS).",
+      type: "processing_error",
+      code: "model_output_truncated",
+      message: "The model reached its output limit before producing a complete response (finish reason: MAX_TOKENS).",
       retryable: false,
       finishReason: "length",
+      facts: expect.objectContaining({ call: "translate_vtt_chunk", provider: "openai", finishReason: "length", cueCount: 1 }),
     });
   });
 });

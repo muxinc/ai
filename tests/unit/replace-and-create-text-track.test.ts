@@ -53,7 +53,14 @@ describe("replaceAndCreateTextTrack", () => {
 
     const result = await replaceAndCreateTextTrack({ ...INPUT, policy: "fail" });
 
-    expect(result).toEqual({ kind: "blocked", reason: expect.stringContaining("English"), tracks: [expect.objectContaining({ id: "up-en" })], deleted: [] });
+    expect(result).toEqual({
+      kind: "blocked",
+      code: "policy_fail",
+      reason: expect.stringContaining("English"),
+      tracks: [expect.objectContaining({ id: "up-en" })],
+      conflictsOnLanguage: true,
+      deleted: [],
+    });
     expect(deleteTrack).not.toHaveBeenCalled();
     expect(createTrack).not.toHaveBeenCalled();
   });
@@ -93,30 +100,49 @@ describe("replaceAndCreateTextTrack", () => {
 
     expect(result).toEqual({
       kind: "blocked",
+      code: "not_generated",
       reason: expect.stringContaining("not Mux-generated"),
       tracks: [expect.objectContaining({ id: "up-en" })],
+      conflictsOnLanguage: true,
       deleted: [expect.objectContaining({ id: "asr-en" })],
     });
     expect(createTrack).toHaveBeenCalledTimes(1);
   });
 
-  it("gives up after the second duplicate-name rejection", async () => {
+  it("reports a name collision, not an upstream failure, after the second duplicate-name rejection", async () => {
     retrieve.mockResolvedValue({ id: "asset-1", tracks: [] });
     createTrack.mockRejectedValue(duplicateNameError("English"));
 
     const result = await replaceAndCreateTextTrack({ ...INPUT, policy: "replace_all" });
 
-    expect(result).toEqual({ kind: "create_failed", reason: expect.stringContaining("not unique"), deleted: [] });
+    expect(result).toEqual({
+      kind: "blocked",
+      code: "name_collision",
+      reason: expect.stringContaining("not unique"),
+      tracks: [],
+      conflictsOnLanguage: false,
+      deleted: [],
+    });
     expect(createTrack).toHaveBeenCalledTimes(2);
   });
 
-  it("returns create_failed with the deletions for other create errors", async () => {
+  it("returns create_failed with the deletions and Mux status for other create errors", async () => {
     retrieve.mockResolvedValue({ id: "asset-1", tracks: [UPLOADED_EN] });
-    createTrack.mockRejectedValue(new Error("url unreachable"));
+    createTrack.mockRejectedValue(Object.assign(new Error("url unreachable"), {
+      status: 502,
+      headers: new Headers({ "x-request-id": "req-1" }),
+    }));
 
     const result = await replaceAndCreateTextTrack({ ...INPUT, policy: "replace_all" });
 
-    expect(result).toEqual({ kind: "create_failed", reason: "url unreachable", deleted: [expect.objectContaining({ id: "up-en" })] });
+    expect(result).toEqual({
+      kind: "create_failed",
+      call: "create_track",
+      status: 502,
+      requestId: "req-1",
+      reason: "url unreachable",
+      deleted: [expect.objectContaining({ id: "up-en" })],
+    });
     expect(createTrack).toHaveBeenCalledTimes(1);
   });
 
@@ -147,7 +173,7 @@ describe("replaceAndCreateTextTrack", () => {
 
     const result = await replaceAndCreateTextTrack({ ...INPUT, policy: "replace_all" });
 
-    expect(result).toEqual({ kind: "create_failed", reason: "forbidden", deleted: [expect.objectContaining({ id: "asr-en" })] });
+    expect(result).toEqual({ kind: "create_failed", call: "delete_track", status: 403, reason: "forbidden", deleted: [expect.objectContaining({ id: "asr-en" })] });
     expect(createTrack).not.toHaveBeenCalled();
   });
 
@@ -159,13 +185,19 @@ describe("replaceAndCreateTextTrack", () => {
 
     const result = await replaceAndCreateTextTrack({ ...INPUT, policy: "replace_all" });
 
-    expect(result).toEqual({ kind: "create_failed", reason: "mux down", deleted: [expect.objectContaining({ id: "asr-en" })] });
+    expect(result).toEqual({ kind: "create_failed", call: "get_asset", reason: "mux down", deleted: [expect.objectContaining({ id: "asr-en" })] });
   });
 
   it("still throws when the first asset fetch fails, since nothing has been deleted", async () => {
-    retrieve.mockRejectedValue(new Error("mux down"));
+    retrieve.mockRejectedValue(Object.assign(new Error("mux down"), { status: 503 }));
 
-    await expect(replaceAndCreateTextTrack({ ...INPUT, policy: "replace_all" })).rejects.toThrow("mux down");
+    await expect(replaceAndCreateTextTrack({ ...INPUT, policy: "replace_all" })).rejects.toMatchObject({
+      message: "Failed to fetch the asset from Mux",
+      source: "upstream",
+      dependency: "mux_video",
+      transient: true,
+      facts: { call: "get_asset", status: 503, assetId: "asset-1" },
+    });
     expect(deleteTrack).not.toHaveBeenCalled();
     expect(createTrack).not.toHaveBeenCalled();
   });
@@ -207,8 +239,10 @@ describe("replaceSourceTrack", () => {
 
     expect(result).toEqual({
       kind: "blocked",
+      code: "name_collision",
       reason: expect.stringContaining("A text track already has the name 'English'"),
       tracks: [expect.objectContaining({ id: "dup" })],
+      conflictsOnLanguage: false,
       deleted: [expect.objectContaining({ id: "up-en" })],
     });
   });

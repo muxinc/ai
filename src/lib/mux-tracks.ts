@@ -1,7 +1,17 @@
 import type { AssetTextTrack, MuxAsset, WorkflowCredentialsInput } from "../types.ts";
 
+import { dependencyError, httpStatusOf, requestIdOf } from "./dependency-error.ts";
+import type { DependencyErrorInit } from "./dependency-error.ts";
 import { isUndeterminedLanguageCode, toISO639_1 } from "./language-codes.ts";
-import { MuxAiError } from "./mux-ai-error.ts";
+import type { MuxAiErrorFacts, MuxAiErrorFactValue } from "./mux-ai-error.ts";
+import {
+  errorDetailFact,
+  MUX_AI_ERROR_CODES,
+  MUX_AI_ERROR_DEPENDENCY_VALUES,
+  MUX_AI_ERROR_SOURCE_VALUES,
+  MUX_AI_ERROR_TYPE_VALUES,
+  MuxAiError,
+} from "./mux-ai-error.ts";
 import { resolveMuxClient } from "./workflow-credentials.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -56,10 +66,47 @@ export interface TextTrackSummary {
 
 export type TrackSummary = TextTrackSummary;
 
+/**
+ * Why a replacement was blocked:
+ *
+ * - `policy_fail`: the `fail` policy and a conflicting track exists.
+ * - `not_generated`: `replace_generated` and a conflicting track is not Mux-generated.
+ * - `name_collision`: another track already has the target's name.
+ * - `primary_audio`: the asset's primary audio track conflicts; it can never be replaced.
+ */
+export type TrackReplacementBlockedReason = "policy_fail" | "not_generated" | "name_collision" | "primary_audio";
+
+export interface TrackReplacementBlocked {
+  kind: "blocked";
+  /** Human-readable explanation naming the conflicting tracks. */
+  reason: string;
+  /** Machine-readable reason for the block. */
+  code: TrackReplacementBlockedReason;
+  /** The conflicting tracks. Empty when Mux rejected the name without the asset showing a match. */
+  tracks: TextTrackSummary[];
+  /** Whether any conflicting track matched on language (rather than only on name). */
+  conflictsOnLanguage: boolean;
+}
+
 export type TextTrackReplacementPlan =
   { kind: "clear" } |
-  { kind: "blocked"; reason: string; tracks: TextTrackSummary[] } |
+  TrackReplacementBlocked |
   { kind: "replace"; toDelete: TextTrackSummary[] };
+
+/** The Mux call behind a failed track write. */
+export type TrackWriteCall = "get_asset" | "delete_track" | "create_track";
+
+/** A Mux failure while writing a track, with what is needed to classify it after a step boundary. */
+export interface TrackWriteFailed {
+  kind: "create_failed";
+  call: TrackWriteCall;
+  /** HTTP status of Mux's response; absent for a network failure or a malformed response. */
+  status?: number;
+  requestId?: string;
+  /** The raw error's message (URL tokens stripped). Internal detail, not customer text. */
+  reason: string;
+  deleted: TextTrackSummary[];
+}
 
 /**
  * Every variant carries `deleted`: a `blocked` result can follow deletes when a
@@ -68,8 +115,8 @@ export type TextTrackReplacementPlan =
  */
 export type ReplaceAndCreateTextTrackResult =
   { kind: "created"; trackId: string; deleted: TextTrackSummary[] } |
-  { kind: "blocked"; reason: string; tracks: TextTrackSummary[]; deleted: TextTrackSummary[] } |
-  { kind: "create_failed"; reason: string; deleted: TextTrackSummary[] };
+  (TrackReplacementBlocked & { deleted: TextTrackSummary[] }) |
+  TrackWriteFailed;
 
 /** Mux caps track `passthrough` at 255 characters. */
 export const MUX_TRACK_PASSTHROUGH_MAX_CHARS = 255;
@@ -185,41 +232,50 @@ export function planTextTrackReplacement(
   policy: ReplaceExistingTracksPolicy,
 ): TextTrackReplacementPlan {
   const label = targetType(target) === "audio" ? "Audio" : "Text";
+  const sameLanguage = findSameLanguageTextTracks(asset, target);
+  const sameLanguageIds = new Set(sameLanguage.map(track => track.id!));
   const conflicts = new Map<string, AssetTextTrack>();
-  for (const track of [...findSameLanguageTextTracks(asset, target), ...findNameCollisionTextTracks(asset, target)]) {
+  for (const track of [...sameLanguage, ...findNameCollisionTextTracks(asset, target)]) {
     conflicts.set(track.id!, track);
   }
   const conflicting = [...conflicts.values()];
+  const blocked = (code: TrackReplacementBlockedReason, reason: string, tracks: AssetTextTrack[]): TrackReplacementBlocked => ({
+    kind: "blocked",
+    reason,
+    code,
+    tracks: tracks.map(summarizeTextTrack),
+    conflictsOnLanguage: tracks.some(track => sameLanguageIds.has(track.id!)),
+  });
 
   if (conflicting.length === 0) {
     return { kind: "clear" };
   }
 
   if (policy === "fail") {
-    return {
-      kind: "blocked",
-      reason: `${countTracks(conflicting, label, "already exists", "already exist")} for language '${target.languageCode}' or name '${target.name}': ${describeTracks(conflicting)}. Set replaceExistingTracks to replace ${itOrThem(conflicting)}.`,
-      tracks: conflicting.map(summarizeTextTrack),
-    };
+    return blocked(
+      "policy_fail",
+      `${countTracks(conflicting, label, "already exists", "already exist")} for language '${target.languageCode}' or name '${target.name}': ${describeTracks(conflicting)}. Set replaceExistingTracks to replace ${itOrThem(conflicting)}.`,
+      conflicting,
+    );
   }
 
   const primary = conflicting.filter(track => track.type === "audio" && track.primary === true);
   if (primary.length > 0) {
-    return {
-      kind: "blocked",
-      reason: `The asset's primary audio track is in the way for language '${target.languageCode}' or name '${target.name}': ${describeTracks(primary)}. Primary audio cannot be replaced; choose a different trackName.`,
-      tracks: primary.map(summarizeTextTrack),
-    };
+    return blocked(
+      "primary_audio",
+      `The asset's primary audio track is in the way for language '${target.languageCode}' or name '${target.name}': ${describeTracks(primary)}. Primary audio cannot be replaced; choose a different trackName.`,
+      primary,
+    );
   }
 
   if (policy === "replace_generated") {
     const notGenerated = conflicting.filter(track => track.type !== "text" || !isMuxGeneratedTextTrack(track));
     if (notGenerated.length > 0) {
-      return {
-        kind: "blocked",
-        reason: `${countTracks(notGenerated, label, "that is not Mux-generated exists", "that are not Mux-generated exist")} for language '${target.languageCode}' or name '${target.name}': ${describeTracks(notGenerated)}. Use replaceExistingTracks: "replace_all" to replace ${itOrThem(notGenerated)}.`,
-        tracks: notGenerated.map(summarizeTextTrack),
-      };
+      return blocked(
+        "not_generated",
+        `${countTracks(notGenerated, label, "that is not Mux-generated exists", "that are not Mux-generated exist")} for language '${target.languageCode}' or name '${target.name}': ${describeTracks(notGenerated)}. Use replaceExistingTracks: "replace_all" to replace ${itOrThem(notGenerated)}.`,
+        notGenerated,
+      );
     }
   }
 
@@ -238,8 +294,10 @@ export function planSourceTrackReplacement(
   if (blocking.length > 0) {
     return {
       kind: "blocked",
+      code: "name_collision",
       reason: `${countTracks(blocking, "Text", "already has", "already have")} the name '${target.name}': ${describeTracks(blocking)}. Choose a different trackName.`,
       tracks: blocking.map(summarizeTextTrack),
+      conflictsOnLanguage: false,
     };
   }
 
@@ -267,6 +325,119 @@ function isNotFoundError(error: unknown): boolean {
   return typeof error === "object" && error !== null && (error as { status?: unknown }).status === 404;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Errors
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Classifies a failed Mux Video call (see `dependencyError`): 401/403 are the
+ * caller's Mux `account`, 404 means the asset or track is gone or not ready
+ * (`asset`).
+ */
+export function muxVideoError(
+  message: string,
+  init: Omit<DependencyErrorInit, "dependency" | "notFoundSource" | "authSource">,
+): MuxAiError {
+  return dependencyError(message, {
+    ...init,
+    dependency: MUX_AI_ERROR_DEPENDENCY_VALUES.mux_video,
+    notFoundSource: MUX_AI_ERROR_SOURCE_VALUES.asset,
+    authSource: MUX_AI_ERROR_SOURCE_VALUES.account,
+    // A create may have taken effect despite the failure; retrying could duplicate the track.
+    idempotent: init.call !== "create_track",
+  });
+}
+
+/**
+ * `muxVideoError` for an error thrown by a Mux SDK call. An already classified
+ * error (e.g. missing credentials) passes through with `facts` merged in.
+ */
+export function muxVideoCallError(message: string, call: string, error: unknown, facts?: MuxAiErrorFacts): MuxAiError {
+  if (MuxAiError.is(error)) {
+    if (facts) {
+      Object.assign(error, { facts: { ...facts, ...error.facts } });
+    }
+    return error;
+  }
+  return muxVideoError(message, {
+    call,
+    status: httpStatusOf(error),
+    requestId: requestIdOf((error as { headers?: unknown } | null)?.headers),
+    facts,
+    cause: error,
+  });
+}
+
+/** Mux answered a create (200) without a track id. Not transient: the track may exist, so a retry could duplicate it. */
+function missingTrackIdError(message: string, facts: MuxAiErrorFacts): MuxAiError {
+  return new MuxAiError(message, {
+    type: MUX_AI_ERROR_TYPE_VALUES.processing_error,
+    source: MUX_AI_ERROR_SOURCE_VALUES.upstream,
+    dependency: MUX_AI_ERROR_DEPENDENCY_VALUES.mux_video,
+    facts: { call: "create_track", status: 200, ...facts },
+  });
+}
+
+function trackFacts(track: TextTrackSummary): MuxAiErrorFactValue {
+  return Object.fromEntries(
+    Object.entries({
+      id: track.id,
+      type: track.type,
+      name: track.name,
+      languageCode: track.languageCode,
+      status: track.status,
+      textSource: track.textSource,
+      primary: track.primary,
+    }).filter(([, value]) => value !== undefined),
+  ) as MuxAiErrorFactValue;
+}
+
+/** JSON-safe summaries of `tracks` for error facts. */
+export function trackSummaryFacts(tracks: TextTrackSummary[]): MuxAiErrorFactValue[] {
+  return tracks.map(trackFacts);
+}
+
+/**
+ * The error for a blocked replacement plan or outcome. The caller chose the policy
+ * and the name, so it is `track_replacement_blocked` (`request`), except the
+ * asset's primary audio in the target's language: no option avoids that, so it is
+ * the `asset`'s.
+ */
+export function trackReplacementBlockedError(
+  blocked: Pick<TrackReplacementBlocked, "reason" | "code" | "tracks" | "conflictsOnLanguage">,
+  options: { message?: string; facts?: MuxAiErrorFacts } = {},
+): MuxAiError {
+  const message = options.message ?? blocked.reason;
+  const facts: MuxAiErrorFacts = {
+    ...options.facts,
+    reason: blocked.code,
+    conflictingTracks: trackSummaryFacts(blocked.tracks),
+  };
+  if (blocked.code === "primary_audio" && blocked.conflictsOnLanguage) {
+    return new MuxAiError(message, {
+      type: MUX_AI_ERROR_TYPE_VALUES.validation_error,
+      source: MUX_AI_ERROR_SOURCE_VALUES.asset,
+      facts,
+    });
+  }
+  return new MuxAiError(message, { code: MUX_AI_ERROR_CODES.track_replacement_blocked, facts });
+}
+
+/** The error for a `create_failed` outcome, classified by the Mux status it kept. */
+export function trackWriteFailedError(
+  failed: Pick<TrackWriteFailed, "call" | "status" | "requestId" | "reason">,
+  message: string,
+  facts?: MuxAiErrorFacts,
+): MuxAiError {
+  return muxVideoError(message, {
+    call: failed.call,
+    status: failed.status,
+    requestId: failed.requestId,
+    facts,
+    cause: new Error(failed.reason),
+  });
+}
+
 /** Default audit tag written to `passthrough` on tracks created by `@mux/ai`. */
 export function buildMuxAiTrackPassthrough(workflow: string): string {
   return JSON.stringify({ mux_ai: { workflow } });
@@ -276,7 +447,11 @@ export function validateTrackPassthrough(passthrough: string | undefined): strin
   if (passthrough !== undefined && passthrough.length > MUX_TRACK_PASSTHROUGH_MAX_CHARS) {
     throw new MuxAiError(
       `Track passthrough must be at most ${MUX_TRACK_PASSTHROUGH_MAX_CHARS} characters (received ${passthrough.length}).`,
-      { type: "validation_error" },
+      {
+        type: MUX_AI_ERROR_TYPE_VALUES.validation_error,
+        source: MUX_AI_ERROR_SOURCE_VALUES.request,
+        facts: { maxLength: MUX_TRACK_PASSTHROUGH_MAX_CHARS, length: passthrough.length },
+      },
     );
   }
   return passthrough;
@@ -289,12 +464,27 @@ export function validateTrackPassthrough(passthrough: string | undefined): strin
 export async function fetchVttFromMux(vttUrl: string): Promise<string> {
   "use step";
 
-  const vttResponse = await fetch(vttUrl);
+  // The URL may carry a signed playback token, so it stays out of messages and facts.
+  let vttResponse: Response;
+  try {
+    vttResponse = await fetch(vttUrl);
+  } catch (error) {
+    throw muxVideoError("Failed to fetch VTT file from Mux", { call: "fetch_vtt", cause: error });
+  }
   if (!vttResponse.ok) {
-    throw new Error(`Failed to fetch VTT file: ${vttResponse.statusText}`);
+    throw muxVideoError(`Failed to fetch VTT file from Mux (HTTP ${vttResponse.status})`, {
+      call: "fetch_vtt",
+      status: vttResponse.status,
+      requestId: requestIdOf(vttResponse.headers),
+    });
   }
 
-  return vttResponse.text();
+  try {
+    return await vttResponse.text();
+  } catch (error) {
+    // The body failed mid-read (e.g. a reset connection): treated as no response, so transient.
+    throw muxVideoError("Failed to read VTT file from Mux", { call: "fetch_vtt", cause: error });
+  }
 }
 
 export interface CreateTextTrackOptions {
@@ -313,18 +503,24 @@ export async function createTextTrackOnMux(
   "use step";
   const muxClient = await resolveMuxClient(credentials);
   const mux = await muxClient.createClient();
-  const trackResponse = await mux.video.assets.createTrack(assetId, {
-    type: "text",
-    text_type: "subtitles",
-    language_code: languageCode,
-    name: trackName,
-    url: presignedUrl,
-    closed_captions: options.closedCaptions,
-    passthrough: options.passthrough,
-  });
+  const facts = { assetId, languageCode };
+  let trackResponse: Awaited<ReturnType<typeof mux.video.assets.createTrack>>;
+  try {
+    trackResponse = await mux.video.assets.createTrack(assetId, {
+      type: "text",
+      text_type: "subtitles",
+      language_code: languageCode,
+      name: trackName,
+      url: presignedUrl,
+      closed_captions: options.closedCaptions,
+      passthrough: options.passthrough,
+    });
+  } catch (error) {
+    throw muxVideoCallError("Failed to create text track on Mux", "create_track", error, facts);
+  }
 
   if (!trackResponse.id) {
-    throw new Error("Failed to create text track: no track ID returned from Mux");
+    throw missingTrackIdError("Failed to create text track: no track ID returned from Mux", facts);
   }
 
   return trackResponse.id;
@@ -392,11 +588,19 @@ async function writeTrack(
   const type = targetType(input.target);
   const deleted: TextTrackSummary[] = [];
 
-  const failed = (error: unknown): Extract<ReplaceAndCreateTextTrackResult, { kind: "create_failed" }> => ({
-    kind: "create_failed",
-    reason: error instanceof Error ? error.message : String(error),
-    deleted,
-  });
+  // Keep the status and request id: the raw error does not survive the step boundary.
+  const failed = (call: TrackWriteCall, error: unknown): TrackWriteFailed => {
+    const status = httpStatusOf(error);
+    const requestId = requestIdOf((error as { headers?: unknown } | null)?.headers);
+    return {
+      kind: "create_failed",
+      call,
+      ...(status !== undefined && { status }),
+      ...(requestId && { requestId }),
+      reason: errorDetailFact(error instanceof Error ? error.message : String(error)),
+      deleted,
+    };
+  };
 
   const clearConflicts = async (): Promise<Exclude<ReplaceAndCreateTextTrackResult, { kind: "created" }> | undefined> => {
     let asset: MuxAsset;
@@ -404,9 +608,9 @@ async function writeTrack(
       asset = await mux.video.assets.retrieve(input.assetId);
     } catch (error) {
       if (deleted.length === 0) {
-        throw error;
+        throw muxVideoCallError("Failed to fetch the asset from Mux", "get_asset", error, { assetId: input.assetId });
       }
-      return failed(error);
+      return failed("get_asset", error);
     }
     const planned = plan(asset);
     if (planned.kind === "blocked") {
@@ -419,7 +623,7 @@ async function writeTrack(
           deleted.push(track);
         } catch (error) {
           if (!isNotFoundError(error)) {
-            return failed(error);
+            return failed("delete_track", error);
           }
         }
       }
@@ -427,7 +631,7 @@ async function writeTrack(
     return undefined;
   };
 
-  const create = async (): Promise<string> => {
+  const create = async (): Promise<string | undefined> => {
     const track = await mux.video.assets.createTrack(input.assetId, {
       type,
       ...(type === "text" ? { text_type: "subtitles", closed_captions: input.closedCaptions } : {}),
@@ -436,9 +640,6 @@ async function writeTrack(
       url: input.presignedUrl,
       passthrough: input.passthrough,
     });
-    if (!track.id) {
-      throw new Error(`Failed to create ${type} track: no track ID returned from Mux`);
-    }
     return track.id;
   };
 
@@ -448,21 +649,38 @@ async function writeTrack(
   }
 
   for (let attempt = 0; attempt < 2; attempt++) {
+    let trackId: string | undefined;
     try {
-      return { kind: "created", trackId: await create(), deleted };
+      trackId = await create();
     } catch (error) {
-      if (isDuplicateTrackNameError(error) && attempt === 0) {
-        const stoppedOnRetry = await clearConflicts();
-        if (stoppedOnRetry) {
-          return stoppedOnRetry;
-        }
-        continue;
+      if (!isDuplicateTrackNameError(error)) {
+        return failed("create_track", error);
       }
-      return failed(error);
+      if (attempt > 0) {
+        break;
+      }
+      const stoppedOnRetry = await clearConflicts();
+      if (stoppedOnRetry) {
+        return stoppedOnRetry;
+      }
+      continue;
     }
+    if (!trackId) {
+      return { kind: "create_failed", call: "create_track", reason: `Failed to create ${type} track: no track ID returned from Mux`, deleted };
+    }
+    return { kind: "created", trackId, deleted };
   }
 
-  return { kind: "create_failed", reason: "Mux rejected the track name as not unique after retrying.", deleted };
+  // The fresh asset showed no conflict, yet Mux still rejects the name: a
+  // conflict, not an upstream failure, even though no track can be named.
+  return {
+    kind: "blocked",
+    code: "name_collision",
+    reason: `Mux rejected the track name '${input.target.name.trim()}' as not unique after retrying. Choose a different trackName.`,
+    tracks: [],
+    conflictsOnLanguage: false,
+    deleted,
+  };
 }
 
 /** `replaceAndCreateTrack` pinned to text tracks. */

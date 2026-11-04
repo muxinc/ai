@@ -18,46 +18,69 @@ describe("isRetryableElevenLabsStatus", () => {
 });
 
 describe("elevenLabsResponseError", () => {
-  it("marks a rejected request as fatal so Workflow DevKit does not retry the step", async () => {
+  it("classifies a rejected request as a fatal ai_provider error with the reason in facts", async () => {
     const error = await elevenLabsResponseError(
       "ElevenLabs API error",
-      jsonResponse({ detail: { status: "unsupported_target_language", message: "Target language 'ur' is not supported." } }, 400, "Bad Request"),
+      jsonResponse({ detail: { status: "unsupported_target_language", message: "Target language 'ur' is not supported.", request_id: "req_1" } }, 400, "Bad Request"),
+      { call: "elevenlabs_create_dubbing", facts: { targetLanguage: "ur" } },
     );
 
+    expect(MuxAiError.is(error)).toBe(true);
     expect(error.name).toBe("FatalError");
-    expect(error.message).toBe("ElevenLabs API error: 400 Bad Request: unsupported_target_language: Target language 'ur' is not supported.");
+    expect(error.message).toBe("ElevenLabs API error (HTTP 400)");
+    expect(error.type).toBe("server_error");
+    expect(error.source).toBe("internal");
+    expect(error.dependency).toBe("ai_provider");
+    expect(error.transient).toBe(false);
+    expect(error.facts).toEqual({
+      call: "elevenlabs_create_dubbing",
+      status: 400,
+      requestId: "req_1",
+      provider: "elevenlabs",
+      providerCode: "unsupported_target_language",
+      detail: "Target language 'ur' is not supported.",
+      targetLanguage: "ur",
+    });
   });
 
-  it("leaves rate limits and server errors retryable", async () => {
+  it("leaves rate limits and server errors transient", async () => {
     const rateLimited = await elevenLabsResponseError("ElevenLabs API error", jsonResponse({ detail: "slow down" }, 429, "Too Many Requests"));
     const unavailable = await elevenLabsResponseError("ElevenLabs API error", new Response("", { status: 503, statusText: "Service Unavailable" }));
 
     expect(rateLimited.name).toBe("Error");
-    expect(rateLimited.message).toBe("ElevenLabs API error: 429 Too Many Requests: slow down");
+    expect(rateLimited.transient).toBe(true);
+    expect(rateLimited.source).toBe("upstream");
+    expect(rateLimited.type).toBe("capacity_error");
+    expect(rateLimited.facts.detail).toBe("slow down");
     expect(unavailable.name).toBe("Error");
-    expect(unavailable.message).toBe("ElevenLabs API error: 503 Service Unavailable");
+    expect(unavailable.type).toBe("processing_error");
+    expect(unavailable.message).toBe("ElevenLabs API error (HTTP 503)");
+    expect(unavailable.facts.detail).toBeUndefined();
   });
 
-  it("leaves a dub that is not ready to download yet (425) retryable", async () => {
+  it("leaves a dub that is not ready to download yet (425) transient", async () => {
     const error = await elevenLabsResponseError(
       "Failed to fetch dubbed audio",
       jsonResponse({ detail: { status: "dubbing_not_ready", message: "Dubbing not ready." } }, 425, "Too Early"),
     );
 
     expect(error.name).toBe("Error");
-    expect(error.message).toBe("Failed to fetch dubbed audio: 425 Too Early: dubbing_not_ready: Dubbing not ready.");
+    expect(error.transient).toBe(true);
+    expect(error.facts.providerCode).toBe("dubbing_not_ready");
   });
 
-  it("is never a customer-safe MuxAiError, even when fatal", async () => {
+  it("treats a rejected API key as our own (internal) problem", async () => {
     const error = await elevenLabsResponseError("ElevenLabs API error", jsonResponse({ detail: "bad key" }, 401, "Unauthorized"));
 
     expect(error.name).toBe("FatalError");
-    expect(MuxAiError.is(error)).toBe(false);
+    expect(error.source).toBe("internal");
+    expect(error.facts.provider).toBe("elevenlabs");
   });
 
-  it("falls back to the status line when there is no status text or body", async () => {
+  it("keeps the message to the status when there is no body", async () => {
     const error = await elevenLabsResponseError("Status check failed", new Response(null, { status: 404 }));
 
-    expect(error.message).toBe("Status check failed: 404");
+    expect(error.message).toBe("Status check failed (HTTP 404)");
+    expect(error.facts).toEqual({ call: "elevenlabs_request", status: 404, provider: "elevenlabs" });
   });
 });

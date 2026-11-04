@@ -1,5 +1,7 @@
 import { getMuxClientFromEnv } from "../lib/client-factory.ts";
-import { MuxAiError } from "../lib/mux-ai-error.ts";
+import { dependencyError, dependencyErrorFrom, httpStatusOf, requestIdOf } from "../lib/dependency-error.ts";
+import type { MuxAiErrorFacts } from "../lib/mux-ai-error.ts";
+import { MUX_AI_ERROR_DEPENDENCY_VALUES, MUX_AI_ERROR_SOURCE_VALUES, MUX_AI_ERROR_TYPE_VALUES, MuxAiError } from "../lib/mux-ai-error.ts";
 import type { WorkflowCredentialsInput } from "../types.ts";
 
 import type { AssetShots } from "@mux/ts/resources/video/assets";
@@ -71,6 +73,17 @@ const DEFAULT_POLL_INTERVAL_MS = 2000;
 const MIN_POLL_INTERVAL_MS = 1000;
 const DEFAULT_MAX_ATTEMPTS = 60;
 const SHOTS_ALREADY_REQUESTED_MESSAGE = "shots generation has already been requested";
+const SHOTS_ALREADY_REQUESTED_REASON = "shots_already_requested";
+
+/** Mux answered, but with a shots payload we can't use. */
+function malformedShotsError(message: string, call: string, facts?: MuxAiErrorFacts): MuxAiError {
+  return new MuxAiError(message, {
+    type: MUX_AI_ERROR_TYPE_VALUES.processing_error,
+    source: MUX_AI_ERROR_SOURCE_VALUES.upstream,
+    dependency: MUX_AI_ERROR_DEPENDENCY_VALUES.mux_video,
+    facts: { call, ...facts },
+  });
+}
 
 function mapManifestShots(
   shots: ShotsManifestResponse["shots"],
@@ -86,11 +99,11 @@ function mapManifestShots(
     }
 
     if (typeof startTime !== "number" || !Number.isFinite(startTime)) {
-      throw new TypeError(`Invalid shot start_time in shots manifest at index ${index}`);
+      throw malformedShotsError(`Invalid shot start_time in shots manifest at index ${index}`, "fetch_shots_manifest", { index });
     }
 
     if (typeof imageUrl !== "string" || imageUrl.length === 0) {
-      throw new TypeError(`Invalid shot shot_preview_image_url in shots manifest at index ${index}`);
+      throw malformedShotsError(`Invalid shot shot_preview_image_url in shots manifest at index ${index}`, "fetch_shots_manifest", { index });
     }
 
     return {
@@ -111,18 +124,43 @@ function mapManifestShots(
 async function fetchShotsFromManifest(
   shotsManifestUrl: string,
 ): Promise<Shot[]> {
-  const response = await fetch(shotsManifestUrl);
-
-  if (!response.ok) {
-    throw new Error(
-      `Failed to fetch shots manifest: ${response.status} ${response.statusText}`,
-    );
+  const call = "fetch_shots_manifest";
+  let response: Response;
+  try {
+    response = await fetch(shotsManifestUrl);
+  } catch (error) {
+    throw dependencyError("Failed to fetch shots manifest", {
+      dependency: MUX_AI_ERROR_DEPENDENCY_VALUES.mux_video,
+      call,
+      cause: error,
+    });
   }
 
-  const manifest = await response.json() as ShotsManifestResponse;
+  if (!response.ok) {
+    throw dependencyError(`Failed to fetch shots manifest (HTTP ${response.status})`, {
+      dependency: MUX_AI_ERROR_DEPENDENCY_VALUES.mux_video,
+      call,
+      status: response.status,
+      requestId: requestIdOf(response.headers),
+      notFoundSource: MUX_AI_ERROR_SOURCE_VALUES.asset,
+      authSource: MUX_AI_ERROR_SOURCE_VALUES.account,
+    });
+  }
 
-  if (!Array.isArray(manifest.shots)) {
-    throw new TypeError("Invalid shots manifest response: missing shots array");
+  let manifest: ShotsManifestResponse;
+  try {
+    manifest = await response.json() as ShotsManifestResponse;
+  } catch (error) {
+    throw dependencyError("Failed to read shots manifest", {
+      dependency: MUX_AI_ERROR_DEPENDENCY_VALUES.mux_video,
+      call,
+      // The body failed mid-read or wasn't JSON: treated as no response, so transient.
+      cause: error,
+    });
+  }
+
+  if (!Array.isArray(manifest?.shots)) {
+    throw malformedShotsError("Invalid shots manifest response: missing shots array", call);
   }
 
   return mapManifestShots(manifest.shots);
@@ -148,7 +186,7 @@ async function transformShotsResponse(data: AssetShots): Promise<ShotsResult> {
       };
     case "completed":
       if (!data.shots_manifest_url) {
-        throw new Error("Completed shots response is missing shots_manifest_url");
+        throw malformedShotsError("Completed shots response is missing shots_manifest_url", "get_shots");
       }
       return {
         status: "completed",
@@ -156,8 +194,21 @@ async function transformShotsResponse(data: AssetShots): Promise<ShotsResult> {
         shots: await fetchShotsFromManifest(data.shots_manifest_url),
       };
     default:
-      throw new Error(`Unsupported shots status '${data.status}'`);
+      throw malformedShotsError(`Unsupported shots status '${data.status}'`, "get_shots", {
+        shotsStatus: String(data.status),
+      });
   }
+}
+
+/** A failed Mux Video API call: a 404 means the caller's asset ID doesn't exist. */
+function muxShotsApiError(error: unknown, message: string, call: string, assetId: string): MuxAiError {
+  return dependencyErrorFrom(error, message, {
+    dependency: MUX_AI_ERROR_DEPENDENCY_VALUES.mux_video,
+    call,
+    facts: { assetId },
+    notFoundSource: MUX_AI_ERROR_SOURCE_VALUES.request,
+    authSource: MUX_AI_ERROR_SOURCE_VALUES.account,
+  });
 }
 
 function sleep(ms: number): Promise<void> {
@@ -165,6 +216,9 @@ function sleep(ms: number): Promise<void> {
 }
 
 function isShotsAlreadyRequestedError(error: unknown): boolean {
+  if (MuxAiError.is(error)) {
+    return error.facts.reason === SHOTS_ALREADY_REQUESTED_REASON;
+  }
   const statusCode = (error as any)?.status ?? (error as any)?.statusCode;
   const body = (error as any)?.error;
   const messages: string[] | undefined = body?.error?.messages ?? body?.messages;
@@ -191,12 +245,28 @@ export async function requestShotsForAsset(
   const { credentials } = options;
   const muxClient = await getMuxClientFromEnv(credentials);
   const mux = await muxClient.createClient();
-  const data = await mux.video.assets.generateShots(assetId, {});
+  let data: AssetShots;
+  try {
+    data = await mux.video.assets.generateShots(assetId, {});
+  } catch (error) {
+    if (isShotsAlreadyRequestedError(error)) {
+      throw new MuxAiError(`Shots have already been requested for asset ${assetId}.`, {
+        type: MUX_AI_ERROR_TYPE_VALUES.validation_error,
+        source: MUX_AI_ERROR_SOURCE_VALUES.request,
+        dependency: MUX_AI_ERROR_DEPENDENCY_VALUES.mux_video,
+        facts: { call: "request_shots", status: httpStatusOf(error) ?? 400, assetId, reason: SHOTS_ALREADY_REQUESTED_REASON },
+        cause: error,
+      });
+    }
+    throw muxShotsApiError(error, "Failed to request shots", "request_shots", assetId);
+  }
   const result = await transformShotsResponse(data);
 
   if (result.status !== "pending") {
-    throw new Error(
+    throw malformedShotsError(
       `Expected pending status after requesting shots for asset '${assetId}', received '${result.status}'`,
+      "request_shots",
+      { assetId, shotsStatus: result.status },
     );
   }
 
@@ -218,7 +288,12 @@ export async function getShotsForAsset(
   const { credentials } = options;
   const muxClient = await getMuxClientFromEnv(credentials);
   const mux = await muxClient.createClient();
-  const data = await mux.video.assets.retrieveShots(assetId);
+  let data: AssetShots;
+  try {
+    data = await mux.video.assets.retrieveShots(assetId);
+  } catch (error) {
+    throw muxShotsApiError(error, "Failed to get shots", "get_shots", assetId);
+  }
 
   return await transformShotsResponse(data);
 }
@@ -265,18 +340,34 @@ export async function waitForShotsForAsset(
     }
 
     if (result.status === "errored") {
-      throw new MuxAiError(`Shot generation failed for asset ${assetId}.`);
+      throw new MuxAiError(`Shot generation failed for asset ${assetId}.`, {
+        type: MUX_AI_ERROR_TYPE_VALUES.processing_error,
+        source: MUX_AI_ERROR_SOURCE_VALUES.upstream,
+        dependency: MUX_AI_ERROR_DEPENDENCY_VALUES.mux_video,
+        // Mux answered (200) with its own job errored; repeating the poll gets the same.
+        facts: { call: "get_shots", status: 200, assetId, shotsStatus: result.status, errorType: result.error.type },
+        // Not retryable: a new job finds shots already requested and sees the same errored state.
+        retryable: false,
+      });
     }
 
     if (result.status === "skipped") {
       throw new MuxAiError(
         `Shot generation was skipped for asset ${assetId}; the asset may have no video track.`,
-        { type: "validation_error" },
+        {
+          type: MUX_AI_ERROR_TYPE_VALUES.validation_error,
+          source: MUX_AI_ERROR_SOURCE_VALUES.asset,
+          facts: { assetId, shotsStatus: result.status },
+        },
       );
     }
 
     if (result.status === "deleted") {
-      throw new MuxAiError(`Shots for asset ${assetId} have been deleted.`, { type: "validation_error" });
+      throw new MuxAiError(`Shots for asset ${assetId} have been deleted.`, {
+        type: MUX_AI_ERROR_TYPE_VALUES.validation_error,
+        source: MUX_AI_ERROR_SOURCE_VALUES.asset,
+        facts: { assetId, shotsStatus: result.status },
+      });
     }
 
     if (attempt < normalizedMaxAttempts - 1) {
@@ -286,6 +377,19 @@ export async function waitForShotsForAsset(
 
   throw new MuxAiError(
     `Timed out waiting for shots for asset ${assetId}. Last status: ${lastStatus ?? "unknown"}.`,
-    { type: "timeout_error", retryable: true },
+    {
+      type: MUX_AI_ERROR_TYPE_VALUES.timeout_error,
+      source: MUX_AI_ERROR_SOURCE_VALUES.upstream,
+      dependency: MUX_AI_ERROR_DEPENDENCY_VALUES.mux_video,
+      facts: {
+        call: "get_shots",
+        assetId,
+        lastStatus: lastStatus ?? null,
+        attempts: normalizedMaxAttempts,
+        pollIntervalMs: normalizedPollIntervalMs,
+      },
+      // Not transient: this already polled for the whole budget.
+      transient: false,
+    },
   );
 }

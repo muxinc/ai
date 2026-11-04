@@ -128,6 +128,10 @@ describe("translateAudio track replacement", () => {
     const error = await captureRejection(translateAudio(ASSET_ID, "es"));
 
     expect(error.message).toContain("Spanish (Auto-dubbed)");
+    expect(error).toMatchObject({
+      code: "track_replacement_blocked",
+      facts: { reason: "policy_fail", trackType: "audio", conflictingTracks: [expect.objectContaining({ id: OLD_DUB.id })] },
+    });
     expect(fetchMock).not.toHaveBeenCalled();
     expect(vi.mocked(replaceAndCreateTrack)).not.toHaveBeenCalled();
   });
@@ -148,6 +152,8 @@ describe("translateAudio track replacement", () => {
     const error = await captureRejection(translateAudio(ASSET_ID, "en", { replaceExistingTracks: "replace_all" }));
 
     expect(error.message).toContain("primary audio");
+    // No option avoids the asset's own audio in the target language.
+    expect(error).toMatchObject({ source: "asset", facts: { reason: "primary_audio" } });
   });
 
   it("creates the dubbed audio track through the replacement step and reports deletions", async () => {
@@ -186,31 +192,33 @@ describe("translateAudio track replacement", () => {
     }
   });
 
-  it("fails the workflow when the audio track cannot be created, keeping the staged URL in the message", async () => {
+  it("fails the workflow when the audio track cannot be created, without the presigned URL", async () => {
     stubElevenLabsFetch();
-    vi.mocked(replaceAndCreateTrack).mockResolvedValueOnce({ kind: "create_failed", reason: "url unreachable", deleted: [] });
+    vi.mocked(replaceAndCreateTrack).mockResolvedValueOnce({ kind: "create_failed", call: "create_track", status: 400, message: "url unreachable", deleted: [] });
 
     const error = await captureRejection(translateAudio(ASSET_ID, "es"));
 
-    expect(error.message).toContain("url unreachable");
-    expect(error.message).toContain("https://s3.example.test/presigned");
+    expect(error.message).toContain("Failed to add dubbed audio track");
+    expect(error.message).not.toContain("https://s3.example.test/presigned");
+    expect(JSON.stringify((error as any).facts)).not.toContain("https://s3.example.test/presigned");
+    expect(error).toMatchObject({ dependency: "mux_video", facts: { call: "create_track", status: 400, dubbingId: "dub-1" } });
   });
 
-  it("keeps the staged URL when the replacement step itself throws", async () => {
+  it("keeps the presigned URL out when the replacement step itself throws", async () => {
     stubElevenLabsFetch();
     vi.mocked(replaceAndCreateTrack).mockRejectedValueOnce(Object.assign(new Error("forbidden"), { status: 403 }));
 
     const error = await captureRejection(translateAudio(ASSET_ID, "es"));
 
     expect(error.message).toContain("forbidden");
-    expect(error.message).toContain("https://s3.example.test/presigned");
+    expect(error.message).not.toContain("https://s3.example.test/presigned");
   });
 
   it("soft-fails the captions track so a paid dub still completes", async () => {
     stubElevenLabsFetch();
     vi.mocked(replaceAndCreateTrack)
       .mockResolvedValueOnce({ kind: "created", trackId: "new-dub", deleted: [] })
-      .mockResolvedValueOnce({ kind: "create_failed", reason: "captions exploded", deleted: [] });
+      .mockResolvedValueOnce({ kind: "create_failed", call: "create_track", message: "captions exploded", deleted: [] });
 
     const result = await translateAudio(ASSET_ID, "es", { uploadCaptionsToMux: true });
 

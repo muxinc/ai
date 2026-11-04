@@ -19,8 +19,28 @@ export type {
 } from "./lib/language-codes.ts";
 
 // Error types
-export { MuxAiError, wrapError } from "./lib/mux-ai-error.ts";
-export type { MuxAiErrorType } from "./lib/mux-ai-error.ts";
+export {
+  MUX_AI_ERROR_CATALOG,
+  MUX_AI_ERROR_CODES,
+  MUX_AI_ERROR_DEPENDENCIES,
+  MUX_AI_ERROR_DEPENDENCY_VALUES,
+  MUX_AI_ERROR_SOURCE_VALUES,
+  MUX_AI_ERROR_SOURCES,
+  MUX_AI_ERROR_TYPE_VALUES,
+  MUX_AI_ERROR_TYPES,
+  MuxAiError,
+  wrapError,
+} from "./lib/mux-ai-error.ts";
+export type {
+  MuxAiErrorCauseSummary,
+  MuxAiErrorCode,
+  MuxAiErrorDependency,
+  MuxAiErrorFacts,
+  MuxAiErrorFactValue,
+  MuxAiErrorInit,
+  MuxAiErrorSource,
+  MuxAiErrorType,
+} from "./lib/mux-ai-error.ts";
 
 // Mux static renditions created by the deprecated `mp4_support` option
 export {
@@ -47,6 +67,7 @@ export {
   replaceAndCreateTrack,
   replaceSourceTrack,
   summarizeTextTrack,
+  trackReplacementBlockedError,
   validateTrackPassthrough,
 } from "./lib/mux-tracks.ts";
 export type {
@@ -60,8 +81,12 @@ export type {
   TextTrackReplacementPlan,
   TextTrackSummary,
   TextTrackTarget,
+  TrackReplacementBlocked,
+  TrackReplacementBlockedReason,
   TrackSummary,
   TrackTarget,
+  TrackWriteCall,
+  TrackWriteFailed,
 } from "./lib/mux-tracks.ts";
 
 // Mux playback URL utilities

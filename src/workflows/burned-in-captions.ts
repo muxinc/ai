@@ -6,8 +6,10 @@ import {
   getGeneratedOutputWithContentPolicyHandling,
   withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
+import type { ModelCallContext } from "../lib/content-policy-error.ts";
 import type { ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImageAsBase64 } from "../lib/image-download.ts";
+import { internalError } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -285,6 +287,7 @@ async function analyzeStoryboard({
   "use step";
 
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
+  const context: ModelCallContext = { call: "detect_burned_in_captions", provider, model: modelId };
 
   const response = await withContentPolicyAwareRetry(() => generateText({
     model,
@@ -301,8 +304,8 @@ async function analyzeStoryboard({
         ],
       },
     ],
-  }));
-  const output = getGeneratedOutputWithContentPolicyHandling(response);
+  }), undefined, context);
+  const output = getGeneratedOutputWithContentPolicyHandling(response, context);
 
   // Detect schema-smuggling attempts. `response.output` has already
   // been through zod.strip(), so any extras the model emitted are gone
@@ -412,7 +415,8 @@ async function hasBurnedInCaptionsInternal(
   collectedUsage.push(analysisResponse.usage);
 
   if (!analysisResponse.result) {
-    throw new Error("No analysis result received from AI provider");
+    // Unreachable: `analyzeStoryboard` always returns a result or throws.
+    throw internalError("No analysis result received from AI provider");
   }
 
   // Aggregate any schema-smuggling signals from the step into the

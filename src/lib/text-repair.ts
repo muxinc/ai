@@ -1,3 +1,4 @@
+import { MUX_AI_ERROR_SOURCE_VALUES, MUX_AI_ERROR_TYPE_VALUES, MuxAiError } from "./mux-ai-error.ts";
 import type { TextLengthLimit } from "./text-length.ts";
 import { findGenerateTextLengthViolation, measureGenerateTextLength } from "./text-length.ts";
 
@@ -138,13 +139,22 @@ export type RepairResult<Usage> =
   | { status: "valid"; content: string; attempts: RepairAttempt<Usage>[] } |
   { status: "failed"; attempts: RepairAttempt<Usage>[]; reason: string };
 
+/** `runTextRepairLoop` is public: bad options are the caller's input. */
+function invalidRepairOptionsError(message: string, facts?: Record<string, number>): MuxAiError {
+  return new MuxAiError(message, {
+    type: MUX_AI_ERROR_TYPE_VALUES.validation_error,
+    source: MUX_AI_ERROR_SOURCE_VALUES.request,
+    facts,
+  });
+}
+
 /** Orchestrates paragraph repair through a caller-supplied generation callback. */
 export async function runTextRepairLoop<Usage>(options: RepairOptions<Usage>): Promise<RepairResult<Usage>> {
   const maxAttempts = options.maxAttempts ?? 2;
   if (!Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 2)
-    throw new Error("Repair is limited to one or two calls");
+    throw invalidRepairOptionsError("Repair is limited to one or two calls", { maxAttempts });
   if (!options.limits.length || options.limits.some(limit => !Number.isInteger(limit.value) || limit.value < 1))
-    throw new Error("Repair requires positive integer length limits");
+    throw invalidRepairOptionsError("Repair requires positive integer length limits");
   let content = options.content;
   const attempts: RepairAttempt<Usage>[] = [];
   if (!content.trim())

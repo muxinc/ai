@@ -1,9 +1,24 @@
 import { z } from "zod";
 
 import { getApiKeyFromEnv } from "../lib/client-factory.ts";
+import { dependencyError } from "../lib/dependency-error.ts";
 import type { ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImagesAsBase64 } from "../lib/image-download.ts";
-import { MuxAiError } from "../lib/mux-ai-error.ts";
+import {
+  errorDetailFact,
+  internalError,
+  MUX_AI_ERROR_DEPENDENCY_VALUES,
+  MUX_AI_ERROR_SOURCE_VALUES,
+  MUX_AI_ERROR_TYPE_VALUES,
+  MuxAiError,
+} from "../lib/mux-ai-error.ts";
+import type {
+  MuxAiErrorCode,
+  MuxAiErrorDependency,
+  MuxAiErrorFacts,
+  MuxAiErrorSource,
+  MuxAiErrorType,
+} from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -14,7 +29,7 @@ import {
 import { getMuxThumbnailBaseUrl } from "../lib/mux-url.ts";
 import { withRetry } from "../lib/retry.ts";
 import { planSamplingTimestamps } from "../lib/sampling-plan.ts";
-import { signUrl } from "../lib/url-signing.ts";
+import { signingCredentialsMissingError, signUrl } from "../lib/url-signing.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
 import { hasWorkflowScopeBoundaries, resolveWorkflowScope } from "../lib/workflow-scope.ts";
 import { getThumbnailUrls } from "../primitives/thumbnails.ts";
@@ -223,7 +238,6 @@ const DEFAULT_THRESHOLDS = {
 };
 
 const DEFAULT_PROVIDER = "openai";
-const OPENAI_MODERATION_RETRIABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
 const OPENAI_MODERATION_MAX_RETRIES = 2;
 const OPENAI_MODERATION_BASE_DELAY_MS = 750;
 const OPENAI_MODERATION_MAX_DELAY_MS = 3000;
@@ -301,58 +315,204 @@ export const HIVE_VIOLENCE_CATEGORIES = [
   "garm_death_injury_or_military_conflict",
 ];
 
-class OpenAIModerationRequestError extends Error {
-  readonly status?: number;
-  readonly retriable: boolean;
+const MODERATION_CALLS = {
+  "openai": "openai_moderation",
+  "hive": "hive_moderate",
+  "google-vision-api": "google_vision_annotate",
+} as const satisfies Record<ModerationProvider, string>;
 
-  constructor(
-    message: string,
-    {
-      status,
-      retriable,
-    }: {
-      status?: number;
-      retriable: boolean;
+/** Which moderation provider call failed, for the facts of the error it raises. */
+interface ModerationCallContext {
+  call: typeof MODERATION_CALLS[ModerationProvider];
+  provider: ModerationProvider;
+  model?: string;
+}
+
+/**
+ * A moderation provider failure. Without an explicit source it's classified from
+ * the status by the shared rule ({@link dependencyError}). With one, the provider
+ * answered but its body was unusable; the recorded status lets the default policy
+ * apply (a 200 isn't retried within the run).
+ */
+function moderationProviderError(
+  message: string,
+  context: ModerationCallContext,
+  init: {
+    status?: number;
+    transient?: boolean;
+    type?: MuxAiErrorType;
+    source?: MuxAiErrorSource;
+    facts?: MuxAiErrorFacts;
+    cause?: unknown;
+  } = {},
+): MuxAiError {
+  const facts = { provider: context.provider, ...(context.model && { model: context.model }), ...init.facts };
+  if (init.source) {
+    return new MuxAiError(message, {
+      type: init.type ?? MUX_AI_ERROR_TYPE_VALUES.processing_error,
+      source: init.source,
+      dependency: MUX_AI_ERROR_DEPENDENCY_VALUES.ai_provider,
+      facts: { call: context.call, ...(init.status !== undefined && { status: init.status }), ...facts },
+      ...(init.transient !== undefined && { transient: init.transient }),
+      cause: init.cause,
+    });
+  }
+  return dependencyError(message, {
+    dependency: MUX_AI_ERROR_DEPENDENCY_VALUES.ai_provider,
+    call: context.call,
+    status: init.status,
+    timedOut: init.type === MUX_AI_ERROR_TYPE_VALUES.timeout_error,
+    facts,
+    cause: init.cause,
+  });
+}
+
+/** Reads the status a classified provider error recorded, if any. */
+function providerErrorStatus(error: unknown): number | undefined {
+  const status = MuxAiError.is(error) ? error.facts.status : undefined;
+  return typeof status === "number" ? status : undefined;
+}
+
+/**
+ * A failed sample's classification. Scores cross step boundaries as plain data,
+ * so the classification travels as JSON rather than as the error itself.
+ */
+interface ModerationSampleFailure {
+  message: string;
+  type: MuxAiErrorType;
+  source: MuxAiErrorSource;
+  dependency?: MuxAiErrorDependency;
+  code?: MuxAiErrorCode;
+  facts: MuxAiErrorFacts;
+  retryable: boolean;
+}
+
+/** Score fields used only inside this workflow; stripped from the returned result. */
+interface SampleFailureField {
+  failure?: ModerationSampleFailure;
+}
+
+type InternalThumbnailScore = ThumbnailModerationScore & SampleFailureField;
+type InternalTranscriptScore = TranscriptModerationScore & SampleFailureField;
+
+/**
+ * Classifies a per-sample failure. An unclassified error is this code's own
+ * failure; its raw message (which may hold a signed URL) is kept only as a cause.
+ */
+function toSampleFailure(error: unknown, context: ModerationCallContext): ModerationSampleFailure {
+  const classified = MuxAiError.is(error) ?
+    error :
+      internalError(`${context.provider} moderation failed.`, {
+        call: context.call,
+        provider: context.provider,
+        ...(context.model && { model: context.model }),
+      }, error);
+  return {
+    message: classified.message,
+    type: classified.type,
+    source: classified.source,
+    ...(classified.dependency && { dependency: classified.dependency }),
+    ...(classified.code && { code: classified.code }),
+    facts: classified.facts,
+    retryable: classified.retryable,
+  };
+}
+
+function failedThumbnailScore(
+  entry: { url: string; time?: number },
+  error: unknown,
+  context: ModerationCallContext,
+): InternalThumbnailScore {
+  const failure = toSampleFailure(error, context);
+  return {
+    url: entry.url,
+    time: entry.time,
+    sexual: 0,
+    violence: 0,
+    error: true,
+    errorMessage: failure.message,
+    failure,
+  };
+}
+
+function withoutSampleFailure<T extends SampleFailureField>(score: T): Omit<T, "failure"> {
+  const { failure: _failure, ...rest } = score;
+  return rest;
+}
+
+/** The value shared by every item, if they all agree. */
+function shared<T>(values: T[]): T | undefined {
+  return values.length > 0 && values.every(value => value === values[0]) ? values[0] : undefined;
+}
+
+function countBy(values: string[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const value of values) {
+    counts[value] = (counts[value] ?? 0) + 1;
+  }
+  return counts;
+}
+
+/**
+ * One error for "every sample failed". It keeps the samples' shared source (else
+ * `upstream`) and counts the rest into facts; no sample URL (thumbnail URLs can
+ * carry signed tokens) or provider body reaches the message.
+ */
+function allSamplesFailedError(
+  failures: ModerationSampleFailure[],
+  context: { provider: ModerationProvider; model?: string; thumbnailCount: number; transcriptWindowCount: number },
+): MuxAiError {
+  const sharedCode = shared(failures.map(failure => failure.code));
+  const classification = sharedCode ?
+      { code: sharedCode } :
+      {
+        type: shared(failures.map(failure => failure.type)) ?? MUX_AI_ERROR_TYPE_VALUES.processing_error,
+        source: shared(failures.map(failure => failure.source)) ?? MUX_AI_ERROR_SOURCE_VALUES.upstream,
+      };
+  const dependency = shared(failures.map(failure => failure.dependency));
+  return new MuxAiError(`Moderation failed for all ${failures.length} sample(s).`, {
+    ...classification,
+    ...(dependency && { dependency }),
+    facts: {
+      provider: context.provider,
+      ...(context.model && { model: context.model }),
+      sampleCount: failures.length,
+      thumbnailCount: context.thumbnailCount,
+      transcriptWindowCount: context.transcriptWindowCount,
+      countsBySource: countBy(failures.map(failure => failure.source)),
+      countsByStatus: countBy(failures.map(failure =>
+        typeof failure.facts.status === "number" ? String(failure.facts.status) : "none")),
+      messages: Array.from(new Set(failures.map(failure => failure.message))).slice(0, 5),
     },
-  ) {
-    super(message);
-    this.name = "OpenAIModerationRequestError";
-    this.status = status;
-    this.retriable = retriable;
-  }
-}
-
-function isRetriableOpenAIModerationStatus(status: number): boolean {
-  return OPENAI_MODERATION_RETRIABLE_STATUS_CODES.has(status);
-}
-
-function compactBodySnippet(body: string, maxLength: number = 180): string {
-  const compact = body.replace(/\s+/g, " ").trim();
-  if (!compact) {
-    return "(empty response body)";
-  }
-  return compact.length > maxLength ? `${compact.slice(0, maxLength)}...` : compact;
+    retryable: failures.every(failure => failure.retryable),
+    // Not transient: raised in the workflow body after each sample's own retries.
+    transient: false,
+  });
 }
 
 function parseOpenAIModerationResponse(
   bodyText: string,
   status: number,
-  statusText: string,
+  context: ModerationCallContext,
 ): any {
   if (!bodyText.trim()) {
-    throw new OpenAIModerationRequestError(
-      `OpenAI moderation returned an empty response (${status} ${statusText}).`,
-      { status, retriable: isRetriableOpenAIModerationStatus(status) },
-    );
+    throw moderationProviderError("OpenAI moderation returned an empty response.", context, {
+      status,
+      source: MUX_AI_ERROR_SOURCE_VALUES.upstream,
+      type: MUX_AI_ERROR_TYPE_VALUES.processing_error,
+    });
   }
 
   try {
     return JSON.parse(bodyText);
   } catch {
-    throw new OpenAIModerationRequestError(
-      `OpenAI moderation returned non-JSON response (${status} ${statusText}): ${compactBodySnippet(bodyText)}`,
-      { status, retriable: true },
-    );
+    throw moderationProviderError("OpenAI moderation returned a non-JSON response.", context, {
+      status,
+      // A garbled body is usually a proxy or gateway blip, whatever the status.
+      transient: true,
+      source: MUX_AI_ERROR_SOURCE_VALUES.upstream,
+      type: MUX_AI_ERROR_TYPE_VALUES.processing_error,
+    });
   }
 }
 
@@ -387,6 +547,7 @@ async function callOpenAIModerationApi({
 }): Promise<OpenAIModerationResponse> {
   "use step";
   const apiKey = await getApiKeyFromEnv("openai", credentials);
+  const context: ModerationCallContext = { call: "openai_moderation", provider: "openai", model };
 
   return withRetry(
     async () => {
@@ -405,37 +566,39 @@ async function callOpenAIModerationApi({
           }),
         });
       } catch (error) {
-        throw new OpenAIModerationRequestError(
-          `OpenAI moderation request failed: ${error instanceof Error ? error.message : String(error)}`,
-          { retriable: true },
-        );
+        throw moderationProviderError("OpenAI moderation request failed.", context, { cause: error });
       }
 
       const bodyText = await res.text();
-      const json = parseOpenAIModerationResponse(bodyText, res.status, res.statusText);
+      const json = parseOpenAIModerationResponse(bodyText, res.status, context);
 
       if (!res.ok) {
-        throw new OpenAIModerationRequestError(
-          `OpenAI moderation error: ${res.status} ${res.statusText} - ${JSON.stringify(json)}`,
-          {
-            status: res.status,
-            retriable: isRetriableOpenAIModerationStatus(res.status),
-          },
-        );
+        const providerErrorCode = json?.error?.code ?? json?.error?.type;
+        throw moderationProviderError(`OpenAI moderation request failed (status ${res.status}).`, context, {
+          status: res.status,
+          ...(typeof providerErrorCode === "string" && { facts: { providerErrorCode } }),
+        });
       }
 
       const parsed = OpenAIModerationResponseSchema.safeParse(json);
       if (!parsed.success) {
-        throw new OpenAIModerationRequestError(
-          `OpenAI moderation returned an unexpected response shape: ${compactBodySnippet(bodyText)}`,
-          { status: res.status, retriable: false },
-        );
+        throw moderationProviderError("OpenAI moderation returned an unexpected response shape.", context, {
+          status: res.status,
+          source: MUX_AI_ERROR_SOURCE_VALUES.upstream,
+          type: MUX_AI_ERROR_TYPE_VALUES.processing_error,
+        });
       }
       const expectedResultCount = Array.isArray(input) ? input.length : 1;
       if (parsed.data.results.length !== expectedResultCount) {
-        throw new OpenAIModerationRequestError(
+        throw moderationProviderError(
           `OpenAI moderation returned ${parsed.data.results.length} result(s) for ${expectedResultCount} input(s).`,
-          { status: res.status, retriable: false },
+          context,
+          {
+            status: res.status,
+            source: MUX_AI_ERROR_SOURCE_VALUES.upstream,
+            type: MUX_AI_ERROR_TYPE_VALUES.processing_error,
+            facts: { resultCount: parsed.data.results.length, inputCount: expectedResultCount },
+          },
         );
       }
       return parsed.data;
@@ -444,8 +607,7 @@ async function callOpenAIModerationApi({
       maxRetries: OPENAI_MODERATION_MAX_RETRIES,
       baseDelay: OPENAI_MODERATION_BASE_DELAY_MS,
       maxDelay: OPENAI_MODERATION_MAX_DELAY_MS,
-      shouldRetry: error =>
-        error instanceof OpenAIModerationRequestError ? error.retriable : true,
+      shouldRetry: error => MuxAiError.is(error) ? error.transient : true,
     },
   );
 }
@@ -474,7 +636,7 @@ async function moderateImageWithOpenAI(entry: {
   image: string;
   model: string;
   credentials?: WorkflowCredentialsInput;
-}): Promise<ThumbnailModerationScore> {
+}): Promise<InternalThumbnailScore> {
   "use step";
   try {
     const { results } = await callOpenAIModerationApi({
@@ -500,14 +662,7 @@ async function moderateImageWithOpenAI(entry: {
     };
   } catch (error) {
     console.error("OpenAI moderation failed:", error);
-    return {
-      url: entry.url,
-      time: entry.time,
-      sexual: 0,
-      violence: 0,
-      error: true,
-      errorMessage: error instanceof Error ? error.message : String(error),
-    };
+    return failedThumbnailScore(entry, error, { call: "openai_moderation", provider: "openai", model: entry.model });
   }
 }
 
@@ -518,7 +673,7 @@ async function requestOpenAIModeration(
   submissionMode: "url" | "base64" = "url",
   downloadOptions?: ImageDownloadOptions,
   credentials?: WorkflowCredentialsInput,
-): Promise<ThumbnailModerationScore[]> {
+): Promise<InternalThumbnailScore[]> {
   "use step";
   const imageUrls = images.map(img => img.url);
   const timeByUrl = new Map(images.map(img => [img.url, img.time]));
@@ -756,15 +911,16 @@ function packWindowsIntoBatches(windows: TranscriptWindow[]): TranscriptWindow[]
 
 function transcriptErrorScore(
   window: TranscriptWindow,
-  error: unknown,
-): TranscriptModerationScore {
+  failure: ModerationSampleFailure,
+): InternalTranscriptScore {
   return {
     startTime: window.startTime,
     endTime: window.endTime,
     sexual: 0,
     violence: 0,
     error: true,
-    errorMessage: error instanceof Error ? error.message : String(error),
+    errorMessage: failure.message,
+    failure,
   };
 }
 
@@ -782,7 +938,7 @@ function transcriptErrorScore(
  */
 async function moderateTranscriptBatchWithOpenAI(
   batch: TranscriptModerationBatch,
-): Promise<TranscriptModerationScore[]> {
+): Promise<InternalTranscriptScore[]> {
   "use step";
   const { windows, model, credentials } = batch;
   if (windows.length === 0) {
@@ -806,8 +962,7 @@ async function moderateTranscriptBatchWithOpenAI(
       };
     });
   } catch (error) {
-    const status =
-      error instanceof OpenAIModerationRequestError ? error.status : undefined;
+    const status = providerErrorStatus(error);
     // 400 typically means the batched input was too large: split and retry.
     if (status === 400 && windows.length > 1) {
       const mid = Math.ceil(windows.length / 2);
@@ -818,7 +973,8 @@ async function moderateTranscriptBatchWithOpenAI(
       return [...left, ...right];
     }
     console.error("OpenAI transcript moderation failed:", error);
-    return windows.map(window => transcriptErrorScore(window, error));
+    const failure = toSampleFailure(error, { call: "openai_moderation", provider: "openai", model });
+    return windows.map(window => transcriptErrorScore(window, failure));
   }
 }
 
@@ -828,7 +984,7 @@ async function requestOpenAITranscriptModeration(
   model: string,
   maxConcurrent: number = 5,
   credentials?: WorkflowCredentialsInput,
-): Promise<TranscriptModerationScore[]> {
+): Promise<InternalTranscriptScore[]> {
   "use step";
   // Build dynamic, overlapping time windows whose size scales with the asset's
   // duration, then moderate them as array-batched requests. Each window maps to
@@ -873,9 +1029,10 @@ async function moderateImageWithHive(entry: {
   time?: number;
   source: HiveModerationSource;
   credentials?: WorkflowCredentialsInput;
-}): Promise<ThumbnailModerationScore> {
+}): Promise<InternalThumbnailScore> {
   "use step";
   const apiKey = await getApiKeyFromEnv("hive", entry.credentials);
+  const context: ModerationCallContext = { call: "hive_moderate", provider: "hive" };
   try {
     const formData = new FormData();
 
@@ -904,9 +1061,12 @@ async function moderateImageWithHive(entry: {
       });
     } catch (err: any) {
       if (err?.name === "AbortError") {
-        throw new Error("Hive request timed out after 15s");
+        throw moderationProviderError("Hive request timed out after 15s.", context, {
+          type: MUX_AI_ERROR_TYPE_VALUES.timeout_error,
+          facts: { timeoutMs: 15_000 },
+        });
       }
-      throw err;
+      throw moderationProviderError("Hive moderation request failed.", context, { cause: err });
     } finally {
       clearTimeout(timeout);
     }
@@ -914,24 +1074,29 @@ async function moderateImageWithHive(entry: {
     const json: any = await res.json().catch(() => undefined);
 
     if (!res.ok) {
-      throw new Error(
-        `Hive moderation error: ${res.status} ${res.statusText} - ${JSON.stringify(json)}`,
-      );
+      throw moderationProviderError(`Hive moderation request failed (status ${res.status}).`, context, { status: res.status });
     }
 
     if (json?.return_code != null && json.return_code !== 0) {
-      throw new Error(
-        `Hive API error (return_code ${json.return_code}): ${json.message || "Unknown error"}`,
-      );
+      throw moderationProviderError(`Hive API error (return_code ${json.return_code}).`, context, {
+        status: res.status,
+        source: MUX_AI_ERROR_SOURCE_VALUES.upstream,
+        facts: {
+          returnCode: json.return_code,
+          ...(typeof json.message === "string" && { providerMessage: errorDetailFact(json.message, 200) }),
+        },
+      });
     }
 
     // Extract scores from Hive response
     // Hive returns scores in status[0].response.output[0].classes as array of {class, score}
     const classes = json?.status?.[0]?.response?.output?.[0]?.classes;
     if (!Array.isArray(classes)) {
-      throw new TypeError(
-        `Unexpected Hive response structure: ${JSON.stringify(json)}`,
-      );
+      throw moderationProviderError("Hive returned an unexpected response structure.", context, {
+        status: res.status,
+        source: MUX_AI_ERROR_SOURCE_VALUES.upstream,
+        type: MUX_AI_ERROR_TYPE_VALUES.processing_error,
+      });
     }
 
     const sexual = getHiveCategoryScores(classes, HIVE_SEXUAL_CATEGORIES);
@@ -945,14 +1110,7 @@ async function moderateImageWithHive(entry: {
       error: false,
     };
   } catch (error) {
-    return {
-      url: entry.url,
-      time: entry.time,
-      sexual: 0,
-      violence: 0,
-      error: true,
-      errorMessage: error instanceof Error ? error.message : String(error),
-    };
+    return failedThumbnailScore(entry, error, context);
   }
 }
 
@@ -962,7 +1120,7 @@ async function requestHiveModeration(
   submissionMode: "url" | "base64" = "url",
   downloadOptions?: ImageDownloadOptions,
   credentials?: WorkflowCredentialsInput,
-): Promise<ThumbnailModerationScore[]> {
+): Promise<InternalThumbnailScore[]> {
   "use step";
 
   const imageUrls = images.map(img => img.url);
@@ -996,8 +1154,9 @@ async function moderateImageWithGoogleVision(entry: {
   image: string;
   isBase64: boolean;
   credentials?: WorkflowCredentialsInput;
-}): Promise<ThumbnailModerationScore> {
+}): Promise<InternalThumbnailScore> {
   "use step";
+  const context: ModerationCallContext = { call: "google_vision_annotate", provider: "google-vision-api" };
   try {
     const apiKey = await getApiKeyFromEnv("google-vision-api", entry.credentials);
 
@@ -1029,9 +1188,12 @@ async function moderateImageWithGoogleVision(entry: {
       });
     } catch (err: any) {
       if (err?.name === "AbortError") {
-        throw new Error("Google Vision request timed out after 15s");
+        throw moderationProviderError("Google Vision request timed out after 15s.", context, {
+          type: MUX_AI_ERROR_TYPE_VALUES.timeout_error,
+          facts: { timeoutMs: 15_000 },
+        });
       }
-      throw err;
+      throw moderationProviderError("Google Vision moderation request failed.", context, { cause: err });
     } finally {
       clearTimeout(timeout);
     }
@@ -1039,21 +1201,35 @@ async function moderateImageWithGoogleVision(entry: {
     const json: any = await res.json().catch(() => undefined);
 
     if (!res.ok) {
-      throw new Error(
-        `Google Vision moderation error: ${res.status} ${res.statusText} - ${JSON.stringify(json)}`,
-      );
+      const providerErrorCode = json?.error?.status;
+      throw moderationProviderError(`Google Vision moderation request failed (status ${res.status}).`, context, {
+        status: res.status,
+        ...(typeof providerErrorCode === "string" && { facts: { providerErrorCode } }),
+      });
     }
 
     const perImage = json?.responses?.[0];
     if (perImage?.error) {
-      throw new Error(
-        `Google Vision per-image error: ${perImage.error.code} ${perImage.error.message || "Unknown error"}`,
-      );
+      // A per-image error (e.g. the image could not be fetched or decoded) comes
+      // with a 200; it is not a request we built badly, nor a transient outage.
+      throw moderationProviderError(`Google Vision per-image error (code ${perImage.error.code}).`, context, {
+        status: res.status,
+        source: MUX_AI_ERROR_SOURCE_VALUES.upstream,
+        type: MUX_AI_ERROR_TYPE_VALUES.processing_error,
+        facts: {
+          ...(typeof perImage.error.code === "number" && { providerErrorCode: perImage.error.code }),
+          ...(typeof perImage.error.message === "string" && { providerMessage: errorDetailFact(perImage.error.message, 200) }),
+        },
+      });
     }
 
     const annotation = perImage?.safeSearchAnnotation;
     if (!annotation) {
-      throw new Error(`Google Vision response missing safeSearchAnnotation: ${JSON.stringify(json)}`);
+      throw moderationProviderError("Google Vision response is missing safeSearchAnnotation.", context, {
+        status: res.status,
+        source: MUX_AI_ERROR_SOURCE_VALUES.upstream,
+        type: MUX_AI_ERROR_TYPE_VALUES.processing_error,
+      });
     }
 
     const adultLikelihood = typeof annotation.adult === "string" ? annotation.adult : "UNKNOWN";
@@ -1070,14 +1246,7 @@ async function moderateImageWithGoogleVision(entry: {
       error: false,
     };
   } catch (error) {
-    return {
-      url: entry.url,
-      time: entry.time,
-      sexual: 0,
-      violence: 0,
-      error: true,
-      errorMessage: error instanceof Error ? error.message : String(error),
-    };
+    return failedThumbnailScore(entry, error, context);
   }
 }
 
@@ -1087,7 +1256,7 @@ async function requestGoogleVisionModeration(
   submissionMode: "url" | "base64" = "url",
   downloadOptions?: ImageDownloadOptions,
   credentials?: WorkflowCredentialsInput,
-): Promise<ThumbnailModerationScore[]> {
+): Promise<InternalThumbnailScore[]> {
   "use step";
 
   const imageUrls = images.map(img => img.url);
@@ -1174,7 +1343,7 @@ async function requestThumbnailModeration(
     imageDownloadOptions?: ImageDownloadOptions;
     credentials?: WorkflowCredentialsInput;
   },
-): Promise<ThumbnailModerationScore[]> {
+): Promise<InternalThumbnailScore[]> {
   const { model, maxConcurrent, imageSubmissionMode, imageDownloadOptions, credentials } = options;
   switch (provider) {
     case "openai":
@@ -1191,8 +1360,13 @@ async function requestThumbnailModeration(
     case "google-vision-api":
       return requestGoogleVisionModeration(thumbnailUrls, maxConcurrent, imageSubmissionMode, imageDownloadOptions, credentials);
     default: {
+      // Reachable only from an untyped caller passing an unknown provider.
       const exhaustiveCheck: never = provider;
-      throw new Error(`Unsupported moderation provider: ${exhaustiveCheck}`);
+      throw new MuxAiError(`Unsupported moderation provider: ${String(exhaustiveCheck)}`, {
+        type: MUX_AI_ERROR_TYPE_VALUES.validation_error,
+        source: MUX_AI_ERROR_SOURCE_VALUES.request,
+        facts: { parameter: "provider", value: String(exhaustiveCheck) },
+      });
     }
   }
 }
@@ -1270,10 +1444,7 @@ export async function getModerationScores(
   // Resolve signing context for signed playback IDs
   const signingContext = await resolveMuxSigningContext(credentials);
   if (policy === "signed" && !signingContext) {
-    throw new Error(
-      "Signed playback ID requires signing credentials. " +
-      "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
-    );
+    throw signingCredentialsMissingError();
   }
 
   // Resolve what each surface will do BEFORE any provider call, so a request
@@ -1371,7 +1542,15 @@ export async function getModerationScores(
     };
   } else {
     if (!captionTrack.id) {
-      throw new MuxAiError("Transcript track is missing an id.", { type: "validation_error" });
+      // A ready text track without an id is a malformed asset payload from Mux.
+      throw new MuxAiError("Transcript track is missing an id.", {
+        type: MUX_AI_ERROR_TYPE_VALUES.processing_error,
+        source: MUX_AI_ERROR_SOURCE_VALUES.upstream,
+        dependency: MUX_AI_ERROR_DEPENDENCY_VALUES.mux_video,
+        facts: { call: "get_asset", status: 200, assetId },
+        // Not retryable: the same asset returns the same payload.
+        retryable: false,
+      });
     }
     // Fetch the raw VTT (cleanTranscript: false) so per-cue timecodes survive
     // for time-window segmentation. An empty transcript is a skip; a failed
@@ -1413,10 +1592,22 @@ export async function getModerationScores(
     // Never return a result with nothing scored: `exceedsThreshold: false`
     // would read as "clean" to anything automating off it. Both surfaces are
     // skipped here, and every skipMessage already ends with a period.
+    // The caller's options caused it when they turned the transcript off or chose an
+    // image-only provider; otherwise the asset has nothing to moderate.
+    const callerSkipped = transcriptModeration.skipReason === "disabled" ||
+      transcriptModeration.skipReason === "unsupported_provider";
     throw new MuxAiError(
       `Nothing to moderate. Thumbnails skipped: ${thumbnailModeration.skipMessage} ` +
       `Transcript skipped: ${transcriptModeration.skipMessage}`,
-      { type: "validation_error" },
+      {
+        type: MUX_AI_ERROR_TYPE_VALUES.validation_error,
+        source: callerSkipped ? MUX_AI_ERROR_SOURCE_VALUES.request : MUX_AI_ERROR_SOURCE_VALUES.asset,
+        facts: {
+          assetId,
+          thumbnailSkipReason: thumbnailModeration.skipReason ?? null,
+          transcriptSkipReason: transcriptModeration.skipReason ?? null,
+        },
+      },
     );
   }
 
@@ -1429,7 +1620,7 @@ export async function getModerationScores(
           imageDownloadOptions,
           credentials,
         }) :
-        Promise.resolve<ThumbnailModerationScore[]>([]),
+        Promise.resolve<InternalThumbnailScore[]>([]),
     shouldRunTranscript ?
         requestOpenAITranscriptModeration(
           transcriptCues,
@@ -1438,7 +1629,7 @@ export async function getModerationScores(
           maxConcurrent,
           credentials,
         ) :
-        Promise.resolve<TranscriptModerationScore[]>([]),
+        Promise.resolve<InternalTranscriptScore[]>([]),
   ]);
 
   const mode: ModerationResult["mode"] =
@@ -1451,16 +1642,16 @@ export async function getModerationScores(
 
   // Aggregate across both surfaces (thumbnails + transcript) for the all-failed
   // guard and for the max-score / threshold computation.
-  const allScores: Array<{ sexual: number; violence: number; error: boolean; errorMessage?: string; label: string }> = [
-    ...thumbnailScores.map(s => ({ ...s, label: s.url })),
-    ...transcriptScores.map(s => ({ ...s, error: s.error ?? false, label: `transcript window ${s.startTime}-${s.endTime}s` })),
+  const allScores: Array<{ sexual: number; violence: number; error: boolean; failure?: ModerationSampleFailure }> = [
+    ...thumbnailScores,
+    ...transcriptScores.map(s => ({ ...s, error: s.error ?? false })),
   ];
   const failed = allScores.filter(s => s.error);
   const successful = allScores.filter(s => !s.error);
   if (successful.length === 0) {
-    const details = failed.map(s => `${s.label}: ${s.errorMessage || "Unknown error"}`).join("; ");
-    throw new Error(
-      `Moderation failed for all ${allScores.length} sample(s): ${details}`,
+    throw allSamplesFailedError(
+      failed.map(s => s.failure ?? toSampleFailure(undefined, { call: MODERATION_CALLS[provider], provider, model })),
+      { provider, model, thumbnailCount: thumbnailScores.length, transcriptWindowCount: transcriptScores.length },
     );
   }
 
@@ -1522,8 +1713,8 @@ export async function getModerationScores(
     assetId,
     mode,
     isAudioOnly,
-    thumbnailScores,
-    transcriptScores,
+    thumbnailScores: thumbnailScores.map(withoutSampleFailure),
+    transcriptScores: transcriptScores.map(withoutSampleFailure),
     thumbnailModeration,
     transcriptModeration,
     coverage: {

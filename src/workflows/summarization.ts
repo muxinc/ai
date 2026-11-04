@@ -5,11 +5,18 @@ import {
   getGeneratedOutputWithContentPolicyHandling,
   withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
+import type { ModelCallContext } from "../lib/content-policy-error.ts";
 import type { ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImageAsBase64 } from "../lib/image-download.ts";
 import { getLanguageName } from "../lib/language-codes.ts";
 import { normalizeMarkdownDescription } from "../lib/markdown-normalization.ts";
-import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
+import {
+  MUX_AI_ERROR_CODES,
+  MUX_AI_ERROR_SOURCE_VALUES,
+  MUX_AI_ERROR_TYPE_VALUES,
+  MuxAiError,
+  wrapError,
+} from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -44,6 +51,7 @@ import {
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
 import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
+import { signingCredentialsMissingError } from "../lib/url-signing.ts";
 import {
   resolveMuxSigningContext,
 } from "../lib/workflow-credentials.ts";
@@ -501,6 +509,7 @@ async function analyzeVideo(
   "use step";
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
   const schema = buildSummarySchema(descriptionLength);
+  const context: ModelCallContext = { call: "summarize", provider, model: modelId };
 
   const response = await withContentPolicyAwareRetry(() => generateText({
     model,
@@ -522,13 +531,9 @@ async function analyzeVideo(
           userPrompt,
       },
     ],
-  }));
+  }), undefined, context);
 
-  const output = getGeneratedOutputWithContentPolicyHandling(response);
-
-  if (!output) {
-    throw new Error("Summarization output missing");
-  }
+  const output = getGeneratedOutputWithContentPolicyHandling(response, context);
 
   const parsed = schema.parse(output);
 
@@ -564,6 +569,7 @@ async function analyzeAudioOnly(
   "use step";
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
   const schema = buildSummarySchema(descriptionLength);
+  const context: ModelCallContext = { call: "summarize", provider, model: modelId };
 
   const response = await withContentPolicyAwareRetry(() => generateText({
     model,
@@ -580,13 +586,9 @@ async function analyzeAudioOnly(
         content: userPrompt,
       },
     ],
-  }));
+  }), undefined, context);
 
-  const output = getGeneratedOutputWithContentPolicyHandling(response);
-
-  if (!output) {
-    throw new Error("Summarization output missing");
-  }
+  const output = getGeneratedOutputWithContentPolicyHandling(response, context);
 
   const parsed = schema.parse(output);
 
@@ -682,7 +684,11 @@ async function getSummaryAndTagsInternal(
   if (!VALID_TONES.includes(tone)) {
     throw new MuxAiError(
       `Invalid tone "${tone}". Valid tones are: ${VALID_TONES.join(", ")}.`,
-      { type: "validation_error" },
+      {
+        type: MUX_AI_ERROR_TYPE_VALUES.validation_error,
+        source: MUX_AI_ERROR_SOURCE_VALUES.request,
+        facts: { parameter: "tone", value: String(tone), allowed: [...VALID_TONES] },
+      },
     );
   }
 
@@ -716,7 +722,7 @@ async function getSummaryAndTagsInternal(
   if (isAudioOnly && !includeTranscript) {
     throw new MuxAiError(
       "Audio-only assets require a transcript. Set includeTranscript: true and ensure the asset has a ready text track (captions/subtitles).",
-      { type: "validation_error" },
+      { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.request },
     );
   }
 
@@ -724,11 +730,7 @@ async function getSummaryAndTagsInternal(
   const signingContext = await resolveMuxSigningContext(workflowCredentials);
   const requiresSignedPlaybackAccess = includeTranscript || !isAudioOnly;
   if (policy === "signed" && requiresSignedPlaybackAccess && !signingContext) {
-    throw new MuxAiError(
-      "Signed playback ID requires signing credentials. " +
-      "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
-      { type: "validation_error" },
-    );
+    throw signingCredentialsMissingError();
   }
 
   const transcriptResult =
@@ -765,7 +767,6 @@ async function getSummaryAndTagsInternal(
     sceneContext: hasSceneContext ? sceneContext : undefined,
   });
 
-  let analysisResponse: AnalysisResponse;
   let imageUrl: string | undefined;
 
   // Choose system prompt and analysis method based on asset type
@@ -779,69 +780,86 @@ async function getSummaryAndTagsInternal(
   // cap is always reasonable even when the caller omits the option.
   const effectiveDescriptionLength = descriptionLength ?? DEFAULT_DESCRIPTION_LENGTH;
 
-  try {
-    if (isAudioOnly) {
-      // Audio-only analysis: skip storyboard, analyze transcript only
-      analysisResponse = await analyzeAudioOnly(
-        modelConfig.provider,
-        modelConfig.modelId,
-        userPrompt,
-        systemPrompt,
-        effectiveDescriptionLength,
-        workflowCredentials,
-      );
-    } else {
-      // Video analysis always preserves the existing storyboard evidence path.
-      const storyboardUrl = await getStoryboardUrl(
+  // Storyboard signing, the image fetch and the model call each get their own
+  // `try`, so a Mux or signing failure isn't reported as the provider's.
+  let imageDataUrl: string | undefined;
+  if (!isAudioOnly) {
+    // Video analysis always preserves the existing storyboard evidence path.
+    let storyboardUrl: string;
+    try {
+      storyboardUrl = await getStoryboardUrl(
         playbackId,
         640,
         policy === "signed",
         workflowCredentials,
         storyboardScope,
       );
-      imageUrl = storyboardUrl;
-
-      if (imageSubmissionMode === "base64") {
-        const downloadResult = await downloadImageAsBase64(storyboardUrl, imageDownloadOptions);
-        analysisResponse = await analyzeVideo(
-          downloadResult.base64Data,
-          modelConfig.provider,
-          modelConfig.modelId,
-          userPrompt,
-          systemPrompt,
-          effectiveDescriptionLength,
-          workflowCredentials,
-        );
-      } else {
-        analysisResponse = await analyzeVideo(
-          storyboardUrl,
-          modelConfig.provider,
-          modelConfig.modelId,
-          userPrompt,
-          systemPrompt,
-          effectiveDescriptionLength,
-          workflowCredentials,
-        );
-      }
+    } catch (error: unknown) {
+      wrapError(error, "Failed to build storyboard URL", { assetId });
     }
+    imageUrl = storyboardUrl;
+
+    if (imageSubmissionMode === "base64") {
+      try {
+        const downloadResult = await downloadImageAsBase64(storyboardUrl, imageDownloadOptions);
+        imageDataUrl = downloadResult.base64Data;
+      } catch (error: unknown) {
+        wrapError(error, "Failed to download storyboard image", { assetId });
+      }
+    } else {
+      imageDataUrl = storyboardUrl;
+    }
+  }
+
+  const contentType = isAudioOnly ? "audio" : "video";
+  const modelFacts = { provider: modelConfig.provider, model: modelConfig.modelId };
+  let analysisResponse: AnalysisResponse;
+  try {
+    // Audio-only analysis skips the storyboard and analyzes the transcript only.
+    analysisResponse = isAudioOnly ?
+        await analyzeAudioOnly(
+          modelConfig.provider,
+          modelConfig.modelId,
+          userPrompt,
+          systemPrompt,
+          effectiveDescriptionLength,
+          workflowCredentials,
+        ) :
+        await analyzeVideo(
+          imageDataUrl,
+          modelConfig.provider,
+          modelConfig.modelId,
+          userPrompt,
+          systemPrompt,
+          effectiveDescriptionLength,
+          workflowCredentials,
+        );
   } catch (error: unknown) {
-    const contentType = isAudioOnly ? "audio" : "video";
-    wrapError(error, `Failed to analyze ${contentType} content with ${provider}`);
+    wrapError(error, `Failed to analyze ${contentType} content with ${provider}`, { ...modelFacts, contentType });
   }
 
   collectedUsage.push(analysisResponse.usage);
 
+  const modelOutputFacts = { call: "summarize", ...modelFacts, assetId, contentType };
   if (!analysisResponse.result) {
-    const contentType = isAudioOnly ? "audio" : "video";
-    throw new MuxAiError(`Failed to analyze ${contentType} content for asset ${assetId}.`);
+    throw new MuxAiError(`Failed to analyze ${contentType} content for asset ${assetId}.`, {
+      code: MUX_AI_ERROR_CODES.model_output_missing,
+      facts: modelOutputFacts,
+    });
   }
 
   if (!analysisResponse.result.title) {
-    throw new MuxAiError(`Failed to generate title for asset ${assetId}.`);
+    throw new MuxAiError(`Failed to generate title for asset ${assetId}.`, {
+      code: MUX_AI_ERROR_CODES.model_output_missing,
+      facts: { ...modelOutputFacts, missingField: "title" },
+    });
   }
 
   if (!analysisResponse.result.description) {
-    throw new MuxAiError(`Failed to generate description for asset ${assetId}.`);
+    throw new MuxAiError(`Failed to generate description for asset ${assetId}.`, {
+      code: MUX_AI_ERROR_CODES.model_output_missing,
+      facts: { ...modelOutputFacts, missingField: "description" },
+    });
   }
 
   // Scrub model-generated free-text fields for signs of a system-prompt

@@ -1,9 +1,11 @@
-import { APICallError, NoObjectGeneratedError, RetryError } from "ai";
+import { APICallError, DownloadError, NoObjectGeneratedError, NoOutputGeneratedError, RetryError } from "ai";
 import { z } from "zod";
 
 import type { TokenUsage } from "../types.ts";
 
-import { MuxAiError } from "./mux-ai-error.ts";
+import { dependencyError, requestIdOf } from "./dependency-error.ts";
+import type { MuxAiErrorFacts } from "./mux-ai-error.ts";
+import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_DEPENDENCY_VALUES, MUX_AI_ERROR_SOURCE_VALUES, MuxAiError } from "./mux-ai-error.ts";
 import { withRetry } from "./retry.ts";
 import type { RetryOptions } from "./retry.ts";
 import { aggregateTokenUsage, getErrorTokenUsage, rethrowWithTokenUsage } from "./token-usage.ts";
@@ -92,19 +94,36 @@ export interface ContentPolicyBlock {
  * `NoOutputGeneratedError`. MuxAiError's custom Workflow codec preserves the
  * metadata; detect it with {@link isIncompleteGenerationError}.
  */
+/**
+ * Which model call failed, for the facts of the error it raises. Every model
+ * failure carries the call's name, provider and model.
+ */
+export interface ModelCallContext {
+  call: string;
+  provider: string;
+  model?: string;
+}
+
+function modelCallFacts(context?: ModelCallContext): MuxAiErrorFacts {
+  return context ? { call: context.call, provider: context.provider, ...(context.model && { model: context.model }) } : {};
+}
+
 export class IncompleteGenerationError extends MuxAiError {
   readonly finishReason: string;
   readonly rawFinishReason?: string;
   readonly usage?: TokenUsage;
 
-  constructor(finishReason: string, rawFinishReason?: string, usage?: TokenUsage) {
+  constructor(finishReason: string, rawFinishReason?: string, usage?: TokenUsage, context?: ModelCallContext) {
     const reason = rawFinishReason ?? finishReason;
-    const message = finishReason === "length" ?
+    const truncated = finishReason === "length";
+    const message = truncated ?
       `The model reached its output limit before producing a complete response (finish reason: ${reason}).` :
       `The model stopped before producing a complete response (finish reason: ${reason}).`;
+    // Hitting the output limit is deterministic (the same input hits it again) and
+    // is ours to fix by splitting the work; any other early stop is the provider's.
     super(message, {
-      type: "processing_error",
-      retryable: finishReason !== "length",
+      code: truncated ? MUX_AI_ERROR_CODES.model_output_truncated : MUX_AI_ERROR_CODES.model_output_incomplete,
+      facts: { ...modelCallFacts(context), finishReason, ...(rawFinishReason && { rawFinishReason }) },
     });
     this.finishReason = finishReason;
     this.rawFinishReason = rawFinishReason;
@@ -123,11 +142,24 @@ interface GeneratedOutput<T> {
   usage?: unknown;
 }
 
-export async function withContentPolicyErrorHandling<T>(operation: () => Promise<T>): Promise<T> {
+/**
+ * Normalizes content-policy failures and classifies any other provider API failure
+ * (see {@link classifyProviderCallError}).
+ */
+export async function withContentPolicyErrorHandling<T>(operation: () => Promise<T>, context?: ModelCallContext): Promise<T> {
+  try {
+    return await normalizeContentPolicyErrors(operation, context);
+  } catch (error) {
+    throw classifyProviderCallError(error, context) ?? error;
+  }
+}
+
+/** Content-policy normalization only; provider failures stay raw so a retry loop can judge them. */
+async function normalizeContentPolicyErrors<T>(operation: () => Promise<T>, context?: ModelCallContext): Promise<T> {
   try {
     return await operation();
   } catch (error) {
-    rethrowContentPolicyError(error);
+    rethrowContentPolicyError(error, context);
   }
 }
 
@@ -139,11 +171,12 @@ export async function withContentPolicyErrorHandling<T>(operation: () => Promise
 export async function withContentPolicyAwareRetry<T>(
   operation: () => Promise<T>,
   retryOptions?: RetryOptions,
+  context?: ModelCallContext,
 ): Promise<T> {
   const retriedUsage: TokenUsage[] = [];
   try {
     const response = await withRetry(
-      () => withContentPolicyErrorHandling(operation),
+      () => normalizeContentPolicyErrors(operation, context),
       {
         ...retryOptions,
         onRetry: (error, attempt) => {
@@ -157,7 +190,8 @@ export async function withContentPolicyAwareRetry<T>(
     );
     return includeRetriedUsage(response, retriedUsage);
   } catch (error) {
-    rethrowWithTokenUsage(error, retriedUsage);
+    // Classified only once retries are exhausted: the retry loop judges raw provider errors.
+    rethrowWithTokenUsage(classifyProviderCallError(error, context) ?? error, retriedUsage);
   }
 }
 
@@ -196,13 +230,114 @@ function includeRetriedUsage<T>(response: T, retriedUsage: TokenUsage[]): T {
   return Object.create(Object.getPrototypeOf(response), descriptors);
 }
 
-export function rethrowContentPolicyError(error: unknown): never {
+export function rethrowContentPolicyError(error: unknown, context?: ModelCallContext): never {
   const block = extractContentPolicyBlock(error);
   if (!block) {
     throw error;
   }
 
-  throwContentPolicyError(block, getContentPolicyTokenUsage(error));
+  throwContentPolicyError(block, getContentPolicyTokenUsage(error), context);
+}
+
+/** The provider API error behind a failure: itself, a retry's last error, or a (shallow) cause. */
+function findProviderCallError(error: unknown): APICallError | undefined {
+  let current = RetryError.isInstance(error) ? error.lastError : error;
+  for (let depth = 0; depth < 3 && current; depth++) {
+    if (APICallError.isInstance(current)) {
+      return current;
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return undefined;
+}
+
+/**
+ * Classifies a failed provider API call while its status is still in hand; callers
+ * further out (often past a step boundary) only see the message. Applied once a
+ * call has finally failed, never inside a retry loop. Provider keys and request
+ * shapes are the running service's own, so a rejected request is `internal`; no
+ * response or a transient status is the provider's (`upstream`, retried by the step).
+ * Anything that isn't a provider API call error is left for the caller.
+ */
+function classifyProviderCallError(error: unknown, context?: ModelCallContext): MuxAiError | undefined {
+  if (MuxAiError.is(error)) {
+    return undefined;
+  }
+  const last = RetryError.isInstance(error) ? error.lastError : error;
+  const unusable = classifyUnusableOutput(last, error, context);
+  if (unusable) {
+    return unusable;
+  }
+  if (DownloadError.isInstance(last)) {
+    return classifyDownloadError(last, error);
+  }
+  const apiError = findProviderCallError(error);
+  if (!apiError) {
+    return undefined;
+  }
+  const status = apiError.statusCode;
+  const classified = dependencyError(`${context?.call ?? "Model call"} failed${status ? ` (HTTP ${status})` : ""}`, {
+    dependency: MUX_AI_ERROR_DEPENDENCY_VALUES.ai_provider,
+    call: context?.call ?? "model_call",
+    status,
+    requestId: requestIdOf(apiError.responseHeaders),
+    facts: modelCallFacts(context),
+    cause: error,
+  });
+  const usage = getErrorTokenUsage(error);
+  if (usage) {
+    classified.usage = usage;
+  }
+  return classified;
+}
+
+/**
+ * The AI SDK throws these from the generation call itself when the response can't
+ * be parsed (`NoObjectGeneratedError`) or has no output (`NoOutputGeneratedError`).
+ * Transient as before: raw, they were retried by the step runner.
+ */
+function classifyUnusableOutput(last: unknown, error: unknown, context?: ModelCallContext): MuxAiError | undefined {
+  const parse = NoObjectGeneratedError.isInstance(last);
+  if (!parse && !NoOutputGeneratedError.isInstance(last)) {
+    return undefined;
+  }
+  // A parse failure because the model stopped early (e.g. hit its output limit) is an
+  // incomplete generation, not invalid output.
+  if (parse && last.finishReason && last.finishReason !== "stop") {
+    return new IncompleteGenerationError(last.finishReason, undefined, getErrorTokenUsage(error), context);
+  }
+  const classified = new MuxAiError(`${context?.call ?? "Model call"} returned ${parse ? "output that could not be parsed" : "no output"}`, {
+    code: parse ? MUX_AI_ERROR_CODES.model_output_invalid : MUX_AI_ERROR_CODES.model_output_missing,
+    facts: modelCallFacts(context),
+    // As before: a raw parse failure was retried by the step runner. See the model-output follow-up.
+    transient: true,
+    cause: error,
+  });
+  const usage = getErrorTokenUsage(error);
+  if (usage) {
+    classified.usage = usage;
+  }
+  return classified;
+}
+
+/**
+ * The AI SDK downloads an image itself for providers that can't fetch URLs. Its
+ * message embeds the URL (often a signed Mux image URL), so only the host is kept.
+ */
+function classifyDownloadError(download: DownloadError, error: unknown): MuxAiError {
+  let host: string | undefined;
+  try {
+    host = new URL(download.url).host;
+  } catch {}
+  return dependencyError(`Failed to download an image for the model${download.statusCode ? ` (HTTP ${download.statusCode})` : ""}`, {
+    dependency: MUX_AI_ERROR_DEPENDENCY_VALUES.mux_video,
+    call: "download_image",
+    status: download.statusCode,
+    facts: host ? { host } : {},
+    notFoundSource: MUX_AI_ERROR_SOURCE_VALUES.asset,
+    authSource: MUX_AI_ERROR_SOURCE_VALUES.account,
+    cause: error,
+  });
 }
 
 /**
@@ -212,16 +347,18 @@ export function rethrowContentPolicyError(error: unknown): never {
  * `NoOutputGeneratedError`. Content-policy stops become a
  * `content_policy_error`; every other non-`stop` finish (`length`, `error`,
  * `other`, ...) becomes an {@link IncompleteGenerationError} that keeps the
- * finish reason and token usage.
+ * finish reason and token usage. A `stop` with no output is
+ * `model_output_missing`.
  */
-export function getGeneratedOutputWithContentPolicyHandling<T>(response: GeneratedOutput<T>): T {
+export function getGeneratedOutputWithContentPolicyHandling<T>(response: GeneratedOutput<T>, context?: ModelCallContext): NonNullable<T> {
+  const usage = getErrorTokenUsage(response);
   if (response.finishReason === "content-filter") {
     const rawReason = PolicyTokenSchema.safeParse(response.rawFinishReason);
     const reason = rawReason.success && isContentPolicyReason(rawReason.data) ?
       rawReason.data :
       "CONTENT_FILTER";
 
-    throwContentPolicyError({ reason }, getErrorTokenUsage(response));
+    throwContentPolicyError({ reason }, usage, context);
   }
 
   if (response.finishReason !== "stop") {
@@ -229,24 +366,44 @@ export function getGeneratedOutputWithContentPolicyHandling<T>(response: Generat
     throw new IncompleteGenerationError(
       response.finishReason,
       rawReason.success ? rawReason.data : undefined,
-      getErrorTokenUsage(response),
+      usage,
+      context,
     );
   }
 
-  return response.output;
+  let output: T;
+  try {
+    output = response.output;
+  } catch (error) {
+    throw classifyUnusableOutput(error, error, context) ?? error;
+  }
+  if (output === undefined || output === null) {
+    const missing = new MuxAiError(`${context?.call ?? "Model call"} returned no output`, {
+      code: MUX_AI_ERROR_CODES.model_output_missing,
+      facts: modelCallFacts(context),
+      // As before: callers' plain "output missing" errors were retried by the step runner.
+      transient: true,
+    });
+    if (usage) {
+      missing.usage = usage;
+    }
+    throw missing;
+  }
+
+  return output;
 }
 
-function throwContentPolicyError(block: ContentPolicyBlock, usage?: TokenUsage): never {
+function throwContentPolicyError(block: ContentPolicyBlock, usage?: TokenUsage, context?: ModelCallContext): never {
   const category = block.category ? `; category: ${block.category}` : "";
   const contentPolicyError = new MuxAiError(
     `The supplied content was blocked by a content policy (reason: ${block.reason}${category}).`,
     {
-      type: "content_policy_error",
-      retryable: false,
+      code: MUX_AI_ERROR_CODES.content_policy_blocked,
+      facts: { ...modelCallFacts(context), reason: block.reason, ...(block.category && { category: block.category }) },
     },
   );
   if (usage) {
-    (contentPolicyError as MuxAiError & { usage?: TokenUsage }).usage = usage;
+    contentPolicyError.usage = usage;
   }
   throw contentPolicyError;
 }

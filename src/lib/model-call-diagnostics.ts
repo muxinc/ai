@@ -1,6 +1,7 @@
 import { APICallError } from "ai";
 
 import type { ModelCallDiagnostics } from "./mux-ai-error.ts";
+import { MuxAiError } from "./mux-ai-error.ts";
 import { getErrorTokenUsage } from "./token-usage.ts";
 
 /** Log inside the step; never include prompts, model output, headers, or raw causes. */
@@ -14,12 +15,17 @@ export function recordModelCallFailure(error: unknown, diagnostics: ModelCallDia
     return;
   }
   failure.diagnostics = { ...diagnostics };
+  // A provider failure arrives classified (status and request id in its facts) or raw.
+  const facts = MuxAiError.is(error) ? error.facts : undefined;
   console.warn("[@mux/ai] Model call failed.", {
     ...diagnostics,
     finishReason: failure.finishReason,
-    statusCode: failure.statusCode,
+    statusCode: typeof facts?.status === "number" ? facts.status : failure.statusCode,
     errorName: error instanceof Error ? error.name : undefined,
-    requestId: APICallError.isInstance(error) ? error.responseHeaders?.["x-request-id"] ?? error.responseHeaders?.["request-id"] : undefined,
+    requestId: typeof facts?.requestId === "string" ?
+      facts.requestId :
+      APICallError.isInstance(error) ? error.responseHeaders?.["x-request-id"] ?? error.responseHeaders?.["request-id"] : undefined,
+    ...(MuxAiError.is(error) && { source: error.source, ...(error.code && { code: error.code }) }),
     usage: observedUsage,
   });
 }

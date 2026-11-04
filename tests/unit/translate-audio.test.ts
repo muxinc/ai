@@ -234,7 +234,7 @@ describe("translateAudio static rendition cleanup", () => {
 
     const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
 
-    expect(error).toMatchObject({ publicType: "timeout_error", retryable: true });
+    expect(error).toMatchObject({ type: "timeout_error", source: "upstream", dependency: "mux_video", retryable: true, transient: false, facts: { assetId: ASSET_ID, lastStatus: "preparing" } });
     expect(retrieve).toHaveBeenCalledTimes(180);
     expect(deleteStaticRendition).toHaveBeenCalledWith(ASSET_ID, CREATED_RENDITION_ID);
   });
@@ -311,22 +311,34 @@ describe("translateAudio ElevenLabs error reporting", () => {
     mockMuxClient({ initialAsset: readyRenditionAsset("rendition-pre-existing") });
   });
 
-  it("includes the status and ElevenLabs reason when dub creation is rejected", async () => {
+  it("classifies a rejected dub creation with its status, call and ElevenLabs reason", async () => {
     stubElevenLabsCreateFailure(new Response(JSON.stringify(UNSUPPORTED_LANGUAGE_BODY), { status: 400, statusText: "Bad Request" }));
 
     const error = await captureRejection(translateAudio(ASSET_ID, "ur", BASE_OPTIONS));
 
-    expect((error as Error).message).toBe(
-      "Failed to create ElevenLabs dubbing job: ElevenLabs API error: 400 Bad Request: unsupported_target_language: Target language 'ur' is not supported. (param: target_lang, request_id: ce841eacec9f38158a9ef2f4b66b0940)",
-    );
+    expect(MuxAiError.is(error)).toBe(true);
+    expect(error).toMatchObject({
+      message: "ElevenLabs API error (HTTP 400)",
+      source: "internal",
+      dependency: "ai_provider",
+      transient: false,
+      facts: {
+        call: "elevenlabs_create_dubbing",
+        provider: "elevenlabs",
+        status: 400,
+        targetLanguage: "urd",
+        assetId: ASSET_ID,
+        detail: expect.stringContaining("Target language 'ur' is not supported."),
+      },
+    });
   });
 
-  it("keeps provider detail out of customer-safe errors", async () => {
+  it("keeps provider detail out of the message", async () => {
     stubElevenLabsCreateFailure(new Response(JSON.stringify(UNSUPPORTED_LANGUAGE_BODY), { status: 400, statusText: "Bad Request" }));
 
     const error = await captureRejection(translateAudio(ASSET_ID, "ur", BASE_OPTIONS));
 
-    expect(MuxAiError.is(error)).toBe(false);
+    expect((error as Error).message).not.toContain("not supported");
   });
 
   it("lists field errors from a 422 validation response", async () => {
@@ -337,10 +349,10 @@ describe("translateAudio ElevenLabs error reporting", () => {
 
     const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
 
-    expect((error as Error).message).toContain("422 Unprocessable Entity: body.target_lang: field required");
+    expect(error).toMatchObject({ facts: { status: 422, detail: expect.stringContaining("body.target_lang: field required") } });
   });
 
-  it("keeps the 429 status in the message so callers can still detect rate limits", async () => {
+  it("classifies a 429 as transient upstream capacity", async () => {
     stubElevenLabsCreateFailure(new Response(
       JSON.stringify({ detail: { status: "too_many_concurrent_requests", message: "Too many concurrent requests." } }),
       { status: 429, statusText: "Too Many Requests" },
@@ -348,7 +360,7 @@ describe("translateAudio ElevenLabs error reporting", () => {
 
     const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
 
-    expect((error as Error).message).toContain("429 Too Many Requests: too_many_concurrent_requests: Too many concurrent requests.");
+    expect(error).toMatchObject({ type: "capacity_error", source: "upstream", transient: true, facts: { status: 429 } });
   });
 
   it("truncates a non-JSON error body", async () => {
@@ -356,11 +368,13 @@ describe("translateAudio ElevenLabs error reporting", () => {
 
     const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
 
-    expect((error as Error).message).toContain("502 Bad Gateway: <html>xxx");
-    expect((error as Error).message).not.toContain("</html>");
+    const detail = String((error as MuxAiError).facts.detail);
+    expect(detail).toContain("<html>xxx");
+    expect(detail).not.toContain("</html>");
+    expect((error as Error).message).toBe("ElevenLabs API error (HTTP 502)");
   });
 
-  it("includes the ElevenLabs reason when a status check is rejected", async () => {
+  it("classifies a rejected status check with the dubbing id", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: any, init?: any) => {
       if (String(input).endsWith("/v1/dubbing") && init?.method === "POST") {
         return new Response(JSON.stringify({ dubbing_id: "dub-1" }), { status: 200 });
@@ -373,9 +387,10 @@ describe("translateAudio ElevenLabs error reporting", () => {
 
     const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
 
-    expect((error as Error).message).toBe(
-      "Failed to check dubbing status: Status check failed: 404 Not Found: dubbing_not_found: Dubbing project not found.",
-    );
+    expect(error).toMatchObject({
+      message: "Status check failed (HTTP 404)",
+      facts: { call: "elevenlabs_get_dubbing", status: 404, dubbingId: "dub-1", detail: expect.stringContaining("Dubbing project not found.") },
+    });
   });
 
   it("logs the ElevenLabs reason for a failed dub without changing the customer-facing error", async () => {
@@ -392,8 +407,11 @@ describe("translateAudio ElevenLabs error reporting", () => {
     const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
 
     expect(error).toMatchObject({
-      publicType: "processing_error",
-      publicMessage: "ElevenLabs reported that the dubbing job failed.",
+      type: "processing_error",
+      source: "upstream",
+      dependency: "ai_provider",
+      message: "ElevenLabs reported that the dubbing job failed.",
+      facts: { call: "elevenlabs_get_dubbing", dubbingId: "dub-1", providerError: "Source audio could not be decoded." },
     });
     expect(console.warn).toHaveBeenCalledWith("❌ ElevenLabs dubbing job dub-1 failed: Source audio could not be decoded.");
   });
@@ -452,7 +470,7 @@ describe("translateAudio on assets using the deprecated mp4_support option", () 
 
     const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
 
-    expect(error).toMatchObject({ publicType: "validation_error", retryable: false });
+    expect(error).toMatchObject({ type: "validation_error", source: "asset", retryable: false });
     expect((error as Error).message).toContain("capped-1080p.mp4 static rendition (1.5 GB) is larger than the 1 GB");
     expect((error as Error).message).toContain("Static Renditions API");
     expect(fetchMock).not.toHaveBeenCalled();
@@ -468,7 +486,7 @@ describe("translateAudio on assets using the deprecated mp4_support option", () 
 
     const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
 
-    expect(error).toMatchObject({ publicType: "validation_error" });
+    expect(error).toMatchObject({ type: "validation_error", source: "asset" });
     expect((error as Error).message).toContain("static renditions are errored");
     expect(createStaticRendition).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
@@ -482,7 +500,7 @@ describe("translateAudio on assets using the deprecated mp4_support option", () 
 
     const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
 
-    expect(error).toMatchObject({ publicType: "timeout_error", retryable: true });
+    expect(error).toMatchObject({ type: "timeout_error", source: "upstream", dependency: "mux_video", retryable: true, transient: false });
     expect(retrieve).toHaveBeenCalledTimes(180);
   });
 });
