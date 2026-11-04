@@ -1,9 +1,9 @@
 import { isUndeterminedLanguageCode } from "../lib/language-codes.ts";
 import {
   MUX_AI_ERROR_CODES,
-  MUX_AI_ERROR_DEPENDENCY_VALUES,
-  MUX_AI_ERROR_SOURCE_VALUES,
-  MUX_AI_ERROR_TYPE_VALUES,
+  MUX_AI_ERROR_DEPENDENCIES,
+  MUX_AI_ERROR_SOURCES,
+  MUX_AI_ERROR_TYPES,
   MuxAiError,
   wrapError,
 } from "../lib/mux-ai-error.ts";
@@ -871,7 +871,7 @@ export async function fetchTranscriptForAsset(
         .join(", ");
       throw new MuxAiError(
         `No caption track found${languageCode ? ` for language ${languageCode}` : ""}. Available languages: ${availableLanguages || "none"}.`,
-        { code: MUX_AI_ERROR_CODES.caption_track_not_found },
+        { code: MUX_AI_ERROR_CODES.CAPTION_TRACK_NOT_FOUND },
       );
     }
     return { transcriptText: "" };
@@ -880,9 +880,9 @@ export async function fetchTranscriptForAsset(
   if (!track.id) {
     if (required) {
       throw new MuxAiError("Transcript track is missing an id.", {
-        type: MUX_AI_ERROR_TYPE_VALUES.processing_error,
-        source: MUX_AI_ERROR_SOURCE_VALUES.upstream,
-        dependency: MUX_AI_ERROR_DEPENDENCY_VALUES.mux_video,
+        type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+        source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+        dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO,
         facts: { status: 200 },
         // The track came from the Mux asset payload without an id.
         // As before (pre-classification): the same asset returns the same payload.
@@ -916,8 +916,8 @@ export async function fetchTranscriptForAsset(
   // generic Error at the step boundary.
   switch (result.emptyReason) {
     case "no_scoped_cues":
-      throw new MuxAiError("Transcript has no cues in the requested scope.", { code: MUX_AI_ERROR_CODES.transcript_empty });
+      throw new MuxAiError("Transcript has no cues in the requested scope.", { code: MUX_AI_ERROR_CODES.TRANSCRIPT_EMPTY });
     case "empty_body":
-      throw new MuxAiError("Transcript is empty.", { code: MUX_AI_ERROR_CODES.transcript_empty });
+      throw new MuxAiError("Transcript is empty.", { code: MUX_AI_ERROR_CODES.TRANSCRIPT_EMPTY });
   }
 }

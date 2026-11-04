@@ -9,7 +9,7 @@ import {
 } from "../lib/content-policy-error.ts";
 import { getLanguageName } from "../lib/language-codes.ts";
 import { withModelCallDiagnostics } from "../lib/model-call-diagnostics.ts";
-import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCE_VALUES, MUX_AI_ERROR_TYPE_VALUES, MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
+import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import type { ModelCallDiagnostics } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
@@ -204,7 +204,7 @@ const LANGUAGE_TAG_PATTERN = /^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/i;
 const LENGTH_UNITS = ["characters", "words"] as const;
 
 function validationError(message: string): MuxAiError {
-  return new MuxAiError(message, { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.request });
+  return new MuxAiError(message, { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST });
 }
 
 function assertOneOf<T extends string>(value: string, allowed: readonly T[], label: string): void {
@@ -470,8 +470,8 @@ function scrubBrief(brief: GenerateTextBrief, safety: SafetyReporter): GenerateT
       "The editorial brief was suppressed by the output safety filter.",
       {
         code: centralIdea.leaked || readerValue.leaked ?
-          MUX_AI_ERROR_CODES.model_output_suppressed :
-          MUX_AI_ERROR_CODES.model_output_missing,
+          MUX_AI_ERROR_CODES.MODEL_OUTPUT_SUPPRESSED :
+          MUX_AI_ERROR_CODES.MODEL_OUTPUT_MISSING,
         // As before (pre-classification).
         retryable: true,
       },
@@ -905,7 +905,7 @@ async function generateArtifactWithModel(args: {
       } else {
         const apiError = APICallError.isInstance(cause) ? cause : undefined;
         failure = new MuxAiError("Unable to complete text generation.", {
-          code: MUX_AI_ERROR_CODES.model_output_invalid,
+          code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID,
           // As before (pre-classification).
           retryable: apiError?.isRetryable ?? true,
           cause,
@@ -1022,14 +1022,14 @@ async function generateTextInternal(
 
   if (useShots && isAudioOnly) {
     throw new MuxAiError("useShots is not supported for audio-only assets.", {
-      type: MUX_AI_ERROR_TYPE_VALUES.validation_error,
-      source: MUX_AI_ERROR_SOURCE_VALUES.request,
+      type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+      source: MUX_AI_ERROR_SOURCES.REQUEST,
     });
   }
   if (useShots && assetDurationSeconds === undefined) {
     throw new MuxAiError("Asset has no valid duration.", {
-      type: MUX_AI_ERROR_TYPE_VALUES.validation_error,
-      source: MUX_AI_ERROR_SOURCE_VALUES.asset,
+      type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+      source: MUX_AI_ERROR_SOURCES.ASSET,
     });
   }
 
@@ -1038,7 +1038,7 @@ async function generateTextInternal(
     throw new MuxAiError(
       "Signed playback ID requires signing credentials. " +
       "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
-      { code: MUX_AI_ERROR_CODES.signing_credentials_missing },
+      { code: MUX_AI_ERROR_CODES.SIGNING_CREDENTIALS_MISSING },
     );
   }
   const shouldSign = policy === "signed";
@@ -1062,8 +1062,8 @@ async function generateTextInternal(
       effectiveScope ? "Transcript has no usable content in the requested scope." : "Transcript has no usable content.",
       // An empty window is the caller's choice of scope; an empty transcript is the asset's.
       effectiveScope ?
-          { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.request } :
-          { code: MUX_AI_ERROR_CODES.transcript_empty },
+          { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST } :
+          { code: MUX_AI_ERROR_CODES.TRANSCRIPT_EMPTY },
     );
   }
 
@@ -1119,7 +1119,7 @@ async function generateTextInternal(
       }
       if (item.violation === "empty") {
         throw new MuxAiError(`Generated text for ${field} was empty after a retry.`, {
-          code: MUX_AI_ERROR_CODES.model_output_missing,
+          code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_MISSING,
           // As before (pre-classification).
           retryable: true,
         });
@@ -1128,7 +1128,7 @@ async function generateTextInternal(
         throw new MuxAiError(
           `Generated text for ${field} exceeded the ${item.violation.limit.value} ${item.violation.limit.unit} limit after a retry (${item.violation.actual} returned).`,
           {
-            code: MUX_AI_ERROR_CODES.model_output_invalid,
+            code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID,
             // As before (pre-classification).
             retryable: true,
           },

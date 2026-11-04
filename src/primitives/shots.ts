@@ -1,5 +1,5 @@
 import { getMuxClientFromEnv } from "../lib/client-factory.ts";
-import { MUX_AI_ERROR_DEPENDENCY_VALUES, MUX_AI_ERROR_SOURCE_VALUES, MUX_AI_ERROR_TYPE_VALUES, MuxAiError } from "../lib/mux-ai-error.ts";
+import { MUX_AI_ERROR_DEPENDENCIES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "../lib/mux-ai-error.ts";
 import type { WorkflowCredentialsInput } from "../types.ts";
 
 import type { AssetShots } from "@mux/ts/resources/video/assets";
@@ -266,9 +266,9 @@ export async function waitForShotsForAsset(
 
     if (result.status === "errored") {
       throw new MuxAiError(`Shot generation failed for asset ${assetId}.`, {
-        type: MUX_AI_ERROR_TYPE_VALUES.processing_error,
-        source: MUX_AI_ERROR_SOURCE_VALUES.upstream,
-        dependency: MUX_AI_ERROR_DEPENDENCY_VALUES.mux_video,
+        type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+        source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+        dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO,
         // Mux answered (200) with its own job errored; repeating the poll gets the same.
         facts: { status: 200 },
         // As before (pre-classification): a new job sees the same errored state.
@@ -279,14 +279,14 @@ export async function waitForShotsForAsset(
     if (result.status === "skipped") {
       throw new MuxAiError(
         `Shot generation was skipped for asset ${assetId}; the asset may have no video track.`,
-        { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.asset },
+        { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },
       );
     }
 
     if (result.status === "deleted") {
       throw new MuxAiError(`Shots for asset ${assetId} have been deleted.`, {
-        type: MUX_AI_ERROR_TYPE_VALUES.validation_error,
-        source: MUX_AI_ERROR_SOURCE_VALUES.asset,
+        type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+        source: MUX_AI_ERROR_SOURCES.ASSET,
       });
     }
 
@@ -298,9 +298,9 @@ export async function waitForShotsForAsset(
   throw new MuxAiError(
     `Timed out waiting for shots for asset ${assetId}. Last status: ${lastStatus ?? "unknown"}.`,
     {
-      type: MUX_AI_ERROR_TYPE_VALUES.timeout_error,
-      source: MUX_AI_ERROR_SOURCE_VALUES.upstream,
-      dependency: MUX_AI_ERROR_DEPENDENCY_VALUES.mux_video,
+      type: MUX_AI_ERROR_TYPES.TIMEOUT_ERROR,
+      source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+      dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO,
       // As before (pre-classification): not transient, this already polled for the whole budget.
       transient: false,
     },

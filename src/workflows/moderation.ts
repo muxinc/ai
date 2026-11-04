@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getApiKeyFromEnv } from "../lib/client-factory.ts";
 import type { ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImagesAsBase64 } from "../lib/image-download.ts";
-import { MUX_AI_ERROR_DEPENDENCY_VALUES, MUX_AI_ERROR_SOURCE_VALUES, MUX_AI_ERROR_TYPE_VALUES, MuxAiError } from "../lib/mux-ai-error.ts";
+import { MUX_AI_ERROR_DEPENDENCIES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -1373,9 +1373,9 @@ export async function getModerationScores(
     if (!captionTrack.id) {
       throw new MuxAiError("Transcript track is missing an id.", {
         // The track came from the Mux asset payload without an id.
-        type: MUX_AI_ERROR_TYPE_VALUES.processing_error,
-        source: MUX_AI_ERROR_SOURCE_VALUES.upstream,
-        dependency: MUX_AI_ERROR_DEPENDENCY_VALUES.mux_video,
+        type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+        source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+        dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO,
         facts: { status: 200 },
         // As before (pre-classification): the same asset returns the same payload.
         retryable: false,
@@ -1425,12 +1425,12 @@ export async function getModerationScores(
       `Nothing to moderate. Thumbnails skipped: ${thumbnailModeration.skipMessage} ` +
       `Transcript skipped: ${transcriptModeration.skipMessage}`,
       {
-        type: MUX_AI_ERROR_TYPE_VALUES.validation_error,
+        type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
         // The caller's options caused it when they turned the transcript off or chose an
         // image-only provider; otherwise the asset has nothing to moderate.
         source: transcriptModeration.skipReason === "disabled" || transcriptModeration.skipReason === "unsupported_provider" ?
-          MUX_AI_ERROR_SOURCE_VALUES.request :
-          MUX_AI_ERROR_SOURCE_VALUES.asset,
+          MUX_AI_ERROR_SOURCES.REQUEST :
+          MUX_AI_ERROR_SOURCES.ASSET,
       },
     );
   }

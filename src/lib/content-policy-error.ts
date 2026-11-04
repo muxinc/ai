@@ -121,7 +121,7 @@ export class IncompleteGenerationError extends MuxAiError {
     // Hitting the output limit is deterministic (the same input hits it again) and
     // is ours to fix by splitting the work; any other early stop is the provider's.
     super(message, {
-      code: truncated ? MUX_AI_ERROR_CODES.model_output_truncated : MUX_AI_ERROR_CODES.model_output_incomplete,
+      code: truncated ? MUX_AI_ERROR_CODES.MODEL_OUTPUT_TRUNCATED : MUX_AI_ERROR_CODES.MODEL_OUTPUT_INCOMPLETE,
       facts: { ...modelCallFacts(context), finishReason, ...(rawFinishReason && { rawFinishReason }) },
     });
     this.finishReason = finishReason;
@@ -261,7 +261,7 @@ function throwContentPolicyError(block: ContentPolicyBlock, usage?: TokenUsage, 
   const contentPolicyError = new MuxAiError(
     `The supplied content was blocked by a content policy (reason: ${block.reason}${category}).`,
     {
-      code: MUX_AI_ERROR_CODES.content_policy_blocked,
+      code: MUX_AI_ERROR_CODES.CONTENT_POLICY_BLOCKED,
       facts: { ...modelCallFacts(context), reason: block.reason, ...(block.category && { category: block.category }) },
     },
   );

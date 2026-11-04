@@ -6,7 +6,7 @@ import { elevenLabsResponseFailure, elevenLabsSdkFailure } from "../lib/elevenla
 import type { ElevenLabsFailure } from "../lib/elevenlabs-errors.ts";
 import { getLanguageCodePair, getLanguageName, toISO639_1 } from "../lib/language-codes.ts";
 import type { LanguageCodePair } from "../lib/language-codes.ts";
-import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_DEPENDENCY_VALUES, MUX_AI_ERROR_SOURCE_VALUES, MUX_AI_ERROR_TYPE_VALUES, MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
+import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_DEPENDENCIES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset, isAudioOnlyAsset, isVideoOnlyAsset } from "../lib/mux-assets.ts";
 import {
   getLegacyMp4SupportRenditionSizeError,
@@ -304,9 +304,9 @@ async function waitForAudioStaticRendition({
       throw new MuxAiError(
         "Mux failed to create the static rendition for this asset. Please check the asset in the Mux dashboard.",
         {
-          type: MUX_AI_ERROR_TYPE_VALUES.processing_error,
-          source: MUX_AI_ERROR_SOURCE_VALUES.upstream,
-          dependency: MUX_AI_ERROR_DEPENDENCY_VALUES.mux_video,
+          type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+          source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+          dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO,
           // Mux answered (200) with the rendition errored.
           facts: { status: 200 },
           // As before (pre-classification).
@@ -319,9 +319,9 @@ async function waitForAudioStaticRendition({
   throw new MuxAiError(
     "Timed out waiting for the static rendition to become ready. Please try again in a moment.",
     {
-      type: MUX_AI_ERROR_TYPE_VALUES.timeout_error,
-      source: MUX_AI_ERROR_SOURCE_VALUES.upstream,
-      dependency: MUX_AI_ERROR_DEPENDENCY_VALUES.mux_video,
+      type: MUX_AI_ERROR_TYPES.TIMEOUT_ERROR,
+      source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+      dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO,
       // As before (pre-classification): not transient, this already polled for the whole budget.
       transient: false,
     },
@@ -353,8 +353,8 @@ async function waitForLegacyMp4SupportRendition({
     throw new MuxAiError(
       "The asset's static rendition settings changed while waiting for them. Please try again.",
       {
-        type: MUX_AI_ERROR_TYPE_VALUES.processing_error,
-        source: MUX_AI_ERROR_SOURCE_VALUES.asset,
+        type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+        source: MUX_AI_ERROR_SOURCES.ASSET,
         // Retryable although asset-sourced: the asset changed mid-run, and a new job uses the new settings.
         retryable: true,
       },
@@ -364,21 +364,21 @@ async function waitForLegacyMp4SupportRendition({
     throw new MuxAiError(
       "Timed out waiting for the static rendition to become ready. Please try again in a moment.",
       {
-        type: MUX_AI_ERROR_TYPE_VALUES.timeout_error,
-        source: MUX_AI_ERROR_SOURCE_VALUES.upstream,
-        dependency: MUX_AI_ERROR_DEPENDENCY_VALUES.mux_video,
+        type: MUX_AI_ERROR_TYPES.TIMEOUT_ERROR,
+        source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+        dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO,
         // As before (pre-classification): not transient, this already polled for the whole budget.
         transient: false,
       },
     );
   }
   if (rendition.kind === "unusable") {
-    throw new MuxAiError(rendition.reason, { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.asset });
+    throw new MuxAiError(rendition.reason, { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET });
   }
 
   const sizeError = getLegacyMp4SupportRenditionSizeError(rendition, MAX_DUBBING_SOURCE_BYTES);
   if (sizeError) {
-    throw new MuxAiError(sizeError, { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.asset });
+    throw new MuxAiError(sizeError, { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET });
   }
 
   return rendition.name;
@@ -413,29 +413,29 @@ function audioTrackUnsupportedReason(asset: MuxAsset): string | undefined {
  */
 function dubbingProviderError(message: string, failure: ElevenLabsFailure): MuxAiError {
   const classification = {
-    source: MUX_AI_ERROR_SOURCE_VALUES.upstream,
-    dependency: MUX_AI_ERROR_DEPENDENCY_VALUES.ai_provider,
+    source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+    dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
     facts: { ...(failure.httpStatus === undefined ? {} : { status: failure.httpStatus }), ...(failure.reason ? { reason: failure.reason } : {}) },
     // As before (pre-classification): not transient, the caller already retried the call.
     transient: false,
     retryable: failure.retryable,
   };
   if (failure.reason === "timeout") {
-    return new MuxAiError(`${message} The dubbing service timed out. Please try again.`, { ...classification, type: MUX_AI_ERROR_TYPE_VALUES.timeout_error });
+    return new MuxAiError(`${message} The dubbing service timed out. Please try again.`, { ...classification, type: MUX_AI_ERROR_TYPES.TIMEOUT_ERROR });
   }
   if (failure.retryable) {
-    return new MuxAiError(`${message} The dubbing service is temporarily unavailable. Please try again.`, { ...classification, type: MUX_AI_ERROR_TYPE_VALUES.processing_error });
+    return new MuxAiError(`${message} The dubbing service is temporarily unavailable. Please try again.`, { ...classification, type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR });
   }
-  return new MuxAiError(message, { ...classification, type: MUX_AI_ERROR_TYPE_VALUES.processing_error });
+  return new MuxAiError(message, { ...classification, type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR });
 }
 
 /** The customer-facing error for a dubbing project ElevenLabs would not create. */
 function dubbingStartError(failure: ElevenLabsFailure, languages: { target: string; source?: string }): MuxAiError {
   if (failure.reason === "unsupported_target_language") {
-    return new MuxAiError(`Audio dubbing does not support the target language "${languages.target}".`, { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.request });
+    return new MuxAiError(`Audio dubbing does not support the target language "${languages.target}".`, { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST });
   }
   if (failure.reason === "unsupported_source_language" && languages.source) {
-    return new MuxAiError(`Audio dubbing does not support the source language "${languages.source}".`, { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.request });
+    return new MuxAiError(`Audio dubbing does not support the source language "${languages.source}".`, { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST });
   }
   return dubbingProviderError("Audio dubbing could not be started.", failure);
 }
@@ -739,12 +739,12 @@ export async function translateAudio(
   } = options;
 
   if (provider !== "elevenlabs") {
-    throw new MuxAiError("Only ElevenLabs provider is currently supported for audio translation.", { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.request });
+    throw new MuxAiError("Only ElevenLabs provider is currently supported for audio translation.", { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST });
   }
 
   const targetLanguageCode = toISO639_1(toLanguageCode);
   if (numSpeakers !== 0) {
-    throw new MuxAiError("The ElevenLabs project API does not support numSpeakers overrides. Omit it or use 0 for auto-detection.", { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.request });
+    throw new MuxAiError("The ElevenLabs project API does not support numSpeakers overrides. Omit it or use 0 for auto-detection.", { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST });
   }
 
   const credentials = providedCredentials;
@@ -768,7 +768,7 @@ export async function translateAudio(
   const s3SecretAccessKey = env.S3_SECRET_ACCESS_KEY;
 
   if (uploadToS3 && (!s3Endpoint || !s3Bucket || (!effectiveStorageAdapter && (!s3AccessKeyId || !s3SecretAccessKey)))) {
-    throw new MuxAiError("Storage configuration is required for uploading. Provide s3Endpoint and s3Bucket. If no storageAdapter is supplied, also provide s3AccessKeyId and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.", { code: MUX_AI_ERROR_CODES.storage_not_configured });
+    throw new MuxAiError("Storage configuration is required for uploading. Provide s3Endpoint and s3Bucket. If no storageAdapter is supplied, also provide s3AccessKeyId and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.", { code: MUX_AI_ERROR_CODES.STORAGE_NOT_CONFIGURED });
   }
 
   // Fetch asset data and playback ID from Mux
@@ -779,7 +779,7 @@ export async function translateAudio(
   // rendition "skipped" for these, so without this check the run would wait
   // out the full rendition timeout instead of failing.
   if (isVideoOnlyAsset(initialAsset)) {
-    throw new MuxAiError(`Asset ${assetId} has no audio track, so there is no audio to dub.`, { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.asset });
+    throw new MuxAiError(`Asset ${assetId} has no audio track, so there is no audio to dub.`, { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET });
   }
 
   // Mux refuses audio tracks on clips, live stream assets and audio-only
@@ -788,7 +788,7 @@ export async function translateAudio(
   // the staged audio file instead of a new track.
   const audioTrackUnsupported = uploadToMux ? audioTrackUnsupportedReason(initialAsset) : undefined;
   if (audioTrackUnsupported) {
-    throw new MuxAiError(`Asset ${assetId} ${audioTrackUnsupported}`, { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.asset });
+    throw new MuxAiError(`Asset ${assetId} ${audioTrackUnsupported}`, { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET });
   }
 
   // Check both target tracks against the asset we already have so a blocked
@@ -800,7 +800,7 @@ export async function translateAudio(
   ]) {
     const plan = planTextTrackReplacement(initialAsset, target, replaceExistingTracks);
     if (plan.kind === "blocked") {
-      throw new MuxAiError(plan.reason, { code: MUX_AI_ERROR_CODES.track_replacement_blocked });
+      throw new MuxAiError(plan.reason, { code: MUX_AI_ERROR_CODES.TRACK_REPLACEMENT_BLOCKED });
     }
   }
 
@@ -854,7 +854,7 @@ export async function translateAudio(
       if (!audioRendition) {
         throw new MuxAiError(
           "Unable to obtain an audio-only static rendition for this asset. Please verify static renditions are enabled in Mux.",
-          { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.asset },
+          { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },
         );
       }
     }
@@ -946,9 +946,9 @@ export async function translateAudio(
         // resubmitting the same input could succeed.
         if (!dubbingError) {
           throw new MuxAiError("Audio dubbing failed.", {
-            type: MUX_AI_ERROR_TYPE_VALUES.processing_error,
-            source: MUX_AI_ERROR_SOURCE_VALUES.upstream,
-            dependency: MUX_AI_ERROR_DEPENDENCY_VALUES.ai_provider,
+            type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+            source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+            dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
             // ElevenLabs answered (200) with the dub failed.
             facts: { status: 200 },
             // As before (pre-classification).
@@ -958,9 +958,9 @@ export async function translateAudio(
         throw new MuxAiError(
           `Audio dubbing failed: ${dubbingError.message}${dubbingError.retryable ? " Please try again." : ""}`,
           {
-            type: MUX_AI_ERROR_TYPE_VALUES.processing_error,
-            source: MUX_AI_ERROR_SOURCE_VALUES.upstream,
-            dependency: MUX_AI_ERROR_DEPENDENCY_VALUES.ai_provider,
+            type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+            source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+            dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
             // ElevenLabs answered (200) with the dub failed, and says whether a new attempt may succeed.
             facts: { status: 200, reason: dubbingError.code },
             retryable: dubbingError.retryable,
@@ -971,9 +971,9 @@ export async function translateAudio(
 
     if (dubbingStatus !== "completed") {
       throw new MuxAiError("Audio translation timed out or failed. Please try again.", {
-        type: MUX_AI_ERROR_TYPE_VALUES.timeout_error,
-        source: MUX_AI_ERROR_SOURCE_VALUES.upstream,
-        dependency: MUX_AI_ERROR_DEPENDENCY_VALUES.ai_provider,
+        type: MUX_AI_ERROR_TYPES.TIMEOUT_ERROR,
+        source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+        dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
         // As before (pre-classification): not transient, this already polled for the whole budget.
         transient: false,
       });
@@ -1034,7 +1034,7 @@ export async function translateAudio(
           wrapError(error, `Failed to add dubbed audio track to Mux asset (dubbed audio is staged at: ${presignedUrl})`);
         }
         if (outcome.kind === "blocked") {
-          throw new MuxAiError(`${outcome.reason} Dubbed audio is staged at: ${presignedUrl}`, { code: MUX_AI_ERROR_CODES.track_replacement_blocked });
+          throw new MuxAiError(`${outcome.reason} Dubbed audio is staged at: ${presignedUrl}`, { code: MUX_AI_ERROR_CODES.TRACK_REPLACEMENT_BLOCKED });
         }
         if (outcome.kind === "create_failed") {
           throw new Error(`Failed to add dubbed audio track to Mux asset: ${outcome.reason}. Dubbed audio is staged at: ${presignedUrl}`);

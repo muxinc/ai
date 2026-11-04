@@ -17,7 +17,7 @@ import {
 } from "../lib/content-policy-error.ts";
 import { getLanguageCodePair, getLanguageName } from "../lib/language-codes.ts";
 import type { LanguageCodePair, SupportedISO639_1 } from "../lib/language-codes.ts";
-import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCE_VALUES, MUX_AI_ERROR_TYPE_VALUES, MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
+import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -277,7 +277,7 @@ export function validateNeverTranslateTerms(terms: string[]): string[] {
   if (terms.length > MAX_NEVER_TRANSLATE_TERMS) {
     throw new MuxAiError(
       `neverTranslate accepts at most ${MAX_NEVER_TRANSLATE_TERMS} terms (received ${terms.length}).`,
-      { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.request },
+      { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
     );
   }
 
@@ -288,19 +288,19 @@ export function validateNeverTranslateTerms(terms: string[]): string[] {
     if (trimmed.length === 0) {
       throw new MuxAiError(
         "neverTranslate terms must be non-empty.",
-        { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.request },
+        { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
       );
     }
     if (trimmed.length > MAX_NEVER_TRANSLATE_TERM_CHARS) {
       throw new MuxAiError(
         `neverTranslate terms must be at most ${MAX_NEVER_TRANSLATE_TERM_CHARS} characters (received ${trimmed.length}).`,
-        { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.request },
+        { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
       );
     }
     if (trimmed.includes("<") || trimmed.includes(">")) {
       throw new MuxAiError(
         "neverTranslate terms must not contain '<' or '>'.",
-        { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.request },
+        { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
       );
     }
     // Cue text is NFKC-sanitised before the model sees it, so a term the
@@ -309,7 +309,7 @@ export function validateNeverTranslateTerms(terms: string[]): string[] {
     if (sanitizeUntrustedText(trimmed) !== trimmed) {
       throw new MuxAiError(
         "neverTranslate terms must not contain invisible characters or characters altered by Unicode NFKC normalization.",
-        { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.request },
+        { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
       );
     }
     // Case-insensitive dedupe: case variants would double-demand the
@@ -1240,7 +1240,7 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
   });
 
   if (uploadToS3 && (!s3Endpoint || !s3Bucket || (!effectiveStorageAdapter && (!s3AccessKeyId || !s3SecretAccessKey)))) {
-    throw new MuxAiError("Storage configuration is required for uploading. Provide s3Endpoint and s3Bucket. If no storageAdapter is supplied, also provide s3AccessKeyId and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.", { code: MUX_AI_ERROR_CODES.storage_not_configured });
+    throw new MuxAiError("Storage configuration is required for uploading. Provide s3Endpoint and s3Bucket. If no storageAdapter is supplied, also provide s3AccessKeyId and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.", { code: MUX_AI_ERROR_CODES.STORAGE_NOT_CONFIGURED });
   }
 
   // Fetch asset data and playback ID from Mux
@@ -1253,7 +1253,7 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
     throw new MuxAiError(
       "Signed playback ID requires signing credentials. " +
       "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
-      { code: MUX_AI_ERROR_CODES.signing_credentials_missing },
+      { code: MUX_AI_ERROR_CODES.SIGNING_CREDENTIALS_MISSING },
     );
   }
 
@@ -1267,7 +1267,7 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
       .join(", ");
     throw new MuxAiError(
       `Track ${trackId} not found or not ready on asset ${assetId}. Available track IDs: ${availableTrackIds || "none"}.`,
-      { code: MUX_AI_ERROR_CODES.caption_track_not_found },
+      { code: MUX_AI_ERROR_CODES.CAPTION_TRACK_NOT_FOUND },
     );
   }
 
@@ -1275,7 +1275,7 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
   if (!fromLanguageCode) {
     throw new MuxAiError(
       `Track ${trackId} is missing language metadata. Cannot determine source language for translation.`,
-      { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.asset },
+      { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },
     );
   }
 
@@ -1288,7 +1288,7 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
   if (uploadToMux) {
     const plan = planTextTrackReplacement(assetData, outputTrack, replaceExistingTracks);
     if (plan.kind === "blocked") {
-      throw new MuxAiError(plan.reason, { code: MUX_AI_ERROR_CODES.track_replacement_blocked });
+      throw new MuxAiError(plan.reason, { code: MUX_AI_ERROR_CODES.TRACK_REPLACEMENT_BLOCKED });
     }
   }
 
@@ -1429,7 +1429,7 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
           ` Tracks already deleted before the failure: ${outcome.deleted.map(track => `${track.name ?? track.id} (${track.id})`).join(", ")}.` :
           "";
         if (outcome.kind === "blocked") {
-          throw new MuxAiError(`${outcome.reason}${deletedNote}`, { code: MUX_AI_ERROR_CODES.track_replacement_blocked });
+          throw new MuxAiError(`${outcome.reason}${deletedNote}`, { code: MUX_AI_ERROR_CODES.TRACK_REPLACEMENT_BLOCKED });
         }
         throw new Error(`Failed to add translated track to Mux asset: ${outcome.reason}.${deletedNote}`);
       }

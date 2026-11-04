@@ -5,26 +5,21 @@ import type { TokenUsage } from "../types.ts";
 import { detectLeakReason } from "./output-safety.ts";
 import { getErrorTokenUsage } from "./token-usage.ts";
 
-/** `["a", "b"]` → `{ a: "a", b: "b" }`, so values can be referenced by name. */
-function valuesOf<const T extends string>(values: readonly T[]): { readonly [K in T]: K } {
-  return Object.fromEntries(values.map(value => [value, value])) as { readonly [K in T]: K };
-}
-
 /**
  * Public error categories for job outcomes. One list for the SDK and its consumers,
  * which may extend it with their own types (e.g. request-time HTTP errors). Treat
  * `type` as an open string, so adding a value is not a breaking change.
  */
-export const MUX_AI_ERROR_TYPES = [
-  "validation_error",
-  "processing_error",
-  "timeout_error",
-  "content_policy_error",
-  "capacity_error",
-  "server_error",
-] as const;
-export type MuxAiErrorType = typeof MUX_AI_ERROR_TYPES[number];
-export const MUX_AI_ERROR_TYPE_VALUES = valuesOf(MUX_AI_ERROR_TYPES);
+export const MUX_AI_ERROR_TYPES = {
+  VALIDATION_ERROR: "validation_error",
+  PROCESSING_ERROR: "processing_error",
+  TIMEOUT_ERROR: "timeout_error",
+  CONTENT_POLICY_ERROR: "content_policy_error",
+  CAPACITY_ERROR: "capacity_error",
+  SERVER_ERROR: "server_error",
+} as const;
+export type MuxAiErrorType = typeof MUX_AI_ERROR_TYPES[keyof typeof MUX_AI_ERROR_TYPES];
+export const MUX_AI_ERROR_TYPE_VALUES: readonly MuxAiErrorType[] = Object.values(MUX_AI_ERROR_TYPES);
 
 /**
  * Whose problem a failure is, judged from the SDK caller's side: `request` (the
@@ -32,14 +27,24 @@ export const MUX_AI_ERROR_TYPE_VALUES = valuesOf(MUX_AI_ERROR_TYPES);
  * environment), `upstream` (a remote service failed), `internal` (this code or the
  * configuration of the service running it). A consumer may re-attribute it.
  */
-export const MUX_AI_ERROR_SOURCES = ["request", "asset", "account", "upstream", "internal"] as const;
-export type MuxAiErrorSource = typeof MUX_AI_ERROR_SOURCES[number];
-export const MUX_AI_ERROR_SOURCE_VALUES = valuesOf(MUX_AI_ERROR_SOURCES);
+export const MUX_AI_ERROR_SOURCES = {
+  REQUEST: "request",
+  ASSET: "asset",
+  ACCOUNT: "account",
+  UPSTREAM: "upstream",
+  INTERNAL: "internal",
+} as const;
+export type MuxAiErrorSource = typeof MUX_AI_ERROR_SOURCES[keyof typeof MUX_AI_ERROR_SOURCES];
+export const MUX_AI_ERROR_SOURCE_VALUES: readonly MuxAiErrorSource[] = Object.values(MUX_AI_ERROR_SOURCES);
 
 /** A remote service reached over the network. Libraries in this process are not dependencies. */
-export const MUX_AI_ERROR_DEPENDENCIES = ["mux_video", "ai_provider", "storage"] as const;
-export type MuxAiErrorDependency = typeof MUX_AI_ERROR_DEPENDENCIES[number];
-export const MUX_AI_ERROR_DEPENDENCY_VALUES = valuesOf(MUX_AI_ERROR_DEPENDENCIES);
+export const MUX_AI_ERROR_DEPENDENCIES = {
+  MUX_VIDEO: "mux_video",
+  AI_PROVIDER: "ai_provider",
+  STORAGE: "storage",
+} as const;
+export type MuxAiErrorDependency = typeof MUX_AI_ERROR_DEPENDENCIES[keyof typeof MUX_AI_ERROR_DEPENDENCIES];
+export const MUX_AI_ERROR_DEPENDENCY_VALUES: readonly MuxAiErrorDependency[] = Object.values(MUX_AI_ERROR_DEPENDENCIES);
 
 export type MuxAiErrorFactValue = string | number | boolean | null | MuxAiErrorFactValue[] | { [key: string]: MuxAiErrorFactValue };
 
@@ -62,38 +67,55 @@ interface MuxAiErrorCatalogEntry {
 }
 
 /**
- * Codes for conditions precise enough to name (rung 3). A code implies its type,
- * source and dependency, so a site raising it can't contradict them. Codes name the
- * condition, never the vendor.
+ * Codes for conditions precise enough to name. A code implies its type, source and
+ * dependency (see {@link MUX_AI_ERROR_CATALOG}), so a site raising it can't contradict
+ * them. Codes name the condition, never the vendor.
  */
+export const MUX_AI_ERROR_CODES = {
+  INVALID_SCOPE: "invalid_scope",
+  TRACK_REPLACEMENT_BLOCKED: "track_replacement_blocked",
+  CAPTION_TRACK_NOT_FOUND: "caption_track_not_found",
+  PLAYBACK_ID_NOT_FOUND: "playback_id_not_found",
+  TRANSCRIPT_EMPTY: "transcript_empty",
+  SIGNING_CREDENTIALS_MISSING: "signing_credentials_missing",
+  STORAGE_NOT_CONFIGURED: "storage_not_configured",
+  CONTENT_POLICY_BLOCKED: "content_policy_blocked",
+  MODEL_OUTPUT_MISSING: "model_output_missing",
+  MODEL_OUTPUT_INVALID: "model_output_invalid",
+  MODEL_OUTPUT_SUPPRESSED: "model_output_suppressed",
+  MODEL_OUTPUT_INCOMPLETE: "model_output_incomplete",
+  MODEL_OUTPUT_TRUNCATED: "model_output_truncated",
+} as const;
+export type MuxAiErrorCode = typeof MUX_AI_ERROR_CODES[keyof typeof MUX_AI_ERROR_CODES];
+export const MUX_AI_ERROR_CODE_VALUES: readonly MuxAiErrorCode[] = Object.values(MUX_AI_ERROR_CODES);
+
+/** The classification and retry policy each code implies. */
 export const MUX_AI_ERROR_CATALOG = {
   // The caller's input.
-  invalid_scope: { type: "validation_error", source: "request" },
-  track_replacement_blocked: { type: "validation_error", source: "request" },
+  [MUX_AI_ERROR_CODES.INVALID_SCOPE]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
+  [MUX_AI_ERROR_CODES.TRACK_REPLACEMENT_BLOCKED]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
   // The asset's state.
-  caption_track_not_found: { type: "validation_error", source: "asset" },
-  playback_id_not_found: { type: "validation_error", source: "asset" },
-  transcript_empty: { type: "validation_error", source: "asset" },
+  [MUX_AI_ERROR_CODES.CAPTION_TRACK_NOT_FOUND]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },
+  [MUX_AI_ERROR_CODES.PLAYBACK_ID_NOT_FOUND]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },
+  [MUX_AI_ERROR_CODES.TRANSCRIPT_EMPTY]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },
   // The configuration of the service running the SDK.
-  signing_credentials_missing: { type: "server_error", source: "internal" },
-  storage_not_configured: { type: "server_error", source: "internal" },
+  [MUX_AI_ERROR_CODES.SIGNING_CREDENTIALS_MISSING]: { type: MUX_AI_ERROR_TYPES.SERVER_ERROR, source: MUX_AI_ERROR_SOURCES.INTERNAL },
+  [MUX_AI_ERROR_CODES.STORAGE_NOT_CONFIGURED]: { type: MUX_AI_ERROR_TYPES.SERVER_ERROR, source: MUX_AI_ERROR_SOURCES.INTERNAL },
   // Model calls.
-  content_policy_blocked: { type: "content_policy_error", source: "asset", dependency: "ai_provider" },
+  [MUX_AI_ERROR_CODES.CONTENT_POLICY_BLOCKED]: { type: MUX_AI_ERROR_TYPES.CONTENT_POLICY_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER },
   // The model-output policies below keep what these failures did before classification
   // (fatal, not resubmittable); sites that differed keep their old values explicitly.
   // Whether they should be retried is an open follow-up, not decided here.
   // No output, or a required field empty.
-  model_output_missing: { type: "processing_error", source: "upstream", dependency: "ai_provider", transient: false, retryable: false },
+  [MUX_AI_ERROR_CODES.MODEL_OUTPUT_MISSING]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER, transient: false, retryable: false },
   // Output came back but breaks the expected shape or constraints (counts, allowed values, limits).
-  model_output_invalid: { type: "processing_error", source: "upstream", dependency: "ai_provider", transient: false, retryable: false },
+  [MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER, transient: false, retryable: false },
   // Output withheld by our output safety filter (a suspected prompt leak).
-  model_output_suppressed: { type: "processing_error", source: "upstream", dependency: "ai_provider", transient: false, retryable: false },
+  [MUX_AI_ERROR_CODES.MODEL_OUTPUT_SUPPRESSED]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER, transient: false, retryable: false },
   // Not transient: a step retry would repeat a full generation; the job can be resubmitted.
-  model_output_incomplete: { type: "processing_error", source: "upstream", dependency: "ai_provider", transient: false },
-  model_output_truncated: { type: "processing_error", source: "internal", dependency: "ai_provider" },
-} as const satisfies Record<string, MuxAiErrorCatalogEntry>;
-export type MuxAiErrorCode = keyof typeof MUX_AI_ERROR_CATALOG;
-export const MUX_AI_ERROR_CODES = valuesOf(Object.keys(MUX_AI_ERROR_CATALOG) as MuxAiErrorCode[]);
+  [MUX_AI_ERROR_CODES.MODEL_OUTPUT_INCOMPLETE]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER, transient: false },
+  [MUX_AI_ERROR_CODES.MODEL_OUTPUT_TRUNCATED]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.INTERNAL, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER },
+} as const satisfies Record<MuxAiErrorCode, MuxAiErrorCatalogEntry>;
 
 export interface ModelCallDiagnostics {
   phase: "brief" | "draft" | "format_repair" | "length_repair";
@@ -116,7 +138,7 @@ export function isTransientStatus(status: number | undefined): boolean {
  * status (the `status` fact). Everything else would fail the same way on a step retry.
  */
 export function defaultTransient(source: MuxAiErrorSource, facts: MuxAiErrorFacts = {}): boolean {
-  return source === MUX_AI_ERROR_SOURCE_VALUES.upstream &&
+  return source === MUX_AI_ERROR_SOURCES.UPSTREAM &&
     isTransientStatus(typeof facts.status === "number" ? facts.status : undefined);
 }
 
@@ -126,13 +148,13 @@ export function defaultTransient(source: MuxAiErrorSource, facts: MuxAiErrorFact
  * request, asset, account or this service's own code or configuration is the problem.
  */
 export function defaultRetryable(type: MuxAiErrorType, source: MuxAiErrorSource, transient: boolean): boolean {
-  if (transient || type === MUX_AI_ERROR_TYPE_VALUES.timeout_error || type === MUX_AI_ERROR_TYPE_VALUES.capacity_error) {
+  if (transient || type === MUX_AI_ERROR_TYPES.TIMEOUT_ERROR || type === MUX_AI_ERROR_TYPES.CAPACITY_ERROR) {
     return true;
   }
-  if (type === MUX_AI_ERROR_TYPE_VALUES.validation_error || type === MUX_AI_ERROR_TYPE_VALUES.content_policy_error) {
+  if (type === MUX_AI_ERROR_TYPES.VALIDATION_ERROR || type === MUX_AI_ERROR_TYPES.CONTENT_POLICY_ERROR) {
     return false;
   }
-  return source === MUX_AI_ERROR_SOURCE_VALUES.upstream;
+  return source === MUX_AI_ERROR_SOURCES.UPSTREAM;
 }
 
 /** A short record of one raw cause, kept across step boundaries in place of the cause itself. */
@@ -343,7 +365,7 @@ export class MuxAiError extends Error {
       // Written before classification existed (an in-flight run replaying an older
       // event). Most of those errors were checks of the caller's input, so
       // `request` is an approximation; no new error is written in this shape.
-        new MuxAiError(value.message, { type: value.publicType, source: "request", retryable: value.retryable });
+        new MuxAiError(value.message, { type: value.publicType, source: MUX_AI_ERROR_SOURCES.REQUEST, retryable: value.retryable });
     Object.assign(error, {
       ...(value.v === 2 && value.code && { code: value.code }),
       usage: value.usage,
@@ -462,8 +484,8 @@ export function wrapError(error: unknown, message: string, facts?: MuxAiErrorFac
  */
 export function internalError(message: string, facts?: MuxAiErrorFacts, cause?: unknown): MuxAiError {
   return new MuxAiError(message, {
-    type: MUX_AI_ERROR_TYPE_VALUES.server_error,
-    source: MUX_AI_ERROR_SOURCE_VALUES.internal,
+    type: MUX_AI_ERROR_TYPES.SERVER_ERROR,
+    source: MUX_AI_ERROR_SOURCES.INTERNAL,
     facts,
     cause,
   });

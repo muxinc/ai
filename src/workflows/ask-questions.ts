@@ -8,7 +8,7 @@ import {
 } from "../lib/content-policy-error.ts";
 import type { ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImageAsBase64 } from "../lib/image-download.ts";
-import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCE_VALUES, MUX_AI_ERROR_TYPE_VALUES, MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
+import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -526,7 +526,7 @@ function normalizeQuestion(q: Question, idx: number): NormalizedQuestion {
   if (hasOptions && isFreeForm) {
     throw new MuxAiError(
       `Question at index ${idx} sets both answerOptions and freeFormReply: true. These are mutually exclusive — pick one.`,
-      { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.request },
+      { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
     );
   }
 
@@ -543,7 +543,7 @@ function normalizeQuestion(q: Question, idx: number): NormalizedQuestion {
     if (!options.length) {
       throw new MuxAiError(
         `Question at index ${idx} has invalid answerOptions: must include at least one non-empty value.`,
-        { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.request },
+        { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
       );
     }
     return {
@@ -842,13 +842,13 @@ async function askQuestionsInternal(
 ): Promise<AskQuestionsResult> {
   // Validate questions array is non-empty
   if (!questions || questions.length === 0) {
-    throw new MuxAiError("At least one question must be provided.", { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.request });
+    throw new MuxAiError("At least one question must be provided.", { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST });
   }
 
   if (questions.length > ASK_QUESTIONS_MAX_QUESTIONS_PER_CALL) {
     throw new MuxAiError(
       `Too many questions: received ${questions.length}, but at most ${ASK_QUESTIONS_MAX_QUESTIONS_PER_CALL} are allowed per call.`,
-      { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.request },
+      { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
     );
   }
 
@@ -858,13 +858,13 @@ async function askQuestionsInternal(
     if (!q.question || typeof q.question !== "string" || !q.question.trim()) {
       throw new MuxAiError(
         `Question at index ${idx} is invalid: must have a non-empty question field.`,
-        { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.request },
+        { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
       );
     }
     if (q.question.length > ASK_QUESTIONS_MAX_QUESTION_LENGTH) {
       throw new MuxAiError(
         `Question at index ${idx} exceeds the ${ASK_QUESTIONS_MAX_QUESTION_LENGTH}-character limit (received ${q.question.length}).`,
-        { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.request },
+        { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
       );
     }
   });
@@ -879,7 +879,7 @@ async function askQuestionsInternal(
   if (!Number.isFinite(maxAnswerOptionLength) || maxAnswerOptionLength <= 0) {
     throw new MuxAiError(
       `maxAnswerOptionLength must be a positive number (received ${maxAnswerOptionLength}).`,
-      { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.request },
+      { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
     );
   }
   questions.forEach((q, idx) => {
@@ -891,7 +891,7 @@ async function askQuestionsInternal(
       if (typeof opt === "string" && opt.length > maxAnswerOptionLength) {
         throw new MuxAiError(
           `Question at index ${idx} has an answerOption exceeding the ${maxAnswerOptionLength}-character limit (received ${opt.length}). Answer options should be short labels, not sentences.`,
-          { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.request },
+          { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
         );
       }
     }
@@ -903,7 +903,7 @@ async function askQuestionsInternal(
   if (!Number.isFinite(maxFreeFormAnswerLength) || maxFreeFormAnswerLength <= 0) {
     throw new MuxAiError(
       `maxFreeFormAnswerLength must be a positive number (received ${maxFreeFormAnswerLength}).`,
-      { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.request },
+      { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
     );
   }
 
@@ -948,7 +948,7 @@ async function askQuestionsInternal(
   if (isAudioOnly && !includeTranscript) {
     throw new MuxAiError(
       "Audio-only assets require a transcript. Set includeTranscript: true and ensure the asset has a ready text track (captions/subtitles).",
-      { type: MUX_AI_ERROR_TYPE_VALUES.validation_error, source: MUX_AI_ERROR_SOURCE_VALUES.request },
+      { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
     );
   }
 
@@ -958,7 +958,7 @@ async function askQuestionsInternal(
     throw new MuxAiError(
       "Signed playback ID requires signing credentials. " +
       "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
-      { code: MUX_AI_ERROR_CODES.signing_credentials_missing },
+      { code: MUX_AI_ERROR_CODES.SIGNING_CREDENTIALS_MISSING },
     );
   }
 
@@ -1043,14 +1043,14 @@ async function askQuestionsInternal(
   collectedUsage.push(analysisResponse.usage);
 
   if (!analysisResponse.result?.answers) {
-    throw new MuxAiError(`Failed to generate answers for asset ${assetId}.`, { code: MUX_AI_ERROR_CODES.model_output_missing });
+    throw new MuxAiError(`Failed to generate answers for asset ${assetId}.`, { code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_MISSING });
   }
 
   // Validate we got answers for all questions
   if (analysisResponse.result.answers.length !== questions.length) {
     throw new MuxAiError(
       `Failed to generate answers for all questions for asset ${assetId}.`,
-      { code: MUX_AI_ERROR_CODES.model_output_invalid },
+      { code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID },
     );
   }
 
@@ -1126,7 +1126,7 @@ async function askQuestionsInternal(
       if (!allowed.includes(raw.answer)) {
         throw new MuxAiError(
           `Answer "${raw.answer}" for question ${idx} is not in allowed options: ${allowed.join(", ")}`,
-          { code: MUX_AI_ERROR_CODES.model_output_invalid },
+          { code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID },
         );
       }
     }

@@ -5,7 +5,7 @@ import {
   assertNever,
   internalError,
   MUX_AI_ERROR_CATALOG,
-  MUX_AI_ERROR_TYPES,
+  MUX_AI_ERROR_TYPE_VALUES,
   MuxAiError,
   wrapError,
 } from "../../src/lib/mux-ai-error.ts";
@@ -76,7 +76,7 @@ describe("muxAiError", () => {
 
   it("has a catalog whose entries use listed types", () => {
     for (const entry of Object.values(MUX_AI_ERROR_CATALOG)) {
-      expect(MUX_AI_ERROR_TYPES).toContain(entry.type);
+      expect(MUX_AI_ERROR_TYPE_VALUES).toContain(entry.type);
     }
   });
 
