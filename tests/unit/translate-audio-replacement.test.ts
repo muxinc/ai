@@ -345,4 +345,51 @@ describe("project output storage", () => {
     expect(fetchMock.mock.calls.filter(([input]) => String(input).includes("/audio/")).map(([input]) => String(input))).toEqual([expiredUrl, refreshedUrl]);
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
   });
+
+  function stubAudioDownload(respond: () => Response) {
+    const fetchMock = stubElevenLabsFetch();
+    const original = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input, init) => String(input).includes("/audio/") ? respond() : original(input, init));
+    return fetchMock;
+  }
+
+  const audioDownloads = (fetchMock: ReturnType<typeof vi.fn>) => fetchMock.mock.calls.filter(([input]) => String(input).includes("/audio/"));
+
+  it("retries a transient download failure and fails as retryable when it persists", async () => {
+    const fetchMock = stubAudioDownload(() => new Response("upstream error", { status: 502, statusText: "Bad Gateway" }));
+
+    const error = await captureRejection(translateAudio(ASSET_ID, "es", { uploadToMux: false, uploadToS3: true }));
+
+    expect(MuxAiError.is(error)).toBe(true);
+    expect(error).toMatchObject({
+      publicType: "processing_error",
+      publicMessage: "Could not download the dubbed audio. The dubbing service is temporarily unavailable. Please try again.",
+      retryable: true,
+    });
+    expect(audioDownloads(fetchMock)).toHaveLength(3);
+    // Downloading never creates another paid project.
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+  });
+
+  it("recovers when a retried download succeeds", async () => {
+    let attempts = 0;
+    const fetchMock = stubAudioDownload(() => ++attempts === 1 ?
+        new Response("upstream error", { status: 503, statusText: "Service Unavailable" }) :
+        new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { "content-type": "audio/flac" } }));
+
+    const result = await translateAudio(ASSET_ID, "es", { uploadToMux: false, uploadToS3: true });
+
+    expect(result.presignedUrl).toBe("https://s3.example.test/presigned");
+    expect(audioDownloads(fetchMock)).toHaveLength(2);
+  });
+
+  it("does not retry a download that cannot succeed", async () => {
+    const fetchMock = stubAudioDownload(() => new Response("missing", { status: 404, statusText: "Not Found" }));
+
+    const error = await captureRejection(translateAudio(ASSET_ID, "es", { uploadToMux: false, uploadToS3: true }));
+
+    expect(error).toMatchObject({ publicType: "processing_error", publicMessage: "Could not download the dubbed audio.", retryable: false });
+    expect(audioDownloads(fetchMock)).toHaveLength(1);
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("404 Not Found: missing"));
+  });
 });

@@ -2,7 +2,8 @@ import { sleep } from "workflow";
 
 import env from "../env.ts";
 import { getApiKeyFromEnv } from "../lib/client-factory.ts";
-import { elevenLabsResponseError, elevenLabsSdkError } from "../lib/elevenlabs-errors.ts";
+import { elevenLabsResponseFailure, elevenLabsSdkFailure } from "../lib/elevenlabs-errors.ts";
+import type { ElevenLabsFailure } from "../lib/elevenlabs-errors.ts";
 import { getLanguageCodePair, getLanguageName, toISO639_1 } from "../lib/language-codes.ts";
 import type { LanguageCodePair } from "../lib/language-codes.ts";
 import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
@@ -158,6 +159,11 @@ const STATIC_RENDITION_MAX_ATTEMPTS = 180; // 30 minutes
 const MAX_DUBBING_SOURCE_BYTES = 1_000_000_000;
 
 const DUBBING_POLL_INTERVAL_MS = 10_000;
+// A transient status check failure skips one poll; this many in a row fail the run.
+const MAX_CONSECUTIVE_STATUS_CHECK_FAILURES = 6;
+// Attempts at downloading the dubbed audio when a failure is transient.
+const DUBBED_AUDIO_DOWNLOAD_ATTEMPTS = 3;
+const DUBBED_AUDIO_DOWNLOAD_RETRY_DELAY_MS = 10_000;
 const DEFAULT_DUBBING_POLL_TIMEOUT_SECONDS = 7200; // 2 hours; override via options.dubbingPollTimeoutSeconds
 
 function getReadyAudioStaticRendition(asset: any) {
@@ -375,6 +381,31 @@ function audioTrackUnsupportedReason(asset: MuxAsset): string | undefined {
   return undefined;
 }
 
+/**
+ * The customer-facing error for a failed ElevenLabs call. Keeps the failure's
+ * retryability but none of its provider detail, which callers log instead.
+ */
+function dubbingProviderError(message: string, failure: ElevenLabsFailure): MuxAiError {
+  if (failure.reason === "timeout") {
+    return new MuxAiError(`${message} The dubbing service timed out. Please try again.`, { type: "timeout_error", retryable: true });
+  }
+  if (failure.retryable) {
+    return new MuxAiError(`${message} The dubbing service is temporarily unavailable. Please try again.`, { type: "processing_error", retryable: true });
+  }
+  return new MuxAiError(message, { type: "processing_error" });
+}
+
+/** The customer-facing error for a dubbing project ElevenLabs would not create. */
+function dubbingStartError(failure: ElevenLabsFailure, languages: { target: string; source?: string }): MuxAiError {
+  if (failure.reason === "unsupported_target_language") {
+    return new MuxAiError(`Audio dubbing does not support the target language "${languages.target}".`, { type: "validation_error" });
+  }
+  if (failure.reason === "unsupported_source_language" && languages.source) {
+    return new MuxAiError(`Audio dubbing does not support the source language "${languages.source}".`, { type: "validation_error" });
+  }
+  return dubbingProviderError("Audio dubbing could not be started.", failure);
+}
+
 async function createElevenLabsDubbingJob({
   sourceUrl,
   assetId,
@@ -387,7 +418,7 @@ async function createElevenLabsDubbingJob({
   elevenLabsLangCode: string;
   elevenLabsSourceLangCode?: string;
   credentials?: WorkflowCredentialsInput;
-}): Promise<{ kind: "created"; projectId: string; languageId: string } | { kind: "failed"; message: string }> {
+}): Promise<{ kind: "created"; projectId: string; languageId: string } | { kind: "failed"; failure: ElevenLabsFailure }> {
   "use step";
   const { ElevenLabsClient } = await import("@elevenlabs/elevenlabs-js");
   const client = new ElevenLabsClient({ apiKey: await getApiKeyFromEnv("elevenlabs", credentials), maxRetries: 0 });
@@ -401,13 +432,16 @@ async function createElevenLabsDubbingJob({
     });
     const languageId = project.languageIds?.[0];
     if (!languageId) {
-      return { kind: "failed", message: `ElevenLabs project ${project.projectId} returned no language target. Check the project before retrying.` };
+      return {
+        kind: "failed",
+        failure: { retryable: false, detail: `ElevenLabs project ${project.projectId} returned no language target. Check the project before retrying.` },
+      };
     }
     return { kind: "created", projectId: project.projectId, languageId };
   } catch (error) {
     // A create may already have been billed even when its response is lost. Return
     // the failure so neither SDK nor WDK retries this paid mutation automatically.
-    return { kind: "failed", message: (await elevenLabsSdkError("ElevenLabs API error", error)).message };
+    return { kind: "failed", failure: elevenLabsSdkFailure(error) };
   }
 }
 
@@ -426,7 +460,7 @@ async function checkElevenLabsDubbingStatus({
   dubbingId: string;
   languageId: string;
   credentials?: WorkflowCredentialsInput;
-}): Promise<{ status: string; error?: ElevenLabsDubbingError }> {
+}): Promise<{ kind: "status"; status: string; error?: ElevenLabsDubbingError } | { kind: "failed"; failure: ElevenLabsFailure }> {
   "use step";
   const { ElevenLabsClient } = await import("@elevenlabs/elevenlabs-js");
   const client = new ElevenLabsClient({ apiKey: await getApiKeyFromEnv("elevenlabs", credentials), maxRetries: 0 });
@@ -436,12 +470,15 @@ async function checkElevenLabsDubbingStatus({
       client.dubbing.project.language.get(dubbingId, languageId),
     ]);
     return {
+      kind: "status",
       status: project.status === "failed" ? "failed" : language.status,
       // A language error of `project_failed` only points at the project, so prefer the project's.
       error: project.error ?? language.error,
     };
   } catch (error) {
-    throw await elevenLabsSdkError("Status check failed", error);
+    // Returned, not thrown: a thrown error loses its status at the step boundary,
+    // and the poll loop decides whether to keep polling.
+    return { kind: "failed", failure: elevenLabsSdkFailure(error) };
   }
 }
 
@@ -450,31 +487,41 @@ async function fetchDubbingOutput(
   languageId: string,
   output: "losslessAudio" | "subtitles",
   credentials?: WorkflowCredentialsInput,
-): Promise<{ response: Response; url: string }> {
+): Promise<{ kind: "fetched"; response: Response; url: string } | { kind: "failed"; failure: ElevenLabsFailure }> {
   const { ElevenLabsClient } = await import("@elevenlabs/elevenlabs-js");
   const client = new ElevenLabsClient({ apiKey: await getApiKeyFromEnv("elevenlabs", credentials), maxRetries: 0 });
-  // Re-read inside the download step so a durable retry gets a fresh signed URL.
+  // Re-read inside the download step so a retry gets a fresh signed URL.
   for (let attempt = 0; attempt < 2; attempt++) {
     let url: string | undefined;
     try {
       const target = await client.dubbing.project.language.get(dubbingId, languageId);
       url = target.outputs?.[output];
     } catch (error) {
-      throw await elevenLabsSdkError("Failed to retrieve dubbing output", error);
+      return { kind: "failed", failure: elevenLabsSdkFailure(error) };
     }
     if (!url) {
-      throw new Error(`ElevenLabs target has no ${output} output`);
+      // A completed target should list every output, so treat a missing one as not ready yet.
+      return {
+        kind: "failed",
+        failure: { reason: "output_missing", retryable: true, detail: `ElevenLabs language ${languageId} of project ${dubbingId} has no ${output} output` },
+      };
     }
     // Signed storage URLs do not receive the ElevenLabs API key.
-    const response = await fetch(url);
-    if (response.ok) {
-      return { response, url };
+    let response: Response;
+    try {
+      response = await fetch(url);
+    } catch (error) {
+      return { kind: "failed", failure: { reason: "network_error", retryable: true, detail: `Failed to fetch dubbed ${output}: ${error instanceof Error ? error.message : String(error)}` } };
     }
+    if (response.ok) {
+      return { kind: "fetched", response, url };
+    }
+    // An expired signed URL returns 403; re-read the target once for a fresh one.
     if (response.status !== 403 || attempt === 1) {
-      throw await elevenLabsResponseError("Failed to fetch dubbed output", response);
+      return { kind: "failed", failure: await elevenLabsResponseFailure(response) };
     }
   }
-  throw new Error("Failed to fetch dubbed output");
+  return { kind: "failed", failure: { retryable: false, detail: `Failed to fetch dubbed ${output}` } };
 }
 
 /**
@@ -504,9 +551,13 @@ async function downloadAndUploadDubbedAudio({
   storageAdapter?: StorageAdapter;
   s3SignedUrlExpirySeconds?: number;
   credentials?: WorkflowCredentialsInput;
-}): Promise<string> {
+}): Promise<{ kind: "staged"; presignedUrl: string } | { kind: "failed"; failure: ElevenLabsFailure }> {
   "use step";
-  const { response: audioResponse, url } = await fetchDubbingOutput(dubbingId, languageId, "losslessAudio", credentials);
+  const fetched = await fetchDubbingOutput(dubbingId, languageId, "losslessAudio", credentials);
+  if (fetched.kind === "failed") {
+    return fetched;
+  }
+  const { response: audioResponse, url } = fetched;
   const mime = audioResponse.headers.get("content-type")?.split(";")[0].trim();
   const formats: Record<string, string> = {
     "audio/flac": "flac",
@@ -520,7 +571,10 @@ async function downloadAndUploadDubbedAudio({
   const extension = (mime ? formats[mime] : undefined) ??
     Object.values(formats).find(format => format === pathExtension);
   if (!extension) {
-    throw new Error(`Unsupported dubbed audio content type: ${mime ?? "missing"}`);
+    return {
+      kind: "failed",
+      failure: { reason: "unsupported_output_format", retryable: false, detail: `Unsupported dubbed audio content type: ${mime ?? "missing"}` },
+    };
   }
 
   const dubbedAudio = new Uint8Array(await audioResponse.arrayBuffer());
@@ -556,7 +610,7 @@ async function downloadAndUploadDubbedAudio({
   console.warn(`✅ Audio uploaded successfully to: ${audioKey}`);
   console.warn(`🔗 Generated presigned URL (expires in ${expiryHours} hour${expiryHours === 1 ? "" : "s"})`);
 
-  return presignedUrl;
+  return { kind: "staged", presignedUrl };
 }
 
 /**
@@ -586,12 +640,15 @@ async function downloadAndUploadDubTranscript({
   storageAdapter?: StorageAdapter;
   s3SignedUrlExpirySeconds?: number;
   credentials?: WorkflowCredentialsInput;
-}): Promise<string> {
+}): Promise<{ kind: "staged"; presignedUrl: string } | { kind: "failed"; failure: ElevenLabsFailure }> {
   "use step";
-  const { response: transcriptResponse } = await fetchDubbingOutput(dubbingId, languageId, "subtitles", credentials);
-  const transcriptVtt = await transcriptResponse.text();
+  const fetched = await fetchDubbingOutput(dubbingId, languageId, "subtitles", credentials);
+  if (fetched.kind === "failed") {
+    return fetched;
+  }
+  const transcriptVtt = await fetched.response.text();
   if (!transcriptVtt.trim()) {
-    throw new Error("Dub transcript response did not include webvtt content");
+    return { kind: "failed", failure: { retryable: false, detail: "Dub transcript response did not include webvtt content" } };
   }
 
   const s3AccessKeyId = env.S3_ACCESS_KEY_ID;
@@ -622,7 +679,7 @@ async function downloadAndUploadDubTranscript({
 
   console.warn(`✅ Dub transcript uploaded successfully to: ${vttKey}`);
 
-  return presignedUrl;
+  return { kind: "staged", presignedUrl };
 }
 
 export async function translateAudio(
@@ -784,23 +841,30 @@ export async function translateAudio(
       `🔍 Creating dubbing job for asset ${assetId}: ${elevenLabsSourceLangCode ?? "auto"} -> ${elevenLabsLangCode}`,
     );
 
+    let created!: Awaited<ReturnType<typeof createElevenLabsDubbingJob>>;
     try {
-      const created = await createElevenLabsDubbingJob({
+      created = await createElevenLabsDubbingJob({
         sourceUrl: audioUrl,
         assetId,
         elevenLabsLangCode,
         elevenLabsSourceLangCode,
         credentials,
       });
-      if (created.kind === "failed") {
-        throw new Error(created.message);
-      }
-      dubbingId = created.projectId;
-      languageId = created.languageId;
-      console.warn(`✅ Dubbing job created with ID: ${dubbingId}`);
     } catch (error) {
       wrapError(error, "Failed to create ElevenLabs dubbing job");
     }
+    if (created.kind === "failed") {
+      const { failure } = created;
+      // Without a readable response ElevenLabs may still have created, and billed, the project.
+      const mayHaveCreated = failure.reason === "timeout" || failure.reason === "network_error" || failure.reason === "unexpected_response";
+      console.warn(
+        `Failed to create ElevenLabs dubbing project for asset ${assetId}: ${failure.detail}${mayHaveCreated ? " The project may have been created; check ElevenLabs before retrying." : ""}`,
+      );
+      throw dubbingStartError(failure, { target: elevenLabsLangCode, source: elevenLabsSourceLangCode });
+    }
+    dubbingId = created.projectId;
+    languageId = created.languageId;
+    console.warn(`✅ Dubbing job created with ID: ${dubbingId}`);
 
     // Poll for completion. ElevenLabs added intermediate dubbing states
     console.warn("⏳ Waiting for dubbing to complete...");
@@ -811,27 +875,48 @@ export async function translateAudio(
     let dubbingStatus = "dubbing";
     let pollAttempts = 0;
     let dubbingError: ElevenLabsDubbingError | undefined;
+    let consecutiveStatusCheckFailures = 0;
 
     while (dubbingStatus !== "completed" && pollAttempts < maxPollAttempts) {
       await sleep(DUBBING_POLL_INTERVAL_MS);
       pollAttempts++;
 
+      let statusResult!: Awaited<ReturnType<typeof checkElevenLabsDubbingStatus>>;
       try {
-        const statusResult = await checkElevenLabsDubbingStatus({
+        statusResult = await checkElevenLabsDubbingStatus({
           dubbingId,
           languageId,
           credentials,
         });
-        dubbingStatus = statusResult.status;
-        dubbingError = statusResult.error;
       } catch (error) {
         wrapError(error, "Failed to check dubbing status");
       }
 
+      if (statusResult.kind === "failed") {
+        const { failure } = statusResult;
+        consecutiveStatusCheckFailures++;
+        console.warn(`Status check for ElevenLabs dubbing project ${dubbingId} failed: ${failure.detail}`);
+        // A transient failure only skips this poll; the next poll retries it.
+        if (!failure.retryable || consecutiveStatusCheckFailures >= MAX_CONSECUTIVE_STATUS_CHECK_FAILURES) {
+          throw dubbingProviderError("Could not check audio dubbing progress.", failure);
+        }
+        continue;
+      }
+      consecutiveStatusCheckFailures = 0;
+      dubbingStatus = statusResult.status;
+      dubbingError = statusResult.error;
+
       if (dubbingStatus === "failed") {
-        // The provider's reason stays in logs; the thrown message is customer-facing.
         console.warn(`❌ ElevenLabs dubbing project ${dubbingId} (language ${languageId}) failed: ${dubbingError ? `${dubbingError.code}: ${dubbingError.message}` : "no error reported"}`);
-        throw new MuxAiError("ElevenLabs reported that the dubbing job failed.", { type: "processing_error" });
+        // ElevenLabs documents `message` as display text and `retryable` as whether
+        // resubmitting the same input could succeed.
+        if (!dubbingError) {
+          throw new MuxAiError("Audio dubbing failed.", { type: "processing_error" });
+        }
+        throw new MuxAiError(
+          `Audio dubbing failed: ${dubbingError.message}${dubbingError.retryable ? " Please try again." : ""}`,
+          { type: "processing_error", retryable: dubbingError.retryable },
+        );
       }
     }
 
@@ -844,23 +929,36 @@ export async function translateAudio(
     if (uploadToS3) {
       console.warn("📥 Downloading dubbed audio from ElevenLabs and staging to S3...");
 
-      try {
-        presignedUrl = await downloadAndUploadDubbedAudio({
-          dubbingId,
-          languageId,
-          assetId,
-          toLanguageCode,
-          s3Endpoint: s3Endpoint!,
-          s3Region,
-          s3Bucket: s3Bucket!,
-          storageAdapter: effectiveStorageAdapter,
-          s3SignedUrlExpirySeconds: options.s3SignedUrlExpirySeconds,
-          credentials,
-        });
-        console.warn("✅ Dubbed audio staged to S3 successfully!");
-      } catch (error) {
-        wrapError(error, "Failed to download and upload dubbed audio");
+      for (let attempt = 1; !presignedUrl; attempt++) {
+        let staged!: Awaited<ReturnType<typeof downloadAndUploadDubbedAudio>>;
+        try {
+          staged = await downloadAndUploadDubbedAudio({
+            dubbingId,
+            languageId,
+            assetId,
+            toLanguageCode,
+            s3Endpoint: s3Endpoint!,
+            s3Region,
+            s3Bucket: s3Bucket!,
+            storageAdapter: effectiveStorageAdapter,
+            s3SignedUrlExpirySeconds: options.s3SignedUrlExpirySeconds,
+            credentials,
+          });
+        } catch (error) {
+          wrapError(error, "Failed to download and upload dubbed audio");
+        }
+        if (staged.kind === "staged") {
+          presignedUrl = staged.presignedUrl;
+          break;
+        }
+        const { failure } = staged;
+        console.warn(`Downloading dubbed audio for ElevenLabs dubbing project ${dubbingId} failed (attempt ${attempt}): ${failure.detail}`);
+        if (!failure.retryable || attempt >= DUBBED_AUDIO_DOWNLOAD_ATTEMPTS) {
+          throw dubbingProviderError("Could not download the dubbed audio.", failure);
+        }
+        await sleep(DUBBED_AUDIO_DOWNLOAD_RETRY_DELAY_MS);
       }
+      console.warn("✅ Dubbed audio staged to S3 successfully!");
 
       // Add translated audio track to Mux asset (only when uploadToMux is true).
       // The audio track is the product, so a failure here fails the workflow; the
@@ -898,7 +996,7 @@ export async function translateAudio(
       // so a blocked result here is a race with another writer and is logged, not thrown.
       try {
         console.warn("📥 Downloading dub transcript from ElevenLabs and staging to S3...");
-        captionsPresignedUrl = await downloadAndUploadDubTranscript({
+        const transcript = await downloadAndUploadDubTranscript({
           dubbingId,
           languageId,
           assetId,
@@ -910,6 +1008,10 @@ export async function translateAudio(
           s3SignedUrlExpirySeconds: options.s3SignedUrlExpirySeconds,
           credentials,
         });
+        if (transcript.kind === "failed") {
+          throw new Error(transcript.failure.detail);
+        }
+        captionsPresignedUrl = transcript.presignedUrl;
 
         if (uploadCaptionsToMux) {
           console.warn("📹 Adding dubbed captions track to Mux asset...");

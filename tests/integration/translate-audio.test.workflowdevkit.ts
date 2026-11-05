@@ -52,6 +52,24 @@ describe("audio Translation Integration Tests for Workflow DevKit", () => {
     expect(result.presignedUrl).toBeUndefined();
   }, 300000); // 5 minute timeout for ElevenLabs processing
 
+  it("fails with a customer-safe validation error for a target language ElevenLabs can't dub", async () => {
+    // dubbing_v1 does not support Akan. ElevenLabs rejects the language when the
+    // project is created, so this costs nothing.
+    const run = await start(translateAudio, [assetId, "ak", {
+      provider: "elevenlabs",
+      uploadToS3: false,
+      uploadToMux: false,
+    }]);
+
+    const error = await captureRunFailure(run.returnValue);
+
+    // Checks the error keeps its brand and type across the step boundary.
+    expect(MuxAiError.is(error)).toBe(true);
+    expect((error as InstanceType<typeof MuxAiError>).publicType).toBe("validation_error");
+    expect((error as Error).message).toBe("Audio dubbing does not support the target language \"ak\".");
+    expect((error as InstanceType<typeof MuxAiError>).retryable).toBe(false);
+  }, 300000);
+
   describe("on a clipped asset", () => {
     const mux = new Mux({ tokenId: env.MUX_TOKEN_ID, tokenSecret: env.MUX_TOKEN_SECRET });
     let clipId: string | undefined;
