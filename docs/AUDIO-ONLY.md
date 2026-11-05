@@ -112,21 +112,25 @@ const result = await editCaptions("your-audio-only-asset-id", "track-id", {
 
 ### Audio Dubbing (`translateAudio`)
 
-Creates a new audio track using ElevenLabs voice cloning. Works for audio-only assets and uploads the result to Mux.
+Dubs the asset's audio using ElevenLabs voice cloning. Mux does not support adding audio tracks to audio-only assets, so pass `uploadToMux: false` and use the dubbed audio file from `presignedUrl` instead. With the default `uploadToMux: true`, the workflow rejects an audio-only asset with a `validation_error` before dubbing starts.
 
 ```typescript
 import { translateAudio } from "@mux/ai/workflows";
 
 const result = await translateAudio("your-audio-only-asset-id", "es", {
   provider: "elevenlabs",
+  uploadToMux: false,
+  uploadToS3: true,
 });
+
+console.log(result.presignedUrl); // Dubbed audio file
 ```
 
 ## Requirements for Audio-Only Assets
 
 - A ready text track (captions or transcript) is required for summarization, moderation, chapters, embeddings, and caption translation.
 - For caption translation, the source language code must match an existing track.
-- For dubbing, the asset must have an `audio.m4a` static rendition (requested automatically if missing, or read from the existing files of an asset using the deprecated `mp4_support` option) and S3-compatible storage configured.
+- For dubbing, the asset must have an `audio.m4a` static rendition (requested automatically if missing, or read from the existing files of an asset using the deprecated `mp4_support` option) and S3-compatible storage configured. Pass `uploadToMux: false, uploadToS3: true`, since Mux does not support adding audio tracks to audio-only assets.
 
 ## Tips and Examples
 

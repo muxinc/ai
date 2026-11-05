@@ -697,7 +697,7 @@ ElevenLabs charges for the first target language when a project is created. The 
 - `provider?: 'elevenlabs'` - AI provider (default: 'elevenlabs')
 - `fromLanguageCode?: string` - Source language tag, such as `en` or `en-US`. Known ISO 639-3 aliases, such as `eng`, are also accepted. Region and script subtags are dropped for ElevenLabs. Omit or use `"auto"` for automatic detection.
 - `numSpeakers?: number` - Must be `0` for automatic speaker detection (default). Explicit speaker counts are not supported.
-- `uploadToMux?: boolean` - Whether to upload dubbed track to Mux (default: true)
+- `uploadToMux?: boolean` - Whether to upload dubbed track to Mux (default: true). Mux does not support adding audio tracks to clips, assets from a live stream (including finished recordings), or audio-only assets, so with `true` those are rejected with a `validation_error` before dubbing starts; pass `uploadToMux: false, uploadToS3: true` to dub them and use the file from `presignedUrl` instead.
 - `uploadCaptionsToMux?: boolean` - Also attach the dub's translated transcript as a subtitles text track (default: false)
 - `replaceExistingTracks?: 'fail' | 'replace_all' | 'replace_generated'` - What to do when the asset already has an audio track (or, with `uploadCaptionsToMux`, a text track) in the target language or with the target name (default: `'fail'`, which rejects before dubbing starts). `'replace_all'` deletes them first. Audio tracks are never Mux-generated, so `'replace_generated'` only ever removes ASR captions. The asset's primary audio track is never deleted under any policy.
 - `trackName?: string` - Name for the created Mux tracks; audio and text tracks are separate name groups so both get the same name (default: `"<Language> (Auto-dubbed)"`)
@@ -733,6 +733,7 @@ interface TranslateAudioResult {
 
 - Asset must have an `audio.m4a` static rendition (auto-requested if missing, and deleted again afterwards by default — see `staticRenditionCleanup`)
 - Assets on the deprecated [`mp4_support`](https://www.mux.com/docs/guides/enable-static-mp4-renditions-using-mp4-support) option are dubbed from their existing files, never modified: `audio.m4a` for `audio-only` and `audio-only,capped-1080p`, `capped-1080p.mp4` for `capped-1080p`, and `low.mp4` for `standard`. A file over 1 GB is rejected before dubbing; move the asset to the [Static Renditions API](https://www.mux.com/docs/guides/enable-static-mp4-renditions) and add an `audio-only` rendition instead.
+- An audio track to dub (video-only assets are rejected with a `validation_error`)
 - ElevenLabs API key with access to Dubbing v1
 - S3-compatible storage for Mux ingestion
 

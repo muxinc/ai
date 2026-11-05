@@ -908,6 +908,8 @@ console.log(result.presignedUrl); // S3 audio file URL; extension matches the au
 
 - Asset must have an `audio.m4a` static rendition (auto-requested if missing; a rendition the workflow creates is deleted afterwards by default, configurable via `staticRenditionCleanup: "delete" | "keep"`)
 - Assets on the deprecated [`mp4_support`](https://www.mux.com/docs/guides/enable-static-mp4-renditions-using-mp4-support) option are dubbed from their existing files, never modified: `audio.m4a` for `audio-only` and `audio-only,capped-1080p`, `capped-1080p.mp4` for `capped-1080p`, and `low.mp4` for `standard`. A file over 1 GB is rejected before dubbing; move the asset to the [Static Renditions API](https://www.mux.com/docs/guides/enable-static-mp4-renditions) and add an `audio-only` rendition instead.
+- An audio track to dub (video-only assets are rejected with a `validation_error`)
+- Mux does not support adding audio tracks to clips, assets from a live stream (including finished recordings), or audio-only assets. With the default `uploadToMux: true` these are rejected with a `validation_error` before dubbing starts; pass `uploadToMux: false, uploadToS3: true` to dub them and use the file from `presignedUrl`
 - ElevenLabs API key with access to Dubbing v1
 - S3-compatible storage (same as caption translation)
 

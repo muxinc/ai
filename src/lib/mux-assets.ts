@@ -40,6 +40,16 @@ export function isAudioOnlyAsset(asset: MuxAsset): boolean {
   return hasAudioTrack && !hasVideoTrack;
 }
 
+/**
+ * Determines if an asset is video-only by checking if it has any audio tracks.
+ * Returns true if the asset has at least one video track and no audio tracks.
+ */
+export function isVideoOnlyAsset(asset: MuxAsset): boolean {
+  const hasAudioTrack = asset.tracks?.some(track => track.type === "audio") ?? false;
+  const hasVideoTrack = asset.tracks?.some(track => track.type === "video") ?? false;
+  return hasVideoTrack && !hasAudioTrack;
+}
+
 function toPlaybackAsset(asset: MuxAsset): PlaybackAsset {
   const { id: playbackId, policy } = getPlaybackId(asset);
   return { asset, playbackId, policy };

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { getPlaybackIdForAsset, isAudioOnlyAsset } from "../../src/lib/mux-assets";
+import { getPlaybackIdForAsset, isAudioOnlyAsset, isVideoOnlyAsset } from "../../src/lib/mux-assets";
 import type { MuxAsset } from "../../src/types";
 
 describe("isAudioOnlyAsset", () => {
@@ -113,5 +113,21 @@ describe("getPlaybackIdForAsset", () => {
     await expect(promise).rejects.toThrow(
       "Asset snapshot does not match the requested asset ID",
     );
+  });
+});
+
+describe("isVideoOnlyAsset", () => {
+  it("returns true for an asset with a video track and no audio track", () => {
+    expect(isVideoOnlyAsset({ id: "v", tracks: [{ type: "video", id: "video-1" }] } as MuxAsset)).toBe(true);
+  });
+
+  it("returns false when the asset has an audio track", () => {
+    expect(isVideoOnlyAsset({ id: "av", tracks: [{ type: "video", id: "video-1" }, { type: "audio", id: "audio-1" }] } as MuxAsset)).toBe(false);
+    expect(isVideoOnlyAsset({ id: "a", tracks: [{ type: "audio", id: "audio-1" }] } as MuxAsset)).toBe(false);
+  });
+
+  it("returns false when tracks are not known yet", () => {
+    expect(isVideoOnlyAsset({ id: "none" } as MuxAsset)).toBe(false);
+    expect(isVideoOnlyAsset({ id: "empty", tracks: [] } as MuxAsset)).toBe(false);
   });
 });

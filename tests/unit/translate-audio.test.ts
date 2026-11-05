@@ -12,6 +12,8 @@ vi.mock("workflow", () => ({
 vi.mock("../../src/lib/mux-assets", () => ({
   getAssetDurationSecondsFromAsset: vi.fn(),
   getPlaybackIdForAsset: vi.fn(),
+  isAudioOnlyAsset: vi.fn(),
+  isVideoOnlyAsset: vi.fn(),
 }));
 
 vi.mock("../../src/lib/workflow-credentials", () => ({

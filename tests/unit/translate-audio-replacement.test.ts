@@ -12,6 +12,8 @@ vi.mock("workflow", () => ({
 vi.mock("../../src/lib/mux-assets", () => ({
   getAssetDurationSecondsFromAsset: vi.fn(),
   getPlaybackIdForAsset: vi.fn(),
+  isAudioOnlyAsset: vi.fn(),
+  isVideoOnlyAsset: vi.fn(),
 }));
 
 vi.mock("../../src/lib/workflow-credentials", () => ({
@@ -46,12 +48,13 @@ vi.mock("../../src/env", () => ({
   },
 }));
 
-const { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } = await import("../../src/lib/mux-assets");
+const { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset, isAudioOnlyAsset, isVideoOnlyAsset } = await import("../../src/lib/mux-assets");
 const { resolveMuxClient } = await import("../../src/lib/workflow-credentials");
 const { getApiKeyFromEnv } = await import("../../src/lib/client-factory");
 const { replaceAndCreateTrack } = await import("../../src/lib/mux-tracks");
 const { createPresignedGetUrlWithStorageAdapter, putObjectWithStorageAdapter } = await import("../../src/lib/storage-adapter");
 const { translateAudio } = await import("../../src/workflows/translate-audio");
+const { MuxAiError } = await import("../../src/lib/mux-ai-error");
 
 const ASSET_ID = "asset-123";
 const PRIMARY_AUDIO = { id: "primary", type: "audio", language_code: "en", name: "English", primary: true };
@@ -123,6 +126,71 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+const CLIP_MESSAGE = "Asset asset-123 is a clip, and Mux does not support adding audio tracks to clipped assets. Dub the source asset instead, or skip uploading to Mux and use the dubbed audio file directly.";
+const LIVE_MESSAGE = "Asset asset-123 comes from a live stream, and Mux does not support adding audio tracks to live stream assets. Instead, skip uploading to Mux and use the dubbed audio file directly.";
+const AUDIO_ONLY_MESSAGE = "Asset asset-123 is audio-only, and Mux does not support adding audio tracks to audio-only assets. Instead, skip uploading to Mux and use the dubbed audio file directly.";
+
+describe("translateAudio on assets Mux can't add an audio track to", () => {
+  function mockAssetFields(fields: object) {
+    const asset = { ...assetWith([PRIMARY_AUDIO]), ...fields };
+    vi.mocked(getPlaybackIdForAsset).mockResolvedValue({ asset, playbackId: "playback-123", policy: "public" } as any);
+  }
+
+  it.each([
+    { name: "clip (ingest_type)", fields: { ingest_type: "on_demand_clip" }, message: CLIP_MESSAGE },
+    { name: "clip (source_asset_id)", fields: { source_asset_id: "source-asset-1" }, message: CLIP_MESSAGE },
+    { name: "live stream (is_live)", fields: { is_live: true }, message: LIVE_MESSAGE },
+    { name: "live stream recording (live_stream_id)", fields: { live_stream_id: "live-1" }, message: LIVE_MESSAGE },
+  ])("rejects before dubbing: $name", async ({ fields, message }) => {
+    mockAssetFields(fields);
+    const fetchMock = stubElevenLabsFetch();
+
+    const error = await captureRejection(translateAudio(ASSET_ID, "es"));
+
+    expect(MuxAiError.is(error)).toBe(true);
+    expect((error as InstanceType<typeof MuxAiError>).publicType).toBe("validation_error");
+    expect(error.message).toBe(message);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects before dubbing: audio-only", async () => {
+    vi.mocked(isAudioOnlyAsset).mockReturnValue(true);
+    const fetchMock = stubElevenLabsFetch();
+
+    const error = await captureRejection(translateAudio(ASSET_ID, "es"));
+
+    expect(MuxAiError.is(error)).toBe(true);
+    expect((error as InstanceType<typeof MuxAiError>).publicType).toBe("validation_error");
+    expect(error.message).toBe(AUDIO_ONLY_MESSAGE);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("still dubs when the audio track will not be uploaded to Mux", async () => {
+    mockAssetFields({ ingest_type: "on_demand_clip", live_stream_id: "live-1" });
+    vi.mocked(isAudioOnlyAsset).mockReturnValue(true);
+    stubElevenLabsFetch();
+
+    const result = await translateAudio(ASSET_ID, "es", { uploadToMux: false });
+
+    expect(result.dubbingId).toBe("proj_1");
+    expect(vi.mocked(replaceAndCreateTrack)).not.toHaveBeenCalled();
+  });
+});
+
+describe("translateAudio on a video-only asset", () => {
+  it.each([true, false])("rejects before requesting a rendition or dubbing (uploadToMux: %s)", async (uploadToMux) => {
+    vi.mocked(isVideoOnlyAsset).mockReturnValue(true);
+    const fetchMock = stubElevenLabsFetch();
+
+    const error = await captureRejection(translateAudio(ASSET_ID, "es", { uploadToMux }));
+
+    expect(MuxAiError.is(error)).toBe(true);
+    expect((error as InstanceType<typeof MuxAiError>).publicType).toBe("validation_error");
+    expect(error.message).toBe("Asset asset-123 has no audio track, so there is no audio to dub.");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("translateAudio track replacement", () => {

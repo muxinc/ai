@@ -6,7 +6,7 @@ import { elevenLabsResponseError, elevenLabsSdkError } from "../lib/elevenlabs-e
 import { getLanguageCodePair, getLanguageName, toISO639_1 } from "../lib/language-codes.ts";
 import type { LanguageCodePair } from "../lib/language-codes.ts";
 import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
-import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "../lib/mux-assets.ts";
+import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset, isAudioOnlyAsset, isVideoOnlyAsset } from "../lib/mux-assets.ts";
 import {
   getLegacyMp4SupportRenditionSizeError,
   resolveLegacyMp4SupportRendition,
@@ -28,6 +28,7 @@ import { signUrl } from "../lib/url-signing.ts";
 import { resolveMuxClient } from "../lib/workflow-credentials.ts";
 import type {
   MuxAIOptions,
+  MuxAsset,
   StorageAdapter,
   TokenUsage,
   WorkflowCredentialsInput,
@@ -356,6 +357,24 @@ function toBaseLanguageCode(code: string): string {
   return code.trim().split(/[-_]/)[0];
 }
 
+/**
+ * Why Mux would refuse to add an audio track to this asset, or `undefined`
+ * when it would accept one. Mirrors Mux's own audio track validation.
+ */
+function audioTrackUnsupportedReason(asset: MuxAsset): string | undefined {
+  const useDubbedFile = "skip uploading to Mux and use the dubbed audio file directly.";
+  if (asset.ingest_type === "on_demand_clip" || asset.source_asset_id) {
+    return `is a clip, and Mux does not support adding audio tracks to clipped assets. Dub the source asset instead, or ${useDubbedFile}`;
+  }
+  if (asset.is_live || asset.live_stream_id) {
+    return `comes from a live stream, and Mux does not support adding audio tracks to live stream assets. Instead, ${useDubbedFile}`;
+  }
+  if (isAudioOnlyAsset(asset)) {
+    return `is audio-only, and Mux does not support adding audio tracks to audio-only assets. Instead, ${useDubbedFile}`;
+  }
+  return undefined;
+}
+
 async function createElevenLabsDubbingJob({
   sourceUrl,
   assetId,
@@ -664,6 +683,22 @@ export async function translateAudio(
   // Fetch asset data and playback ID from Mux
   const { asset: initialAsset, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials, options.assetSnapshot);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(initialAsset);
+
+  // With no audio there is nothing to dub. Mux marks the audio static
+  // rendition "skipped" for these, so without this check the run would wait
+  // out the full rendition timeout instead of failing.
+  if (isVideoOnlyAsset(initialAsset)) {
+    throw new MuxAiError(`Asset ${assetId} has no audio track, so there is no audio to dub.`, { type: "validation_error" });
+  }
+
+  // Mux refuses audio tracks on clips, live stream assets and audio-only
+  // assets. Reject those now, before ElevenLabs bills for a dub that could
+  // never be attached. Without uploadToMux they still dub: the caller gets
+  // the staged audio file instead of a new track.
+  const audioTrackUnsupported = uploadToMux ? audioTrackUnsupportedReason(initialAsset) : undefined;
+  if (audioTrackUnsupported) {
+    throw new MuxAiError(`Asset ${assetId} ${audioTrackUnsupported}`, { type: "validation_error" });
+  }
 
   // Check both target tracks against the asset we already have so a blocked
   // policy rejects before ElevenLabs is asked to do anything. The create step
