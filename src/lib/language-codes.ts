@@ -82,6 +82,36 @@ const ISO639_1_TO_3 = {
   et: "est", // Estonian
   lv: "lav", // Latvian
   lt: "lit", // Lithuanian
+  as: "asm",
+  az: "aze",
+  be: "bel",
+  bs: "bos",
+  cy: "cym",
+  ga: "gle",
+  ha: "hau",
+  hy: "hye",
+  jv: "jav",
+  ka: "kat",
+  kk: "kaz",
+  ky: "kir",
+  lb: "ltz",
+  ln: "lin",
+  mi: "mri",
+  mk: "mkd",
+  mn: "mon",
+  mt: "mlt",
+  my: "mya",
+  ne: "nep",
+  ny: "nya",
+  oc: "oci",
+  or: "ori",
+  ps: "pus",
+  sd: "snd",
+  so: "som",
+  sr: "srp",
+  tg: "tgk",
+  uz: "uzb",
+  yo: "yor",
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -171,7 +201,7 @@ export function toISO639_1(code: string): ISO639_1 {
     return normalized;
   }
 
-  return (ISO639_3_TO_1 as Record<string, string>)[normalized] ?? normalized;
+  return Object.prototype.hasOwnProperty.call(ISO639_3_TO_1, normalized) ? (ISO639_3_TO_1 as Record<string, string>)[normalized] : normalized;
 }
 
 /**

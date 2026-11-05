@@ -680,19 +680,23 @@ repair budget.
 
 ## `translateAudio(assetId, toLanguageCode, options?)`
 
-Creates AI-dubbed audio tracks from existing media content using ElevenLabs voice cloning and translation. Uses the default audio track on your asset. Source language is auto-detected unless `fromLanguageCode` is provided.
+Creates dubbed audio from a Mux asset using ElevenLabs voice cloning and translation. The workflow uses the asset's default audio track and ElevenLabs' `dubbing_v1` model. Source language is detected automatically unless `fromLanguageCode` is provided.
+
+Downloaded audio keeps the format supplied by ElevenLabs, such as FLAC. The stored file's extension and `Content-Type` match that format. The result's `dubbingId` is an ElevenLabs project ID and can be used with the [ElevenLabs project API](https://elevenlabs.io/docs/api-reference/dubbing/get-project).
+
+ElevenLabs charges for the first target language when a project is created. The workflow does not automatically retry project creation. If a creation request times out or its response is lost, check your ElevenLabs account before starting another run to avoid creating and paying for a second project. Status checks and downloads retain workflow retries. Individual ElevenLabs API requests have a four-minute timeout; `dubbingPollTimeoutSeconds` controls the separate wait for dubbing to finish.
 
 **Parameters:**
 
-- `assetId` (string) - Mux asset ID (video or audio-only; must have audio.m4a static rendition, or use the deprecated `mp4_support` option)
-- `toLanguageCode` (string) - Target language code (e.g., 'es', 'fr', 'de')
+- `assetId` (string) - Mux asset ID (video or audio-only; must contain audio). The workflow requests an audio static rendition if needed, or uses existing files for assets with the deprecated `mp4_support` option.
+- `toLanguageCode` (string) - Target language tag, such as `es`, `ur`, `yue`, or `pt-BR`. Known ISO 639-3 aliases, such as `spa` and `urd`, are also accepted. Region and script subtags are retained on Mux tracks; dubbing uses the primary language. See supported languages below.
 - `options` (optional) - Configuration options
 
 **Options:**
 
 - `provider?: 'elevenlabs'` - AI provider (default: 'elevenlabs')
-- `fromLanguageCode?: string` - Optional source language code passed to ElevenLabs `source_lang` (ISO 639-1 or ISO 639-3, default: auto-detect)
-- `numSpeakers?: number` - Number of speakers (default: 0 for auto-detect)
+- `fromLanguageCode?: string` - Source language tag, such as `en` or `en-US`. Known ISO 639-3 aliases, such as `eng`, are also accepted. Region and script subtags are dropped for ElevenLabs. Omit or use `"auto"` for automatic detection.
+- `numSpeakers?: number` - Must be `0` for automatic speaker detection (default). Explicit speaker counts are not supported.
 - `uploadToMux?: boolean` - Whether to upload dubbed track to Mux (default: true)
 - `uploadCaptionsToMux?: boolean` - Also attach the dub's translated transcript as a subtitles text track (default: false)
 - `replaceExistingTracks?: 'fail' | 'replace_all' | 'replace_generated'` - What to do when the asset already has an audio track (or, with `uploadCaptionsToMux`, a text track) in the target language or with the target name (default: `'fail'`, which rejects before dubbing starts). `'replace_all'` deletes them first. Audio tracks are never Mux-generated, so `'replace_generated'` only ever removes ASR captions. The asset's primary audio track is never deleted under any policy.
@@ -713,9 +717,9 @@ interface TranslateAudioResult {
   assetId: string;
   targetLanguageCode: string;
   targetLanguage: LanguageCodePair; // { iso639_1: string; iso639_3: string }
-  dubbingId: string; // ElevenLabs dubbing job ID
+  dubbingId: string; // ElevenLabs project ID
   uploadedTrackId?: string; // Mux audio track ID (if uploaded)
-  presignedUrl?: string; // S3 presigned URL (default expiry: 24 hours)
+  presignedUrl?: string; // S3 presigned audio URL (default expiry: 24 hours)
   replacedTracks?: TextTrackSummary[]; // Existing audio/text tracks deleted before the uploads; `type` says which group
   captionsTrackId?: string; // Mux text track ID for the dubbed captions (when uploadCaptionsToMux is true)
   captionsPresignedUrl?: string; // S3 presigned URL for the dub transcript VTT
@@ -729,11 +733,16 @@ interface TranslateAudioResult {
 
 - Asset must have an `audio.m4a` static rendition (auto-requested if missing, and deleted again afterwards by default — see `staticRenditionCleanup`)
 - Assets on the deprecated [`mp4_support`](https://www.mux.com/docs/guides/enable-static-mp4-renditions-using-mp4-support) option are dubbed from their existing files, never modified: `audio.m4a` for `audio-only` and `audio-only,capped-1080p`, `capped-1080p.mp4` for `capped-1080p`, and `low.mp4` for `standard`. A file over 1 GB is rejected before dubbing; move the asset to the [Static Renditions API](https://www.mux.com/docs/guides/enable-static-mp4-renditions) and add an `audio-only` rendition instead.
-- ElevenLabs API key with Creator plan or higher
+- ElevenLabs API key with access to Dubbing v1
 - S3-compatible storage for Mux ingestion
 
 **Supported Languages:**
-ElevenLabs supports 32+ languages with automatic language name detection via `Intl.DisplayNames`. Supported languages include English, Spanish, French, German, Italian, Portuguese, Polish, Japanese, Korean, Chinese, Russian, Arabic, Hindi, Thai, and many more. Track names are automatically generated (e.g., "Polish (Auto-dubbed)").
+
+See the [Dubbing v1 language list](https://elevenlabs.io/docs/help-center/product/dubbing/which-languages-are-supported-in-dubbing#dubbing-v1) for available targets. Language tags include `es` (Spanish), `ur` (Urdu), and `yue` (Cantonese). BCP-47 primary language subtags can have two or three letters. Known ISO 639-3 aliases are normalized automatically, for example `urd` becomes `ur`.
+
+The workflow drops region and script subtags for ElevenLabs while retaining the requested tag on Mux tracks. For example, `pt-BR` requests Portuguese dubbing and produces a Mux track tagged `pt-br`. These qualifiers do not select a regional dialect in the `dubbing_v1` model. ElevenLabs validates the primary target language when the project is created, after any required Mux rendition preparation.
+
+`targetLanguageCode` contains the normalized requested tag, including any region or script subtags. The existing `targetLanguage.iso639_1` result field also contains that tag, including three-letter values such as `yue` when no two-letter code exists. Track names are generated from the language name, such as `"Spanish (Auto-dubbed)"`, unless `trackName` is provided.
 
 ## `generateEmbeddings(assetId, options?)`
 

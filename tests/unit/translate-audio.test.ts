@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { dubbingLanguage, dubbingProject } from "../helpers/elevenlabs-dubbing.ts";
+
 vi.mock("workflow", () => ({
   sleep: vi.fn(async () => {}),
   getWorkflowMetadata: vi.fn(() => {
@@ -90,15 +92,18 @@ function mockMuxClient({
   return { createStaticRendition, deleteStaticRendition, retrieve };
 }
 
-function stubElevenLabsFetch({ dubbingStatus = "dubbed" }: { dubbingStatus?: string } = {}) {
+function stubElevenLabsFetch({ dubbingStatus = "completed" }: { dubbingStatus?: string } = {}) {
   const fetchMock = vi.fn(async (input: any, init?: any) => {
     const url = String(input);
-    if (url.endsWith("/v1/dubbing") && init?.method === "POST") {
-      return new Response(JSON.stringify({ dubbing_id: "dub-1" }), { status: 200 });
+    if (url.endsWith("/v1/dubbing/project") && init?.method === "POST") {
+      return new Response(JSON.stringify(dubbingProject()), { status: 200 });
     }
-    if (url.endsWith("/v1/dubbing/dub-1")) {
+    if (url.endsWith("/v1/dubbing/project/proj_1")) {
+      return new Response(JSON.stringify(dubbingProject()));
+    }
+    if (url.endsWith("/v1/dubbing/project/proj_1/language/lang_1")) {
       return new Response(
-        JSON.stringify({ status: dubbingStatus, target_languages: ["fr"] }),
+        JSON.stringify(dubbingLanguage({ status: dubbingStatus })),
         { status: 200 },
       );
     }
@@ -156,7 +161,7 @@ describe("translateAudio static rendition cleanup", () => {
     expect(deleteStaticRendition).toHaveBeenCalledWith(ASSET_ID, CREATED_RENDITION_ID);
     expect(result.createdStaticRenditionId).toBe(CREATED_RENDITION_ID);
     expect(result.staticRenditionCleanup).toBe("deleted");
-    expect(result.dubbingId).toBe("dub-1");
+    expect(result.dubbingId).toBe("proj_1");
   });
 
   it("treats re-requesting over an errored rendition as created by this run", async () => {
@@ -218,7 +223,7 @@ describe("translateAudio static rendition cleanup", () => {
 
     const result = await translateAudio(ASSET_ID, "fr", BASE_OPTIONS);
 
-    expect(result.dubbingId).toBe("dub-1");
+    expect(result.dubbingId).toBe("proj_1");
     expect(result.staticRenditionCleanup).toBe("delete_failed");
     expect(result.createdStaticRenditionId).toBe(CREATED_RENDITION_ID);
   });
@@ -257,7 +262,7 @@ describe("translateAudio static rendition cleanup", () => {
 
 function stubElevenLabsCreateFailure(response: Response) {
   const fetchMock = vi.fn(async (input: any, init?: any) => {
-    if (String(input).endsWith("/v1/dubbing") && init?.method === "POST") {
+    if (String(input).endsWith("/v1/dubbing/project") && init?.method === "POST") {
       return response;
     }
     throw new Error(`Unexpected fetch in test: ${String(input)}`);
@@ -282,27 +287,18 @@ describe("translateAudio ElevenLabs language codes", () => {
     mockMuxClient({ initialAsset: readyRenditionAsset("rendition-pre-existing") });
   });
 
-  function sentDubbingForm(fetchMock: ReturnType<typeof stubElevenLabsFetch>): FormData {
-    const call = fetchMock.mock.calls.find(([input, init]) => String(input).endsWith("/v1/dubbing") && init?.method === "POST");
-    return call![1].body as FormData;
-  }
-
-  it("drops region subtags from the target and source languages", async () => {
+  it.each([
+    { target: "pt-BR", source: "en_US", providerTarget: "pt", providerSource: "en", requestedTag: "pt-br" },
+    { target: "mr-in", source: "zh-Hant-TW", providerTarget: "mr", providerSource: "zh", requestedTag: "mr-in" },
+    { target: "zh-Hant", source: "pt_BR", providerTarget: "zh", providerSource: "pt", requestedTag: "zh-hant" },
+  ])("sends the base language for $target while preserving the requested result tag", async ({ target, source, providerTarget, providerSource, requestedTag }) => {
     const fetchMock = stubElevenLabsFetch();
-
-    await translateAudio(ASSET_ID, "pt-BR", { ...BASE_OPTIONS, fromLanguageCode: "en_US" });
-
-    const form = sentDubbingForm(fetchMock);
-    expect(form.get("target_lang")).toBe("por");
-    expect(form.get("source_lang")).toBe("eng");
-  });
-
-  it("still converts bare codes to ISO 639-3", async () => {
-    const fetchMock = stubElevenLabsFetch();
-
-    await translateAudio(ASSET_ID, "fr", BASE_OPTIONS);
-
-    expect(sentDubbingForm(fetchMock).get("target_lang")).toBe("fra");
+    const result = await translateAudio(ASSET_ID, target, { ...BASE_OPTIONS, fromLanguageCode: source });
+    const create = fetchMock.mock.calls.find(([input, init]) => String(input).endsWith("/v1/dubbing/project") && init?.method === "POST")!;
+    const form = create[1].body as FormData;
+    expect(form.get("target_language")).toBe(providerTarget);
+    expect(form.get("source_language")).toBe(providerSource);
+    expect(result.targetLanguageCode).toBe(requestedTag);
   });
 });
 
@@ -311,7 +307,7 @@ describe("translateAudio ElevenLabs error reporting", () => {
     mockMuxClient({ initialAsset: readyRenditionAsset("rendition-pre-existing") });
   });
 
-  it("includes the status and ElevenLabs reason when dub creation is rejected", async () => {
+  it("retains rejection diagnostics without marking provider detail as customer-safe", async () => {
     stubElevenLabsCreateFailure(new Response(JSON.stringify(UNSUPPORTED_LANGUAGE_BODY), { status: 400, statusText: "Bad Request" }));
 
     const error = await captureRejection(translateAudio(ASSET_ID, "ur", BASE_OPTIONS));
@@ -319,13 +315,6 @@ describe("translateAudio ElevenLabs error reporting", () => {
     expect((error as Error).message).toBe(
       "Failed to create ElevenLabs dubbing job: ElevenLabs API error: 400 Bad Request: unsupported_target_language: Target language 'ur' is not supported. (param: target_lang, request_id: ce841eacec9f38158a9ef2f4b66b0940)",
     );
-  });
-
-  it("keeps provider detail out of customer-safe errors", async () => {
-    stubElevenLabsCreateFailure(new Response(JSON.stringify(UNSUPPORTED_LANGUAGE_BODY), { status: 400, statusText: "Bad Request" }));
-
-    const error = await captureRejection(translateAudio(ASSET_ID, "ur", BASE_OPTIONS));
-
     expect(MuxAiError.is(error)).toBe(false);
   });
 
@@ -362,8 +351,8 @@ describe("translateAudio ElevenLabs error reporting", () => {
 
   it("includes the ElevenLabs reason when a status check is rejected", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: any, init?: any) => {
-      if (String(input).endsWith("/v1/dubbing") && init?.method === "POST") {
-        return new Response(JSON.stringify({ dubbing_id: "dub-1" }), { status: 200 });
+      if (String(input).endsWith("/v1/dubbing/project") && init?.method === "POST") {
+        return new Response(JSON.stringify(dubbingProject()), { status: 200 });
       }
       return new Response(
         JSON.stringify({ detail: { status: "dubbing_not_found", message: "Dubbing project not found." } }),
@@ -380,11 +369,11 @@ describe("translateAudio ElevenLabs error reporting", () => {
 
   it("logs the ElevenLabs reason for a failed dub without changing the customer-facing error", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: any, init?: any) => {
-      if (String(input).endsWith("/v1/dubbing") && init?.method === "POST") {
-        return new Response(JSON.stringify({ dubbing_id: "dub-1" }), { status: 200 });
+      if (String(input).endsWith("/v1/dubbing/project") && init?.method === "POST") {
+        return new Response(JSON.stringify(dubbingProject()), { status: 200 });
       }
       return new Response(
-        JSON.stringify({ status: "failed", target_languages: [], error: "Source audio could not be decoded." }),
+        JSON.stringify(dubbingProject({ status: "failed", error: { code: "source_download_failed", message: "The source media could not be downloaded from the provided URL.", retryable: true }, language_id: "lang_1", target_language: "fr" })),
         { status: 200 },
       );
     }));
@@ -395,7 +384,7 @@ describe("translateAudio ElevenLabs error reporting", () => {
       publicType: "processing_error",
       publicMessage: "ElevenLabs reported that the dubbing job failed.",
     });
-    expect(console.warn).toHaveBeenCalledWith("❌ ElevenLabs dubbing job dub-1 failed: Source audio could not be decoded.");
+    expect(console.warn).toHaveBeenCalledWith("❌ ElevenLabs dubbing project proj_1 (language lang_1) failed: source_download_failed: The source media could not be downloaded from the provided URL.");
   });
 });
 
@@ -405,7 +394,7 @@ function legacyAsset(mp4Support: string, staticRenditions?: object) {
 
 function dubbingSourceUrl(fetchMock: ReturnType<typeof vi.fn>): string | undefined {
   const createCall = fetchMock.mock.calls.find(([input, init]) =>
-    String(input).endsWith("/v1/dubbing") && init?.method === "POST");
+    String(input).endsWith("/v1/dubbing/project") && init?.method === "POST");
   return (createCall?.[1]?.body as FormData | undefined)?.get("source_url")?.toString();
 }
 
@@ -484,5 +473,81 @@ describe("translateAudio on assets using the deprecated mp4_support option", () 
 
     expect(error).toMatchObject({ publicType: "timeout_error", retryable: true });
     expect(retrieve).toHaveBeenCalledTimes(180);
+  });
+});
+
+describe("translateAudio project API", () => {
+  beforeEach(() => {
+    mockMuxClient({ initialAsset: readyRenditionAsset("existing") });
+  });
+
+  it("pins v1, queues the first target, and preserves source-language aliases", async () => {
+    const fetchMock = stubElevenLabsFetch();
+    const result = await translateAudio(ASSET_ID, "fra", { ...BASE_OPTIONS, fromLanguageCode: "eng" });
+    const create = fetchMock.mock.calls.find(([, init]) => init?.method === "POST")!;
+    const form = create[1].body as FormData;
+    expect(form.get("model_id")).toBe("dubbing_v1");
+    expect(form.get("target_language")).toBe("fr");
+    expect(form.get("source_language")).toBe("en");
+    expect(form.has("num_speakers")).toBe(false);
+    expect(result).toMatchObject({ dubbingId: "proj_1", targetLanguageCode: "fr", targetLanguage: { iso639_1: "fr", iso639_3: "fra" } });
+  });
+
+  it("does not mistake a ready project for a completed language target", async () => {
+    stubElevenLabsFetch({ dubbingStatus: "queued" });
+    await expect(translateAudio(ASSET_ID, "fr", { ...BASE_OPTIONS, dubbingPollTimeoutSeconds: 1 }))
+      .rejects
+      .toMatchObject({ publicType: "timeout_error" });
+  });
+
+  it.each([
+    { input: "yue", tag: "yue", iso3: "yue" },
+    { input: "urd", tag: "ur", iso3: "urd" },
+    { input: "hye", tag: "hy", iso3: "hye" },
+  ])("sends $input as $tag and preserves result language metadata", async ({ input, tag, iso3 }) => {
+    const fetchMock = stubElevenLabsFetch();
+    const result = await translateAudio(ASSET_ID, input, BASE_OPTIONS);
+    const create = fetchMock.mock.calls.find(([, init]) => init?.method === "POST")!;
+    expect((create[1].body as FormData).get("target_language")).toBe(tag);
+    expect(result).toMatchObject({ targetLanguageCode: tag, targetLanguage: { iso639_1: tag, iso639_3: iso3 } });
+  });
+
+  it("lets ElevenLabs reject an unsupported base language without retrying creation", async () => {
+    const fetchMock = stubElevenLabsCreateFailure(new Response(
+      JSON.stringify({ detail: { status: "unsupported_target_language", message: "Unsupported target language" } }),
+      { status: 400, statusText: "Bad Request" },
+    ));
+    await expect(translateAudio(ASSET_ID, "eu", BASE_OPTIONS)).rejects.toThrow("400 Bad Request: unsupported_target_language");
+    expect(getPlaybackIdForAsset).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect((fetchMock.mock.calls[0][1].body as FormData).get("target_language")).toBe("eu");
+  });
+
+  it.each([
+    { input: undefined, expected: null },
+    { input: " AUTO ", expected: null },
+    { input: "", expected: null },
+    { input: "hye", expected: "hy" },
+    { input: "ak", expected: "ak" },
+  ])("sends the correct source-language hint for $input", async ({ input, expected }) => {
+    const fetchMock = stubElevenLabsFetch();
+    await translateAudio(ASSET_ID, "fr", { ...BASE_OPTIONS, fromLanguageCode: input });
+    const create = fetchMock.mock.calls.find(([, init]) => init?.method === "POST")!;
+    expect((create[1].body as FormData).get("source_language")).toBe(expected);
+  });
+
+  it("rejects speaker-count overrides before requesting media or creating a paid project", async () => {
+    const fetchMock = stubElevenLabsFetch();
+    await expect(translateAudio(ASSET_ID, "fr", { ...BASE_OPTIONS, numSpeakers: 2 }))
+      .rejects
+      .toMatchObject({ publicType: "validation_error", publicMessage: expect.stringContaining("numSpeakers") });
+    expect(getPlaybackIdForAsset).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not retry an ambiguous paid create inside the SDK", async () => {
+    const fetchMock = stubElevenLabsCreateFailure(new Response("upstream unavailable", { status: 503 }));
+    await expect(translateAudio(ASSET_ID, "fr", BASE_OPTIONS)).rejects.toThrow("503");
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 });
