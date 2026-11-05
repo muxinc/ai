@@ -1,3 +1,11 @@
+<!--
+  Partly generated. The code table between the BEGIN/END GENERATED markers is
+  written by `npm run docs:errors` (scripts/error-docs.ts) from each code's TSDoc
+  comment in src/lib/mux-ai-error.ts, its classification in MUX_AI_ERROR_CATALOG,
+  and MUX_AI_ERROR_PUBLIC_MAPPINGS. Edit those, not the table; a test fails when
+  the table is out of date. Everything else in this file is written by hand.
+-->
+
 # Errors
 
 Every failure `@mux/ai` raises on purpose is a `MuxAiError` that says what kind of failure it is, whose problem it is, and, when it can, exactly which condition it was. This guide is for two audiences:
@@ -71,7 +79,7 @@ Types are public: every value is safe to show any end user, and a new type must 
 
 ### Codes
 
-<!-- BEGIN GENERATED: error codes (npx tsx scripts/error-docs.ts) -->
+<!-- BEGIN GENERATED: error codes. Don't edit by hand: generated from the TSDoc on MUX_AI_ERROR_CODES by `npm run docs:errors`. -->
 
 | Code | Type | Source | Dependency | Public | Condition |
 |---|---|---|---|---|---|

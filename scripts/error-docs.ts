@@ -19,7 +19,7 @@ import { MUX_AI_ERROR_PUBLIC_MAPPINGS } from "../src/lib/public-error.ts";
 export const ERRORS_DOC_PATH = fileURLToPath(new URL("../docs/ERRORS.md", import.meta.url));
 const ERROR_SOURCE_PATH = fileURLToPath(new URL("../src/lib/mux-ai-error.ts", import.meta.url));
 
-const BEGIN = "<!-- BEGIN GENERATED: error codes (npx tsx scripts/error-docs.ts) -->";
+const BEGIN = "<!-- BEGIN GENERATED: error codes. Don't edit by hand: generated from the TSDoc on MUX_AI_ERROR_CODES by `npm run docs:errors`. -->";
 const END = "<!-- END GENERATED: error codes -->";
 
 /** Each `MUX_AI_ERROR_CODES` key's TSDoc comment, by key. */
