@@ -899,21 +899,23 @@ const result = await translateAudio(
   }
 );
 
-console.log(result.dubbingId); // ElevenLabs project ID (legacy result field)
+console.log(result.dubbingId); // ElevenLabs project ID
 console.log(result.uploadedTrackId); // New Mux audio track ID
-console.log(result.presignedUrl); // S3 audio file URL
+console.log(result.presignedUrl); // S3 audio file URL; extension matches the audio format
 ```
 
 ### Requirements
 
 - Asset must have an `audio.m4a` static rendition (auto-requested if missing; a rendition the workflow creates is deleted afterwards by default, configurable via `staticRenditionCleanup: "delete" | "keep"`)
 - Assets on the deprecated [`mp4_support`](https://www.mux.com/docs/guides/enable-static-mp4-renditions-using-mp4-support) option are dubbed from their existing files, never modified: `audio.m4a` for `audio-only` and `audio-only,capped-1080p`, `capped-1080p.mp4` for `capped-1080p`, and `low.mp4` for `standard`. A file over 1 GB is rejected before dubbing; move the asset to the [Static Renditions API](https://www.mux.com/docs/guides/enable-static-mp4-renditions) and add an `audio-only` rendition instead.
-- ElevenLabs API key with Creator plan or higher
+- ElevenLabs API key with access to Dubbing v1
 - S3-compatible storage (same as caption translation)
 
 ### Supported Languages
 
-The project API uses the [dubbing v1 language list](https://elevenlabs.io/docs/help-center/product/dubbing/which-languages-are-supported-in-dubbing#dubbing-v1). Pass a base tag or a known ISO 639-3 alias. The SDK normalizes codes and lets ElevenLabs validate target support; unsupported targets and regional dialects fail at project creation, after any required Mux rendition preparation. Three-letter base tags such as `yue`, `fil`, and `ast` are supported. Track names are automatically generated (e.g., "Polish (Auto-dubbed)"). Nonzero `numSpeakers` overrides are no longer supported; use the default auto-detection.
+`translateAudio` uses ElevenLabs' `dubbing_v1` model. See its [supported languages](https://elevenlabs.io/docs/help-center/product/dubbing/which-languages-are-supported-in-dubbing#dubbing-v1) and pass a BCP-47 base tag, such as `es` (Spanish), `ur` (Urdu), or `yue` (Cantonese). Known ISO 639-3 aliases, such as `spa` and `urd`, are normalized automatically.
+
+This model does not support regional dialect tags such as `es-MX`. ElevenLabs validates target support when the project is created, after any required Mux rendition preparation. Track names are generated from the language name, such as `"Spanish (Auto-dubbed)"`, unless `trackName` is provided.
 
 ### Audio Dubbing Workflow
 
@@ -921,12 +923,14 @@ The project API uses the [dubbing v1 language list](https://elevenlabs.io/docs/h
 2. Hands ElevenLabs the default audio rendition URL, signing it for signed playback assets
 3. Creates an ElevenLabs project with `dubbing_v1` and the first target language (source language auto-detected unless `fromLanguageCode` is set)
 4. Polls the project and language target until the target completes (default two-hour dubbing timeout)
-5. Downloads native-format audio from the target's signed URL and stages it with the matching content type
+5. Downloads the dubbed audio from the target's signed URL, preserving its format, such as FLAC
 6. Uploads to S3-compatible storage
 7. Generates presigned URL (default 24-hour expiry, configurable via `s3SignedUrlExpirySeconds`)
 8. Adds new audio track to Mux asset, replacing existing same-language or same-name audio tracks according to `replaceExistingTracks`
 9. Track name: "{Language} (Auto-dubbed)", or `trackName`
 10. Deletes the static rendition if this run created it (default; set `staticRenditionCleanup: "keep"` to retain it). Runs on failure paths too, and the outcome is reported in `result.staticRenditionCleanup`.
+
+ElevenLabs charges for the first language when a project is created. If creation times out or its response is lost, check your ElevenLabs account before starting another run. The workflow does not automatically retry creation. See the [API reference](./API.md#translateaudioassetid-tolanguagecode-options) for output fields, retry behavior, and timeout options.
 
 ### Replacing Existing Tracks
 

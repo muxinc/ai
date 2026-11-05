@@ -10,15 +10,15 @@ program
   .name("translate-audio")
   .description("Translate audio (dubbing) for a Mux video asset")
   .argument("<asset-id>", "Mux asset ID to translate")
-  .option("-f, --from <language>", "Source language code (defaults to auto-detect)")
-  .option("-t, --to <language>", "Target language code", "es")
+  .option("-f, --from <language>", "Source language tag or ISO alias (defaults to auto-detect)")
+  .option("-t, --to <language>", "Target language tag (e.g. es, ur, yue)", "es")
   .option("-s, --speakers <number>", "Speaker count (only 0, auto-detect, is supported by the project API)", "0")
-  .option("--no-upload", "Skip uploading translated audio to Mux (returns presigned URL only)")
+  .option("--no-upload", "Skip uploading translated audio to Mux")
   .addHelpText("after", `
 Notes:
-  - Asset must have an audio.m4a static rendition
+  - Uses an existing static rendition or requests an audio rendition if needed
   - Uses default audio track, source language is auto-detected unless --from is provided
-  - Provider is ElevenLabs (currently the only supported audio translation provider)`)
+  - Uses ElevenLabs Dubbing v1; regional target tags such as es-MX are not supported`)
   .action(async (assetId: string, options: {
     from?: string;
     to: string;
