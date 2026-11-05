@@ -269,8 +269,10 @@ const NORMALISED_SYSTEM_PROMPT_CANARY = normalizeUntrustedUnicode(SYSTEM_PROMPT_
 // canary would make every `.includes("")` call trivially true, flagging
 // every model output as `reason: "canary"` — the worst possible signal
 // for alerting. Fail loudly at module init if normalisation strips the
-// canary below usability.
+// canary below usability. A plain Error on purpose: this is a startup config
+// guard, and mux-ai-error.ts imports this module, so it can't import that back.
 if (NORMALISED_SYSTEM_PROMPT_CANARY.length < 16) {
+  // eslint-disable-next-line no-restricted-syntax
   throw new Error(
     "MUX_AI_PROMPT_CANARY normalises to fewer than 16 characters after " +
     "NFKC + invisibles strip. Canaries composed largely of fullwidth " +

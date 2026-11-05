@@ -1,5 +1,9 @@
 import env from "../env.ts";
 
+import { dependencyError, requestIdOf } from "./dependency-error.ts";
+import type { MuxAiErrorFacts } from "./mux-ai-error.ts";
+import { internalError, MUX_AI_ERROR_DEPENDENCIES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
+
 const AWS4_ALGORITHM = "AWS4-HMAC-SHA256";
 const AWS4_REQUEST_TERMINATOR = "aws4_request";
 const AWS4_SERVICE = "s3";
@@ -35,7 +39,7 @@ export interface PresignGetObjectOptions extends S3Target, S3Credentials {
 function getCrypto() {
   const webCrypto = globalThis.crypto as any;
   if (!webCrypto?.subtle) {
-    throw new Error("Web Crypto API is required for S3 signing.");
+    throw internalError("Web Crypto API is required for S3 signing.");
   }
 
   return webCrypto;
@@ -102,11 +106,11 @@ function normalizeEndpoint(endpoint: string): URL {
   try {
     url = new URL(endpoint);
   } catch {
-    throw new Error(`Invalid S3 endpoint: ${endpoint}`);
+    throw invalidEndpointError("Invalid S3 endpoint.");
   }
 
   if (url.search || url.hash) {
-    throw new Error("S3 endpoint must not include query params or hash fragments.");
+    throw invalidEndpointError("S3 endpoint must not include query params or hash fragments.", { host: url.host });
   }
 
   enforceEndpointPolicy(url);
@@ -139,8 +143,9 @@ function enforceEndpointPolicy(url: URL): void {
 
   // Enforce secure transport for all S3 uploads/signing flows.
   if (url.protocol !== "https:") {
-    throw new Error(
+    throw invalidEndpointError(
       `Insecure S3 endpoint protocol "${url.protocol}" is not allowed. Use HTTPS.`,
+      { protocol: url.protocol },
     );
   }
 
@@ -150,8 +155,9 @@ function enforceEndpointPolicy(url: URL): void {
     S3_ALLOWED_ENDPOINT_PATTERNS.length > 0 &&
     !S3_ALLOWED_ENDPOINT_PATTERNS.some(pattern => hostnameMatchesPattern(hostname, pattern))
   ) {
-    throw new Error(
+    throw invalidEndpointError(
       `S3 endpoint host "${hostname}" is not in S3_ALLOWED_ENDPOINT_HOSTS.`,
+      { host: hostname },
     );
   }
 }
@@ -181,6 +187,20 @@ async function signString(
   const signingKey = await deriveSigningKey(secretAccessKey, shortDate, region);
   const signatureBytes = await hmacSha256Raw(signingKey, value);
   return bytesToHex(signatureBytes);
+}
+
+/** The S3 endpoint comes from storage options or the environment: the service's configuration. */
+function invalidEndpointError(message: string, facts?: MuxAiErrorFacts): MuxAiError {
+  return new MuxAiError(message, {
+    type: MUX_AI_ERROR_TYPES.SERVER_ERROR,
+    source: MUX_AI_ERROR_SOURCES.INTERNAL,
+    facts: { setting: "s3Endpoint", ...facts },
+  });
+}
+
+/** Pulls the `<Code>` out of an S3 XML error body; the body itself stays out of the error. */
+function s3ErrorCodeOf(body: string): string | undefined {
+  return /<Code>([\w.-]{1,64})<\/Code>/.exec(body)?.[1];
 }
 
 function buildCredentialScope(shortDate: string, region: string): string {
@@ -231,21 +251,39 @@ export async function putObjectToS3({
   const authorization = `${AWS4_ALGORITHM} Credential=${accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
   const requestUrl = `${resolvedEndpoint.origin}${canonicalUri}`;
 
-  const response = await fetch(requestUrl, {
-    method: "PUT",
-    headers: {
-      "Authorization": authorization,
-      "x-amz-content-sha256": payloadHash,
-      "x-amz-date": amzDate,
-      ...(normalizedContentType ? { "content-type": normalizedContentType } : {}),
-    },
-    body,
-  });
+  const storageFacts = { bucket };
+  let response: Response;
+  try {
+    response = await fetch(requestUrl, {
+      method: "PUT",
+      headers: {
+        "Authorization": authorization,
+        "x-amz-content-sha256": payloadHash,
+        "x-amz-date": amzDate,
+        ...(normalizedContentType ? { "content-type": normalizedContentType } : {}),
+      },
+      body,
+    });
+  } catch (error) {
+    throw dependencyError("S3 PUT failed", {
+      dependency: MUX_AI_ERROR_DEPENDENCIES.STORAGE,
+      call: "put_object",
+      facts: storageFacts,
+      cause: error,
+    });
+  }
 
   if (!response.ok) {
+    // A 403/404 here is the service's own storage credentials or bucket (internal).
     const errorBody = await response.text().catch(() => "");
-    const detail = errorBody ? ` ${errorBody}` : "";
-    throw new Error(`S3 PUT failed (${response.status} ${response.statusText}).${detail}`);
+    const s3ErrorCode = s3ErrorCodeOf(errorBody);
+    throw dependencyError(`S3 PUT failed (HTTP ${response.status}${s3ErrorCode ? ` ${s3ErrorCode}` : ""}).`, {
+      dependency: MUX_AI_ERROR_DEPENDENCIES.STORAGE,
+      call: "put_object",
+      status: response.status,
+      requestId: requestIdOf(response.headers),
+      facts: { ...storageFacts, ...(s3ErrorCode && { s3ErrorCode }) },
+    });
   }
 }
 

@@ -132,7 +132,12 @@ describe("translateCaptions error-path token usage", () => {
       translateCaptions("asset-123", "track-1", "es", TRANSLATION_OPTIONS),
     );
 
-    expect((error as Error).message).toContain("Failed to translate VTT");
+    // Classified where the call was made, so the workflow-level wrap passes it through.
+    expect(error).toMatchObject({
+      source: "internal",
+      dependency: "ai_provider",
+      facts: { call: "translate_vtt_chunk", provider: "openai", model: "gpt-test", status: 400, chunkId: expect.any(String) },
+    });
     // One chunk of two completed before the failure, so exactly one chunk's
     // usage must ride on the error.
     expect((error as { usage?: TokenUsage }).usage).toEqual(CHUNK_USAGE);

@@ -196,7 +196,12 @@ const toPublic = createPublicErrorView<string, string>({
 5. **Record what varies as facts:** IDs, languages, limits, statuses, the call that failed. Keep values JSON-safe. Pass provider free text through `errorDetailFact()`, which strips URL tokens, suppresses prompt leaks and caps the length. Never put credentials, signed URLs or raw model output in facts.
 6. **Write `message` for a developer reading a log.** It can be specific; it is never shown to end users.
 
-Helpers: `internalError()` and `assertNever()` for this code's own failures (`throw new Error` loses the classification), `wrapError()` to add facts to a classified error as it passes through, and the content-policy helpers in `content-policy-error.ts` for model calls.
+Helpers:
+
+- **Remote calls:** classify where the call is made, while the status is still in hand. `dependencyError()` (in `dependency-error.ts`) turns a status into a source and retry policy: no response, 408, 425, 429 and 5xx are `upstream` and transient; 401/403 and 404 take the source the caller chooses (`authSource`, `notFoundSource`); other 4xx are `internal`, a request we built. It records `call`, `status` and `requestId`, and takes `idempotent: false` for calls that may have taken effect (a create), so a no-response or 5xx failure isn't step-retried. The Mux, storage and ElevenLabs helpers build on it.
+- **Model calls:** the content-policy helpers in `content-policy-error.ts` take a `{ call, provider, model }` context and classify provider failures, unparseable or empty output, early stops and content-policy blocks once retries are exhausted.
+- **This code's own failures:** `internalError()` and `assertNever()`. A lint rule bans `throw new Error` in `src/`.
+- **Passing errors up:** `wrapError()` passes a classified error through, merging facts, and turns anything unclassified into an `internal` failure.
 
 Override `retryable` or `transient` only with a one-line comment saying why, and prefer a fact that explains it (`status: 200` for a dependency that answered with a failure makes it non-transient by rule).
 

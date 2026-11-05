@@ -101,14 +101,19 @@ describe("production repair through the real AI SDK provider", () => {
     expect(state.requests).toHaveLength(3);
   });
 
-  it.each([["auth", false, 401], ["transient", true, 429]] as const)("keeps %s diagnostics internal and preserves retryability without retrying inside repair", async (failure, retryable, statusCode) => {
+  it.each([
+    ["auth", false, 401, "server_error", "internal"],
+    ["transient", true, 429, "capacity_error", "upstream"],
+  ] as const)("keeps %s diagnostics internal and preserves retryability without retrying inside repair", async (failure, retryable, statusCode, type, source) => {
     state.failure = failure;
     const error = await generateText("asset-test", { artifacts: [{ key: "post", channel: "x" }] }).catch(error => error);
     expect(error).toMatchObject({
       __mux_ai_error: true,
-      message: "Unable to complete text generation.",
-      message: "Unable to complete text generation.",
-      type: "processing_error",
+      message: `repair_text failed (HTTP ${statusCode})`,
+      type,
+      source,
+      dependency: "ai_provider",
+      facts: { call: "repair_text", provider: "openai.responses", model: "gpt-6-luna", status: statusCode },
       retryable,
       usage: { inputTokens: 200, outputTokens: 20, totalTokens: 220, cachedInputTokens: 40, cacheWriteTokens: 60, reasoningTokens: 0 },
     });
@@ -116,18 +121,19 @@ describe("production repair through the real AI SDK provider", () => {
     expect(error.cause).toMatchObject({ message: state.providerMessage, statusCode, responseHeaders: { "x-request-id": "req-repair-test" } });
     expect(Object.getOwnPropertyDescriptor(error, "cause")?.enumerable).toBe(false);
     expect(JSON.stringify(error)).not.toContain(state.providerMessage);
-    expect(JSON.stringify(error)).not.toContain("req-repair-test");
-    expect(console.warn).toHaveBeenCalledExactlyOnceWith("[@mux/ai] Model call failed.", {
+    // The request id is an internal fact (facts are never rendered by default); the
+    // provider's own message stays out of the serializable error.
+    expect(error.facts.requestId).toBe("req-repair-test");
+    expect(console.warn).toHaveBeenCalledExactlyOnceWith("[@mux/ai] Model call failed.", expect.objectContaining({
       phase: "length_repair",
       maxOutputTokens: 1024,
       finishReason: undefined,
       usage: undefined,
       provider: "openai.responses",
       modelId: "gpt-6-luna",
-      errorName: "AI_APICallError",
       statusCode,
       requestId: "req-repair-test",
-    });
+    }));
     expect(state.requests).toHaveLength(3);
   });
   it("normalizes a truncated JSON exception before generateText can return, retaining usage", async () => {

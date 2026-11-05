@@ -1,5 +1,15 @@
 import { version } from "../package.json";
 
+// Error types
+export {
+  classifyDependencyFailure,
+  dependencyError,
+  httpStatusOf,
+  isTransientStatus,
+  requestIdOf,
+} from "./lib/dependency-error.ts";
+export type { DependencyErrorInit } from "./lib/dependency-error.ts";
+
 // Language code utilities
 export {
   getLanguageCodePair,
@@ -17,11 +27,12 @@ export type {
   SupportedISO639_1,
   SupportedISO639_3,
 } from "./lib/language-codes.ts";
-
-// Error types
 export {
+  assertNever,
   classificationInit,
   ClassifiedError,
+  errorDetailFact,
+  internalError,
   MUX_AI_ERROR_CATALOG,
   MUX_AI_ERROR_CODE_VALUES,
   MUX_AI_ERROR_CODES,
@@ -92,6 +103,8 @@ export type {
   TrackReplacementBlockedReason,
   TrackSummary,
   TrackTarget,
+  TrackWriteCall,
+  TrackWriteFailed,
 } from "./lib/mux-tracks.ts";
 
 // Mux playback URL utilities

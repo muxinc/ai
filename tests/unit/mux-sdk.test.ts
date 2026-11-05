@@ -221,6 +221,8 @@ describe("shots requests through the SDK", () => {
   it("surfaces other 400s from the SDK as errors", async () => {
     sdkFetch.mockResolvedValue(jsonResponse({ error: { type: "invalid_parameters", messages: ["Asset is not ready"] } }, 400));
 
-    await expect(waitForShotsForAsset("asset-1", { pollIntervalMs: 0, maxAttempts: 1 })).rejects.toBeInstanceOf(Mux.BadRequestError);
+    const error = await waitForShotsForAsset("asset-1", { pollIntervalMs: 0, maxAttempts: 1 }).catch(error => error);
+    expect(error).toMatchObject({ __mux_ai_error: true, dependency: "mux_video", facts: { call: "request_shots", status: 400 } });
+    expect(error.cause).toBeInstanceOf(Mux.BadRequestError);
   });
 });

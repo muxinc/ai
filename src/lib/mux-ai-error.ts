@@ -569,9 +569,9 @@ function scrubDetail(detail: string, context?: string): string {
 
 /**
  * Re-throws a classified error unchanged, merging any `facts` into it (its own
- * values win). Anything else is re-thrown as a plain `Error` with the context
- * prepended: an unclassified failure may be remote (and worth a step retry), so it
- * isn't labelled here.
+ * values win). Anything else becomes an `internal` error: a remote failure would
+ * already have been classified where the call was made, so what reaches here
+ * unclassified is this code's own failure.
  *
  * Use this in catch blocks that re-throw, so a classified error from a callee
  * keeps its classification. Token usage carries over either way.
@@ -583,11 +583,16 @@ export function wrapError(error: unknown, message: string, facts?: MuxAiErrorFac
     }
     throw error;
   }
-  const wrapped = new Error(`${message}: ${scrubDetail(extractErrorDetail(error), message)}`);
+  const wrapped = new MuxAiError(`${message}: ${scrubDetail(extractErrorDetail(error), message)}`, {
+    type: MUX_AI_ERROR_TYPES.SERVER_ERROR,
+    source: MUX_AI_ERROR_SOURCES.INTERNAL,
+    facts,
+    cause: error,
+  });
   // Carry `usage` through wrapping so failed workflows still report tokens burned.
   const usage = getErrorTokenUsage(error);
   if (usage) {
-    (wrapped as Error & { usage?: TokenUsage }).usage = usage;
+    wrapped.usage = usage;
   }
   throw wrapped;
 }

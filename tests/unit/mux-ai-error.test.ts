@@ -102,29 +102,31 @@ describe("wrapError", () => {
     expect(original.facts).toEqual({ call: "fetch_vtt", status: 404, trackId: "trk_1" });
   });
 
-  it("leaves anything else unclassified, keeping usage", () => {
+  it("classifies anything else as internal, keeping usage and the cause", () => {
     const raw = Object.assign(new Error("Unexpected token"), { usage: { inputTokens: 10, outputTokens: 2, totalTokens: 12 } });
 
-    const error = thrown(() => wrapError(raw, "Failed to parse output")) as Error & { usage?: unknown };
+    const error = thrown(() => wrapError(raw, "Failed to parse output")) as MuxAiError;
 
-    expect(MuxAiError.is(error)).toBe(false);
-    expect(error.message).toBe("Failed to parse output: Unexpected token");
+    expect(MuxAiError.is(error)).toBe(true);
+    expect(error).toMatchObject({ type: "server_error", source: "internal", message: "Failed to parse output: Unexpected token" });
     expect(error.usage).toMatchObject({ totalTokens: 12 });
+    expect(error.cause).toBe(raw);
   });
 
-  it("strips URL query strings (signed tokens) from the detail", () => {
+  it("strips URL query strings (signed tokens) from the detail and the cause summary", () => {
     const raw = new Error("Failed to download https://image.mux.com/abc/storyboard.png?token=SECRET_JWT: 403 Forbidden");
 
-    const error = thrown(() => wrapError(raw, "Failed to analyze")) as Error;
+    const error = thrown(() => wrapError(raw, "Failed to analyze")) as MuxAiError;
 
     expect(error.message).toBe("Failed to analyze: Failed to download https://image.mux.com/abc/storyboard.png?… 403 Forbidden");
+    expect(JSON.stringify(error.causes)).not.toContain("SECRET_JWT");
   });
 
   it("suppresses a suspected prompt leak in the detail", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const raw = new Error("Failed to parse: <role>You are a helpful assistant</role>");
 
-    const error = thrown(() => wrapError(raw, "Failed to parse output")) as Error;
+    const error = thrown(() => wrapError(raw, "Failed to parse output")) as MuxAiError;
 
     expect(error.message).toBe("Failed to parse output: Upstream error details suppressed by safety filter");
     warn.mockRestore();

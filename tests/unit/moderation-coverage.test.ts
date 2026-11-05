@@ -658,6 +658,68 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
+  it("keeps each failed sample's classification when every sample fails, without URLs or bodies", async () => {
+    vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack());
+    vi.mocked(getThumbnailUrls).mockResolvedValue(THUMBNAIL_URLS.map(item => ({ ...item, url: `${item.url}?token=secret` })));
+    mockFetch.mockImplementation(async () =>
+      mockOpenAIModerationResponse({ status: 401, statusText: "Unauthorized", body: { error: { code: "invalid_api_key", message: "Incorrect API key sk-123" } } }));
+
+    const error = await getModerationScores("asset-123", { provider: "openai", includeTranscript: false }).catch(e => e);
+
+    expect(MuxAiError.is(error)).toBe(true);
+    expect(error).toMatchObject({
+      message: "Moderation failed for all 3 sample(s).",
+      type: "server_error",
+      source: "internal",
+      dependency: "ai_provider",
+      retryable: false,
+      facts: {
+        provider: "openai",
+        sampleCount: 3,
+        countsBySource: { internal: 3 },
+        countsByStatus: { 401: 3 },
+      },
+    });
+    expect(JSON.stringify({ message: error.message, facts: error.facts })).not.toMatch(/secret|sk-123/);
+  });
+
+  it("files mixed per-sample failures under upstream and counts them by source and status", async () => {
+    vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack());
+    vi.mocked(getThumbnailUrls).mockResolvedValue(THUMBNAIL_URLS);
+    mockFetch.mockImplementation(async (_url, init) => {
+      const imageUrl = JSON.parse(String(init?.body)).input[0].image_url.url as string;
+      return imageUrl.endsWith("/a.png") ?
+          mockOpenAIModerationResponse({ status: 400, body: { error: { message: "bad" } } }) :
+          mockOpenAIModerationResponse({ status: 200, body: { results: [] } });
+    });
+
+    const error = await getModerationScores("asset-123", { provider: "openai", includeTranscript: false }).catch(e => e);
+
+    expect(error).toMatchObject({
+      type: "processing_error",
+      source: "upstream",
+      dependency: "ai_provider",
+      facts: { countsBySource: { internal: 1, upstream: 2 }, countsByStatus: { 400: 1, 200: 2 } },
+    });
+  });
+
+  it("files nothing-to-moderate under request when the caller turned the transcript off, else asset", async () => {
+    vi.mocked(isAudioOnlyAsset).mockReturnValue(true);
+    vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithoutTextTrack("asset-audio"));
+    const assetError = await getModerationScores("asset-audio", { provider: "openai" }).catch(e => e);
+    expect(assetError).toMatchObject({
+      source: "asset",
+      facts: { thumbnailSkipReason: "no_video_track", transcriptSkipReason: "no_ready_text_track" },
+    });
+
+    vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack("asset-audio"));
+    const requestError = await getModerationScores("asset-audio", { provider: "hive" }).catch(e => e);
+    expect(requestError).toMatchObject({
+      source: "request",
+      facts: { thumbnailSkipReason: "no_video_track", transcriptSkipReason: "unsupported_provider" },
+    });
+  });
+
   it("fails rather than skipping when the caption track is missing an id", async () => {
     vi.mocked(getPlaybackIdForAsset).mockResolvedValue({
       asset: {
@@ -685,9 +747,9 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
     const error = await getModerationScores("asset-123", { provider: "openai" }).catch(e => e);
 
     expect(error).toBeInstanceOf(Error);
-    expect(error.message).toContain("Failed to fetch transcript");
-    // A transient fetch failure is not a customer-safe validation error.
-    expect(MuxAiError.is(error)).toBe(false);
+    // A transient fetch failure is the upstream service's, not a validation error.
+    expect(MuxAiError.is(error)).toBe(true);
+    expect(error).toMatchObject({ source: "upstream", transient: true, facts: { status: 500 } });
     // Surfaces are resolved before any provider call, so nothing was spent.
     expect(counts.image).toBe(0);
     expect(counts.transcript).toBe(0);
@@ -885,7 +947,10 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
       status: "failed",
       errorMessage: expect.stringContaining("All 1 transcript window(s) failed to moderate"),
     });
-    expect(result.transcriptModeration.errorMessage).toContain("text rejected");
+    // The status is kept; the provider's response body is not.
+    expect(result.transcriptModeration.errorMessage).toContain("status 400");
+    expect(result.transcriptModeration.errorMessage).not.toContain("text rejected");
+    expect(result.transcriptScores[0]).not.toHaveProperty("failure");
     expect(result.transcriptScores).toHaveLength(1);
     expect(result.transcriptScores[0].error).toBe(true);
     expect(result.maxScores).toEqual({ sexual: 0.02, violence: 0.03 });
@@ -924,7 +989,8 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
       status: "failed",
       errorMessage: expect.stringContaining("All 3 thumbnail(s) failed to moderate"),
     });
-    expect(result.thumbnailModeration.errorMessage).toContain("invalid image payload");
+    expect(result.thumbnailModeration.errorMessage).toContain("status 400");
+    expect(result.thumbnailModeration.errorMessage).not.toContain("invalid image payload");
     expect(result.transcriptModeration).toEqual({ status: "completed" });
     expect(result.maxScores).toEqual({ sexual: 0.4, violence: 0.1 });
     expect(result.coverage).toEqual({

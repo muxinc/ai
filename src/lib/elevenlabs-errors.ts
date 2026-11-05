@@ -1,3 +1,7 @@
+import { dependencyError, isTransientStatus, requestIdOf } from "./dependency-error.ts";
+import { errorDetailFact, MUX_AI_ERROR_DEPENDENCIES } from "./mux-ai-error.ts";
+import type { MuxAiError, MuxAiErrorFacts } from "./mux-ai-error.ts";
+
 const MAX_ERROR_BODY_CHARS = 500;
 
 /**
@@ -17,6 +21,8 @@ export interface ElevenLabsFailure {
    * usable response.
    */
   reason?: string;
+  /** ElevenLabs' request ID, when the response carried one. */
+  requestId?: string;
   /** Whether repeating the same call could succeed. */
   retryable: boolean;
   /** Internal diagnostics for logs. Never customer-facing. */
@@ -24,14 +30,38 @@ export interface ElevenLabsFailure {
 }
 
 export function isRetryableElevenLabsStatus(status: number): boolean {
-  // 425 Too Early: the dubbed output is not ready to download yet.
-  return status === 408 || status === 425 || status === 429 || status >= 500;
+  // Includes 425 Too Early: the dubbed output is not ready to download yet.
+  return isTransientStatus(status);
+}
+
+/**
+ * The classified error for a failed ElevenLabs call, raised once the workflow has
+ * finished retrying it. `message` is the customer-facing text; the provider's detail
+ * goes in facts. Not transient: the caller already retried, or the call is a paid
+ * create that must not repeat. `failure.retryable` says whether a new job may succeed.
+ */
+export function elevenLabsFailureError(message: string, call: string, failure: ElevenLabsFailure, facts?: MuxAiErrorFacts): MuxAiError {
+  return dependencyError(message, {
+    dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
+    call,
+    status: failure.httpStatus,
+    requestId: failure.requestId,
+    timedOut: failure.reason === "timeout",
+    facts: {
+      provider: "elevenlabs",
+      ...(failure.reason && { providerCode: failure.reason }),
+      ...(failure.detail && { detail: errorDetailFact(failure.detail) }),
+      ...facts,
+    },
+    transient: false,
+    retryable: failure.retryable,
+  });
 }
 
 /** Describes a failed HTTP response, such as a download from a signed output URL. */
 export async function elevenLabsResponseFailure(response: Response): Promise<ElevenLabsFailure> {
   const body = await response.text().catch(() => "");
-  return httpFailure(response.status, response.statusText, body);
+  return httpFailure(response.status, response.statusText, body, response.headers);
 }
 
 /** Describes an error thrown by `@elevenlabs/elevenlabs-js`. */
@@ -39,7 +69,7 @@ export function elevenLabsSdkFailure(error: unknown): ElevenLabsFailure {
   const failure = error as { name?: string; message?: string; statusCode?: unknown; body?: unknown; rawResponse?: Response } | undefined;
   if (typeof failure?.statusCode === "number") {
     const body = typeof failure.body === "string" ? failure.body : JSON.stringify(failure.body ?? "");
-    return httpFailure(failure.statusCode, failure.rawResponse?.statusText, body);
+    return httpFailure(failure.statusCode, failure.rawResponse?.statusText, body, failure.rawResponse?.headers);
   }
   const message = failure?.message ?? String(error);
   switch (failure?.name) {
@@ -57,18 +87,20 @@ export function elevenLabsSdkFailure(error: unknown): ElevenLabsFailure {
   }
 }
 
-function httpFailure(status: number, statusText: string | undefined, body: string): ElevenLabsFailure {
+function httpFailure(status: number, statusText: string | undefined, body: string, headers: unknown): ElevenLabsFailure {
   const statusLine = [status, statusText].filter(Boolean).join(" ");
-  const { reason, detail } = parseElevenLabsErrorBody(body);
+  const { reason, detail, requestId } = parseElevenLabsErrorBody(body);
+  const responseRequestId = requestId ?? requestIdOf(headers);
   return {
     httpStatus: status,
     reason,
+    ...(responseRequestId && { requestId: responseRequestId }),
     retryable: isRetryableElevenLabsStatus(status),
     detail: detail ? `${statusLine}: ${detail}` : statusLine,
   };
 }
 
-function parseElevenLabsErrorBody(body: string): { reason?: string; detail: string } {
+function parseElevenLabsErrorBody(body: string): { reason?: string; detail: string; requestId?: string } {
   const trimmed = body.trim();
   if (!trimmed) {
     return { detail: "" };
@@ -98,7 +130,11 @@ function parseElevenLabsErrorBody(body: string): { reason?: string; detail: stri
     const reasonText = [reasonCode, message].filter(Boolean).join(": ");
     const context = [param && `param: ${param}`, requestId && `request_id: ${requestId}`].filter(Boolean).join(", ");
     if (reasonText) {
-      return { reason: reasonCode, detail: context ? `${reasonText} (${context})` : reasonText };
+      return {
+        reason: reasonCode,
+        detail: context ? `${reasonText} (${context})` : reasonText,
+        ...(typeof requestId === "string" && requestId && { requestId }),
+      };
     }
   }
   return { detail: trimmed.slice(0, MAX_ERROR_BODY_CHARS) };

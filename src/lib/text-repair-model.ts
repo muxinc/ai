@@ -37,6 +37,9 @@ export function createTextRepairGenerator(options: TextRepairModelOptions) {
     const started = Date.now();
     const maxOutputTokens = options.maxOutputTokens ?? Math.min(32768, Math.max(1024, plan.spans.reduce((total, span) =>
       total + Math.min(...span.budgets.map(limit => limit.value * (limit.unit === "words" ? 4 : 2))), 0) + 128));
+    const provider = typeof options.model === "object" ? options.model.provider : "gateway";
+    const modelId = typeof options.model === "object" ? options.model.modelId : options.model;
+    const context = { call: "repair_text", provider, model: modelId };
     try {
       const response = await withContentPolicyErrorHandling(() => generateText({
         model: options.model,
@@ -62,25 +65,21 @@ export function createTextRepairGenerator(options: TextRepairModelOptions) {
         onStepFinish: (step) => {
           usage = getErrorTokenUsage(step);
         },
-      }));
+      }), context);
       usage = getErrorTokenUsage(response);
-      const output = getGeneratedOutputWithContentPolicyHandling(response);
-      // The helper already throws for non-stop finishes. Keep the missing-output
-      // guard for custom/model implementations that return no object on stop.
-      if (!output) {
-        return { usage, elapsedMs: Date.now() - started, error: "Repair output missing" };
-      }
+      // Throws for non-stop finishes and for a stop with no output (caught below).
+      const output = getGeneratedOutputWithContentPolicyHandling(response, context);
       return { replacements: output, usage, elapsedMs: Date.now() - started };
     } catch (error) {
       // Output.object can throw before generateText returns on a non-empty,
       // non-stop response. Preserve that finish metadata too.
       const cause = NoObjectGeneratedError.isInstance(error) && error.finishReason && error.finishReason !== "stop" ?
-          new IncompleteGenerationError(error.finishReason, undefined, getErrorTokenUsage(error)) :
+          new IncompleteGenerationError(error.finishReason, undefined, getErrorTokenUsage(error), context) :
         error;
       recordModelCallFailure(cause, {
         phase: "length_repair",
-        provider: typeof options.model === "object" ? options.model.provider : "gateway",
-        modelId: typeof options.model === "object" ? options.model.modelId : options.model,
+        provider,
+        modelId,
         maxOutputTokens,
       }, usage ?? getErrorTokenUsage(cause));
       return { usage: usage ?? getErrorTokenUsage(cause), elapsedMs: Date.now() - started, error: cause instanceof Error ? cause.message : String(cause), errorCause: cause };

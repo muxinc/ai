@@ -60,6 +60,9 @@ export default antfu({
     }, {
       selector: "ExportAllDeclaration[source.value=/^\\.\\.?\\//]:not([source.value=/\\.(ts|json)$/])",
       message: "Relative re-exports inside src/ must include the .ts extension.",
+    }, {
+      selector: "ThrowStatement > :matches(NewExpression, CallExpression)[callee.name='Error']",
+      message: "Throw a classified MuxAiError (or internalError()/assertNever() for this code's own failures) so the failure keeps its source across step boundaries.",
     }],
   },
 }, {

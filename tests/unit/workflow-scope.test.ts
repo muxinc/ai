@@ -34,6 +34,18 @@ describe("resolveWorkflowScope", () => {
     [{ startTime: 70, endTime: 60 }, 120, "must be less than"],
   ])("rejects an invalid scope", (scope, duration, message) => {
     expect(() => resolveWorkflowScope(scope, duration)).toThrow(message);
+    expect(() => resolveWorkflowScope(scope, duration)).toThrow(expect.objectContaining({
+      code: "invalid_scope",
+      type: "validation_error",
+      source: "request",
+    }));
+  });
+
+  it("attributes a missing asset duration to the asset", () => {
+    expect(() => resolveWorkflowScope({}, undefined)).toThrow(expect.objectContaining({
+      type: "validation_error",
+      source: "asset",
+    }));
   });
 });
 

@@ -6,8 +6,15 @@ import {
   getGeneratedOutputWithContentPolicyHandling,
   withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
+import type { ModelCallContext } from "../lib/content-policy-error.ts";
 import { getLanguageName } from "../lib/language-codes.ts";
-import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
+import {
+  MUX_AI_ERROR_CODES,
+  MUX_AI_ERROR_SOURCES,
+  MUX_AI_ERROR_TYPES,
+  MuxAiError,
+  wrapError,
+} from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -25,6 +32,7 @@ import {
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
 import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
+import { signingCredentialsMissingError } from "../lib/url-signing.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
 import { hasWorkflowScopeBoundaries, resolveWorkflowScope } from "../lib/workflow-scope.ts";
 import {
@@ -176,6 +184,7 @@ async function generateChaptersWithAI({
   "use step";
 
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
+  const context: ModelCallContext = { call: "generate_chapters", provider, model: modelId };
 
   const response = await withContentPolicyAwareRetry(() => generateText({
     model,
@@ -188,8 +197,8 @@ async function generateChaptersWithAI({
         content: userPrompt,
       },
     ],
-  }));
-  const output = getGeneratedOutputWithContentPolicyHandling(response);
+  }), undefined, context);
+  const output = getGeneratedOutputWithContentPolicyHandling(response, context);
 
   // Detect schema-smuggling. response.output has already been stripped;
   // re-parse response.text to see what the model actually emitted.
@@ -489,11 +498,7 @@ async function generateChaptersInternal(
   // Resolve signing context for signed playback IDs
   const signingContext = await resolveMuxSigningContext(credentials);
   if (policy === "signed" && !signingContext) {
-    throw new MuxAiError(
-      "Signed playback ID requires signing credentials. " +
-      "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
-      { code: MUX_AI_ERROR_CODES.SIGNING_CREDENTIALS_MISSING },
-    );
+    throw signingCredentialsMissingError();
   }
 
   const readyTextTracks = getReadyTextTracks(assetData);
@@ -508,17 +513,22 @@ async function generateChaptersInternal(
   if (!transcriptResult.track || !transcriptResult.transcriptText) {
     const availableLanguagesList = readyTextTracks
       .map(t => t.language_code)
-      .filter(Boolean) as string[];
-    const availableLanguages = availableLanguagesList.join(", ");
+      .filter((code): code is string => Boolean(code));
     throw new MuxAiError(
-      `No caption track found${languageCode ? ` for language ${languageCode}` : ""}. Available languages: ${availableLanguages || "none"}.`,
-      { code: MUX_AI_ERROR_CODES.CAPTION_TRACK_NOT_FOUND, facts: { ...(languageCode && { languageCode }), availableLanguages: availableLanguagesList } },
+      `No caption track found${languageCode ? ` for language ${languageCode}` : ""}. Available languages: ${availableLanguagesList.join(", ") || "none"}.`,
+      {
+        code: MUX_AI_ERROR_CODES.CAPTION_TRACK_NOT_FOUND,
+        facts: { ...(languageCode && { languageCode }), availableLanguages: availableLanguagesList },
+      },
     );
   }
   const timestampedTranscript = extractTimestampedTranscript(transcriptResult.transcriptText);
   if (!timestampedTranscript) {
     const contentLabel = isAudioOnly ? "transcript" : "caption track";
-    throw new MuxAiError(`No usable content found in ${contentLabel}.`, { code: MUX_AI_ERROR_CODES.TRANSCRIPT_EMPTY });
+    throw new MuxAiError(`No usable content found in ${contentLabel}.`, {
+      code: MUX_AI_ERROR_CODES.TRANSCRIPT_EMPTY,
+      facts: { isAudioOnly },
+    });
   }
 
   // Resolve output language: explicit code takes priority, otherwise auto-detect from transcript track.
@@ -534,7 +544,14 @@ async function generateChaptersInternal(
   if (sceneContext?.length && sceneBoundarySeconds.length === 0) {
     throw new MuxAiError(
       "Scene context has no chapter boundaries within the requested scope.",
-      { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
+      {
+        type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+        source: MUX_AI_ERROR_SOURCES.REQUEST,
+        facts: {
+          sceneCount: sceneContext.length,
+          ...(resolvedScope && { scopeStart: resolvedScope.startTime, scopeEnd: resolvedScope.endTime }),
+        },
+      },
     );
   }
 
@@ -551,12 +568,13 @@ async function generateChaptersInternal(
   // Generate chapters using AI SDK
   let chaptersData: Awaited<ReturnType<typeof generateChaptersWithAI>> | null = null;
 
+  const systemPromptOverrides = {
+    ...(isAudioOnly ? AUDIO_ONLY_SYSTEM_PROMPT_OVERRIDES : {}),
+    ...(sceneContext?.length ? SCENE_CONTEXT_SYSTEM_PROMPT_OVERRIDES : {}),
+  };
+  const systemPrompt = chapterSystemPromptBuilder.build(systemPromptOverrides);
+  const modelFacts = { provider: modelConfig.provider, model: modelConfig.modelId };
   try {
-    const systemPromptOverrides = {
-      ...(isAudioOnly ? AUDIO_ONLY_SYSTEM_PROMPT_OVERRIDES : {}),
-      ...(sceneContext?.length ? SCENE_CONTEXT_SYSTEM_PROMPT_OVERRIDES : {}),
-    };
-    const systemPrompt = chapterSystemPromptBuilder.build(systemPromptOverrides);
     chaptersData = await generateChaptersWithAI({
       provider: modelConfig.provider,
       modelId: modelConfig.modelId,
@@ -565,15 +583,19 @@ async function generateChaptersInternal(
       credentials,
     });
   } catch (error) {
-    wrapError(error, `Failed to generate chapters with ${provider}`);
+    wrapError(error, `Failed to generate chapters with ${provider}`, modelFacts);
   }
 
   if (chaptersData) {
     collectedUsage.push(chaptersData.usage);
   }
 
+  const modelOutputFacts = { call: "generate_chapters", ...modelFacts, assetId };
   if (!chaptersData || !chaptersData.chapters) {
-    throw new MuxAiError(`Failed to generate chapters for asset ${assetId}.`, { code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_MISSING });
+    throw new MuxAiError(`Failed to generate chapters for asset ${assetId}.`, {
+      code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_MISSING,
+      facts: modelOutputFacts,
+    });
   }
 
   // Validate and sort chapters
@@ -593,7 +615,10 @@ async function generateChaptersInternal(
   );
 
   if (validChapters.length === 0) {
-    throw new MuxAiError(`Failed to generate valid chapters for asset ${assetId}.`, { code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID });
+    throw new MuxAiError(`Failed to generate valid chapters for asset ${assetId}.`, {
+      code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID,
+      facts: { ...modelOutputFacts, returnedCount: chaptersPayload.chapters.length },
+    });
   }
 
   // Scrub chapter titles for signs of a system-prompt leak. Titles are
@@ -645,7 +670,11 @@ async function generateChaptersInternal(
   });
 
   if (scrubbedChapters.length === 0) {
-    throw new MuxAiError(`Failed to generate valid chapters for asset ${assetId}.`, { code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_SUPPRESSED });
+    // Every remaining title tripped the prompt-leak scrub.
+    throw new MuxAiError(`Failed to generate valid chapters for asset ${assetId}.`, {
+      code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_SUPPRESSED,
+      facts: { ...modelOutputFacts, suppressedCount: validChapters.length },
+    });
   }
 
   // Preserve the standalone workflow's existing first-chapter behavior. Scene-aware

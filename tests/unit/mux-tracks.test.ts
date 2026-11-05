@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildMuxAiTrackPassthrough,
+  fetchVttFromMux,
   findNameCollisionTextTracks,
   findSameLanguageTextTracks,
   isDuplicateTrackNameError,
@@ -10,6 +11,8 @@ import {
   normalizeTrackName,
   planSourceTrackReplacement,
   planTextTrackReplacement,
+  trackReplacementBlockedError,
+  trackWriteFailedError,
   validateTrackPassthrough,
 } from "../../src/lib/mux-tracks";
 import type { AssetTextTrack, MuxAsset } from "../../src/types";
@@ -103,6 +106,8 @@ describe("planTextTrackReplacement", () => {
     expect(plan.kind).toBe("blocked");
     if (plan.kind === "blocked") {
       expect(plan.tracks.map(t => t.id)).toEqual(["a"]);
+      expect(plan.code).toBe("policy_fail");
+      expect(plan.conflictsOnLanguage).toBe(true);
       expect(plan.reason).toContain("English CC");
     }
   });
@@ -155,6 +160,7 @@ describe("planTextTrackReplacement", () => {
     expect(plan.kind).toBe("blocked");
     if (plan.kind === "blocked") {
       expect(plan.tracks.map(t => t.id)).toEqual(["b", "c"]);
+      expect(plan.code).toBe("not_generated");
       expect(plan.reason).toContain("replace_all");
     }
   });
@@ -202,6 +208,8 @@ describe("planTextTrackReplacement", () => {
         const plan = planTextTrackReplacement(asset([primaryAudio]), { type: "audio", languageCode: "en", name: "Other" }, policy);
         expect(plan.kind).toBe("blocked");
         if (plan.kind === "blocked") {
+          expect(plan.code).toBe("primary_audio");
+          expect(plan.conflictsOnLanguage).toBe(true);
           expect(plan.reason).toContain("primary audio");
           expect(plan.tracks).toEqual([expect.objectContaining({ id: "primary", primary: true })]);
         }
@@ -212,6 +220,7 @@ describe("planTextTrackReplacement", () => {
       const plan = planTextTrackReplacement(asset([dubbedEs]), AUDIO_TARGET, "replace_generated");
       expect(plan.kind).toBe("blocked");
       if (plan.kind === "blocked") {
+        expect(plan.code).toBe("not_generated");
         expect(plan.reason).toContain("An audio track that is not Mux-generated exists");
       }
     });
@@ -238,6 +247,7 @@ describe("planSourceTrackReplacement", () => {
     expect(plan.kind).toBe("blocked");
     if (plan.kind === "blocked") {
       expect(plan.tracks.map(t => t.id)).toEqual(["other"]);
+      expect(plan.code).toBe("name_collision");
       expect(plan.reason).toContain("already has the name");
     }
   });
@@ -290,5 +300,106 @@ describe("track passthrough", () => {
     expect(validateTrackPassthrough(max)).toBe(max);
     expect(validateTrackPassthrough(undefined)).toBeUndefined();
     expect(() => validateTrackPassthrough(`${max}x`)).toThrow(/255 characters/);
+    expect(() => validateTrackPassthrough(`${max}x`)).toThrow(expect.objectContaining({
+      type: "validation_error",
+      source: "request",
+      facts: { maxLength: MUX_TRACK_PASSTHROUGH_MAX_CHARS, length: MUX_TRACK_PASSTHROUGH_MAX_CHARS + 1 },
+    }));
+  });
+});
+
+describe("trackReplacementBlockedError", () => {
+  const primaryAudio = track({ id: "primary", type: "audio", text_type: undefined, text_source: undefined, status: undefined, language_code: "en", name: "English", primary: true });
+
+  it("raises track_replacement_blocked with the reason and conflicting tracks", () => {
+    const plan = planTextTrackReplacement(asset([track({ id: "a", language_code: "en", name: "English CC" })]), TARGET, "fail");
+    if (plan.kind !== "blocked") {
+      throw new Error("expected a blocked plan");
+    }
+    const error = trackReplacementBlockedError(plan, { facts: { assetId: "asset-1" } });
+    expect(error).toMatchObject({
+      code: "track_replacement_blocked",
+      source: "request",
+      message: plan.reason,
+      facts: {
+        assetId: "asset-1",
+        reason: "policy_fail",
+        conflictingTracks: [expect.objectContaining({ id: "a", name: "English CC", languageCode: "en" })],
+      },
+    });
+  });
+
+  it("attributes a primary-audio conflict on language to the asset", () => {
+    const plan = planTextTrackReplacement(asset([primaryAudio]), { type: "audio", languageCode: "en", name: "Other" }, "replace_all");
+    if (plan.kind !== "blocked") {
+      throw new Error("expected a blocked plan");
+    }
+    const error = trackReplacementBlockedError(plan);
+    expect(error.code).toBeUndefined();
+    expect(error).toMatchObject({ type: "validation_error", source: "asset", facts: { reason: "primary_audio" } });
+  });
+
+  it("keeps a primary-audio conflict on name only as the caller's", () => {
+    const plan = planTextTrackReplacement(asset([primaryAudio]), { type: "audio", languageCode: "es", name: "english" }, "replace_all");
+    if (plan.kind !== "blocked") {
+      throw new Error("expected a blocked plan");
+    }
+    expect(plan.conflictsOnLanguage).toBe(false);
+    expect(trackReplacementBlockedError(plan)).toMatchObject({ code: "track_replacement_blocked", source: "request" });
+  });
+});
+
+describe("trackWriteFailedError", () => {
+  // A create isn't idempotent, so even a transient failure isn't retried by the step.
+  it.each([
+    [503, "upstream", false],
+    [undefined, "upstream", false],
+    [401, "account", false],
+    [404, "asset", false],
+    [400, "internal", false],
+  ] as const)("classifies a %s from Mux as %s", (status, source, transient) => {
+    const error = trackWriteFailedError({ call: "create_track", status, requestId: "req-1", reason: "raw" }, "Failed to add track", { assetId: "a" });
+    expect(error).toMatchObject({
+      source,
+      transient,
+      dependency: "mux_video",
+      facts: { call: "create_track", assetId: "a", requestId: "req-1", ...(status !== undefined && { status }) },
+    });
+    expect(error.message).toBe("Failed to add track");
+    expect(error.retryable).toBe(source === "upstream");
+  });
+
+  it("keeps an idempotent call's transient failure transient", () => {
+    const error = trackWriteFailedError({ call: "delete_track", status: 503, reason: "raw" }, "Failed to delete track");
+    expect(error).toMatchObject({ source: "upstream", transient: true, retryable: true });
+  });
+});
+
+describe("fetchVttFromMux", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it.each([
+    [404, "asset", false],
+    [503, "upstream", true],
+    [403, "account", false],
+  ] as const)("classifies HTTP %s as %s", async (status, source, transient) => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status, headers: { "x-request-id": "req-9" } })));
+    await expect(fetchVttFromMux("https://stream.mux.com/p/text/t.vtt?token=secret")).rejects.toMatchObject({
+      source,
+      transient,
+      dependency: "mux_video",
+      facts: { call: "fetch_vtt", status, requestId: "req-9" },
+    });
+  });
+
+  it("treats a network failure as transient upstream and keeps the URL out of the error", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new TypeError("fetch failed");
+    }));
+    const error = await fetchVttFromMux("https://stream.mux.com/p/text/t.vtt?token=secret").catch((e: unknown) => e);
+    expect(error).toMatchObject({ source: "upstream", transient: true, facts: { call: "fetch_vtt" } });
+    expect(JSON.stringify(error) + (error as Error).message).not.toContain("secret");
   });
 });

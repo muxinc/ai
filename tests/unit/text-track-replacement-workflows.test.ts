@@ -147,27 +147,38 @@ describe("translateCaptions text track replacement", () => {
   });
 
   it("fails the workflow instead of swallowing a blocked or failed create", async () => {
-    vi.mocked(replaceAndCreateTextTrack).mockResolvedValueOnce({ kind: "blocked", reason: "late conflict", tracks: [], deleted: [] });
+    vi.mocked(replaceAndCreateTextTrack).mockResolvedValueOnce({
+      kind: "blocked",
+      code: "policy_fail",
+      reason: "late conflict",
+      tracks: [],
+      conflictsOnLanguage: true,
+      deleted: [],
+    });
     const blocked = await captureRejection(translateCaptions("asset-1", "track-en", "es", OPTIONS));
     expect(blocked.message).toContain("late conflict");
+    expect(blocked).toMatchObject({ code: "track_replacement_blocked", facts: { reason: "policy_fail", conflictingTracks: [] } });
 
-    vi.mocked(replaceAndCreateTextTrack).mockResolvedValueOnce({ kind: "create_failed", reason: "boom", deleted: [] });
+    vi.mocked(replaceAndCreateTextTrack).mockResolvedValueOnce({ kind: "create_failed", call: "create_track", status: 503, reason: "boom", deleted: [] });
     const failed = await captureRejection(translateCaptions("asset-1", "track-en", "es", OPTIONS));
-    expect(failed.message).toContain("boom");
+    expect(failed.message).toContain("Failed to add translated track");
     expect(failed.message).not.toContain("already deleted");
+    expect(failed).toMatchObject({ source: "upstream", dependency: "mux_video", facts: { call: "create_track", status: 503 } });
+    expect((failed as any).causes).toEqual([expect.objectContaining({ message: "boom" })]);
   });
 
   it("names the tracks already deleted when the create fails after deletions", async () => {
     vi.mocked(replaceAndCreateTextTrack).mockResolvedValueOnce({
       kind: "create_failed",
+      call: "create_track",
       reason: "boom",
       deleted: [{ id: "track-es-asr", name: "Spanish CC", languageCode: "es", textSource: "generated_vod" }],
     });
 
     const failed = await captureRejection(translateCaptions("asset-1", "track-en", "es", { ...OPTIONS, replaceExistingTracks: "replace_generated" }));
 
-    expect(failed.message).toContain("boom");
     expect(failed.message).toContain("Spanish CC (track-es-asr)");
+    expect(failed).toMatchObject({ facts: { deletedTracks: [expect.objectContaining({ id: "track-es-asr" })] } });
   });
 
   it("rejects an over-long trackPassthrough before doing any work", async () => {
@@ -276,6 +287,8 @@ describe("editCaptions source track replacement", () => {
   it("restores the source track from the original VTT when the create fails after the source was deleted", async () => {
     vi.mocked(replaceSourceTrack).mockResolvedValue({
       kind: "create_failed",
+      call: "create_track",
+      status: 500,
       reason: "Mux exploded",
       deleted: [{ id: "track-en", name: "English", languageCode: "en" }],
     });
@@ -283,8 +296,12 @@ describe("editCaptions source track replacement", () => {
 
     const error = await captureRejection(editCaptions("asset-1", "track-en", OPTIONS));
 
-    expect(error.message).toContain("Mux exploded");
     expect(error.message).toContain("restored as track-en-restored");
+    expect(error).toMatchObject({
+      source: "upstream",
+      dependency: "mux_video",
+      facts: { call: "create_track", status: 500, sourceRestored: true, restoredTrackId: "track-en-restored" },
+    });
     expect(vi.mocked(putObjectWithStorageAdapter)).toHaveBeenLastCalledWith(
       expect.objectContaining({ body: VTT, key: expect.stringContaining("-original-") }),
       undefined,
@@ -302,8 +319,10 @@ describe("editCaptions source track replacement", () => {
   it("restores the source when the retry is blocked after the source was already deleted", async () => {
     vi.mocked(replaceSourceTrack).mockResolvedValue({
       kind: "blocked",
+      code: "name_collision",
       reason: "a track named English appeared",
       tracks: [{ id: "late", name: "English", languageCode: "fr", textSource: "uploaded" }],
+      conflictsOnLanguage: false,
       deleted: [{ id: "track-en", name: "English", languageCode: "en" }],
     });
     vi.mocked(createTextTrackOnMux).mockResolvedValue("track-en-restored");
@@ -312,14 +331,35 @@ describe("editCaptions source track replacement", () => {
 
     expect(error.message).toContain("a track named English appeared");
     expect(error.message).toContain("restored as track-en-restored");
+    expect(error).toMatchObject({
+      code: "track_replacement_blocked",
+      facts: { reason: "name_collision", conflictingTracks: [expect.objectContaining({ id: "late" })] },
+    });
   });
 
-  it("does not attempt a restore when the source was not deleted", async () => {
-    vi.mocked(replaceSourceTrack).mockResolvedValue({ kind: "create_failed", reason: "nope", deleted: [] });
+  it("keeps a failed restore's raw error out of the message", async () => {
+    vi.mocked(replaceSourceTrack).mockResolvedValue({
+      kind: "create_failed",
+      call: "create_track",
+      reason: "Mux exploded",
+      deleted: [{ id: "track-en", name: "English", languageCode: "en" }],
+    });
+    vi.mocked(createTextTrackOnMux).mockRejectedValue(new Error("secret restore detail"));
 
     const error = await captureRejection(editCaptions("asset-1", "track-en", OPTIONS));
 
-    expect(error.message).toContain("nope");
+    expect(error.message).toContain("Restoring the source track also failed.");
+    expect(error.message).not.toContain("secret restore detail");
+    expect(error).toMatchObject({ facts: { sourceRestored: false, restoreError: "secret restore detail" } });
+  });
+
+  it("does not attempt a restore when the source was not deleted", async () => {
+    vi.mocked(replaceSourceTrack).mockResolvedValue({ kind: "create_failed", call: "create_track", status: 400, reason: "nope", deleted: [] });
+
+    const error = await captureRejection(editCaptions("asset-1", "track-en", OPTIONS));
+
+    expect(error.message).toBe("Failed to add edited track to Mux asset.");
+    expect(error).toMatchObject({ source: "internal", facts: { status: 400 } });
     expect(vi.mocked(createTextTrackOnMux)).not.toHaveBeenCalled();
   });
 });

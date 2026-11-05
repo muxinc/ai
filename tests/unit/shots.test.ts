@@ -206,6 +206,47 @@ describe("getShotsForAsset", () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
+  it("classifies a failed Mux API call by its status", async () => {
+    mockRetrieveShots.mockRejectedValue(Object.assign(new Error("503 unavailable"), { status: 503 }));
+    await expect(getShotsForAsset("test-asset-123")).rejects.toMatchObject({
+      source: "upstream",
+      dependency: "mux_video",
+      transient: true,
+      facts: { call: "get_shots", status: 503, assetId: "test-asset-123" },
+    });
+
+    mockRetrieveShots.mockRejectedValue(Object.assign(new Error("404 not found"), { status: 404 }));
+    await expect(getShotsForAsset("test-asset-123")).rejects.toMatchObject({
+      source: "request",
+      transient: false,
+      facts: { call: "get_shots", status: 404 },
+    });
+  });
+
+  it("classifies a failed shots manifest fetch", async () => {
+    mockRetrieveShots.mockResolvedValue(MOCK_COMPLETED_RESPONSE);
+    mockFetch.mockResolvedValue(new Response("", { status: 404 }));
+
+    await expect(getShotsForAsset("test-asset-123")).rejects.toMatchObject({
+      source: "asset",
+      dependency: "mux_video",
+      facts: { call: "fetch_shots_manifest", status: 404 },
+    });
+  });
+
+  it("doesn't step-retry a shots manifest Mux returned but we can't use", async () => {
+    mockRetrieveShots.mockResolvedValue(MOCK_COMPLETED_RESPONSE);
+    mockFetch.mockResolvedValue(new Response(JSON.stringify({ shots: "not-an-array" }), { status: 200 }));
+
+    await expect(getShotsForAsset("test-asset-123")).rejects.toMatchObject({
+      source: "upstream",
+      dependency: "mux_video",
+      transient: false,
+      name: "FatalError",
+      facts: { call: "fetch_shots_manifest", status: 200 },
+    });
+  });
+
   it("throws a clear error for statuses this library does not handle", async () => {
     mockRetrieveShots.mockResolvedValue({ status: "unexpected", created_at: "1773108428" });
     await expect(getShotsForAsset("test-asset-123")).rejects.toThrow("Unsupported shots status 'unexpected'");
@@ -343,9 +384,13 @@ describe("waitForShotsForAsset", () => {
       pollIntervalMs: 100,
       maxAttempts: 3,
     });
-    const expectation = expect(promise).rejects.toThrow(
-      "Shot generation failed for asset test-asset-123.",
-    );
+    const expectation = expect(promise).rejects.toMatchObject({
+      message: "Shot generation failed for asset test-asset-123.",
+      type: "processing_error",
+      source: "upstream",
+      dependency: "mux_video",
+      facts: { call: "get_shots", assetId: "test-asset-123", shotsStatus: "errored" },
+    });
 
     await vi.runAllTimersAsync();
     await expectation;
@@ -363,7 +408,9 @@ describe("waitForShotsForAsset", () => {
     });
     const expectation = expect(promise).rejects.toMatchObject({
       type: "validation_error",
+      source: "asset",
       message: "Shot generation was skipped for asset test-asset-123; the asset may have no video track.",
+      facts: { assetId: "test-asset-123", shotsStatus: "skipped" },
     });
 
     await vi.runAllTimersAsync();

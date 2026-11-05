@@ -4,6 +4,8 @@ import type {
   StoragePutObjectInput,
 } from "../types.ts";
 
+import { dependencyError, httpStatusOf } from "./dependency-error.ts";
+import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_DEPENDENCIES, MuxAiError } from "./mux-ai-error.ts";
 import { createPresignedGetUrl, putObjectToS3 } from "./s3-sigv4.ts";
 
 function requireCredentials(
@@ -11,10 +13,10 @@ function requireCredentials(
   secretAccessKey: string | undefined,
 ): { accessKeyId: string; secretAccessKey: string } {
   if (!accessKeyId || !secretAccessKey) {
-    throw new Error(
-      "S3 credentials are required for default storage operations. " +
-      "Provide S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY or pass options.storageAdapter.",
-    );
+    throw storageNotConfiguredError([
+      ...(!accessKeyId ? ["S3_ACCESS_KEY_ID"] : []),
+      ...(!secretAccessKey ? ["S3_SECRET_ACCESS_KEY"] : []),
+    ]);
   }
 
   return { accessKeyId, secretAccessKey };
@@ -25,7 +27,11 @@ export async function putObjectWithStorageAdapter(
   adapter?: StorageAdapter,
 ): Promise<void> {
   if (adapter) {
-    await adapter.putObject(input);
+    try {
+      await adapter.putObject(input);
+    } catch (error) {
+      throw adapterError(error, "Failed to upload to storage", "put_object", input.bucket);
+    }
     return;
   }
 
@@ -47,7 +53,11 @@ export async function createPresignedGetUrlWithStorageAdapter(
   adapter?: StorageAdapter,
 ): Promise<string> {
   if (adapter) {
-    return adapter.createPresignedGetUrl(input);
+    try {
+      return await adapter.createPresignedGetUrl(input);
+    } catch (error) {
+      throw adapterError(error, "Failed to presign a storage URL", "presign_get_object", input.bucket);
+    }
   }
 
   const credentials = requireCredentials(input.accessKeyId, input.secretAccessKey);
@@ -59,5 +69,37 @@ export async function createPresignedGetUrlWithStorageAdapter(
     bucket: input.bucket,
     key: input.key,
     expiresInSeconds: input.expiresInSeconds,
+  });
+}
+
+/**
+ * Uploading needs an S3 endpoint and bucket (options or env) and, without a custom
+ * storage adapter, S3 keys from env. The service running the SDK supplies them, so
+ * their absence is an `internal` problem. `missing` names the settings, never values.
+ */
+export function storageNotConfiguredError(missing: string[]): MuxAiError {
+  return new MuxAiError(
+    "Storage configuration is required for uploading. Provide s3Endpoint and s3Bucket in options " +
+    "or set S3_ENDPOINT and S3_BUCKET. If no storageAdapter is supplied, also set S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY.",
+    { code: MUX_AI_ERROR_CODES.STORAGE_NOT_CONFIGURED, facts: { missing } },
+  );
+}
+
+/**
+ * Classifies a failure from a caller-supplied storage adapter, which bypasses the
+ * classified S3 client. Reads the status from the error, including the AWS SDK v3
+ * shape (`$metadata.httpStatusCode`); without one it's treated as no response.
+ */
+function adapterError(error: unknown, message: string, call: string, bucket: string): MuxAiError {
+  if (MuxAiError.is(error)) {
+    return error;
+  }
+  const awsStatus = (error as { $metadata?: { httpStatusCode?: unknown } } | null)?.$metadata?.httpStatusCode;
+  return dependencyError(message, {
+    dependency: MUX_AI_ERROR_DEPENDENCIES.STORAGE,
+    call,
+    status: httpStatusOf(error) ?? (typeof awsStatus === "number" ? awsStatus : undefined),
+    facts: { bucket },
+    cause: error,
   });
 }
