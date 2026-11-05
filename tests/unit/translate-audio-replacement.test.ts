@@ -126,6 +126,18 @@ afterEach(() => {
 });
 
 describe("translateAudio track replacement", () => {
+  it("preserves the requested region on the Mux track while sending only the base language to ElevenLabs", async () => {
+    const fetchMock = stubElevenLabsFetch();
+    vi.mocked(replaceAndCreateTrack).mockResolvedValue({ kind: "created", trackId: "regional-dub", deleted: [] });
+    const result = await translateAudio(ASSET_ID, "pt-BR");
+    const create = fetchMock.mock.calls.find(([, init]) => init?.method === "POST")!;
+    expect((create[1].body as FormData).get("target_language")).toBe("pt");
+    expect(replaceAndCreateTrack).toHaveBeenCalledWith(expect.objectContaining({
+      target: expect.objectContaining({ type: "audio", languageCode: "pt-br" }),
+    }));
+    expect(result).toMatchObject({ targetLanguageCode: "pt-br", uploadedTrackId: "regional-dub" });
+  });
+
   it("rejects before dubbing when a same-language audio track exists and the policy is fail", async () => {
     mockAsset([PRIMARY_AUDIO, OLD_DUB]);
     const fetchMock = stubElevenLabsFetch();

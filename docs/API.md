@@ -689,13 +689,13 @@ ElevenLabs charges for the first target language when a project is created. The 
 **Parameters:**
 
 - `assetId` (string) - Mux asset ID (video or audio-only; must contain audio). The workflow requests an audio static rendition if needed, or uses existing files for assets with the deprecated `mp4_support` option.
-- `toLanguageCode` (string) - Target BCP-47 base language tag, such as `es`, `ur`, or `yue`. Known ISO 639-3 aliases, such as `spa` and `urd`, are also accepted. See supported languages below.
+- `toLanguageCode` (string) - Target language tag, such as `es`, `ur`, `yue`, or `pt-BR`. Known ISO 639-3 aliases, such as `spa` and `urd`, are also accepted. Region and script subtags are retained on Mux tracks; dubbing uses the primary language. See supported languages below.
 - `options` (optional) - Configuration options
 
 **Options:**
 
 - `provider?: 'elevenlabs'` - AI provider (default: 'elevenlabs')
-- `fromLanguageCode?: string` - Source language tag, such as `en`. Known ISO 639-3 aliases, such as `eng`, are also accepted. Omit or use `"auto"` for automatic detection.
+- `fromLanguageCode?: string` - Source language tag, such as `en` or `en-US`. Known ISO 639-3 aliases, such as `eng`, are also accepted. Region and script subtags are dropped for ElevenLabs. Omit or use `"auto"` for automatic detection.
 - `numSpeakers?: number` - Must be `0` for automatic speaker detection (default). Explicit speaker counts are not supported.
 - `uploadToMux?: boolean` - Whether to upload dubbed track to Mux (default: true)
 - `uploadCaptionsToMux?: boolean` - Also attach the dub's translated transcript as a subtitles text track (default: false)
@@ -738,11 +738,11 @@ interface TranslateAudioResult {
 
 **Supported Languages:**
 
-See the [Dubbing v1 language list](https://elevenlabs.io/docs/help-center/product/dubbing/which-languages-are-supported-in-dubbing#dubbing-v1) for available targets. Use base language tags such as `es` (Spanish), `ur` (Urdu), and `yue` (Cantonese). BCP-47 base tags can have two or three letters. Known ISO 639-3 aliases are normalized automatically, for example `urd` becomes `ur`.
+See the [Dubbing v1 language list](https://elevenlabs.io/docs/help-center/product/dubbing/which-languages-are-supported-in-dubbing#dubbing-v1) for available targets. Language tags include `es` (Spanish), `ur` (Urdu), and `yue` (Cantonese). BCP-47 primary language subtags can have two or three letters. Known ISO 639-3 aliases are normalized automatically, for example `urd` becomes `ur`.
 
-The selected `dubbing_v1` model does not support regional dialect tags such as `es-MX`. ElevenLabs validates target support when the project is created, after any required Mux rendition preparation.
+The workflow drops region and script subtags for ElevenLabs while retaining the requested tag on Mux tracks. For example, `pt-BR` requests Portuguese dubbing and produces a Mux track tagged `pt-br`. These qualifiers do not select a regional dialect in the `dubbing_v1` model. ElevenLabs validates the primary target language when the project is created, after any required Mux rendition preparation.
 
-`targetLanguageCode` contains the normalized base tag. The existing `targetLanguage.iso639_1` result field also contains that tag, including three-letter values such as `yue` when no two-letter code exists. Track names are generated from the language name, such as `"Spanish (Auto-dubbed)"`, unless `trackName` is provided.
+`targetLanguageCode` contains the normalized requested tag, including any region or script subtags. The existing `targetLanguage.iso639_1` result field also contains that tag, including three-letter values such as `yue` when no two-letter code exists. Track names are generated from the language name, such as `"Spanish (Auto-dubbed)"`, unless `trackName` is provided.
 
 ## `generateEmbeddings(assetId, options?)`
 

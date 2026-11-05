@@ -913,9 +913,9 @@ console.log(result.presignedUrl); // S3 audio file URL; extension matches the au
 
 ### Supported Languages
 
-`translateAudio` uses ElevenLabs' `dubbing_v1` model. See its [supported languages](https://elevenlabs.io/docs/help-center/product/dubbing/which-languages-are-supported-in-dubbing#dubbing-v1) and pass a BCP-47 base tag, such as `es` (Spanish), `ur` (Urdu), or `yue` (Cantonese). Known ISO 639-3 aliases, such as `spa` and `urd`, are normalized automatically.
+`translateAudio` uses ElevenLabs' `dubbing_v1` model. See its [supported languages](https://elevenlabs.io/docs/help-center/product/dubbing/which-languages-are-supported-in-dubbing#dubbing-v1) and pass a language tag such as `es` (Spanish), `ur` (Urdu), or `yue` (Cantonese). Known ISO 639-3 aliases, such as `spa` and `urd`, are normalized automatically.
 
-This model does not support regional dialect tags such as `es-MX`. ElevenLabs validates target support when the project is created, after any required Mux rendition preparation. Track names are generated from the language name, such as `"Spanish (Auto-dubbed)"`, unless `trackName` is provided.
+Tags with region or script subtags are accepted, but dubbing uses only the primary language. For example, `pt-BR` requests Portuguese dubbing while the Mux track retains `pt-br`; it does not select a Brazilian Portuguese dialect. ElevenLabs validates the primary target language when the project is created, after any required Mux rendition preparation. Track names are generated from the language name, such as `"Spanish (Auto-dubbed)"`, unless `trackName` is provided.
 
 ### Audio Dubbing Workflow
 

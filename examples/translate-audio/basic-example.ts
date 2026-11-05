@@ -18,7 +18,7 @@ program
 Notes:
   - Uses an existing static rendition or requests an audio rendition if needed
   - Uses default audio track, source language is auto-detected unless --from is provided
-  - Uses ElevenLabs Dubbing v1; regional target tags such as es-MX are not supported`)
+  - Uses ElevenLabs Dubbing v1; region and script subtags are dropped for dubbing but retained on Mux tracks`)
   .action(async (assetId: string, options: {
     from?: string;
     to: string;

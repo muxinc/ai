@@ -43,11 +43,11 @@ export type StaticRenditionCleanupOutcome = "deleted" | "delete_failed" | "kept"
 /** Output returned from `translateAudio`. */
 export interface AudioTranslationResult {
   assetId: string;
-  /** Target language BCP-47 base tag, including three-letter tags such as `yue`. */
+  /** Normalized target language tag, including region or script subtags when supplied. */
   targetLanguageCode: string;
   /**
-   * Legacy language-code pair. `iso639_1` contains the BCP-47 base tag, which
-   * can have three letters when a language has no ISO 639-1 code.
+   * Legacy language-code pair. `iso639_1` retains the normalized requested tag,
+   * including qualifiers or three-letter languages without an ISO 639-1 code.
    */
   targetLanguage: LanguageCodePair;
   /** ElevenLabs project ID; legacy callers retain the `dubbingId` field. */
@@ -77,7 +77,8 @@ export interface AudioTranslationOptions extends MuxAIOptions {
   provider?: "elevenlabs";
   /**
    * Optional source language code for ElevenLabs `source_language`.
-   * Accepts ISO 639-1 (e.g. "en") or ISO 639-3 (e.g. "eng").
+   * Accepts language tags (e.g. "en-US") or known ISO 639-3 aliases (e.g. "eng").
+   * Region and script subtags are dropped for ElevenLabs.
    * Defaults to auto-detect when omitted.
    */
   fromLanguageCode?: string;
@@ -348,6 +349,11 @@ async function waitForLegacyMp4SupportRendition({
   }
 
   return rendition.name;
+}
+
+/** Drop region and script subtags for ElevenLabs Dubbing v1 while retaining them on Mux tracks. */
+function toBaseLanguageCode(code: string): string {
+  return code.trim().split(/[-_]/)[0];
 }
 
 async function createElevenLabsDubbingJob({
@@ -630,7 +636,7 @@ export async function translateAudio(
   const uploadToMux = uploadToMuxOption !== false; // Default to true
   const uploadToS3 = uploadToS3Option || uploadToMux || uploadCaptionsToMux; // Defaults to uploadToMux; Mux uploads force S3 staging
 
-  // Use the same normalized BCP-47 base tag for provider requests and Mux tracks.
+  // Mux tracks retain the requested tag; ElevenLabs receives only the primary language subtag.
   const muxLangCode = targetLanguageCode;
   const trackName = providedTrackName ?? `${getLanguageName(muxLangCode) ?? muxLangCode.toUpperCase()} (Auto-dubbed)`;
   const audioTrackTarget: TextTrackTarget = { type: "audio", languageCode: muxLangCode, name: trackName };
@@ -728,8 +734,8 @@ export async function translateAudio(
     // Create dubbing job in ElevenLabs
     console.warn("🎙️ Creating dubbing job in ElevenLabs...");
 
-    const elevenLabsLangCode = targetLanguageCode;
-    const sourceLanguageCode = toISO639_1(fromLanguageCode ?? "auto");
+    const elevenLabsLangCode = toISO639_1(toBaseLanguageCode(toLanguageCode));
+    const sourceLanguageCode = toISO639_1(toBaseLanguageCode(fromLanguageCode ?? "auto"));
     const elevenLabsSourceLangCode = sourceLanguageCode && sourceLanguageCode !== "auto" ? sourceLanguageCode : undefined;
     console.warn(
       `🔍 Creating dubbing job for asset ${assetId}: ${elevenLabsSourceLangCode ?? "auto"} -> ${elevenLabsLangCode}`,

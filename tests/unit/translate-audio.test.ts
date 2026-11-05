@@ -282,6 +282,26 @@ const UNSUPPORTED_LANGUAGE_BODY = {
   },
 };
 
+describe("translateAudio ElevenLabs language codes", () => {
+  beforeEach(() => {
+    mockMuxClient({ initialAsset: readyRenditionAsset("rendition-pre-existing") });
+  });
+
+  it.each([
+    { target: "pt-BR", source: "en_US", providerTarget: "pt", providerSource: "en", requestedTag: "pt-br" },
+    { target: "mr-in", source: "zh-Hant-TW", providerTarget: "mr", providerSource: "zh", requestedTag: "mr-in" },
+    { target: "zh-Hant", source: "pt_BR", providerTarget: "zh", providerSource: "pt", requestedTag: "zh-hant" },
+  ])("sends the base language for $target while preserving the requested result tag", async ({ target, source, providerTarget, providerSource, requestedTag }) => {
+    const fetchMock = stubElevenLabsFetch();
+    const result = await translateAudio(ASSET_ID, target, { ...BASE_OPTIONS, fromLanguageCode: source });
+    const create = fetchMock.mock.calls.find(([input, init]) => String(input).endsWith("/v1/dubbing/project") && init?.method === "POST")!;
+    const form = create[1].body as FormData;
+    expect(form.get("target_language")).toBe(providerTarget);
+    expect(form.get("source_language")).toBe(providerSource);
+    expect(result.targetLanguageCode).toBe(requestedTag);
+  });
+});
+
 describe("translateAudio ElevenLabs error reporting", () => {
   beforeEach(() => {
     mockMuxClient({ initialAsset: readyRenditionAsset("rendition-pre-existing") });
@@ -492,18 +512,15 @@ describe("translateAudio project API", () => {
     expect(result).toMatchObject({ targetLanguageCode: tag, targetLanguage: { iso639_1: tag, iso639_3: iso3 } });
   });
 
-  it.each([
-    { input: "eu", expected: "eu" },
-    { input: "es-MX", expected: "es-mx" },
-  ])("defers validation of $input to ElevenLabs without retrying a rejected create", async ({ input, expected }) => {
+  it("lets ElevenLabs reject an unsupported base language without retrying creation", async () => {
     const fetchMock = stubElevenLabsCreateFailure(new Response(
       JSON.stringify({ detail: { status: "unsupported_target_language", message: "Unsupported target language" } }),
       { status: 400, statusText: "Bad Request" },
     ));
-    await expect(translateAudio(ASSET_ID, input, BASE_OPTIONS)).rejects.toThrow("400 Bad Request: unsupported_target_language");
+    await expect(translateAudio(ASSET_ID, "eu", BASE_OPTIONS)).rejects.toThrow("400 Bad Request: unsupported_target_language");
     expect(getPlaybackIdForAsset).toHaveBeenCalledOnce();
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect((fetchMock.mock.calls[0][1].body as FormData).get("target_language")).toBe(expected);
+    expect((fetchMock.mock.calls[0][1].body as FormData).get("target_language")).toBe("eu");
   });
 
   it.each([
