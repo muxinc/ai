@@ -506,13 +506,13 @@ async function generateChaptersInternal(
   });
 
   if (!transcriptResult.track || !transcriptResult.transcriptText) {
-    const availableLanguages = readyTextTracks
+    const availableLanguagesList = readyTextTracks
       .map(t => t.language_code)
-      .filter(Boolean)
-      .join(", ");
+      .filter(Boolean) as string[];
+    const availableLanguages = availableLanguagesList.join(", ");
     throw new MuxAiError(
       `No caption track found${languageCode ? ` for language ${languageCode}` : ""}. Available languages: ${availableLanguages || "none"}.`,
-      { code: MUX_AI_ERROR_CODES.CAPTION_TRACK_NOT_FOUND },
+      { code: MUX_AI_ERROR_CODES.CAPTION_TRACK_NOT_FOUND, facts: { ...(languageCode && { languageCode }), availableLanguages: availableLanguagesList } },
     );
   }
   const timestampedTranscript = extractTimestampedTranscript(transcriptResult.transcriptText);

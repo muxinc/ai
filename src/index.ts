@@ -42,7 +42,6 @@ export type {
   MuxAiErrorSource,
   MuxAiErrorType,
 } from "./lib/mux-ai-error.ts";
-
 // Mux static renditions created by the deprecated `mp4_support` option
 export {
   getLegacyMp4SupportRenditionSizeError,
@@ -68,6 +67,7 @@ export {
   replaceAndCreateTrack,
   replaceSourceTrack,
   summarizeTextTrack,
+  trackReplacementBlockedError,
   validateTrackPassthrough,
 } from "./lib/mux-tracks.ts";
 export type {
@@ -81,6 +81,8 @@ export type {
   TextTrackReplacementPlan,
   TextTrackSummary,
   TextTrackTarget,
+  TrackReplacementBlocked,
+  TrackReplacementBlockedReason,
   TrackSummary,
   TrackTarget,
 } from "./lib/mux-tracks.ts";
@@ -88,6 +90,16 @@ export type {
 // Mux playback URL utilities
 export { getMuxPlaybackOrigin } from "./lib/mux-url.ts";
 export type { MuxPlaybackService } from "./lib/mux-url.ts";
+
+export {
+  MUX_AI_ERROR_GENERIC_MESSAGES,
+  MUX_AI_ERROR_PUBLIC_MAPPINGS,
+  toPublicError,
+} from "./lib/public-error.ts";
+export type {
+  MuxAiErrorPublicMapping,
+  MuxAiPublicError,
+} from "./lib/public-error.ts";
 
 // Workflow credential utilities
 export { setWorkflowCredentialsProvider } from "./lib/workflow-credentials.ts";

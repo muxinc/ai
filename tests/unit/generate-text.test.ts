@@ -686,6 +686,8 @@ That draft contains literal escape sequences such as \n and \" instead of real l
       scope: { startTime: 10 },
     })).rejects.toMatchObject({
       type: "validation_error",
+      code: "invalid_scope",
+      facts: { reason: "no_transcript", startTime: 10 },
       message: "Transcript has no usable content in the requested scope.",
     });
   });

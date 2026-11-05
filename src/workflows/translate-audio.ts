@@ -6,7 +6,7 @@ import { elevenLabsResponseFailure, elevenLabsSdkFailure } from "../lib/elevenla
 import type { ElevenLabsFailure } from "../lib/elevenlabs-errors.ts";
 import { getLanguageCodePair, getLanguageName, toISO639_1 } from "../lib/language-codes.ts";
 import type { LanguageCodePair } from "../lib/language-codes.ts";
-import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_DEPENDENCIES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
+import { errorDetailFact, MUX_AI_ERROR_CODES, MUX_AI_ERROR_DEPENDENCIES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset, isAudioOnlyAsset, isVideoOnlyAsset } from "../lib/mux-assets.ts";
 import {
   getLegacyMp4SupportRenditionSizeError,
@@ -17,6 +17,8 @@ import {
   buildMuxAiTrackPassthrough,
   planTextTrackReplacement,
   replaceAndCreateTrack,
+  trackReplacementBlockedError,
+  trackTargetFacts,
   validateTrackPassthrough,
 } from "../lib/mux-tracks.ts";
 import type { ReplaceExistingTracksPolicy, TextTrackSummary, TextTrackTarget } from "../lib/mux-tracks.ts";
@@ -304,13 +306,9 @@ async function waitForAudioStaticRendition({
       throw new MuxAiError(
         "Mux failed to create the static rendition for this asset. Please check the asset in the Mux dashboard.",
         {
-          type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
-          source: MUX_AI_ERROR_SOURCES.UPSTREAM,
-          dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO,
+          code: MUX_AI_ERROR_CODES.STATIC_RENDITION_FAILED,
           // Mux answered (200) with the rendition errored.
           facts: { status: 200 },
-          // As before (pre-classification).
-          retryable: false,
         },
       );
     }
@@ -373,12 +371,18 @@ async function waitForLegacyMp4SupportRendition({
     );
   }
   if (rendition.kind === "unusable") {
-    throw new MuxAiError(rendition.reason, { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET });
+    throw new MuxAiError(rendition.reason, {
+      code: MUX_AI_ERROR_CODES.STATIC_RENDITION_UNSUPPORTED,
+      facts: { reason: "unusable", mp4Support: rendition.mp4Support, ...(rendition.status && { renditionStatus: rendition.status }) },
+    });
   }
 
   const sizeError = getLegacyMp4SupportRenditionSizeError(rendition, MAX_DUBBING_SOURCE_BYTES);
   if (sizeError) {
-    throw new MuxAiError(sizeError, { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET });
+    throw new MuxAiError(sizeError, {
+      code: MUX_AI_ERROR_CODES.STATIC_RENDITION_UNSUPPORTED,
+      facts: { reason: "too_large", renditionName: rendition.name, sizeBytes: rendition.filesizeBytes!, maxBytes: MAX_DUBBING_SOURCE_BYTES },
+    });
   }
 
   return rendition.name;
@@ -393,16 +397,16 @@ function toBaseLanguageCode(code: string): string {
  * Why Mux would refuse to add an audio track to this asset, or `undefined`
  * when it would accept one. Mirrors Mux's own audio track validation.
  */
-function audioTrackUnsupportedReason(asset: MuxAsset): string | undefined {
+function audioTrackUnsupportedReason(asset: MuxAsset): { reason: "clip" | "live_stream" | "audio_only"; message: string } | undefined {
   const useDubbedFile = "skip uploading to Mux and use the dubbed audio file directly.";
   if (asset.ingest_type === "on_demand_clip" || asset.source_asset_id) {
-    return `is a clip, and Mux does not support adding audio tracks to clipped assets. Dub the source asset instead, or ${useDubbedFile}`;
+    return { reason: "clip", message: `is a clip, and Mux does not support adding audio tracks to clipped assets. Dub the source asset instead, or ${useDubbedFile}` };
   }
   if (asset.is_live || asset.live_stream_id) {
-    return `comes from a live stream, and Mux does not support adding audio tracks to live stream assets. Instead, ${useDubbedFile}`;
+    return { reason: "live_stream", message: `comes from a live stream, and Mux does not support adding audio tracks to live stream assets. Instead, ${useDubbedFile}` };
   }
   if (isAudioOnlyAsset(asset)) {
-    return `is audio-only, and Mux does not support adding audio tracks to audio-only assets. Instead, ${useDubbedFile}`;
+    return { reason: "audio_only", message: `is audio-only, and Mux does not support adding audio tracks to audio-only assets. Instead, ${useDubbedFile}` };
   }
   return undefined;
 }
@@ -432,10 +436,16 @@ function dubbingProviderError(message: string, failure: ElevenLabsFailure): MuxA
 /** The customer-facing error for a dubbing project ElevenLabs would not create. */
 function dubbingStartError(failure: ElevenLabsFailure, languages: { target: string; source?: string }): MuxAiError {
   if (failure.reason === "unsupported_target_language") {
-    return new MuxAiError(`Audio dubbing does not support the target language "${languages.target}".`, { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST });
+    return new MuxAiError(`Audio dubbing does not support the target language "${languages.target}".`, {
+      code: MUX_AI_ERROR_CODES.DUBBING_LANGUAGE_UNSUPPORTED,
+      facts: { language: languages.target, which: "target" },
+    });
   }
   if (failure.reason === "unsupported_source_language" && languages.source) {
-    return new MuxAiError(`Audio dubbing does not support the source language "${languages.source}".`, { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST });
+    return new MuxAiError(`Audio dubbing does not support the source language "${languages.source}".`, {
+      code: MUX_AI_ERROR_CODES.DUBBING_LANGUAGE_UNSUPPORTED,
+      facts: { language: languages.source, which: "source" },
+    });
   }
   return dubbingProviderError("Audio dubbing could not be started.", failure);
 }
@@ -788,7 +798,10 @@ export async function translateAudio(
   // the staged audio file instead of a new track.
   const audioTrackUnsupported = uploadToMux ? audioTrackUnsupportedReason(initialAsset) : undefined;
   if (audioTrackUnsupported) {
-    throw new MuxAiError(`Asset ${assetId} ${audioTrackUnsupported}`, { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET });
+    throw new MuxAiError(`Asset ${assetId} ${audioTrackUnsupported.message}`, {
+      code: MUX_AI_ERROR_CODES.AUDIO_TRACK_UNSUPPORTED,
+      facts: { reason: audioTrackUnsupported.reason },
+    });
   }
 
   // Check both target tracks against the asset we already have so a blocked
@@ -800,7 +813,7 @@ export async function translateAudio(
   ]) {
     const plan = planTextTrackReplacement(initialAsset, target, replaceExistingTracks);
     if (plan.kind === "blocked") {
-      throw new MuxAiError(plan.reason, { code: MUX_AI_ERROR_CODES.TRACK_REPLACEMENT_BLOCKED });
+      throw trackReplacementBlockedError(plan, { facts: trackTargetFacts(target) });
     }
   }
 
@@ -946,9 +959,7 @@ export async function translateAudio(
         // resubmitting the same input could succeed.
         if (!dubbingError) {
           throw new MuxAiError("Audio dubbing failed.", {
-            type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
-            source: MUX_AI_ERROR_SOURCES.UPSTREAM,
-            dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
+            code: MUX_AI_ERROR_CODES.DUBBING_FAILED,
             // ElevenLabs answered (200) with the dub failed.
             facts: { status: 200 },
             // As before (pre-classification).
@@ -958,11 +969,10 @@ export async function translateAudio(
         throw new MuxAiError(
           `Audio dubbing failed: ${dubbingError.message}${dubbingError.retryable ? " Please try again." : ""}`,
           {
-            type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
-            source: MUX_AI_ERROR_SOURCES.UPSTREAM,
-            dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
+            code: MUX_AI_ERROR_CODES.DUBBING_FAILED,
             // ElevenLabs answered (200) with the dub failed, and says whether a new attempt may succeed.
-            facts: { status: 200, reason: dubbingError.code },
+            // Its `message` is documented as display text.
+            facts: { status: 200, providerCode: dubbingError.code, providerError: errorDetailFact(dubbingError.message) },
             retryable: dubbingError.retryable,
           },
         );
@@ -1034,7 +1044,7 @@ export async function translateAudio(
           wrapError(error, `Failed to add dubbed audio track to Mux asset (dubbed audio is staged at: ${presignedUrl})`);
         }
         if (outcome.kind === "blocked") {
-          throw new MuxAiError(`${outcome.reason} Dubbed audio is staged at: ${presignedUrl}`, { code: MUX_AI_ERROR_CODES.TRACK_REPLACEMENT_BLOCKED });
+          throw trackReplacementBlockedError(outcome, { message: `${outcome.reason} Dubbed audio is staged at: ${presignedUrl}`, facts: trackTargetFacts(audioTrackTarget) });
         }
         if (outcome.kind === "create_failed") {
           throw new Error(`Failed to add dubbed audio track to Mux asset: ${outcome.reason}. Dubbed audio is staged at: ${presignedUrl}`);

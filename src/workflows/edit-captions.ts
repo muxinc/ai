@@ -18,6 +18,8 @@ import {
   normalizeTrackName,
   planSourceTrackReplacement,
   replaceSourceTrack,
+  trackReplacementBlockedError,
+  trackTargetFacts,
   validateTrackPassthrough,
 } from "../lib/mux-tracks.ts";
 import type { SourceTrackReplacementPolicy, TextTrackSummary, TextTrackTarget } from "../lib/mux-tracks.ts";
@@ -753,13 +755,13 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
   const readyTextTracks = getReadyTextTracks(assetData);
   const sourceTrack = readyTextTracks.find(t => t.id === trackId);
   if (!sourceTrack) {
-    const availableTrackIds = readyTextTracks
+    const availableTrackIdsList = readyTextTracks
       .map(t => t.id)
-      .filter(Boolean)
-      .join(", ");
+      .filter(Boolean) as string[];
+    const availableTrackIds = availableTrackIdsList.join(", ");
     throw new MuxAiError(
       `Track ${trackId} not found or not ready on asset ${assetId}. Available track IDs: ${availableTrackIds || "none"}.`,
-      { code: MUX_AI_ERROR_CODES.CAPTION_TRACK_NOT_FOUND },
+      { code: MUX_AI_ERROR_CODES.CAPTION_TRACK_NOT_FOUND, facts: { trackId, availableTrackIds: availableTrackIdsList } },
     );
   }
 
@@ -780,7 +782,7 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
   if (uploadToMux && !legacyTrackNaming) {
     const plan = planSourceTrackReplacement(assetData, trackId, outputTrack, replaceExistingTracks);
     if (plan.kind === "blocked") {
-      throw new MuxAiError(plan.reason, { code: MUX_AI_ERROR_CODES.TRACK_REPLACEMENT_BLOCKED });
+      throw trackReplacementBlockedError(plan, { facts: trackTargetFacts(outputTrack) });
     }
   }
 
@@ -973,7 +975,7 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
           }
         }
         if (outcome.kind === "blocked") {
-          throw new MuxAiError(`${outcome.reason}${restoreNote}`, { code: MUX_AI_ERROR_CODES.TRACK_REPLACEMENT_BLOCKED });
+          throw trackReplacementBlockedError(outcome, { message: `${outcome.reason}${restoreNote}`, facts: trackTargetFacts(outputTrack) });
         }
         throw new Error(`Failed to add edited track to Mux asset: ${outcome.reason}.${restoreNote}`);
       }

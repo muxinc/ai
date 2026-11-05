@@ -53,7 +53,7 @@ describe("replaceAndCreateTextTrack", () => {
 
     const result = await replaceAndCreateTextTrack({ ...INPUT, policy: "fail" });
 
-    expect(result).toEqual({ kind: "blocked", reason: expect.stringContaining("English"), tracks: [expect.objectContaining({ id: "up-en" })], deleted: [] });
+    expect(result).toEqual({ kind: "blocked", code: "policy_fail", conflictsOnLanguage: true, reason: expect.stringContaining("English"), tracks: [expect.objectContaining({ id: "up-en" })], deleted: [] });
     expect(deleteTrack).not.toHaveBeenCalled();
     expect(createTrack).not.toHaveBeenCalled();
   });
@@ -93,6 +93,8 @@ describe("replaceAndCreateTextTrack", () => {
 
     expect(result).toEqual({
       kind: "blocked",
+      code: "not_generated",
+      conflictsOnLanguage: true,
       reason: expect.stringContaining("not Mux-generated"),
       tracks: [expect.objectContaining({ id: "up-en" })],
       deleted: [expect.objectContaining({ id: "asr-en" })],
@@ -207,6 +209,8 @@ describe("replaceSourceTrack", () => {
 
     expect(result).toEqual({
       kind: "blocked",
+      code: "name_collision",
+      conflictsOnLanguage: false,
       reason: expect.stringContaining("A text track already has the name 'English'"),
       tracks: [expect.objectContaining({ id: "dup" })],
       deleted: [expect.objectContaining({ id: "up-en" })],

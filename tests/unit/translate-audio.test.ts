@@ -388,6 +388,7 @@ describe("translateAudio ElevenLabs project creation failures", () => {
     const error = await captureRejection(translateAudio(ASSET_ID, "fr", { ...BASE_OPTIONS, fromLanguageCode: "ak" }));
 
     expectCustomerError(error, { type: "validation_error", message: "Audio dubbing does not support the source language \"ak\".", retryable: false });
+    expect(error).toMatchObject({ code: "dubbing_language_unsupported", facts: { language: "ak", which: "source" } });
   });
 
   it("treats a create with no response as retryable and logs that it may have been billed", async () => {
@@ -490,6 +491,7 @@ describe("translateAudio failed dubs", () => {
     const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
 
     expectCustomerError(error, { type: "processing_error", message: "Audio dubbing failed: No speech was detected in the source media.", retryable: false });
+    expect(error).toMatchObject({ code: "dubbing_failed", facts: { providerCode: "no_speech_detected", providerError: "No speech was detected in the source media." } });
   });
 
   it("reports a failure without a reason as not retryable", async () => {
@@ -556,6 +558,7 @@ describe("translateAudio on assets using the deprecated mp4_support option", () 
 
     expect(error).toMatchObject({ type: "validation_error", retryable: false });
     expect((error as Error).message).toContain("capped-1080p.mp4 static rendition (1.5 GB) is larger than the 1 GB");
+    expect(error).toMatchObject({ code: "static_rendition_unsupported", facts: { reason: "too_large", renditionName: "capped-1080p.mp4", sizeBytes: 1_500_000_000 } });
     expect((error as Error).message).toContain("Static Renditions API");
     expect(fetchMock).not.toHaveBeenCalled();
     expect(createStaticRendition).not.toHaveBeenCalled();

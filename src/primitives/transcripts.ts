@@ -11,7 +11,7 @@ import { isAudioOnlyAsset } from "../lib/mux-assets.ts";
 import { getMuxStreamOrigin } from "../lib/mux-url.ts";
 import { normalizeUntrustedUnicode } from "../lib/output-safety.ts";
 import { signUrl } from "../lib/url-signing.ts";
-import { hasWorkflowScopeBoundaries, timeRangesOverlap } from "../lib/workflow-scope.ts";
+import { hasWorkflowScopeBoundaries, scopeFacts, timeRangesOverlap } from "../lib/workflow-scope.ts";
 import type { AssetTextTrack, MuxAsset, WorkflowCredentialsInput, WorkflowScope } from "../types.ts";
 
 type TrackWithAutoLanguageConfidence = AssetTextTrack & {
@@ -865,13 +865,13 @@ export async function fetchTranscriptForAsset(
   const track = findCaptionTrack(asset, languageCode);
   if (!track) {
     if (required) {
-      const availableLanguages = getReadyTextTracks(asset)
+      const availableLanguagesList = getReadyTextTracks(asset)
         .map(t => t.language_code)
-        .filter(Boolean)
-        .join(", ");
+        .filter(Boolean) as string[];
+      const availableLanguages = availableLanguagesList.join(", ");
       throw new MuxAiError(
         `No caption track found${languageCode ? ` for language ${languageCode}` : ""}. Available languages: ${availableLanguages || "none"}.`,
-        { code: MUX_AI_ERROR_CODES.CAPTION_TRACK_NOT_FOUND },
+        { code: MUX_AI_ERROR_CODES.CAPTION_TRACK_NOT_FOUND, facts: { ...(languageCode && { languageCode }), availableLanguages: availableLanguagesList } },
       );
     }
     return { transcriptText: "" };
@@ -916,7 +916,11 @@ export async function fetchTranscriptForAsset(
   // generic Error at the step boundary.
   switch (result.emptyReason) {
     case "no_scoped_cues":
-      throw new MuxAiError("Transcript has no cues in the requested scope.", { code: MUX_AI_ERROR_CODES.TRANSCRIPT_EMPTY });
+      // The caller chose the window, so this is the scope's problem, not the transcript's.
+      throw new MuxAiError("Transcript has no cues in the requested scope.", {
+        code: MUX_AI_ERROR_CODES.INVALID_SCOPE,
+        facts: { reason: "no_transcript", ...scopeFacts(scope) },
+      });
     case "empty_body":
       throw new MuxAiError("Transcript is empty.", { code: MUX_AI_ERROR_CODES.TRANSCRIPT_EMPTY });
   }

@@ -27,6 +27,8 @@ import {
   fetchVttFromMux,
   planTextTrackReplacement,
   replaceAndCreateTextTrack,
+  trackReplacementBlockedError,
+  trackTargetFacts,
   validateTrackPassthrough,
 } from "../lib/mux-tracks.ts";
 import type { ReplaceExistingTracksPolicy, TextTrackSummary, TextTrackTarget } from "../lib/mux-tracks.ts";
@@ -1261,13 +1263,13 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
   const readyTextTracks = getReadyTextTracks(assetData);
   const sourceTextTrack = readyTextTracks.find(t => t.id === trackId);
   if (!sourceTextTrack) {
-    const availableTrackIds = readyTextTracks
+    const availableTrackIdsList = readyTextTracks
       .map(t => t.id)
-      .filter(Boolean)
-      .join(", ");
+      .filter(Boolean) as string[];
+    const availableTrackIds = availableTrackIdsList.join(", ");
     throw new MuxAiError(
       `Track ${trackId} not found or not ready on asset ${assetId}. Available track IDs: ${availableTrackIds || "none"}.`,
-      { code: MUX_AI_ERROR_CODES.CAPTION_TRACK_NOT_FOUND },
+      { code: MUX_AI_ERROR_CODES.CAPTION_TRACK_NOT_FOUND, facts: { trackId, availableTrackIds: availableTrackIdsList } },
     );
   }
 
@@ -1288,7 +1290,7 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
   if (uploadToMux) {
     const plan = planTextTrackReplacement(assetData, outputTrack, replaceExistingTracks);
     if (plan.kind === "blocked") {
-      throw new MuxAiError(plan.reason, { code: MUX_AI_ERROR_CODES.TRACK_REPLACEMENT_BLOCKED });
+      throw trackReplacementBlockedError(plan, { facts: trackTargetFacts(outputTrack) });
     }
   }
 
@@ -1429,7 +1431,7 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
           ` Tracks already deleted before the failure: ${outcome.deleted.map(track => `${track.name ?? track.id} (${track.id})`).join(", ")}.` :
           "";
         if (outcome.kind === "blocked") {
-          throw new MuxAiError(`${outcome.reason}${deletedNote}`, { code: MUX_AI_ERROR_CODES.TRACK_REPLACEMENT_BLOCKED });
+          throw trackReplacementBlockedError(outcome, { message: `${outcome.reason}${deletedNote}`, facts: trackTargetFacts(outputTrack) });
         }
         throw new Error(`Failed to add translated track to Mux asset: ${outcome.reason}.${deletedNote}`);
       }

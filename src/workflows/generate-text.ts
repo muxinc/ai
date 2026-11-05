@@ -41,6 +41,7 @@ import {
   hasWorkflowScopeBoundaries,
   resolveRenderableVideoScope,
   resolveWorkflowScope,
+  scopeFacts,
   timeRangesOverlap,
 } from "../lib/workflow-scope.ts";
 import type { ResolvedWorkflowScope } from "../lib/workflow-scope.ts";
@@ -1062,7 +1063,7 @@ async function generateTextInternal(
       effectiveScope ? "Transcript has no usable content in the requested scope." : "Transcript has no usable content.",
       // An empty window is the caller's choice of scope; an empty transcript is the asset's.
       effectiveScope ?
-          { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST } :
+          { code: MUX_AI_ERROR_CODES.INVALID_SCOPE, facts: { reason: "no_transcript", ...scopeFacts(effectiveScope) } } :
           { code: MUX_AI_ERROR_CODES.TRANSCRIPT_EMPTY },
     );
   }
