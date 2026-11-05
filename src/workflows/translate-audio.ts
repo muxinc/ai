@@ -392,6 +392,13 @@ async function createElevenLabsDubbingJob({
   }
 }
 
+/** Why ElevenLabs failed a dubbing project or language target. */
+interface ElevenLabsDubbingError {
+  code: string;
+  message: string;
+  retryable: boolean;
+}
+
 async function checkElevenLabsDubbingStatus({
   dubbingId,
   languageId,
@@ -400,7 +407,7 @@ async function checkElevenLabsDubbingStatus({
   dubbingId: string;
   languageId: string;
   credentials?: WorkflowCredentialsInput;
-}): Promise<{ status: string; error?: string }> {
+}): Promise<{ status: string; error?: ElevenLabsDubbingError }> {
   "use step";
   const { ElevenLabsClient } = await import("@elevenlabs/elevenlabs-js");
   const client = new ElevenLabsClient({ apiKey: await getApiKeyFromEnv("elevenlabs", credentials), maxRetries: 0 });
@@ -411,7 +418,8 @@ async function checkElevenLabsDubbingStatus({
     ]);
     return {
       status: project.status === "failed" ? "failed" : language.status,
-      error: project.error?.error ?? language.error?.error,
+      // A language error of `project_failed` only points at the project, so prefer the project's.
+      error: project.error ?? language.error,
     };
   } catch (error) {
     throw await elevenLabsSdkError("Status check failed", error);
@@ -767,7 +775,7 @@ export async function translateAudio(
 
     let dubbingStatus = "dubbing";
     let pollAttempts = 0;
-    let dubbingError: string | undefined;
+    let dubbingError: ElevenLabsDubbingError | undefined;
 
     while (dubbingStatus !== "completed" && pollAttempts < maxPollAttempts) {
       await sleep(DUBBING_POLL_INTERVAL_MS);
@@ -787,7 +795,7 @@ export async function translateAudio(
 
       if (dubbingStatus === "failed") {
         // The provider's reason stays in logs; the thrown message is customer-facing.
-        console.warn(`❌ ElevenLabs dubbing job ${dubbingId} failed: ${dubbingError ?? "no error reported"}`);
+        console.warn(`❌ ElevenLabs dubbing project ${dubbingId} (language ${languageId}) failed: ${dubbingError ? `${dubbingError.code}: ${dubbingError.message}` : "no error reported"}`);
         throw new MuxAiError("ElevenLabs reported that the dubbing job failed.", { type: "processing_error" });
       }
     }

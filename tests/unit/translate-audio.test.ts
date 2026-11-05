@@ -373,7 +373,7 @@ describe("translateAudio ElevenLabs error reporting", () => {
         return new Response(JSON.stringify(dubbingProject()), { status: 200 });
       }
       return new Response(
-        JSON.stringify(dubbingProject({ status: "failed", error: { message_type: "error", error: "Source audio could not be decoded." }, language_id: "lang_1", target_language: "fr" })),
+        JSON.stringify(dubbingProject({ status: "failed", error: { code: "source_download_failed", message: "The source media could not be downloaded from the provided URL.", retryable: true }, language_id: "lang_1", target_language: "fr" })),
         { status: 200 },
       );
     }));
@@ -384,7 +384,7 @@ describe("translateAudio ElevenLabs error reporting", () => {
       publicType: "processing_error",
       publicMessage: "ElevenLabs reported that the dubbing job failed.",
     });
-    expect(console.warn).toHaveBeenCalledWith("❌ ElevenLabs dubbing job proj_1 failed: Source audio could not be decoded.");
+    expect(console.warn).toHaveBeenCalledWith("❌ ElevenLabs dubbing project proj_1 (language lang_1) failed: source_download_failed: The source media could not be downloaded from the provided URL.");
   });
 });
 
