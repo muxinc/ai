@@ -75,13 +75,13 @@ const DEFAULT_MAX_ATTEMPTS = 60;
 const SHOTS_ALREADY_REQUESTED_MESSAGE = "shots generation has already been requested";
 const SHOTS_ALREADY_REQUESTED_REASON = "shots_already_requested";
 
-/** Mux answered, but with a shots payload we can't use. */
+/** A successful (200) response with a shots payload we can't use; a retry would get the same. */
 function malformedShotsError(message: string, call: string, facts?: MuxAiErrorFacts): MuxAiError {
   return new MuxAiError(message, {
     type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
     source: MUX_AI_ERROR_SOURCES.UPSTREAM,
     dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO,
-    facts: { call, ...facts },
+    facts: { call, status: 200, ...facts },
   });
 }
 

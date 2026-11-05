@@ -94,7 +94,6 @@ function imageFetchError(message: string, status: number | undefined, facts: Mux
   });
 }
 
-/** Mux answered, but not with a usable image. */
 /** A successful (200) response that isn't a usable image; a retry would get the same. */
 function unusableImageError(message: string, facts: MuxAiErrorFacts): MuxAiError {
   return new MuxAiError(message, {

@@ -234,6 +234,19 @@ describe("getShotsForAsset", () => {
     });
   });
 
+  it("doesn't step-retry a shots manifest Mux returned but we can't use", async () => {
+    mockRetrieveShots.mockResolvedValue(MOCK_COMPLETED_RESPONSE);
+    mockFetch.mockResolvedValue(new Response(JSON.stringify({ shots: "not-an-array" }), { status: 200 }));
+
+    await expect(getShotsForAsset("test-asset-123")).rejects.toMatchObject({
+      source: "upstream",
+      dependency: "mux_video",
+      transient: false,
+      name: "FatalError",
+      facts: { call: "fetch_shots_manifest", status: 200 },
+    });
+  });
+
   it("throws a clear error for statuses this library does not handle", async () => {
     mockRetrieveShots.mockResolvedValue({ status: "unexpected", created_at: "1773108428" });
     await expect(getShotsForAsset("test-asset-123")).rejects.toThrow("Unsupported shots status 'unexpected'");
