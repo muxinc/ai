@@ -1,7 +1,7 @@
 import type { MuxAsset, PlaybackAsset, PlaybackPolicy, WorkflowCredentialsInput, WorkflowMuxClient } from "../types.ts";
 
 import { getMuxClientFromEnv } from "./client-factory.ts";
-import { MuxAiError } from "./mux-ai-error.ts";
+import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
 
 /**
  * Finds a usable playback ID for the given asset.
@@ -26,7 +26,7 @@ function getPlaybackId(asset: MuxAsset): { id: string; policy: PlaybackPolicy } 
 
   throw new MuxAiError(
     "No public or signed playback ID found for this asset. DRM playback IDs are not currently supported.",
-    { type: "validation_error" },
+    { code: MUX_AI_ERROR_CODES.PLAYBACK_ID_NOT_FOUND },
   );
 }
 
@@ -67,7 +67,10 @@ export async function getPlaybackIdForAsset(
   // credentials to preserve multi-tenant behavior.
   const asset = assetSnapshot ?? await getMuxAsset(assetId, credentials);
   if (asset.id !== assetId) {
-    throw new MuxAiError("Asset snapshot does not match the requested asset ID.", { type: "validation_error" });
+    throw new MuxAiError("Asset snapshot does not match the requested asset ID.", {
+      type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+      source: MUX_AI_ERROR_SOURCES.REQUEST,
+    });
   }
   return toPlaybackAsset(asset);
 }

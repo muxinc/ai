@@ -1,10 +1,17 @@
 import { isUndeterminedLanguageCode } from "../lib/language-codes.ts";
-import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
+import {
+  MUX_AI_ERROR_CODES,
+  MUX_AI_ERROR_DEPENDENCIES,
+  MUX_AI_ERROR_SOURCES,
+  MUX_AI_ERROR_TYPES,
+  MuxAiError,
+  wrapError,
+} from "../lib/mux-ai-error.ts";
 import { isAudioOnlyAsset } from "../lib/mux-assets.ts";
 import { getMuxStreamOrigin } from "../lib/mux-url.ts";
 import { normalizeUntrustedUnicode } from "../lib/output-safety.ts";
 import { signUrl } from "../lib/url-signing.ts";
-import { hasWorkflowScopeBoundaries, timeRangesOverlap } from "../lib/workflow-scope.ts";
+import { hasWorkflowScopeBoundaries, scopeFacts, timeRangesOverlap } from "../lib/workflow-scope.ts";
 import type { AssetTextTrack, MuxAsset, WorkflowCredentialsInput, WorkflowScope } from "../types.ts";
 
 type TrackWithAutoLanguageConfidence = AssetTextTrack & {
@@ -858,13 +865,13 @@ export async function fetchTranscriptForAsset(
   const track = findCaptionTrack(asset, languageCode);
   if (!track) {
     if (required) {
-      const availableLanguages = getReadyTextTracks(asset)
+      const availableLanguagesList = getReadyTextTracks(asset)
         .map(t => t.language_code)
-        .filter(Boolean)
-        .join(", ");
+        .filter(Boolean) as string[];
+      const availableLanguages = availableLanguagesList.join(", ");
       throw new MuxAiError(
         `No caption track found${languageCode ? ` for language ${languageCode}` : ""}. Available languages: ${availableLanguages || "none"}.`,
-        { type: "validation_error" },
+        { code: MUX_AI_ERROR_CODES.CAPTION_TRACK_NOT_FOUND, facts: { ...(languageCode && { languageCode }), availableLanguages: availableLanguagesList } },
       );
     }
     return { transcriptText: "" };
@@ -872,7 +879,15 @@ export async function fetchTranscriptForAsset(
 
   if (!track.id) {
     if (required) {
-      throw new MuxAiError("Transcript track is missing an id.", { type: "validation_error" });
+      throw new MuxAiError("Transcript track is missing an id.", {
+        type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+        source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+        dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO,
+        facts: { status: 200 },
+        // The track came from the Mux asset payload without an id.
+        // As before (pre-classification): the same asset returns the same payload.
+        retryable: false,
+      });
     }
     return { transcriptText: "", track };
   }
@@ -901,8 +916,12 @@ export async function fetchTranscriptForAsset(
   // generic Error at the step boundary.
   switch (result.emptyReason) {
     case "no_scoped_cues":
-      throw new MuxAiError("Transcript has no cues in the requested scope.", { type: "validation_error" });
+      // The caller chose the window, so this is the scope's problem, not the transcript's.
+      throw new MuxAiError("Transcript has no cues in the requested scope.", {
+        code: MUX_AI_ERROR_CODES.INVALID_SCOPE,
+        facts: { reason: "no_transcript", ...scopeFacts(scope) },
+      });
     case "empty_body":
-      throw new MuxAiError("Transcript is empty.", { type: "validation_error" });
+      throw new MuxAiError("Transcript is empty.", { code: MUX_AI_ERROR_CODES.TRANSCRIPT_EMPTY });
   }
 }

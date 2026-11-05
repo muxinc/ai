@@ -139,19 +139,20 @@ describe("translateAudio on assets Mux can't add an audio track to", () => {
   }
 
   it.each([
-    { name: "clip (ingest_type)", fields: { ingest_type: "on_demand_clip" }, message: CLIP_MESSAGE },
-    { name: "clip (source_asset_id)", fields: { source_asset_id: "source-asset-1" }, message: CLIP_MESSAGE },
-    { name: "live stream (is_live)", fields: { is_live: true }, message: LIVE_MESSAGE },
-    { name: "live stream recording (live_stream_id)", fields: { live_stream_id: "live-1" }, message: LIVE_MESSAGE },
-  ])("rejects before dubbing: $name", async ({ fields, message }) => {
+    { name: "clip (ingest_type)", fields: { ingest_type: "on_demand_clip" }, message: CLIP_MESSAGE, reason: "clip" },
+    { name: "clip (source_asset_id)", fields: { source_asset_id: "source-asset-1" }, message: CLIP_MESSAGE, reason: "clip" },
+    { name: "live stream (is_live)", fields: { is_live: true }, message: LIVE_MESSAGE, reason: "live_stream" },
+    { name: "live stream recording (live_stream_id)", fields: { live_stream_id: "live-1" }, message: LIVE_MESSAGE, reason: "live_stream" },
+  ])("rejects before dubbing: $name", async ({ fields, message, reason }) => {
     mockAssetFields(fields);
     const fetchMock = stubElevenLabsFetch();
 
     const error = await captureRejection(translateAudio(ASSET_ID, "es"));
 
     expect(MuxAiError.is(error)).toBe(true);
-    expect((error as InstanceType<typeof MuxAiError>).publicType).toBe("validation_error");
+    expect((error as InstanceType<typeof MuxAiError>).type).toBe("validation_error");
     expect(error.message).toBe(message);
+    expect(error).toMatchObject({ code: "audio_track_unsupported", source: "asset", facts: { reason } });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -162,8 +163,9 @@ describe("translateAudio on assets Mux can't add an audio track to", () => {
     const error = await captureRejection(translateAudio(ASSET_ID, "es"));
 
     expect(MuxAiError.is(error)).toBe(true);
-    expect((error as InstanceType<typeof MuxAiError>).publicType).toBe("validation_error");
+    expect((error as InstanceType<typeof MuxAiError>).type).toBe("validation_error");
     expect(error.message).toBe(AUDIO_ONLY_MESSAGE);
+    expect(error).toMatchObject({ code: "audio_track_unsupported", facts: { reason: "audio_only" } });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -187,7 +189,7 @@ describe("translateAudio on a video-only asset", () => {
     const error = await captureRejection(translateAudio(ASSET_ID, "es", { uploadToMux }));
 
     expect(MuxAiError.is(error)).toBe(true);
-    expect((error as InstanceType<typeof MuxAiError>).publicType).toBe("validation_error");
+    expect((error as InstanceType<typeof MuxAiError>).type).toBe("validation_error");
     expect(error.message).toBe("Asset asset-123 has no audio track, so there is no audio to dub.");
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -362,8 +364,8 @@ describe("project output storage", () => {
 
     expect(MuxAiError.is(error)).toBe(true);
     expect(error).toMatchObject({
-      publicType: "processing_error",
-      publicMessage: "Could not download the dubbed audio. The dubbing service is temporarily unavailable. Please try again.",
+      type: "processing_error",
+      message: "Could not download the dubbed audio. The dubbing service is temporarily unavailable. Please try again.",
       retryable: true,
     });
     expect(audioDownloads(fetchMock)).toHaveLength(3);
@@ -388,7 +390,7 @@ describe("project output storage", () => {
 
     const error = await captureRejection(translateAudio(ASSET_ID, "es", { uploadToMux: false, uploadToS3: true }));
 
-    expect(error).toMatchObject({ publicType: "processing_error", publicMessage: "Could not download the dubbed audio.", retryable: false });
+    expect(error).toMatchObject({ type: "processing_error", message: "Could not download the dubbed audio.", retryable: false });
     expect(audioDownloads(fetchMock)).toHaveLength(1);
     expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("404 Not Found: missing"));
   });

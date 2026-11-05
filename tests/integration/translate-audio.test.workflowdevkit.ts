@@ -65,7 +65,7 @@ describe("audio Translation Integration Tests for Workflow DevKit", () => {
 
     // Checks the error keeps its brand and type across the step boundary.
     expect(MuxAiError.is(error)).toBe(true);
-    expect((error as InstanceType<typeof MuxAiError>).publicType).toBe("validation_error");
+    expect((error as InstanceType<typeof MuxAiError>).type).toBe("validation_error");
     expect((error as Error).message).toBe("Audio dubbing does not support the target language \"ak\".");
     expect((error as InstanceType<typeof MuxAiError>).retryable).toBe(false);
   }, 300000);
@@ -112,7 +112,7 @@ describe("audio Translation Integration Tests for Workflow DevKit", () => {
       const error = await captureRunFailure(run.returnValue);
 
       expect(MuxAiError.is(error)).toBe(true);
-      expect((error as InstanceType<typeof MuxAiError>).publicType).toBe("validation_error");
+      expect((error as InstanceType<typeof MuxAiError>).type).toBe("validation_error");
       expect((error as Error).message).toContain(`Asset ${clipId} is a clip`);
     }, 300000);
   });
@@ -128,7 +128,7 @@ describe("audio Translation Integration Tests for Workflow DevKit", () => {
     const error = await captureRunFailure(run.returnValue);
 
     expect(MuxAiError.is(error)).toBe(true);
-    expect((error as InstanceType<typeof MuxAiError>).publicType).toBe("validation_error");
+    expect((error as InstanceType<typeof MuxAiError>).type).toBe("validation_error");
     expect((error as Error).message).toContain(`Asset ${audioOnlyAssetId} is audio-only`);
   }, 300000);
 });

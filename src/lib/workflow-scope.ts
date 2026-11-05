@@ -1,6 +1,7 @@
 import type { WorkflowScope } from "../types.ts";
 
-import { MuxAiError } from "./mux-ai-error.ts";
+import type { MuxAiErrorFacts } from "./mux-ai-error.ts";
+import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
 
 /** A workflow scope with both asset-relative boundaries resolved. */
 export interface ResolvedWorkflowScope {
@@ -30,7 +31,10 @@ export function resolveWorkflowScope(
     !Number.isFinite(assetDurationSeconds) ||
     assetDurationSeconds <= 0
   ) {
-    throw new MuxAiError("Asset has no valid duration.", { type: "validation_error" });
+    throw new MuxAiError("Asset has no valid duration.", {
+      type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+      source: MUX_AI_ERROR_SOURCES.ASSET,
+    });
   }
 
   const startTime = scope?.startTime ?? 0;
@@ -39,28 +43,28 @@ export function resolveWorkflowScope(
   if (!Number.isFinite(startTime) || startTime < 0) {
     throw new MuxAiError(
       `scope.startTime must be a finite, non-negative number (received ${startTime}).`,
-      { type: "validation_error" },
+      { code: MUX_AI_ERROR_CODES.INVALID_SCOPE, facts: { reason: "invalid_start_time", received: String(startTime) } },
     );
   }
 
   if (!Number.isFinite(endTime) || endTime < 0) {
     throw new MuxAiError(
       `scope.endTime must be a finite, non-negative number (received ${endTime}).`,
-      { type: "validation_error" },
+      { code: MUX_AI_ERROR_CODES.INVALID_SCOPE, facts: { reason: "invalid_end_time", received: String(endTime) } },
     );
   }
 
   if (endTime > assetDurationSeconds) {
     throw new MuxAiError(
       `scope.endTime (${endTime}) cannot exceed the asset duration (${assetDurationSeconds}).`,
-      { type: "validation_error" },
+      { code: MUX_AI_ERROR_CODES.INVALID_SCOPE, facts: { reason: "exceeds_duration", endTime, assetDurationSeconds } },
     );
   }
 
   if (startTime >= endTime) {
     throw new MuxAiError(
       `scope.startTime (${startTime}) must be less than scope.endTime (${endTime}).`,
-      { type: "validation_error" },
+      { code: MUX_AI_ERROR_CODES.INVALID_SCOPE, facts: { reason: "empty_range", startTime, endTime } },
     );
   }
 
@@ -96,7 +100,8 @@ export function resolveRenderableVideoScope(
 
   if (renderableScope.startTime >= renderableScope.endTime) {
     throw new MuxAiError("The requested scope does not include any renderable video.", {
-      type: "validation_error",
+      code: MUX_AI_ERROR_CODES.INVALID_SCOPE,
+      facts: { reason: "no_video", startTime: resolvedScope.startTime, endTime: resolvedScope.endTime },
     });
   }
 
@@ -112,4 +117,12 @@ export function timeRangesOverlap(
   const secondStart = second.startTime ?? 0;
   const secondEnd = second.endTime ?? Number.POSITIVE_INFINITY;
   return firstStart < secondEnd && firstEnd > secondStart;
+}
+
+/** A requested scope's bounds as error facts. */
+export function scopeFacts(scope: WorkflowScope | undefined): MuxAiErrorFacts {
+  return {
+    ...(scope?.startTime !== undefined && { startTime: scope.startTime }),
+    ...(scope?.endTime !== undefined && { endTime: scope.endTime }),
+  };
 }

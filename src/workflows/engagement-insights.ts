@@ -6,7 +6,7 @@ import {
   getGeneratedOutputWithContentPolicyHandling,
   withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
-import { MuxAiError } from "../lib/mux-ai-error.ts";
+import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -667,7 +667,7 @@ async function generateEngagementInsightsInternal(
   } = options;
 
   if (!Number.isInteger(hotspotLimit) || hotspotLimit < 1 || hotspotLimit > 10) {
-    throw new MuxAiError("hotspotLimit must be an integer between 1 and 10.", { type: "validation_error" });
+    throw new MuxAiError("hotspotLimit must be an integer between 1 and 10.", { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST });
   }
 
   const modelConfig = resolveLanguageModelConfig({
@@ -681,7 +681,7 @@ async function generateEngagementInsightsInternal(
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(asset);
 
   if (!assetDurationSeconds) {
-    throw new MuxAiError(`Asset ${assetId} has no valid duration.`, { type: "validation_error" });
+    throw new MuxAiError(`Asset ${assetId} has no valid duration.`, { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET });
   }
 
   const audioOnly = isAudioOnlyAsset(asset);
@@ -691,7 +691,7 @@ async function generateEngagementInsightsInternal(
     throw new MuxAiError(
       "Signed playback ID requires signing credentials. " +
       "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
-      { type: "validation_error" },
+      { code: MUX_AI_ERROR_CODES.SIGNING_CREDENTIALS_MISSING },
     );
   }
 
@@ -836,7 +836,7 @@ async function generateEngagementInsightsInternal(
   collectedUsage.push(usage);
 
   if (!aiInsights.momentInsights || aiInsights.momentInsights.length === 0) {
-    throw new MuxAiError(`Failed to generate insights for asset ${assetId}.`);
+    throw new MuxAiError(`Failed to generate insights for asset ${assetId}.`, { code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_MISSING });
   }
 
   // Step 6: Transform — re-associate AI output with hotspots by hotspotIndex.
@@ -894,6 +894,7 @@ async function generateEngagementInsightsInternal(
   if (momentInsights.length === 0) {
     throw new MuxAiError(
       `Failed to generate valid insights for asset ${assetId}.`,
+      { code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID },
     );
   }
 

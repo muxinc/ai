@@ -9,7 +9,7 @@ import {
 } from "../lib/content-policy-error.ts";
 import { getLanguageName } from "../lib/language-codes.ts";
 import { withModelCallDiagnostics } from "../lib/model-call-diagnostics.ts";
-import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
+import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import type { ModelCallDiagnostics } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
@@ -41,6 +41,7 @@ import {
   hasWorkflowScopeBoundaries,
   resolveRenderableVideoScope,
   resolveWorkflowScope,
+  scopeFacts,
   timeRangesOverlap,
 } from "../lib/workflow-scope.ts";
 import type { ResolvedWorkflowScope } from "../lib/workflow-scope.ts";
@@ -204,7 +205,7 @@ const LANGUAGE_TAG_PATTERN = /^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/i;
 const LENGTH_UNITS = ["characters", "words"] as const;
 
 function validationError(message: string): MuxAiError {
-  return new MuxAiError(message, { type: "validation_error" });
+  return new MuxAiError(message, { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST });
 }
 
 function assertOneOf<T extends string>(value: string, allowed: readonly T[], label: string): void {
@@ -468,7 +469,13 @@ function scrubBrief(brief: GenerateTextBrief, safety: SafetyReporter): GenerateT
   if (centralIdea.leaked || readerValue.leaked || !centralIdea.text.trim()) {
     throw new MuxAiError(
       "The editorial brief was suppressed by the output safety filter.",
-      { type: "processing_error", retryable: true },
+      {
+        code: centralIdea.leaked || readerValue.leaked ?
+          MUX_AI_ERROR_CODES.MODEL_OUTPUT_SUPPRESSED :
+          MUX_AI_ERROR_CODES.MODEL_OUTPUT_MISSING,
+        // As before (pre-classification).
+        retryable: true,
+      },
     );
   }
 
@@ -889,11 +896,18 @@ async function generateArtifactWithModel(args: {
       if (isIncompleteGenerationError(cause)) {
         failure = new IncompleteGenerationError(cause.finishReason, cause.rawFinishReason);
       } else if (MuxAiError.is(cause)) {
-        failure = new MuxAiError(cause.publicMessage, { type: cause.publicType, retryable: cause.retryable });
+        failure = new MuxAiError(cause.message, {
+          ...(cause.code ? { code: cause.code } : { type: cause.type, source: cause.source }),
+          dependency: cause.dependency,
+          // As before (pre-classification): keep the cause's retryable, and stay fatal.
+          retryable: cause.retryable,
+          transient: false,
+        });
       } else {
         const apiError = APICallError.isInstance(cause) ? cause : undefined;
         failure = new MuxAiError("Unable to complete text generation.", {
-          type: "processing_error",
+          code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID,
+          // As before (pre-classification).
           retryable: apiError?.isRetryable ?? true,
           cause,
         });
@@ -1008,10 +1022,16 @@ async function generateTextInternal(
       );
 
   if (useShots && isAudioOnly) {
-    throw new MuxAiError("useShots is not supported for audio-only assets.", { type: "validation_error" });
+    throw new MuxAiError("useShots is not supported for audio-only assets.", {
+      type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+      source: MUX_AI_ERROR_SOURCES.REQUEST,
+    });
   }
   if (useShots && assetDurationSeconds === undefined) {
-    throw new MuxAiError("Asset has no valid duration.", { type: "validation_error" });
+    throw new MuxAiError("Asset has no valid duration.", {
+      type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+      source: MUX_AI_ERROR_SOURCES.ASSET,
+    });
   }
 
   const signingContext = await resolveMuxSigningContext(credentials);
@@ -1019,7 +1039,7 @@ async function generateTextInternal(
     throw new MuxAiError(
       "Signed playback ID requires signing credentials. " +
       "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
-      { type: "validation_error" },
+      { code: MUX_AI_ERROR_CODES.SIGNING_CREDENTIALS_MISSING },
     );
   }
   const shouldSign = policy === "signed";
@@ -1041,7 +1061,10 @@ async function generateTextInternal(
   if (!transcriptText) {
     throw new MuxAiError(
       effectiveScope ? "Transcript has no usable content in the requested scope." : "Transcript has no usable content.",
-      { type: "validation_error" },
+      // An empty window is the caller's choice of scope; an empty transcript is the asset's.
+      effectiveScope ?
+          { code: MUX_AI_ERROR_CODES.INVALID_SCOPE, facts: { reason: "no_transcript", ...scopeFacts(effectiveScope) } } :
+          { code: MUX_AI_ERROR_CODES.TRANSCRIPT_EMPTY },
     );
   }
 
@@ -1096,12 +1119,20 @@ async function generateTextInternal(
         safety.record(`${field}.${key}`, "unexpected_key");
       }
       if (item.violation === "empty") {
-        throw new MuxAiError(`Generated text for ${field} was empty after a retry.`, { type: "processing_error", retryable: true });
+        throw new MuxAiError(`Generated text for ${field} was empty after a retry.`, {
+          code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_MISSING,
+          // As before (pre-classification).
+          retryable: true,
+        });
       }
       if (item.violation) {
         throw new MuxAiError(
           `Generated text for ${field} exceeded the ${item.violation.limit.value} ${item.violation.limit.unit} limit after a retry (${item.violation.actual} returned).`,
-          { type: "processing_error", retryable: true },
+          {
+            code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID,
+            // As before (pre-classification).
+            retryable: true,
+          },
         );
       }
       return {

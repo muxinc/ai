@@ -650,7 +650,7 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
     const error = await getModerationScores("asset-audio", { provider: "openai" }).catch(e => e);
 
     expect(MuxAiError.is(error)).toBe(true);
-    expect(error.publicType).toBe("validation_error");
+    expect(error.type).toBe("validation_error");
     expect(error.message).toBe(
       "Nothing to moderate. Thumbnails skipped: Asset has no video track, so there are no thumbnails to moderate. " +
       "Transcript skipped: No ready caption/subtitle track found for this asset.",
@@ -673,8 +673,8 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
     const error = await getModerationScores("asset-123", { provider: "openai" }).catch(e => e);
 
     expect(MuxAiError.is(error)).toBe(true);
-    expect(error.publicType).toBe("validation_error");
-    expect(error.publicMessage).toBe("Transcript track is missing an id.");
+    expect(error).toMatchObject({ type: "processing_error", source: "upstream", dependency: "mux_video" });
+    expect(error.message).toBe("Transcript track is missing an id.");
   });
 
   it("fails rather than skipping when the caption track exists but the VTT fetch fails", async () => {

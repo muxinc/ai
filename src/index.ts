@@ -19,9 +19,36 @@ export type {
 } from "./lib/language-codes.ts";
 
 // Error types
-export { MuxAiError, wrapError } from "./lib/mux-ai-error.ts";
-export type { MuxAiErrorType } from "./lib/mux-ai-error.ts";
-
+export {
+  classificationInit,
+  ClassifiedError,
+  MUX_AI_ERROR_CATALOG,
+  MUX_AI_ERROR_CODE_VALUES,
+  MUX_AI_ERROR_CODES,
+  MUX_AI_ERROR_DEPENDENCIES,
+  MUX_AI_ERROR_DEPENDENCY_VALUES,
+  MUX_AI_ERROR_SOURCE_VALUES,
+  MUX_AI_ERROR_SOURCES,
+  MUX_AI_ERROR_TYPE_VALUES,
+  MUX_AI_ERROR_TYPES,
+  MuxAiError,
+  restoreClassification,
+  serializeClassification,
+  wrapError,
+} from "./lib/mux-ai-error.ts";
+export type {
+  ClassifiedErrorInit,
+  ErrorCatalogEntry,
+  ErrorCauseSummary,
+  MuxAiErrorCode,
+  MuxAiErrorDependency,
+  MuxAiErrorFacts,
+  MuxAiErrorFactValue,
+  MuxAiErrorInit,
+  MuxAiErrorSource,
+  MuxAiErrorType,
+  SerializedClassification,
+} from "./lib/mux-ai-error.ts";
 // Mux static renditions created by the deprecated `mp4_support` option
 export {
   getLegacyMp4SupportRenditionSizeError,
@@ -47,6 +74,7 @@ export {
   replaceAndCreateTrack,
   replaceSourceTrack,
   summarizeTextTrack,
+  trackReplacementBlockedError,
   validateTrackPassthrough,
 } from "./lib/mux-tracks.ts";
 export type {
@@ -60,6 +88,8 @@ export type {
   TextTrackReplacementPlan,
   TextTrackSummary,
   TextTrackTarget,
+  TrackReplacementBlocked,
+  TrackReplacementBlockedReason,
   TrackSummary,
   TrackTarget,
 } from "./lib/mux-tracks.ts";
@@ -67,6 +97,19 @@ export type {
 // Mux playback URL utilities
 export { getMuxPlaybackOrigin } from "./lib/mux-url.ts";
 export type { MuxPlaybackService } from "./lib/mux-url.ts";
+
+export {
+  createPublicErrorView,
+  genericPublicMessage,
+  MUX_AI_ERROR_GENERIC_MESSAGES,
+  MUX_AI_ERROR_PUBLIC_MAPPINGS,
+  toPublicError,
+} from "./lib/public-error.ts";
+export type {
+  MuxAiPublicError,
+  PublicError,
+  PublicErrorMapping,
+} from "./lib/public-error.ts";
 
 // Workflow credential utilities
 export { setWorkflowCredentialsProvider } from "./lib/workflow-credentials.ts";

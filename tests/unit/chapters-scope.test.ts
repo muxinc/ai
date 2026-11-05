@@ -255,8 +255,8 @@ describe("generateChapters scene context", () => {
         { scene_index: 0, start_ms: 0, end_ms: 60_000, title: "Outside scope" },
       ],
     })).rejects.toMatchObject({
-      publicType: "validation_error",
-      publicMessage: "Scene context has no chapter boundaries within the requested scope.",
+      type: "validation_error",
+      message: "Scene context has no chapter boundaries within the requested scope.",
     });
     expect(generateText).not.toHaveBeenCalled();
   });

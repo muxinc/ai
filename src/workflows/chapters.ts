@@ -7,7 +7,7 @@ import {
   withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
 import { getLanguageName } from "../lib/language-codes.ts";
-import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
+import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -492,7 +492,7 @@ async function generateChaptersInternal(
     throw new MuxAiError(
       "Signed playback ID requires signing credentials. " +
       "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
-      { type: "validation_error" },
+      { code: MUX_AI_ERROR_CODES.SIGNING_CREDENTIALS_MISSING },
     );
   }
 
@@ -506,19 +506,19 @@ async function generateChaptersInternal(
   });
 
   if (!transcriptResult.track || !transcriptResult.transcriptText) {
-    const availableLanguages = readyTextTracks
+    const availableLanguagesList = readyTextTracks
       .map(t => t.language_code)
-      .filter(Boolean)
-      .join(", ");
+      .filter(Boolean) as string[];
+    const availableLanguages = availableLanguagesList.join(", ");
     throw new MuxAiError(
       `No caption track found${languageCode ? ` for language ${languageCode}` : ""}. Available languages: ${availableLanguages || "none"}.`,
-      { type: "validation_error" },
+      { code: MUX_AI_ERROR_CODES.CAPTION_TRACK_NOT_FOUND, facts: { ...(languageCode && { languageCode }), availableLanguages: availableLanguagesList } },
     );
   }
   const timestampedTranscript = extractTimestampedTranscript(transcriptResult.transcriptText);
   if (!timestampedTranscript) {
     const contentLabel = isAudioOnly ? "transcript" : "caption track";
-    throw new MuxAiError(`No usable content found in ${contentLabel}.`, { type: "validation_error" });
+    throw new MuxAiError(`No usable content found in ${contentLabel}.`, { code: MUX_AI_ERROR_CODES.TRANSCRIPT_EMPTY });
   }
 
   // Resolve output language: explicit code takes priority, otherwise auto-detect from transcript track.
@@ -534,7 +534,7 @@ async function generateChaptersInternal(
   if (sceneContext?.length && sceneBoundarySeconds.length === 0) {
     throw new MuxAiError(
       "Scene context has no chapter boundaries within the requested scope.",
-      { type: "validation_error" },
+      { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
     );
   }
 
@@ -573,7 +573,7 @@ async function generateChaptersInternal(
   }
 
   if (!chaptersData || !chaptersData.chapters) {
-    throw new MuxAiError(`Failed to generate chapters for asset ${assetId}.`);
+    throw new MuxAiError(`Failed to generate chapters for asset ${assetId}.`, { code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_MISSING });
   }
 
   // Validate and sort chapters
@@ -593,7 +593,7 @@ async function generateChaptersInternal(
   );
 
   if (validChapters.length === 0) {
-    throw new MuxAiError(`Failed to generate valid chapters for asset ${assetId}.`);
+    throw new MuxAiError(`Failed to generate valid chapters for asset ${assetId}.`, { code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID });
   }
 
   // Scrub chapter titles for signs of a system-prompt leak. Titles are
@@ -645,7 +645,7 @@ async function generateChaptersInternal(
   });
 
   if (scrubbedChapters.length === 0) {
-    throw new MuxAiError(`Failed to generate valid chapters for asset ${assetId}.`);
+    throw new MuxAiError(`Failed to generate valid chapters for asset ${assetId}.`, { code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_SUPPRESSED });
   }
 
   // Preserve the standalone workflow's existing first-chapter behavior. Scene-aware
