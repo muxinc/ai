@@ -153,6 +153,38 @@ Both flags are policies decided from the classification, not by hand: the site's
 
 Codes, facts and messages are internal by default; only an explicit mapping makes a code and some of its facts public. `MUX_AI_ERROR_GENERIC_MESSAGES` holds the generic wording. Consumers with their own vocabulary (e.g. API parameter names) can override the message per public code and keep the rest of the view.
 
+## Building your own errors on the same model
+
+An application that adds its own failures can use the same model, so its errors and the SDK's share one retry policy, one serializer and one public view. `ClassifiedError` is the base `MuxAiError` is built on:
+
+```ts
+import type { ClassifiedErrorInit, ErrorCatalogEntry, SerializedClassification } from "@mux/ai";
+import { classificationInit, ClassifiedError, createPublicErrorView, MUX_AI_ERROR_PUBLIC_MAPPINGS, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, restoreClassification, serializeClassification } from "@mux/ai";
+
+const APP_ERROR_TYPES = { ...MUX_AI_ERROR_TYPES, CONFLICT: "conflict" } as const;
+const APP_ERROR_CODES = { JOB_ALREADY_RUNNING: "job_already_running" } as const;
+const APP_ERROR_CATALOG = {
+  [APP_ERROR_CODES.JOB_ALREADY_RUNNING]: { type: APP_ERROR_TYPES.CONFLICT, source: MUX_AI_ERROR_SOURCES.REQUEST },
+} as const satisfies Record<AppErrorCode, ErrorCatalogEntry<AppErrorType>>;
+
+class AppError extends ClassifiedError<AppErrorType, AppErrorCode> {
+  constructor(message: string, init: ClassifiedErrorInit<AppErrorType, AppErrorCode, string>) {
+    super(message, init, APP_ERROR_CATALOG);
+  }
+  // For Workflow DevKit, add static WORKFLOW_SERIALIZE / WORKFLOW_DESERIALIZE hooks
+  // built from serializeClassification(), classificationInit() and restoreClassification().
+}
+
+const toPublic = createPublicErrorView<string, string>({
+  mappings: { ...MUX_AI_ERROR_PUBLIC_MAPPINGS, [APP_ERROR_CODES.JOB_ALREADY_RUNNING]: { message: "A job with these parameters is already running." } },
+  genericMessage: error => /* your generic wording, by source then type */ "The job failed.",
+});
+```
+
+- **Types:** extend `MUX_AI_ERROR_TYPES` rather than redefining it, and keep every type safe to show end users.
+- **Sources** are shared as they are; **dependencies** are yours to extend with the services you call.
+- **One view for both:** pass the SDK's public mappings along with yours, so SDK failures keep their public wording.
+
 ## Raising errors
 
 ### Choose the classification

@@ -65,10 +65,14 @@ export type MuxAiErrorFactValue = string | number | boolean | null | MuxAiErrorF
  */
 export type MuxAiErrorFacts = Readonly<Record<string, MuxAiErrorFactValue>>;
 
-interface MuxAiErrorCatalogEntry {
-  type: MuxAiErrorType;
+/**
+ * What a code implies, in any catalog built on {@link ClassifiedError}: its type,
+ * source and dependency, and retry overrides that hold for every occurrence.
+ */
+export interface ErrorCatalogEntry<TType extends string = MuxAiErrorType, TDependency extends string = MuxAiErrorDependency> {
+  type: TType;
   source: MuxAiErrorSource;
-  dependency?: MuxAiErrorDependency;
+  dependency?: TDependency;
   /** Overrides the default from {@link defaultRetryable} for every error with this code. */
   retryable?: boolean;
   /** Overrides the default from {@link defaultTransient} for every error with this code. */
@@ -152,7 +156,7 @@ export const MUX_AI_ERROR_CATALOG = {
   // Audio dubbing.
   [MUX_AI_ERROR_CODES.DUBBING_LANGUAGE_UNSUPPORTED]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER },
   [MUX_AI_ERROR_CODES.DUBBING_FAILED]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER },
-} as const satisfies Record<MuxAiErrorCode, MuxAiErrorCatalogEntry>;
+} as const satisfies Record<MuxAiErrorCode, ErrorCatalogEntry>;
 
 export interface ModelCallDiagnostics {
   phase: "brief" | "draft" | "format_repair" | "length_repair";
@@ -184,7 +188,7 @@ export function defaultTransient(source: MuxAiErrorSource, facts: MuxAiErrorFact
  * the failure is transient, a timeout, capacity, or otherwise `upstream`; no when the
  * request, asset, account or this service's own code or configuration is the problem.
  */
-export function defaultRetryable(type: MuxAiErrorType, source: MuxAiErrorSource, transient: boolean): boolean {
+export function defaultRetryable(type: string, source: MuxAiErrorSource, transient: boolean): boolean {
   if (transient || type === MUX_AI_ERROR_TYPES.TIMEOUT_ERROR || type === MUX_AI_ERROR_TYPES.CAPACITY_ERROR) {
     return true;
   }
@@ -195,19 +199,21 @@ export function defaultRetryable(type: MuxAiErrorType, source: MuxAiErrorSource,
 }
 
 /** A short record of one raw cause, kept across step boundaries in place of the cause itself. */
-export interface MuxAiErrorCauseSummary {
+export interface ErrorCauseSummary {
   name: string;
   message: string;
   status?: number;
 }
 
-/** Either a code (which implies type and source) or an explicit type and source, never both. */
-type MuxAiErrorClassification =
-  | { code: MuxAiErrorCode; type?: never; source?: never } |
-  { code?: never; type: MuxAiErrorType; source: MuxAiErrorSource };
-
-export type MuxAiErrorInit = MuxAiErrorClassification & {
-  dependency?: MuxAiErrorDependency;
+/**
+ * How a site classifies an error: a code (which implies type, source and maybe
+ * dependency) or an explicit type and source, never both, plus what varies.
+ */
+export type ClassifiedErrorInit<TType extends string, TCode extends string, TDependency extends string> = (
+  { code: TCode; type?: never; source?: never } |
+  { code?: never; type: TType; source: MuxAiErrorSource }
+) & {
+  dependency?: TDependency;
   facts?: MuxAiErrorFacts;
   /**
    * Whether submitting the same job again, unchanged, may succeed. Not "fixable":
@@ -226,23 +232,32 @@ export type MuxAiErrorInit = MuxAiErrorClassification & {
   cause?: unknown;
 };
 
+export type MuxAiErrorInit = ClassifiedErrorInit<MuxAiErrorType, MuxAiErrorCode, MuxAiErrorDependency>;
+
+/**
+ * A classified error's fields as JSON-safe data, for a subclass's Workflow serializer
+ * (see {@link serializeClassification} and {@link restoreClassification}).
+ */
+export interface SerializedClassification<TType extends string = string, TCode extends string = string, TDependency extends string = string> {
+  message: string;
+  type: TType;
+  source: MuxAiErrorSource;
+  dependency?: TDependency;
+  code?: TCode;
+  facts: MuxAiErrorFacts;
+  retryable: boolean;
+  transient: boolean;
+  causes: ErrorCauseSummary[];
+  stack?: string;
+}
+
 /**
  * What crosses a Workflow step boundary. Runs started before a deploy replay events
  * written by the previous code, so `v` is bumped on a shape change and earlier
  * versions stay readable.
  */
-interface SerializedMuxAiErrorV2 {
+interface SerializedMuxAiErrorV2 extends SerializedClassification<MuxAiErrorType, MuxAiErrorCode, MuxAiErrorDependency> {
   v: 2;
-  message: string;
-  type: MuxAiErrorType;
-  source: MuxAiErrorSource;
-  dependency?: MuxAiErrorDependency;
-  code?: MuxAiErrorCode;
-  facts: MuxAiErrorFacts;
-  retryable: boolean;
-  transient: boolean;
-  causes: MuxAiErrorCauseSummary[];
-  stack?: string;
   usage?: TokenUsage;
   finishReason?: string;
   rawFinishReason?: string;
@@ -275,11 +290,11 @@ function statusOf(value: unknown): number | undefined {
 }
 
 /** Summarizes a cause chain, scrubbing high-confidence prompt leaks from each message. */
-function summarizeCauses(cause: unknown): MuxAiErrorCauseSummary[] {
-  const causes: MuxAiErrorCauseSummary[] = [];
+function summarizeCauses(cause: unknown): ErrorCauseSummary[] {
+  const causes: ErrorCauseSummary[] = [];
   let current = cause;
   while (current !== undefined && current !== null && causes.length < MAX_CAUSE_DEPTH) {
-    if (MuxAiError.is(current)) {
+    if (ClassifiedError.isClassified(current)) {
       causes.push(...current.causes.slice(0, MAX_CAUSE_DEPTH - causes.length));
       break;
     }
@@ -296,23 +311,25 @@ function summarizeCauses(cause: unknown): MuxAiErrorCauseSummary[] {
 }
 
 /**
- * A classified @mux/ai failure. Every instance carries a `type` and a `source`; a
- * remote failure also carries its `dependency`; a precise condition carries a `code`.
- * `message` is internal detail for developers and logs, never end-user text: render
- * what end users see with `toPublicError()`, which only exposes allowlisted codes
- * and facts. See docs/ERRORS.md.
+ * The shared error model: a `type` and `source` on every instance, a `dependency`
+ * for remote failures, a `code` for conditions precise enough to name, JSON-safe
+ * `facts`, and a retry policy derived from the classification. `message` is internal
+ * detail, never end-user text (see `createPublicErrorView()`).
  *
- * Fields, not subclasses, carry the classification: a custom Workflow codec keeps
- * them across step boundaries, and every subclass revives as `MuxAiError`.
+ * `MuxAiError` is built on it, and consumers can build their own errors on it with
+ * their own type list, code catalog and dependencies, so policy, serialization and
+ * the public view work the same way everywhere. A subclass supplies its catalog,
+ * a brand for its own `is()`, and Workflow serializer hooks built from
+ * {@link serializeClassification} and {@link restoreClassification}.
  */
-export class MuxAiError extends Error {
-  /** Structural brand for duck-type identification across copies of the SDK. */
-  readonly __mux_ai_error = true;
+export class ClassifiedError<TType extends string = string, TCode extends string = string, TDependency extends string = string> extends Error {
+  /** Structural brand shared by every classified error, for duck-type identification across realms. */
+  readonly __classified_error = true;
 
-  readonly type: MuxAiErrorType;
+  readonly type: TType;
   readonly source: MuxAiErrorSource;
-  readonly dependency?: MuxAiErrorDependency;
-  readonly code?: MuxAiErrorCode;
+  readonly dependency?: TDependency;
+  readonly code?: TCode;
   readonly facts: MuxAiErrorFacts;
 
   /** Whether submitting the same job again, unchanged, may succeed. Always true when transient. */
@@ -324,18 +341,19 @@ export class MuxAiError extends Error {
    */
   readonly transient: boolean;
 
-  declare usage?: TokenUsage;
-  declare diagnostics?: ModelCallDiagnostics;
-
   /** Raw cause; non-enumerable, local only. */
   declare readonly cause?: unknown;
 
   /** Bounded summary of the cause chain; non-enumerable, crosses step boundaries. */
-  declare readonly causes: MuxAiErrorCauseSummary[];
+  declare readonly causes: ErrorCauseSummary[];
 
-  constructor(message: string, init: MuxAiErrorInit) {
+  constructor(
+    message: string,
+    init: ClassifiedErrorInit<TType, TCode, TDependency>,
+    catalog: Readonly<Partial<Record<TCode, ErrorCatalogEntry<TType, TDependency>>>>,
+  ) {
     super(message);
-    const entry = init.code ? MUX_AI_ERROR_CATALOG[init.code] as MuxAiErrorCatalogEntry : undefined;
+    const entry = init.code ? catalog[init.code] : undefined;
     this.type = entry?.type ?? init.type!;
     this.source = entry?.source ?? init.source!;
     const dependency = init.dependency ?? entry?.dependency;
@@ -357,6 +375,85 @@ export class MuxAiError extends Error {
     Object.defineProperty(this, "causes", { value: summarizeCauses(init.cause), writable: true, configurable: true });
   }
 
+  /** Whether `value` is any classified error, from this copy of the SDK or another. */
+  static isClassified(value: unknown): value is ClassifiedError {
+    return (
+      typeof value === "object" &&
+      value !== null &&
+      "__classified_error" in value &&
+      value.__classified_error === true
+    );
+  }
+}
+
+/** The classification of `error`, for a subclass's `WORKFLOW_SERIALIZE` hook. */
+export function serializeClassification<TType extends string, TCode extends string, TDependency extends string>(
+  error: ClassifiedError<TType, TCode, TDependency>,
+): SerializedClassification<TType, TCode, TDependency> {
+  return {
+    message: error.message,
+    type: error.type,
+    source: error.source,
+    ...(error.dependency && { dependency: error.dependency }),
+    ...(error.code && { code: error.code }),
+    facts: error.facts,
+    retryable: error.retryable,
+    transient: error.transient,
+    causes: error.causes,
+    stack: error.stack,
+  };
+}
+
+/**
+ * The constructor options that rebuild a serialized classification, for a
+ * subclass's `WORKFLOW_DESERIALIZE` hook; follow with {@link restoreClassification}.
+ * The stored classification wins over the catalog's current mapping for a code.
+ */
+export function classificationInit<TType extends string, TCode extends string, TDependency extends string>(
+  record: SerializedClassification<TType, TCode, TDependency>,
+): ClassifiedErrorInit<TType, TCode, TDependency> {
+  return {
+    type: record.type,
+    source: record.source,
+    dependency: record.dependency,
+    facts: record.facts,
+    retryable: record.retryable,
+    transient: record.transient,
+  };
+}
+
+/** Restores what the constructor can't take back: the code, the cause summaries and the stack. */
+export function restoreClassification<T extends ClassifiedError>(error: T, record: SerializedClassification): T {
+  if (record.code) {
+    Object.assign(error, { code: record.code });
+  }
+  Object.defineProperty(error, "causes", { value: record.causes, writable: true, configurable: true });
+  if (record.stack !== undefined) {
+    error.stack = record.stack;
+  }
+  return error;
+}
+
+/**
+ * A classified @mux/ai failure, built on {@link ClassifiedError} with the SDK's
+ * catalog. `message` is internal detail for developers and logs, never end-user
+ * text: render what end users see with `toPublicError()`, which only exposes
+ * allowlisted codes and facts. See docs/ERRORS.md.
+ *
+ * Fields, not subclasses, carry the classification: a custom Workflow codec keeps
+ * them across step boundaries, and every subclass revives as `MuxAiError`.
+ */
+export class MuxAiError extends ClassifiedError<MuxAiErrorType, MuxAiErrorCode, MuxAiErrorDependency> {
+  /** Structural brand for duck-type identification across copies of the SDK. */
+  readonly __mux_ai_error = true;
+
+  declare usage?: TokenUsage;
+  declare diagnostics?: ModelCallDiagnostics;
+
+  constructor(message: string, init: MuxAiErrorInit) {
+    super(message, init, MUX_AI_ERROR_CATALOG);
+  }
+
   static is(value: unknown): value is MuxAiError {
     return (
       typeof value === "object" &&
@@ -370,16 +467,7 @@ export class MuxAiError extends Error {
     const incomplete = instance as MuxAiError & { finishReason?: string; rawFinishReason?: string };
     return {
       v: 2,
-      message: instance.message,
-      type: instance.type,
-      source: instance.source,
-      ...(instance.dependency && { dependency: instance.dependency }),
-      ...(instance.code && { code: instance.code }),
-      facts: instance.facts,
-      retryable: instance.retryable,
-      transient: instance.transient,
-      causes: instance.causes,
-      stack: instance.stack,
+      ...serializeClassification(instance),
       usage: getErrorTokenUsage(instance),
       finishReason: incomplete.finishReason,
       rawFinishReason: incomplete.rawFinishReason,
@@ -389,32 +477,20 @@ export class MuxAiError extends Error {
 
   static [WORKFLOW_DESERIALIZE](value: SerializedMuxAiErrorV2 | SerializedMuxAiErrorV1): MuxAiError {
     // Subclasses inherit this codec. Restore their fields for structural guards
-    // without depending on subclass constructor signatures or raw causes. The
-    // stored classification wins over the catalog's current mapping for a code.
+    // without depending on subclass constructor signatures or raw causes.
     const error = value.v === 2 ?
-        new MuxAiError(value.message, {
-          type: value.type,
-          source: value.source,
-          dependency: value.dependency,
-          facts: value.facts,
-          retryable: value.retryable,
-          transient: value.transient,
-        }) :
+        restoreClassification(new MuxAiError(value.message, classificationInit(value)), value) :
       // Written before classification existed (an in-flight run replaying an older
       // event). Most of those errors were checks of the caller's input, so
       // `request` is an approximation; no new error is written in this shape.
         new MuxAiError(value.message, { type: value.publicType, source: MUX_AI_ERROR_SOURCES.REQUEST, retryable: value.retryable });
     Object.assign(error, {
-      ...(value.v === 2 && value.code && { code: value.code }),
       usage: value.usage,
       diagnostics: value.diagnostics,
       ...(value.finishReason !== undefined && { finishReason: value.finishReason }),
       ...(value.rawFinishReason !== undefined && { rawFinishReason: value.rawFinishReason }),
     });
-    if (value.v === 2) {
-      Object.defineProperty(error, "causes", { value: value.causes, writable: true, configurable: true });
-    }
-    if (value.stack !== undefined) {
+    if (value.v !== 2 && value.stack !== undefined) {
       error.stack = value.stack;
     }
     return error;

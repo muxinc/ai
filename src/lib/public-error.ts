@@ -1,26 +1,29 @@
-import type { MuxAiError, MuxAiErrorCode, MuxAiErrorFacts, MuxAiErrorFactValue, MuxAiErrorType } from "./mux-ai-error.ts";
+import type { ClassifiedError, MuxAiErrorCode, MuxAiErrorFacts, MuxAiErrorFactValue, MuxAiErrorType } from "./mux-ai-error.ts";
 import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES } from "./mux-ai-error.ts";
 import { legacyMp4SupportTooLargeMessage, legacyMp4SupportUnusableMessage } from "./mux-static-renditions.ts";
 import type { TextTrackSummary } from "./mux-tracks.ts";
 import { describeTrackSummaries } from "./mux-tracks.ts";
 
 /**
- * What a consumer may show its end users about a failure. `type` and `retryable`
- * are always public; `code` and `facts` only for codes with a public mapping. The
- * error's own `message` never appears here.
+ * What end users may see about a failure. `type` and `retryable` are always public;
+ * `code` and `facts` only for codes with a public mapping. The error's own `message`
+ * never appears here.
  */
-export interface MuxAiPublicError {
-  type: MuxAiErrorType;
-  /** Present only for codes in {@link MUX_AI_ERROR_PUBLIC_MAPPINGS}. */
-  code?: MuxAiErrorCode;
+export interface PublicError<TType extends string = string, TCode extends string = string> {
+  type: TType;
+  /** Present only for codes with a public mapping. */
+  code?: TCode;
   message: string;
   retryable: boolean;
   /** Only the facts the code's mapping allows. */
   facts?: MuxAiErrorFacts;
 }
 
+/** The public view of a `MuxAiError`. */
+export type MuxAiPublicError = PublicError<MuxAiErrorType, MuxAiErrorCode>;
+
 /** How one code is shown to end users. */
-export interface MuxAiErrorPublicMapping {
+export interface PublicErrorMapping {
   /** Facts that may reach end users. Every other fact is dropped. */
   facts?: readonly string[];
   /** End-user text, built only from the allowed facts. */
@@ -157,9 +160,10 @@ export const MUX_AI_ERROR_PUBLIC_MAPPINGS = {
     facts: ["providerError"],
     message: (facts, { retryable }) => `Audio dubbing failed${facts.providerError ? `: ${text(facts.providerError)}` : "."}${retryable ? TRY_AGAIN : ""}`,
   },
-} as const satisfies Partial<Record<MuxAiErrorCode, MuxAiErrorPublicMapping>>;
+} as const satisfies Partial<Record<MuxAiErrorCode, PublicErrorMapping>>;
 
-function genericMessage(error: MuxAiError): string {
+/** The SDK's wording for a failure without a public code: by source, then by type. */
+export function genericPublicMessage(error: ClassifiedError): string {
   const retry = error.retryable ? TRY_AGAIN : "";
   switch (error.source) {
     case MUX_AI_ERROR_SOURCES.REQUEST:
@@ -190,23 +194,34 @@ function allowedFacts(facts: MuxAiErrorFacts | undefined, allowed: readonly stri
 }
 
 /**
- * The end-user view of a failure. A code with a public mapping keeps its code and
- * allowed facts and renders the mapping's text; anything else renders generic text
- * by source, then by type. Never includes the error's own `message`.
+ * Builds the end-user view for errors on the shared model ({@link ClassifiedError}):
+ * a code with a public mapping keeps its code and allowed facts and renders the
+ * mapping's text; anything else renders `genericMessage`. Never includes the error's
+ * own `message`. Consumers build one with their own mappings (which may include the
+ * SDK's) and their own generic wording.
  */
-export function toPublicError(error: MuxAiError): MuxAiPublicError {
-  const mapping: MuxAiErrorPublicMapping | undefined = error.code ?
-      (MUX_AI_ERROR_PUBLIC_MAPPINGS as Partial<Record<MuxAiErrorCode, MuxAiErrorPublicMapping>>)[error.code] :
-    undefined;
-  if (!mapping) {
-    return { type: error.type, message: genericMessage(error), retryable: error.retryable };
-  }
-  const facts = allowedFacts(error.facts, mapping.facts);
-  return {
-    type: error.type,
-    code: error.code,
-    message: typeof mapping.message === "string" ? mapping.message : mapping.message(facts ?? {}, error),
-    retryable: error.retryable,
-    ...(facts && { facts }),
+export function createPublicErrorView<TType extends string, TCode extends string>(config: {
+  mappings: Readonly<Partial<Record<TCode, PublicErrorMapping>>>;
+  genericMessage: (error: ClassifiedError<TType, TCode>) => string;
+}): (error: ClassifiedError<TType, TCode>) => PublicError<TType, TCode> {
+  return (error) => {
+    const mapping: PublicErrorMapping | undefined = error.code ? config.mappings[error.code] : undefined;
+    if (!mapping) {
+      return { type: error.type, message: config.genericMessage(error), retryable: error.retryable };
+    }
+    const facts = allowedFacts(error.facts, mapping.facts);
+    return {
+      type: error.type,
+      code: error.code,
+      message: typeof mapping.message === "string" ? mapping.message : mapping.message(facts ?? {}, error),
+      retryable: error.retryable,
+      ...(facts && { facts }),
+    };
   };
 }
+
+/** The end-user view of a `MuxAiError`, with the SDK's public mappings and generic wording. */
+export const toPublicError: (error: ClassifiedError<MuxAiErrorType, MuxAiErrorCode>) => MuxAiPublicError = createPublicErrorView<MuxAiErrorType, MuxAiErrorCode>({
+  mappings: MUX_AI_ERROR_PUBLIC_MAPPINGS,
+  genericMessage: genericPublicMessage,
+});

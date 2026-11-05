@@ -20,6 +20,8 @@ export type {
 
 // Error types
 export {
+  classificationInit,
+  ClassifiedError,
   MUX_AI_ERROR_CATALOG,
   MUX_AI_ERROR_CODE_VALUES,
   MUX_AI_ERROR_CODES,
@@ -30,10 +32,14 @@ export {
   MUX_AI_ERROR_TYPE_VALUES,
   MUX_AI_ERROR_TYPES,
   MuxAiError,
+  restoreClassification,
+  serializeClassification,
   wrapError,
 } from "./lib/mux-ai-error.ts";
 export type {
-  MuxAiErrorCauseSummary,
+  ClassifiedErrorInit,
+  ErrorCatalogEntry,
+  ErrorCauseSummary,
   MuxAiErrorCode,
   MuxAiErrorDependency,
   MuxAiErrorFacts,
@@ -41,6 +47,7 @@ export type {
   MuxAiErrorInit,
   MuxAiErrorSource,
   MuxAiErrorType,
+  SerializedClassification,
 } from "./lib/mux-ai-error.ts";
 // Mux static renditions created by the deprecated `mp4_support` option
 export {
@@ -92,13 +99,16 @@ export { getMuxPlaybackOrigin } from "./lib/mux-url.ts";
 export type { MuxPlaybackService } from "./lib/mux-url.ts";
 
 export {
+  createPublicErrorView,
+  genericPublicMessage,
   MUX_AI_ERROR_GENERIC_MESSAGES,
   MUX_AI_ERROR_PUBLIC_MAPPINGS,
   toPublicError,
 } from "./lib/public-error.ts";
 export type {
-  MuxAiErrorPublicMapping,
   MuxAiPublicError,
+  PublicError,
+  PublicErrorMapping,
 } from "./lib/public-error.ts";
 
 // Workflow credential utilities
