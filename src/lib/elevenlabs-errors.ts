@@ -1,33 +1,26 @@
 const MAX_ERROR_BODY_CHARS = 500;
 
 /**
- * Builds the error to throw for a failed ElevenLabs response, including the
- * reason from its body.
+ * What went wrong with an ElevenLabs call, as plain data so it can cross a
+ * workflow step boundary intact. Thrown errors lose their custom fields there.
  *
- * Always a plain `Error`, never `MuxAiError`: provider detail is internal
- * diagnostics, not a customer-safe message. Statuses that cannot succeed on
- * retry are named `FatalError` so Workflow DevKit fails the step at once
- * instead of retrying it.
+ * `detail` is internal diagnostics (status line, provider message, request ID)
+ * and must never reach a customer; callers build the customer-facing message
+ * from `reason` and `retryable` instead.
  */
-export async function elevenLabsResponseError(context: string, response: Response): Promise<Error> {
-  const error = new Error(`${context}: ${await describeElevenLabsErrorResponse(response)}`);
-  if (!isRetryableElevenLabsStatus(response.status)) {
-    error.name = "FatalError";
-  }
-  return error;
-}
-
-/** Keep SDK failures on the same internal diagnostic and retry path as raw HTTP failures. */
-export async function elevenLabsSdkError(context: string, error: unknown): Promise<Error> {
-  const failure = error as { statusCode?: number; body?: unknown; rawResponse?: Response; message?: string } | undefined;
-  if (failure?.statusCode) {
-    const body = typeof failure.body === "string" ? failure.body : JSON.stringify(failure.body);
-    return elevenLabsResponseError(context, new Response(body, {
-      status: failure.statusCode,
-      statusText: failure.rawResponse?.statusText,
-    }));
-  }
-  return new Error(`${context}: ${failure?.message ?? String(error)}`);
+export interface ElevenLabsFailure {
+  /** HTTP status, when the call got a response. */
+  httpStatus?: number;
+  /**
+   * ElevenLabs' machine-readable reason, such as `unsupported_target_language`,
+   * or `timeout` / `network_error` / `unexpected_response` when there was no
+   * usable response.
+   */
+  reason?: string;
+  /** Whether repeating the same call could succeed. */
+  retryable: boolean;
+  /** Internal diagnostics for logs. Never customer-facing. */
+  detail: string;
 }
 
 export function isRetryableElevenLabsStatus(status: number): boolean {
@@ -35,42 +28,78 @@ export function isRetryableElevenLabsStatus(status: number): boolean {
   return status === 408 || status === 425 || status === 429 || status >= 500;
 }
 
-async function describeElevenLabsErrorResponse(response: Response): Promise<string> {
-  const statusLine = [response.status, response.statusText].filter(Boolean).join(" ");
+/** Describes a failed HTTP response, such as a download from a signed output URL. */
+export async function elevenLabsResponseFailure(response: Response): Promise<ElevenLabsFailure> {
   const body = await response.text().catch(() => "");
-  const detail = formatElevenLabsErrorBody(body);
-  return detail ? `${statusLine}: ${detail}` : statusLine;
+  return httpFailure(response.status, response.statusText, body);
 }
 
-function formatElevenLabsErrorBody(body: string): string {
+/** Describes an error thrown by `@elevenlabs/elevenlabs-js`. */
+export function elevenLabsSdkFailure(error: unknown): ElevenLabsFailure {
+  const failure = error as { name?: string; message?: string; statusCode?: unknown; body?: unknown; rawResponse?: Response } | undefined;
+  if (typeof failure?.statusCode === "number") {
+    const body = typeof failure.body === "string" ? failure.body : JSON.stringify(failure.body ?? "");
+    return httpFailure(failure.statusCode, failure.rawResponse?.statusText, body);
+  }
+  const message = failure?.message ?? String(error);
+  switch (failure?.name) {
+    case "ElevenLabsTimeoutError":
+      return { reason: "timeout", retryable: true, detail: message };
+    // The SDK validates responses strictly: the API's response no longer matches
+    // this SDK version, so the same call fails the same way.
+    case "ParseError":
+      return { reason: "unexpected_response", retryable: false, detail: `Unexpected ElevenLabs response: ${message}` };
+    // The SDK's own error without a status: the request got no response.
+    case "ElevenLabsError":
+      return { reason: "network_error", retryable: true, detail: message };
+    default:
+      return { retryable: false, detail: message };
+  }
+}
+
+function httpFailure(status: number, statusText: string | undefined, body: string): ElevenLabsFailure {
+  const statusLine = [status, statusText].filter(Boolean).join(" ");
+  const { reason, detail } = parseElevenLabsErrorBody(body);
+  return {
+    httpStatus: status,
+    reason,
+    retryable: isRetryableElevenLabsStatus(status),
+    detail: detail ? `${statusLine}: ${detail}` : statusLine,
+  };
+}
+
+function parseElevenLabsErrorBody(body: string): { reason?: string; detail: string } {
   const trimmed = body.trim();
   if (!trimmed) {
-    return "";
+    return { detail: "" };
   }
 
   let detail: unknown;
   try {
     detail = (JSON.parse(trimmed) as { detail?: unknown }).detail;
   } catch {
-    return trimmed.slice(0, MAX_ERROR_BODY_CHARS);
+    return { detail: trimmed.slice(0, MAX_ERROR_BODY_CHARS) };
   }
 
   if (typeof detail === "string" && detail) {
-    return detail;
+    return { detail };
   }
   // 422s carry a list of field validation errors.
   if (Array.isArray(detail) && detail.length > 0) {
-    return detail
-      .map((item: { loc?: unknown[]; msg?: string }) => [item.loc?.join("."), item.msg].filter(Boolean).join(": "))
-      .join("; ");
+    return {
+      detail: detail
+        .map((item: { loc?: unknown[]; msg?: string }) => [item.loc?.join("."), item.msg].filter(Boolean).join(": "))
+        .join("; "),
+    };
   }
   if (detail && typeof detail === "object") {
     const { status, code, message, param, request_id: requestId } = detail as Record<string, unknown>;
-    const reason = [status ?? code, message].filter(Boolean).join(": ");
+    const reasonCode = [status, code].find((value): value is string => typeof value === "string" && value !== "");
+    const reasonText = [reasonCode, message].filter(Boolean).join(": ");
     const context = [param && `param: ${param}`, requestId && `request_id: ${requestId}`].filter(Boolean).join(", ");
-    if (reason) {
-      return context ? `${reason} (${context})` : reason;
+    if (reasonText) {
+      return { reason: reasonCode, detail: context ? `${reasonText} (${context})` : reasonText };
     }
   }
-  return trimmed.slice(0, MAX_ERROR_BODY_CHARS);
+  return { detail: trimmed.slice(0, MAX_ERROR_BODY_CHARS) };
 }

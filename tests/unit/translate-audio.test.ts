@@ -12,6 +12,8 @@ vi.mock("workflow", () => ({
 vi.mock("../../src/lib/mux-assets", () => ({
   getAssetDurationSecondsFromAsset: vi.fn(),
   getPlaybackIdForAsset: vi.fn(),
+  isAudioOnlyAsset: vi.fn(),
+  isVideoOnlyAsset: vi.fn(),
 }));
 
 vi.mock("../../src/lib/workflow-credentials", () => ({
@@ -190,7 +192,7 @@ describe("translateAudio static rendition cleanup", () => {
 
     const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
 
-    expect((error as Error).message).toContain("dubbing job failed");
+    expect(error).toMatchObject({ publicMessage: "Audio dubbing failed." });
     expect(deleteStaticRendition).toHaveBeenCalledWith(ASSET_ID, CREATED_RENDITION_ID);
   });
 
@@ -302,89 +304,200 @@ describe("translateAudio ElevenLabs language codes", () => {
   });
 });
 
-describe("translateAudio ElevenLabs error reporting", () => {
+const TEMPORARILY_UNAVAILABLE = "The dubbing service is temporarily unavailable. Please try again.";
+
+function expectCustomerError(error: unknown, expected: { type: string; message: string; retryable: boolean }) {
+  expect(MuxAiError.is(error)).toBe(true);
+  expect(error).toMatchObject({ publicType: expected.type, publicMessage: expected.message, retryable: expected.retryable });
+}
+
+function jsonError(detail: unknown, status: number, statusText: string) {
+  return new Response(JSON.stringify({ detail }), { status, statusText });
+}
+
+describe("translateAudio ElevenLabs project creation failures", () => {
   beforeEach(() => {
     mockMuxClient({ initialAsset: readyRenditionAsset("rendition-pre-existing") });
   });
 
-  it("retains rejection diagnostics without marking provider detail as customer-safe", async () => {
-    stubElevenLabsCreateFailure(new Response(JSON.stringify(UNSUPPORTED_LANGUAGE_BODY), { status: 400, statusText: "Bad Request" }));
+  it.each([
+    {
+      name: "unsupported target language",
+      response: () => jsonError(UNSUPPORTED_LANGUAGE_BODY.detail, 400, "Bad Request"),
+      expected: { type: "validation_error", message: "Audio dubbing does not support the target language \"ur\".", retryable: false },
+      logged: "400 Bad Request: unsupported_target_language: Target language 'ur' is not supported. (param: target_lang, request_id: ce841eacec9f38158a9ef2f4b66b0940)",
+    },
+    {
+      name: "invalid API key",
+      response: () => jsonError({ status: "invalid_api_key", message: "Invalid API key" }, 401, "Unauthorized"),
+      expected: { type: "processing_error", message: "Audio dubbing could not be started.", retryable: false },
+      logged: "401 Unauthorized: invalid_api_key: Invalid API key",
+    },
+    {
+      // Needs someone to raise the quota, so a customer retry cannot fix it.
+      name: "exhausted quota",
+      response: () => jsonError({ status: "quota_exceeded", message: "This request exceeds your quota." }, 401, "Unauthorized"),
+      expected: { type: "processing_error", message: "Audio dubbing could not be started.", retryable: false },
+      logged: "401 Unauthorized: quota_exceeded: This request exceeds your quota.",
+    },
+    {
+      name: "422 field errors",
+      response: () => jsonError([{ loc: ["body", "target_language"], msg: "field required", type: "missing" }], 422, "Unprocessable Entity"),
+      expected: { type: "processing_error", message: "Audio dubbing could not be started.", retryable: false },
+      logged: "422 Unprocessable Entity: body.target_language: field required",
+    },
+    {
+      name: "rate limit",
+      response: () => jsonError({ status: "too_many_concurrent_requests", message: "Too many concurrent requests." }, 429, "Too Many Requests"),
+      expected: { type: "processing_error", message: `Audio dubbing could not be started. ${TEMPORARILY_UNAVAILABLE}`, retryable: true },
+      logged: "429 Too Many Requests: too_many_concurrent_requests: Too many concurrent requests.",
+    },
+    {
+      // Robots used to classify 500 and 502 as non-retryable from their status text alone.
+      name: "500",
+      response: () => jsonError({ status: "internal_error", message: "Internal error." }, 500, "Internal Server Error"),
+      expected: { type: "processing_error", message: `Audio dubbing could not be started. ${TEMPORARILY_UNAVAILABLE}`, retryable: true },
+      logged: "500 Internal Server Error: internal_error: Internal error.",
+    },
+    {
+      name: "502 with a non-JSON body",
+      response: () => new Response(`<html>${"x".repeat(1000)}</html>`, { status: 502, statusText: "Bad Gateway" }),
+      expected: { type: "processing_error", message: `Audio dubbing could not be started. ${TEMPORARILY_UNAVAILABLE}`, retryable: true },
+      logged: "502 Bad Gateway: <html>xxx",
+    },
+  ])("maps a $name to a customer-safe error and logs the provider detail", async ({ response, expected, logged }) => {
+    const fetchMock = stubElevenLabsCreateFailure(response());
 
     const error = await captureRejection(translateAudio(ASSET_ID, "ur", BASE_OPTIONS));
 
-    expect((error as Error).message).toBe(
-      "Failed to create ElevenLabs dubbing job: ElevenLabs API error: 400 Bad Request: unsupported_target_language: Target language 'ur' is not supported. (param: target_lang, request_id: ce841eacec9f38158a9ef2f4b66b0940)",
-    );
-    expect(MuxAiError.is(error)).toBe(false);
+    expectCustomerError(error, expected);
+    // Creation is paid, so it is never retried automatically.
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const warnings = vi.mocked(console.warn).mock.calls.map(([message]) => String(message));
+    expect(warnings.some(message => message.includes(logged))).toBe(true);
+    expect(warnings.some(message => message.includes("</html>"))).toBe(false);
   });
 
-  it("lists field errors from a 422 validation response", async () => {
-    stubElevenLabsCreateFailure(new Response(
-      JSON.stringify({ detail: [{ loc: ["body", "target_lang"], msg: "field required", type: "missing" }] }),
-      { status: 422, statusText: "Unprocessable Entity" },
+  it("names an unsupported source language the caller asked for", async () => {
+    stubElevenLabsCreateFailure(jsonError(
+      { status: "unsupported_source_language", message: "Source language 'ak' is not supported for transcription.", param: "source_language" },
+      400,
+      "Bad Request",
     ));
 
-    const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
+    const error = await captureRejection(translateAudio(ASSET_ID, "fr", { ...BASE_OPTIONS, fromLanguageCode: "ak" }));
 
-    expect((error as Error).message).toContain("422 Unprocessable Entity: body.target_lang: field required");
+    expectCustomerError(error, { type: "validation_error", message: "Audio dubbing does not support the source language \"ak\".", retryable: false });
   });
 
-  it("keeps the 429 status in the message so callers can still detect rate limits", async () => {
-    stubElevenLabsCreateFailure(new Response(
-      JSON.stringify({ detail: { status: "too_many_concurrent_requests", message: "Too many concurrent requests." } }),
-      { status: 429, statusText: "Too Many Requests" },
-    ));
+  it("treats a create with no response as retryable and logs that it may have been billed", async () => {
+    const fetchMock = vi.fn(async () => {
+      throw new TypeError("fetch failed");
+    });
+    vi.stubGlobal("fetch", fetchMock);
 
     const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
 
-    expect((error as Error).message).toContain("429 Too Many Requests: too_many_concurrent_requests: Too many concurrent requests.");
+    expectCustomerError(error, { type: "processing_error", message: `Audio dubbing could not be started. ${TEMPORARILY_UNAVAILABLE}`, retryable: true });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("The project may have been created; check ElevenLabs before retrying."));
+  });
+});
+
+/** Answers creation, then serves status responses in order (the last one repeats). */
+function stubStatusResponses(statusResponses: Array<() => Response>) {
+  let call = 0;
+  const fetchMock = vi.fn(async (input: any, init?: any) => {
+    const url = String(input);
+    if (url.endsWith("/v1/dubbing/project") && init?.method === "POST") {
+      return new Response(JSON.stringify(dubbingProject()), { status: 200 });
+    }
+    if (url.endsWith("/v1/dubbing/project/proj_1")) {
+      const respond = statusResponses[Math.min(call, statusResponses.length - 1)];
+      call++;
+      return respond();
+    }
+    if (url.endsWith("/v1/dubbing/project/proj_1/language/lang_1")) {
+      return new Response(JSON.stringify(dubbingLanguage()), { status: 200 });
+    }
+    throw new Error(`Unexpected fetch in test: ${url}`);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+const STATUS_500 = () => jsonError({ status: "internal_error", message: "Internal error." }, 500, "Internal Server Error");
+
+describe("translateAudio ElevenLabs status check failures", () => {
+  beforeEach(() => {
+    mockMuxClient({ initialAsset: readyRenditionAsset("rendition-pre-existing") });
   });
 
-  it("truncates a non-JSON error body", async () => {
-    stubElevenLabsCreateFailure(new Response(`<html>${"x".repeat(1000)}</html>`, { status: 502, statusText: "Bad Gateway" }));
+  it("fails without retrying when the project no longer exists", async () => {
+    stubStatusResponses([() => jsonError({ status: "dubbing_not_found", message: "Dubbing project not found." }, 404, "Not Found")]);
 
     const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
 
-    expect((error as Error).message).toContain("502 Bad Gateway: <html>xxx");
-    expect((error as Error).message).not.toContain("</html>");
+    expectCustomerError(error, { type: "processing_error", message: "Could not check audio dubbing progress.", retryable: false });
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("404 Not Found: dubbing_not_found: Dubbing project not found."));
   });
 
-  it("includes the ElevenLabs reason when a status check is rejected", async () => {
-    vi.stubGlobal("fetch", vi.fn(async (input: any, init?: any) => {
-      if (String(input).endsWith("/v1/dubbing/project") && init?.method === "POST") {
-        return new Response(JSON.stringify(dubbingProject()), { status: 200 });
-      }
-      return new Response(
-        JSON.stringify({ detail: { status: "dubbing_not_found", message: "Dubbing project not found." } }),
-        { status: 404, statusText: "Not Found" },
-      );
-    }));
+  it("keeps polling through a transient failure", async () => {
+    stubStatusResponses([STATUS_500, STATUS_500, () => new Response(JSON.stringify(dubbingProject()), { status: 200 })]);
 
-    const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
+    const result = await translateAudio(ASSET_ID, "fr", BASE_OPTIONS);
 
-    expect((error as Error).message).toBe(
-      "Failed to check dubbing status: Status check failed: 404 Not Found: dubbing_not_found: Dubbing project not found.",
-    );
+    expect(result.dubbingId).toBe("proj_1");
   });
 
-  it("logs the ElevenLabs reason for a failed dub without changing the customer-facing error", async () => {
-    vi.stubGlobal("fetch", vi.fn(async (input: any, init?: any) => {
-      if (String(input).endsWith("/v1/dubbing/project") && init?.method === "POST") {
-        return new Response(JSON.stringify(dubbingProject()), { status: 200 });
-      }
-      return new Response(
-        JSON.stringify(dubbingProject({ status: "failed", error: { code: "source_download_failed", message: "The source media could not be downloaded from the provided URL.", retryable: true }, language_id: "lang_1", target_language: "fr" })),
-        { status: 200 },
-      );
-    }));
+  it("fails as retryable once transient failures persist", async () => {
+    const fetchMock = stubStatusResponses([STATUS_500]);
 
     const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
 
-    expect(error).toMatchObject({
-      publicType: "processing_error",
-      publicMessage: "ElevenLabs reported that the dubbing job failed.",
+    expectCustomerError(error, { type: "processing_error", message: `Could not check audio dubbing progress. ${TEMPORARILY_UNAVAILABLE}`, retryable: true });
+    const statusChecks = fetchMock.mock.calls.filter(([input]) => String(input).endsWith("/v1/dubbing/project/proj_1"));
+    expect(statusChecks).toHaveLength(6);
+  });
+});
+
+describe("translateAudio failed dubs", () => {
+  beforeEach(() => {
+    mockMuxClient({ initialAsset: readyRenditionAsset("rendition-pre-existing") });
+  });
+
+  function stubFailedDub(error: unknown) {
+    stubStatusResponses([() => new Response(JSON.stringify(dubbingProject({ status: "failed", error })), { status: 200 })]);
+  }
+
+  it("passes on ElevenLabs' display message and retryability", async () => {
+    stubFailedDub({ code: "source_download_failed", message: "The source media could not be downloaded from the provided URL.", retryable: true });
+
+    const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
+
+    expectCustomerError(error, {
+      type: "processing_error",
+      message: "Audio dubbing failed: The source media could not be downloaded from the provided URL. Please try again.",
+      retryable: true,
     });
     expect(console.warn).toHaveBeenCalledWith("❌ ElevenLabs dubbing project proj_1 (language lang_1) failed: source_download_failed: The source media could not be downloaded from the provided URL.");
+  });
+
+  it("does not invite a retry ElevenLabs says cannot succeed", async () => {
+    // Illustrative code: ElevenLabs does not publish a list of failure codes.
+    stubFailedDub({ code: "no_speech_detected", message: "No speech was detected in the source media.", retryable: false });
+
+    const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
+
+    expectCustomerError(error, { type: "processing_error", message: "Audio dubbing failed: No speech was detected in the source media.", retryable: false });
+  });
+
+  it("reports a failure without a reason as not retryable", async () => {
+    stubFailedDub(null);
+
+    const error = await captureRejection(translateAudio(ASSET_ID, "fr", BASE_OPTIONS));
+
+    expectCustomerError(error, { type: "processing_error", message: "Audio dubbing failed.", retryable: false });
   });
 });
 
@@ -517,7 +630,10 @@ describe("translateAudio project API", () => {
       JSON.stringify({ detail: { status: "unsupported_target_language", message: "Unsupported target language" } }),
       { status: 400, statusText: "Bad Request" },
     ));
-    await expect(translateAudio(ASSET_ID, "eu", BASE_OPTIONS)).rejects.toThrow("400 Bad Request: unsupported_target_language");
+    await expect(translateAudio(ASSET_ID, "eu", BASE_OPTIONS)).rejects.toMatchObject({
+      publicType: "validation_error",
+      publicMessage: "Audio dubbing does not support the target language \"eu\".",
+    });
     expect(getPlaybackIdForAsset).toHaveBeenCalledOnce();
     expect(fetchMock).toHaveBeenCalledOnce();
     expect((fetchMock.mock.calls[0][1].body as FormData).get("target_language")).toBe("eu");
@@ -547,7 +663,7 @@ describe("translateAudio project API", () => {
 
   it("does not retry an ambiguous paid create inside the SDK", async () => {
     const fetchMock = stubElevenLabsCreateFailure(new Response("upstream unavailable", { status: 503 }));
-    await expect(translateAudio(ASSET_ID, "fr", BASE_OPTIONS)).rejects.toThrow("503");
+    await expect(translateAudio(ASSET_ID, "fr", BASE_OPTIONS)).rejects.toMatchObject({ retryable: true });
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 });
