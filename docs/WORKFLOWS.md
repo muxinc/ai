@@ -913,7 +913,7 @@ console.log(result.presignedUrl); // S3 audio file URL
 
 ### Supported Languages
 
-The project API uses the [dubbing v1 language list](https://elevenlabs.io/docs/help-center/product/dubbing/which-languages-are-supported-in-dubbing#dubbing-v1). Pass a supported base tag or ISO 639-3 alias; regional dialect tags are rejected. Three-letter base tags such as `yue`, `fil`, and `ast` are supported. Track names are automatically generated (e.g., "Polish (Auto-dubbed)"). Nonzero `numSpeakers` overrides are no longer supported; use the default auto-detection.
+The project API uses the [dubbing v1 language list](https://elevenlabs.io/docs/help-center/product/dubbing/which-languages-are-supported-in-dubbing#dubbing-v1). Pass a base tag or a known ISO 639-3 alias. The SDK normalizes codes and lets ElevenLabs validate target support; unsupported targets and regional dialects fail at project creation, after any required Mux rendition preparation. Three-letter base tags such as `yue`, `fil`, and `ast` are supported. Track names are automatically generated (e.g., "Polish (Auto-dubbed)"). Nonzero `numSpeakers` overrides are no longer supported; use the default auto-detection.
 
 ### Audio Dubbing Workflow
 

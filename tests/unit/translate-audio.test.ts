@@ -287,7 +287,7 @@ describe("translateAudio ElevenLabs error reporting", () => {
     mockMuxClient({ initialAsset: readyRenditionAsset("rendition-pre-existing") });
   });
 
-  it("includes the status and ElevenLabs reason when dub creation is rejected", async () => {
+  it("retains rejection diagnostics without marking provider detail as customer-safe", async () => {
     stubElevenLabsCreateFailure(new Response(JSON.stringify(UNSUPPORTED_LANGUAGE_BODY), { status: 400, statusText: "Bad Request" }));
 
     const error = await captureRejection(translateAudio(ASSET_ID, "ur", BASE_OPTIONS));
@@ -295,13 +295,6 @@ describe("translateAudio ElevenLabs error reporting", () => {
     expect((error as Error).message).toBe(
       "Failed to create ElevenLabs dubbing job: ElevenLabs API error: 400 Bad Request: unsupported_target_language: Target language 'ur' is not supported. (param: target_lang, request_id: ce841eacec9f38158a9ef2f4b66b0940)",
     );
-  });
-
-  it("keeps provider detail out of customer-safe errors", async () => {
-    stubElevenLabsCreateFailure(new Response(JSON.stringify(UNSUPPORTED_LANGUAGE_BODY), { status: 400, statusText: "Bad Request" }));
-
-    const error = await captureRejection(translateAudio(ASSET_ID, "ur", BASE_OPTIONS));
-
     expect(MuxAiError.is(error)).toBe(false);
   });
 
@@ -487,12 +480,43 @@ describe("translateAudio project API", () => {
       .toMatchObject({ publicType: "timeout_error" });
   });
 
-  it.each(["yue", "fil", "ur"])("allows the v1 language %s", async (code) => {
+  it.each([
+    { input: "yue", tag: "yue", iso3: "yue" },
+    { input: "urd", tag: "ur", iso3: "urd" },
+    { input: "hye", tag: "hy", iso3: "hye" },
+  ])("sends $input as $tag and preserves result language metadata", async ({ input, tag, iso3 }) => {
     const fetchMock = stubElevenLabsFetch();
-    const result = await translateAudio(ASSET_ID, code, BASE_OPTIONS);
+    const result = await translateAudio(ASSET_ID, input, BASE_OPTIONS);
     const create = fetchMock.mock.calls.find(([, init]) => init?.method === "POST")!;
-    expect((create[1].body as FormData).get("target_language")).toBe(code);
-    expect(result.targetLanguageCode).toBe(code);
+    expect((create[1].body as FormData).get("target_language")).toBe(tag);
+    expect(result).toMatchObject({ targetLanguageCode: tag, targetLanguage: { iso639_1: tag, iso639_3: iso3 } });
+  });
+
+  it.each([
+    { input: "eu", expected: "eu" },
+    { input: "es-MX", expected: "es-mx" },
+  ])("defers validation of $input to ElevenLabs without retrying a rejected create", async ({ input, expected }) => {
+    const fetchMock = stubElevenLabsCreateFailure(new Response(
+      JSON.stringify({ detail: { status: "unsupported_target_language", message: "Unsupported target language" } }),
+      { status: 400, statusText: "Bad Request" },
+    ));
+    await expect(translateAudio(ASSET_ID, input, BASE_OPTIONS)).rejects.toThrow("400 Bad Request: unsupported_target_language");
+    expect(getPlaybackIdForAsset).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect((fetchMock.mock.calls[0][1].body as FormData).get("target_language")).toBe(expected);
+  });
+
+  it.each([
+    { input: undefined, expected: null },
+    { input: " AUTO ", expected: null },
+    { input: "", expected: null },
+    { input: "hye", expected: "hy" },
+    { input: "ak", expected: "ak" },
+  ])("sends the correct source-language hint for $input", async ({ input, expected }) => {
+    const fetchMock = stubElevenLabsFetch();
+    await translateAudio(ASSET_ID, "fr", { ...BASE_OPTIONS, fromLanguageCode: input });
+    const create = fetchMock.mock.calls.find(([, init]) => init?.method === "POST")!;
+    expect((create[1].body as FormData).get("source_language")).toBe(expected);
   });
 
   it("rejects speaker-count overrides before requesting media or creating a paid project", async () => {

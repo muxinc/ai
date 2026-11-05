@@ -682,7 +682,7 @@ repair budget.
 
 Creates AI-dubbed audio tracks from existing media content using ElevenLabs voice cloning and translation. Uses the default audio track on your asset. Source language is auto-detected unless `fromLanguageCode` is provided.
 
-Uses the project API with `dubbing_v1` explicitly selected. Targets accept the [dubbing v1 base language tags](https://elevenlabs.io/docs/help-center/product/dubbing/which-languages-are-supported-in-dubbing#dubbing-v1) and their supported ISO 639-3 aliases. Regional dialect tags are rejected. For languages without a two-letter code, `targetLanguageCode` and the legacy `targetLanguage.iso639_1` field contain the three-letter BCP-47 base tag.
+Uses the project API with `dubbing_v1` explicitly selected. Language codes are normalized with the shared ISO helpers; ElevenLabs validates target support against its [dubbing v1 language catalog](https://elevenlabs.io/docs/help-center/product/dubbing/which-languages-are-supported-in-dubbing#dubbing-v1), including the restriction on regional dialect tags. Unsupported targets fail at project creation, after any required Mux rendition preparation. For languages without a two-letter code, `targetLanguageCode` and the legacy `targetLanguage.iso639_1` field contain the three-letter BCP-47 base tag.
 
 The staged audio uses the provider's native format (for example FLAC), with the matching extension and content type; callers must not assume M4A. `dubbingId` now identifies a project and cannot be used with legacy dubbing endpoints.
 

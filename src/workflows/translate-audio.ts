@@ -2,10 +2,8 @@ import { sleep } from "workflow";
 
 import env from "../env.ts";
 import { getApiKeyFromEnv } from "../lib/client-factory.ts";
-import { getDubbingLanguageCodePair, normalizeDubbingLanguageCode, normalizeDubbingSourceLanguageCode } from "../lib/dubbing-languages.ts";
-import type { DubbingLanguageCode } from "../lib/dubbing-languages.ts";
 import { elevenLabsResponseError, elevenLabsSdkError } from "../lib/elevenlabs-errors.ts";
-import { getLanguageName } from "../lib/language-codes.ts";
+import { getLanguageCodePair, getLanguageName, toISO639_1 } from "../lib/language-codes.ts";
 import type { LanguageCodePair } from "../lib/language-codes.ts";
 import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } from "../lib/mux-assets.ts";
@@ -46,7 +44,7 @@ export type StaticRenditionCleanupOutcome = "deleted" | "delete_failed" | "kept"
 export interface AudioTranslationResult {
   assetId: string;
   /** Target language BCP-47 base tag, including three-letter tags such as `yue`. */
-  targetLanguageCode: DubbingLanguageCode;
+  targetLanguageCode: string;
   /**
    * Legacy language-code pair. `iso639_1` contains the BCP-47 base tag, which
    * can have three letters when a language has no ISO 639-1 code.
@@ -620,7 +618,7 @@ export async function translateAudio(
     throw new MuxAiError("Only ElevenLabs provider is currently supported for audio translation.", { type: "validation_error" });
   }
 
-  const targetLanguageCode = normalizeDubbingLanguageCode(toLanguageCode);
+  const targetLanguageCode = toISO639_1(toLanguageCode);
   if (numSpeakers !== 0) {
     throw new MuxAiError("The ElevenLabs project API does not support numSpeakers overrides. Omit it or use 0 for auto-detection.", { type: "validation_error" });
   }
@@ -731,7 +729,8 @@ export async function translateAudio(
     console.warn("🎙️ Creating dubbing job in ElevenLabs...");
 
     const elevenLabsLangCode = targetLanguageCode;
-    const elevenLabsSourceLangCode = normalizeDubbingSourceLanguageCode(fromLanguageCode);
+    const sourceLanguageCode = toISO639_1(fromLanguageCode ?? "auto");
+    const elevenLabsSourceLangCode = sourceLanguageCode && sourceLanguageCode !== "auto" ? sourceLanguageCode : undefined;
     console.warn(
       `🔍 Creating dubbing job for asset ${assetId}: ${elevenLabsSourceLangCode ?? "auto"} -> ${elevenLabsLangCode}`,
     );
@@ -905,7 +904,7 @@ export async function translateAudio(
     }
   }
 
-  const targetLanguage = getDubbingLanguageCodePair(targetLanguageCode);
+  const targetLanguage = getLanguageCodePair(targetLanguageCode);
   return {
     assetId,
     targetLanguageCode,

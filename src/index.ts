@@ -1,8 +1,5 @@
 import { version } from "../package.json";
 
-export { getDubbingLanguageCodePair, normalizeDubbingLanguageCode } from "./lib/dubbing-languages.ts";
-export type { DubbingLanguageCode } from "./lib/dubbing-languages.ts";
-
 // Language code utilities
 export {
   getLanguageCodePair,

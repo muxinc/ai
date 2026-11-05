@@ -237,7 +237,7 @@ describe("project output storage", () => {
     expect(putObjectWithStorageAdapter).toHaveBeenCalledWith(expect.objectContaining({
       key: expect.stringMatching(/\.vtt$/),
       contentType: "text/vtt",
-      body: expect.stringContaining("WEBVTT"),
+      body: "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nHola\n",
     }), undefined);
     for (const [input, init] of fetchMock.mock.calls.filter(([input]) => String(input).startsWith("https://storage.example.test"))) {
       expect(init).toBeUndefined();
@@ -248,15 +248,21 @@ describe("project output storage", () => {
   it("refreshes an expired output URL without creating another paid project", async () => {
     const fetchMock = stubElevenLabsFetch();
     const original = fetchMock.getMockImplementation()!;
-    let downloads = 0;
+    const expiredUrl = "https://storage.example.test/audio/output.flac";
+    const refreshedUrl = "https://storage.example.test/audio/refreshed.flac";
+    let expired = false;
     fetchMock.mockImplementation(async (input, init) => {
-      if (String(input).includes("/audio/") && downloads++ === 0) {
+      if (String(input) === expiredUrl) {
+        expired = true;
         return new Response("expired", { status: 403 });
+      }
+      if (expired && String(input).endsWith("/v1/dubbing/project/proj_1/language/lang_1")) {
+        return new Response(JSON.stringify(dubbingLanguage({ outputs: { lossless_audio: refreshedUrl, subtitles: "https://storage.example.test/transcripts/output.vtt" } })));
       }
       return original(input, init);
     });
     await translateAudio(ASSET_ID, "es", { uploadToMux: false, uploadToS3: true });
-    expect(downloads).toBe(2);
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).includes("/audio/")).map(([input]) => String(input))).toEqual([expiredUrl, refreshedUrl]);
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
   });
 });

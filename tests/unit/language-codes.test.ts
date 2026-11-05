@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  getLanguageCodePair,
   getLanguageName,
   isUndeterminedLanguageCode,
+  toISO639_1,
 } from "../../src/lib/language-codes";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -60,5 +62,23 @@ describe("getLanguageName", () => {
     expect(getLanguageName("fr")).toBe("French");
     expect(getLanguageName("es")).toBe("Spanish");
     expect(getLanguageName("ja")).toBe("Japanese");
+  });
+});
+
+describe("language code normalization", () => {
+  it.each([
+    [" FRA ", "fr", "fra"],
+    ["hye", "hy", "hye"],
+    ["urd", "ur", "urd"],
+    ["tgl", "tl", "tgl"],
+    ["yue", "yue", "yue"],
+    ["fil", "fil", "fil"],
+  ])("normalizes %s and preserves language result fields", (input, tag, iso3) => {
+    expect(toISO639_1(input)).toBe(tag);
+    expect(getLanguageCodePair(tag)).toEqual({ iso639_1: tag, iso639_3: iso3 });
+  });
+
+  it.each(["es-mx", "constructor", "__proto__"])("preserves %s without assuming it is an ISO alias", (code) => {
+    expect(toISO639_1(code)).toBe(code);
   });
 });
