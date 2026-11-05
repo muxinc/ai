@@ -31,12 +31,21 @@ export interface DependencyErrorInit {
 export { isTransientStatus };
 
 /**
- * Classifies a failed call to a remote service from its HTTP status. Transient
- * failures (no response, 408/425/429, 5xx) are `upstream` and `transient`, so the
- * Workflow step runner keeps retrying them; everything else is fatal.
+ * The classification of a failed call to a remote service, from its HTTP status:
+ * no response, a timeout, 408/425/429 and 5xx are `upstream` and transient (408 and
+ * timeouts as `timeout_error`, 429 as `capacity_error`); 404 and 401/403 take the
+ * caller's chosen source; any other status is `internal`, a request we built. Shared
+ * by {@link dependencyError} and by consumers building their own errors on the same
+ * model, so remote failures are classified the same way everywhere.
  */
-export function dependencyError(message: string, init: DependencyErrorInit): MuxAiError {
-  const { dependency, call, status, requestId, facts, cause, timedOut } = init;
+export function classifyDependencyFailure(init: Pick<DependencyErrorInit, "call" | "status" | "requestId" | "facts" | "notFoundSource" | "authSource" | "timedOut" | "idempotent" | "transient" | "retryable">): {
+  type: MuxAiErrorType;
+  source: MuxAiErrorSource;
+  facts: MuxAiErrorFacts;
+  transient?: boolean;
+  retryable?: boolean;
+} {
+  const { call, status, requestId, facts, timedOut } = init;
   const transient = timedOut === true || isTransientStatus(status);
 
   let source: MuxAiErrorSource;
@@ -57,10 +66,9 @@ export function dependencyError(message: string, init: DependencyErrorInit): Mux
       MUX_AI_ERROR_TYPES.VALIDATION_ERROR;
   }
 
-  return new MuxAiError(message, {
+  return {
     type,
     source,
-    dependency,
     facts: {
       call,
       ...(status !== undefined && { status }),
@@ -74,8 +82,16 @@ export function dependencyError(message: string, init: DependencyErrorInit): Mux
     ...(init.idempotent === false && (status === undefined || status >= 500) && { transient: false }),
     ...(init.transient !== undefined && { transient: init.transient }),
     ...(init.retryable !== undefined && { retryable: init.retryable }),
-    cause,
-  });
+  };
+}
+
+/**
+ * Classifies a failed call to a remote service from its HTTP status (see
+ * {@link classifyDependencyFailure}). Transient failures are retried by the Workflow
+ * step runner; everything else is fatal.
+ */
+export function dependencyError(message: string, init: DependencyErrorInit): MuxAiError {
+  return new MuxAiError(message, { ...classifyDependencyFailure(init), dependency: init.dependency, cause: init.cause });
 }
 
 /** Reads the HTTP status off an SDK error (`status` or `statusCode`), if it has one. */
