@@ -1,9 +1,11 @@
 <!--
-  Partly generated. The code table between the BEGIN/END GENERATED markers is
-  written by `npm run docs:errors` (scripts/error-docs.ts) from each code's TSDoc
-  comment in src/lib/mux-ai-error.ts, its classification in MUX_AI_ERROR_CATALOG,
-  and MUX_AI_ERROR_PUBLIC_MAPPINGS. Edit those, not the table; a test fails when
-  the table is out of date. Everything else in this file is written by hand.
+  Partly generated. The tables between BEGIN/END GENERATED markers are written by
+  `npm run docs:errors` (scripts/error-docs.ts) from src/lib/mux-ai-error.ts: the
+  TSDoc on each value of MUX_AI_ERROR_TYPES, MUX_AI_ERROR_SOURCES,
+  MUX_AI_ERROR_DEPENDENCIES and MUX_AI_ERROR_CODES, each code's classification in
+  MUX_AI_ERROR_CATALOG, and MUX_AI_ERROR_PUBLIC_MAPPINGS (src/lib/public-error.ts).
+  Edit those, not the tables; a test fails when a table is out of date. Everything
+  else in this file is written by hand.
 -->
 
 # Errors
@@ -52,34 +54,52 @@ Use `MuxAiError.is()`, not `instanceof`: errors revived across a Workflow step b
 
 Types are public: every value is safe to show any end user, and a new type must be too. Treat `type` as an open string, so a new value is not a breaking change.
 
+<!-- BEGIN GENERATED: error types. Don't edit by hand: run `npm run docs:errors`. -->
+
 | Type | Meaning |
 |---|---|
-| `validation_error` | The request, the asset or the account can't be used as it is |
-| `processing_error` | The work was attempted and failed |
-| `timeout_error` | The work didn't finish in time |
-| `content_policy_error` | Content was refused by a content policy |
-| `capacity_error` | A service is rate limiting or over capacity |
-| `server_error` | A fault in this code or its configuration |
+| `validation_error` | The request, the asset or the account can't be used as it is. |
+| `processing_error` | The work was attempted and failed. |
+| `timeout_error` | The work didn't finish in time. |
+| `content_policy_error` | Content was refused by a content policy. |
+| `capacity_error` | A service is rate limiting or over capacity. |
+| `server_error` | A fault in this code or its configuration. |
+
+<!-- END GENERATED: error types -->
 
 ### Sources
 
-| Source | Whose problem | Example |
-|---|---|---|
-| `request` | The caller's input | A scope past the end of the asset |
-| `asset` | The Mux asset's state | No caption track in the requested language |
-| `account` | The Mux account or environment | Missing permissions |
-| `upstream` | A remote service failed | The dubbing provider reported a failed dub |
-| `internal` | This code, or the configuration of the service running it | Missing signing keys |
+<!-- BEGIN GENERATED: error sources. Don't edit by hand: run `npm run docs:errors`. -->
+
+| Source | Meaning |
+|---|---|
+| `request` | The caller's input, e.g. a scope past the end of the asset. |
+| `asset` | The Mux asset's state, e.g. no caption track in the requested language. |
+| `account` | The Mux account or environment, e.g. missing permissions. |
+| `upstream` | A remote service failed, e.g. the dubbing provider reported a failed dub. |
+| `internal` | This code, or the configuration of the service running it, e.g. missing signing keys. |
+
+<!-- END GENERATED: error sources -->
 
 `request`, `asset` and `account` failures are the caller's to fix; `upstream` and `internal` ones are not. A consumer may re-attribute a failure, e.g. treat the SDK's `request` as its own bug when it built that input itself.
 
 ### Dependencies
 
-`mux_video`, `ai_provider` or `storage`: a remote service reached over the network. Libraries running in-process are never dependencies. A dependency names the service; a code never does.
+A remote service reached over the network. Libraries running in-process are never dependencies. A dependency names the service; a code never does.
+
+<!-- BEGIN GENERATED: error dependencies. Don't edit by hand: run `npm run docs:errors`. -->
+
+| Dependency | Meaning |
+|---|---|
+| `mux_video` | Mux Video: the API, stream and image delivery, and its static renditions and tracks. |
+| `ai_provider` | A model or AI service provider, e.g. a language model API or the dubbing provider. |
+| `storage` | Object storage the SDK writes to or reads from, e.g. an S3-compatible bucket. |
+
+<!-- END GENERATED: error dependencies -->
 
 ### Codes
 
-<!-- BEGIN GENERATED: error codes. Don't edit by hand: generated from the TSDoc on MUX_AI_ERROR_CODES by `npm run docs:errors`. -->
+<!-- BEGIN GENERATED: error codes. Don't edit by hand: run `npm run docs:errors`. -->
 
 | Code | Type | Source | Dependency | Public | Condition |
 |---|---|---|---|---|---|
@@ -157,7 +177,7 @@ Don't add one for differences that facts already carry: the vendor (`dependency`
 - **Name the condition, never the vendor:** `dubbing_failed`, not `elevenlabs_error`.
 - **snake_case, specific, and stable.** Codes are only ever added. Renaming or removing one is a breaking change, and a removed name is never reused.
 - **Add it to `MUX_AI_ERROR_CATALOG`** with its type, source and dependency, and a retry override only if the rule gets it wrong for every occurrence.
-- **Describe it in a TSDoc comment on its `MUX_AI_ERROR_CODES` entry** (the condition, and the facts it carries), then run `npm run docs:errors` to regenerate this guide's table. A test fails while the table is out of date.
+- **Describe it in a TSDoc comment on its `MUX_AI_ERROR_CODES` entry** (the condition, and the facts it carries), then run `npm run docs:errors` to regenerate this guide's tables. A test fails while a table is out of date.
 
 ### When to make a code public
 

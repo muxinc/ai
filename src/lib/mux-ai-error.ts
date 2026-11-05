@@ -11,27 +11,33 @@ import { getErrorTokenUsage } from "./token-usage.ts";
  * `type` as an open string, so adding a value is not a breaking change.
  */
 export const MUX_AI_ERROR_TYPES = {
+  /** The request, the asset or the account can't be used as it is. */
   VALIDATION_ERROR: "validation_error",
+  /** The work was attempted and failed. */
   PROCESSING_ERROR: "processing_error",
+  /** The work didn't finish in time. */
   TIMEOUT_ERROR: "timeout_error",
+  /** Content was refused by a content policy. */
   CONTENT_POLICY_ERROR: "content_policy_error",
+  /** A service is rate limiting or over capacity. */
   CAPACITY_ERROR: "capacity_error",
+  /** A fault in this code or its configuration. */
   SERVER_ERROR: "server_error",
 } as const;
 export type MuxAiErrorType = typeof MUX_AI_ERROR_TYPES[keyof typeof MUX_AI_ERROR_TYPES];
 export const MUX_AI_ERROR_TYPE_VALUES: readonly MuxAiErrorType[] = Object.values(MUX_AI_ERROR_TYPES);
 
-/**
- * Whose problem a failure is, judged from the SDK caller's side: `request` (the
- * caller's input), `asset` (the Mux asset's state), `account` (the Mux account or
- * environment), `upstream` (a remote service failed), `internal` (this code or the
- * configuration of the service running it). A consumer may re-attribute it.
- */
+/** Whose problem a failure is, judged from the SDK caller's side. A consumer may re-attribute it. */
 export const MUX_AI_ERROR_SOURCES = {
+  /** The caller's input, e.g. a scope past the end of the asset. */
   REQUEST: "request",
+  /** The Mux asset's state, e.g. no caption track in the requested language. */
   ASSET: "asset",
+  /** The Mux account or environment, e.g. missing permissions. */
   ACCOUNT: "account",
+  /** A remote service failed, e.g. the dubbing provider reported a failed dub. */
   UPSTREAM: "upstream",
+  /** This code, or the configuration of the service running it, e.g. missing signing keys. */
   INTERNAL: "internal",
 } as const;
 export type MuxAiErrorSource = typeof MUX_AI_ERROR_SOURCES[keyof typeof MUX_AI_ERROR_SOURCES];
@@ -39,8 +45,11 @@ export const MUX_AI_ERROR_SOURCE_VALUES: readonly MuxAiErrorSource[] = Object.va
 
 /** A remote service reached over the network. Libraries in this process are not dependencies. */
 export const MUX_AI_ERROR_DEPENDENCIES = {
+  /** Mux Video: the API, stream and image delivery, and its static renditions and tracks. */
   MUX_VIDEO: "mux_video",
+  /** A model or AI service provider, e.g. a language model API or the dubbing provider. */
   AI_PROVIDER: "ai_provider",
+  /** Object storage the SDK writes to or reads from, e.g. an S3-compatible bucket. */
   STORAGE: "storage",
 } as const;
 export type MuxAiErrorDependency = typeof MUX_AI_ERROR_DEPENDENCIES[keyof typeof MUX_AI_ERROR_DEPENDENCIES];
