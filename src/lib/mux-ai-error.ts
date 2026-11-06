@@ -259,11 +259,10 @@ export interface SerializedClassification<TType extends string = string, TCode e
 }
 
 /**
- * What crosses a Workflow step boundary. Runs started before a deploy replay events
- * written by the previous code, so `v` is bumped on a shape change and earlier
- * versions stay readable.
+ * What crosses a Workflow step boundary. A run replays the events it already wrote,
+ * so `v` is bumped on a shape change and earlier versions stay readable.
  */
-interface SerializedMuxAiErrorV2 extends SerializedClassification<MuxAiErrorType, MuxAiErrorCode, MuxAiErrorDependency> {
+interface SerializedMuxAiError extends SerializedClassification<MuxAiErrorType, MuxAiErrorCode, MuxAiErrorDependency> {
   v: 2;
   usage?: TokenUsage;
   finishReason?: string;
@@ -275,7 +274,7 @@ interface SerializedMuxAiErrorV2 extends SerializedClassification<MuxAiErrorType
  * The pre-classification shape (no `v`). {@link LegacyMuxAiError} still crosses step
  * boundaries in it, so it revives with its end-user message.
  */
-interface SerializedMuxAiErrorV1 {
+interface LegacySerializedMuxAiError {
   v?: undefined;
   message: string;
   publicType: MuxAiErrorType;
@@ -474,7 +473,7 @@ export class MuxAiError extends ClassifiedError<MuxAiErrorType, MuxAiErrorCode, 
     );
   }
 
-  static [WORKFLOW_SERIALIZE](instance: MuxAiError): SerializedMuxAiErrorV2 | SerializedMuxAiErrorV1 {
+  static [WORKFLOW_SERIALIZE](instance: MuxAiError): SerializedMuxAiError | LegacySerializedMuxAiError {
     const incomplete = instance as MuxAiError & { finishReason?: string; rawFinishReason?: string };
     if (isLegacyMuxAiError(instance)) {
       return {
@@ -498,7 +497,7 @@ export class MuxAiError extends ClassifiedError<MuxAiErrorType, MuxAiErrorCode, 
     };
   }
 
-  static [WORKFLOW_DESERIALIZE](value: SerializedMuxAiErrorV2 | SerializedMuxAiErrorV1): MuxAiError {
+  static [WORKFLOW_DESERIALIZE](value: SerializedMuxAiError | LegacySerializedMuxAiError): MuxAiError {
     // Subclasses inherit this codec. Restore their fields for structural guards
     // without depending on subclass constructor signatures or raw causes.
     const error = value.v === 2 ?
