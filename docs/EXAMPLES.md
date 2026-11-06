@@ -91,7 +91,7 @@ npm run example:translate-captions abc123 en es anthropic
 # Edit captions (censor profanity)
 npm run example:edit-captions abc123 trackid123 -- --provider anthropic --mode blank
 
-# Summarize a video with Claude Sonnet 4.5 (default)
+# Summarize a video with Claude Sonnet 5.5 (default)
 npm run example:summarization abc123 anthropic
 
 # Create AI-dubbed audio in French
@@ -175,7 +175,7 @@ npm run basic <your-asset-id> "Does this show cooking?" --provider google
 npm run basic <your-asset-id> "Does this video show text?" --no-transcript
 
 # Custom model
-npm run basic <your-asset-id> "Is this a tutorial?" --model gpt-5-mini
+npm run basic <your-asset-id> "Is this a tutorial?" --model gpt-5.6-terra
 ```
 
 **Use Cases:**
@@ -217,7 +217,7 @@ npm run aws-sdk-adapter <your-asset-id> -- --s3-bucket <bucket-name>
 **Translation Workflow:**
 
 1. Fetches existing captions from Mux asset
-2. Translates VTT content using your selected provider (default: Claude Sonnet 4.5)
+2. Translates VTT content using your selected provider (default: Claude Sonnet 5.5)
 3. Uses built-in VTT-aware chunking by default, bounding every request by cue count and text token budget
 4. Uploads translated VTT to S3-compatible storage
 5. Generates presigned URL (1-hour expiry)
