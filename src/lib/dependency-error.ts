@@ -1,4 +1,4 @@
-import type { MuxAiErrorDependency, MuxAiErrorFacts, MuxAiErrorSource, MuxAiErrorType } from "./mux-ai-error.ts";
+import type { MuxAiErrorDependency, MuxAiErrorFacts, MuxAiErrorSource, MuxAiErrorType, SourceAndDependency } from "./mux-ai-error.ts";
 import { isTransientStatus, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
 
 export interface DependencyErrorInit {
@@ -91,7 +91,10 @@ export function classifyDependencyFailure(init: Pick<DependencyErrorInit, "call"
  * step runner; everything else is fatal.
  */
 export function dependencyError(message: string, init: DependencyErrorInit): MuxAiError {
-  return new MuxAiError(message, { ...classifyDependencyFailure(init), dependency: init.dependency, cause: init.cause });
+  const { source, ...classification } = classifyDependencyFailure(init);
+  // Every source is fine here: the dependency is always named.
+  const where: SourceAndDependency = { source, dependency: init.dependency };
+  return new MuxAiError(message, { ...classification, ...where, cause: init.cause });
 }
 
 /** Reads the HTTP status off an SDK error (`status` or `statusCode`), if it has one. */

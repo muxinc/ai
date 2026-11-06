@@ -1,7 +1,7 @@
 import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 import { describe, expect, it } from "vitest";
 
-import { LegacyMuxAiError, MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "../../src/lib/mux-ai-error.ts";
+import { LegacyMuxAiError, MUX_AI_ERROR_CODES, MUX_AI_ERROR_DEPENDENCIES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "../../src/lib/mux-ai-error.ts";
 import { resolveLegacyMp4SupportRendition } from "../../src/lib/mux-static-renditions.ts";
 import { planTextTrackReplacement, trackReplacementBlockedError, trackTargetFacts } from "../../src/lib/mux-tracks.ts";
 import { createPublicErrorView, genericPublicMessage, MUX_AI_ERROR_GENERIC_MESSAGES, MUX_AI_ERROR_PUBLIC_MAPPINGS, toPublicError } from "../../src/lib/public-error.ts";
@@ -27,8 +27,8 @@ describe("toPublicError", () => {
 
     expect(view({ type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST })).toBe(MUX_AI_ERROR_GENERIC_MESSAGES.request);
     expect(view({ type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET })).toBe(MUX_AI_ERROR_GENERIC_MESSAGES.asset);
-    expect(view({ type: MUX_AI_ERROR_TYPES.TIMEOUT_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, transient: false })).toBe(`${MUX_AI_ERROR_GENERIC_MESSAGES.timeout} Please try again.`);
-    expect(view({ type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, facts: { status: 503 } })).toBe(`${MUX_AI_ERROR_GENERIC_MESSAGES.unavailable} Please try again.`);
+    expect(view({ type: MUX_AI_ERROR_TYPES.TIMEOUT_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO, transient: false })).toBe(`${MUX_AI_ERROR_GENERIC_MESSAGES.timeout} Please try again.`);
+    expect(view({ type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO, facts: { status: 503 } })).toBe(`${MUX_AI_ERROR_GENERIC_MESSAGES.unavailable} Please try again.`);
     expect(view({ type: MUX_AI_ERROR_TYPES.SERVER_ERROR, source: MUX_AI_ERROR_SOURCES.INTERNAL })).toBe(MUX_AI_ERROR_GENERIC_MESSAGES.failed);
   });
 

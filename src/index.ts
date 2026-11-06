@@ -59,6 +59,7 @@ export type {
   MuxAiErrorSource,
   MuxAiErrorType,
   SerializedClassification,
+  SourceAndDependency,
 } from "./lib/mux-ai-error.ts";
 // Mux static renditions created by the deprecated `mp4_support` option
 export {

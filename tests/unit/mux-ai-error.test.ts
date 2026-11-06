@@ -40,17 +40,17 @@ describe("muxAiError", () => {
   });
 
   it("derives transient and retryable from the classification unless the site overrides them", () => {
-    expect(new MuxAiError("x", { type: "processing_error", source: "upstream", facts: { status: 503 } })).toMatchObject({ transient: true, retryable: true });
-    expect(new MuxAiError("x", { type: "processing_error", source: "upstream", facts: { status: 400 } })).toMatchObject({ transient: false, retryable: true });
-    expect(new MuxAiError("x", { type: "timeout_error", source: "upstream", facts: { status: 400 } })).toMatchObject({ transient: false, retryable: true });
+    expect(new MuxAiError("x", { type: "processing_error", source: "upstream", dependency: "mux_video", facts: { status: 503 } })).toMatchObject({ transient: true, retryable: true });
+    expect(new MuxAiError("x", { type: "processing_error", source: "upstream", dependency: "mux_video", facts: { status: 400 } })).toMatchObject({ transient: false, retryable: true });
+    expect(new MuxAiError("x", { type: "timeout_error", source: "upstream", dependency: "mux_video", facts: { status: 400 } })).toMatchObject({ transient: false, retryable: true });
     expect(new MuxAiError("x", { type: "validation_error", source: "request" })).toMatchObject({ transient: false, retryable: false });
     expect(new MuxAiError("x", { type: "server_error", source: "internal" })).toMatchObject({ transient: false, retryable: false });
     // A site override wins, e.g. a create call that isn't idempotent.
-    expect(new MuxAiError("x", { type: "processing_error", source: "upstream", facts: { status: 503 }, transient: false })).toMatchObject({ transient: false, retryable: true, name: "FatalError" });
+    expect(new MuxAiError("x", { type: "processing_error", source: "upstream", dependency: "mux_video", facts: { status: 503 }, transient: false })).toMatchObject({ transient: false, retryable: true, name: "FatalError" });
   });
 
   it("keeps a transient error retryable even if a site says otherwise", () => {
-    const error = new MuxAiError("x", { type: "processing_error", source: "upstream", facts: { status: 503 }, retryable: false });
+    const error = new MuxAiError("x", { type: "processing_error", source: "upstream", dependency: "mux_video", facts: { status: 503 }, retryable: false });
     expect(error).toMatchObject({ transient: true, retryable: true });
   });
 
@@ -60,14 +60,14 @@ describe("muxAiError", () => {
   });
 
   it("is named FatalError only when it is not transient", () => {
-    expect(new MuxAiError("x", { type: "processing_error", source: "upstream" }).name).toBe("Error");
+    expect(new MuxAiError("x", { type: "processing_error", source: "upstream", dependency: "mux_video" }).name).toBe("Error");
     expect(new MuxAiError("x", { type: "server_error", source: "internal" }).name).toBe("FatalError");
   });
 
   it("keeps the raw cause local and a bounded, scrubbed summary for transport", () => {
     const inner = Object.assign(new Error("connect ECONNREFUSED"), { status: 503 });
     const outer = new Error("fetch failed", { cause: inner });
-    const error = new MuxAiError("Failed to fetch VTT", { type: "processing_error", source: "upstream", cause: outer });
+    const error = new MuxAiError("Failed to fetch VTT", { type: "processing_error", source: "upstream", dependency: "mux_video", cause: outer });
 
     expect(error.cause).toBe(outer);
     expect(error.causes).toEqual([
@@ -82,6 +82,14 @@ describe("muxAiError", () => {
     for (const entry of Object.values(MUX_AI_ERROR_CATALOG)) {
       expect(MUX_AI_ERROR_TYPE_VALUES).toContain(entry.type);
     }
+  });
+
+  it("names the dependency of every upstream code", () => {
+    const missing = Object.entries(MUX_AI_ERROR_CATALOG)
+      .filter(([, entry]: [string, { source: string; dependency?: string }]) => entry.source === "upstream" && !entry.dependency)
+      .map(([code]) => code);
+
+    expect(missing).toEqual([]);
   });
 
   it("revives the pre-classification serialized shape as a legacy error", () => {

@@ -69,15 +69,22 @@ export type MuxAiErrorFacts = Readonly<Record<string, MuxAiErrorFactValue>>;
  * What a code implies, in any catalog built on {@link ClassifiedError}: its type,
  * source and dependency, and retry overrides that hold for every occurrence.
  */
-export interface ErrorCatalogEntry<TType extends string = MuxAiErrorType, TDependency extends string = MuxAiErrorDependency> {
+/**
+ * A failure's source and the remote service involved, if any. An `upstream` failure is a
+ * remote service's, so it always names the dependency; any other source names one when a
+ * remote call was involved (e.g. Mux's 404 for the caller's asset).
+ */
+export type SourceAndDependency<TDependency extends string = MuxAiErrorDependency> =
+  { source: typeof MUX_AI_ERROR_SOURCES.UPSTREAM; dependency: TDependency } |
+  { source: Exclude<MuxAiErrorSource, typeof MUX_AI_ERROR_SOURCES.UPSTREAM>; dependency?: TDependency };
+
+export type ErrorCatalogEntry<TType extends string = MuxAiErrorType, TDependency extends string = MuxAiErrorDependency> = {
   type: TType;
-  source: MuxAiErrorSource;
-  dependency?: TDependency;
   /** Overrides the default from {@link defaultRetryable} for every error with this code. */
   retryable?: boolean;
   /** Overrides the default from {@link defaultTransient} for every error with this code. */
   transient?: boolean;
-}
+} & SourceAndDependency<TDependency>;
 
 /**
  * Codes for conditions precise enough to name. A code implies its type, source and
@@ -210,10 +217,10 @@ export interface ErrorCauseSummary {
  * dependency) or an explicit type and source, never both, plus what varies.
  */
 export type ClassifiedErrorInit<TType extends string, TCode extends string, TDependency extends string> = (
-  { code: TCode; type?: never; source?: never } |
-  { code?: never; type: TType; source: MuxAiErrorSource }
+  // A code implies its source and dependency; `dependency` only overrides the code's.
+  { code: TCode; type?: never; source?: never; dependency?: TDependency } |
+  ({ code?: never; type: TType } & SourceAndDependency<TDependency>)
 ) & {
-  dependency?: TDependency;
   facts?: MuxAiErrorFacts;
   /**
    * Whether submitting the same job again, unchanged, may succeed. Not "fixable":
@@ -415,6 +422,7 @@ export function serializeClassification<TType extends string, TCode extends stri
 export function classificationInit<TType extends string, TCode extends string, TDependency extends string>(
   record: SerializedClassification<TType, TCode, TDependency>,
 ): ClassifiedErrorInit<TType, TCode, TDependency> {
+  // A stored classification satisfied the source/dependency rule when it was written.
   return {
     type: record.type,
     source: record.source,
@@ -422,7 +430,7 @@ export function classificationInit<TType extends string, TCode extends string, T
     facts: record.facts,
     retryable: record.retryable,
     transient: record.transient,
-  };
+  } as ClassifiedErrorInit<TType, TCode, TDependency>;
 }
 
 /** Restores what the constructor can't take back: the code, the cause summaries and the stack. */
@@ -514,7 +522,7 @@ export class MuxAiError extends ClassifiedError<MuxAiErrorType, MuxAiErrorCode, 
  * The source a legacy error is recorded with. Approximate: legacy errors carry only a
  * type, and are reworded by their own end-user message, never by source.
  */
-function legacySource(type: MuxAiErrorType): MuxAiErrorSource {
+function legacySource(type: MuxAiErrorType): Exclude<MuxAiErrorSource, typeof MUX_AI_ERROR_SOURCES.UPSTREAM> {
   switch (type) {
     case MUX_AI_ERROR_TYPES.VALIDATION_ERROR:
       return MUX_AI_ERROR_SOURCES.REQUEST;

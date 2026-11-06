@@ -198,7 +198,7 @@ const toPublic = createPublicErrorView<string, string>({
 ```
 
 - **Types:** extend `MUX_AI_ERROR_TYPES` rather than redefining it, and keep every type safe to show end users.
-- **Sources** are shared as they are; **dependencies** are yours to extend with the services you call.
+- **Sources** are shared as they are; **dependencies** are yours to extend with the services you call. An `upstream` entry or site must name its dependency (`SourceAndDependency`).
 - **One view for both:** pass the SDK's public mappings along with yours, so SDK failures keep their public wording.
 - **Serialization:** give your class its own Workflow serializer hooks and put a version in the payload (as `MuxAiError` does with `v`). A run replays the events it already wrote, so a shape change must keep earlier versions readable.
 
@@ -214,7 +214,7 @@ const toPublic = createPublicErrorView<string, string>({
 ### Choose the classification
 
 1. **Whose problem is it?** Pick the `source`. If a remote service answered with something the caller can fix (a missing track, a 404 for their asset), it's still `asset` or `request`; if it failed, it's `upstream`; if it's our bug or the service's configuration, it's `internal`.
-2. **Was a remote service involved?** Set `dependency`.
+2. **Was a remote service involved?** Set `dependency`. An `upstream` failure always names it: the types require it, in a catalog entry and at a site.
 3. **Is there an existing code for this exact condition?** Use it: `{ code }` alone implies the type, source and dependency, so the site can't contradict them.
 4. **Otherwise,** pass `type` and `source` explicitly, and consider whether the condition deserves a code (below).
 5. **Record what varies as facts:** IDs, languages, limits, statuses, the call that failed. Keep values JSON-safe. Pass provider free text through `errorDetailFact()`, which strips URL tokens, suppresses prompt leaks and caps the length. Never put credentials, signed URLs or raw model output in facts.
