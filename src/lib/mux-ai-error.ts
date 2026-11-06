@@ -74,11 +74,11 @@ export type MuxAiErrorFacts = Readonly<Record<string, MuxAiErrorFactValue>>;
  * remote service's, so it always names the dependency; any other source names one when a
  * remote call was involved (e.g. Mux's 404 for the caller's asset).
  */
-export type SourceAndDependency<TDependency extends string = MuxAiErrorDependency> =
+export type SourceAndDependency<TDependency extends string = string> =
   { source: typeof MUX_AI_ERROR_SOURCES.UPSTREAM; dependency: TDependency } |
   { source: Exclude<MuxAiErrorSource, typeof MUX_AI_ERROR_SOURCES.UPSTREAM>; dependency?: TDependency };
 
-export type ErrorCatalogEntry<TType extends string = MuxAiErrorType, TDependency extends string = MuxAiErrorDependency> = {
+export type ErrorCatalogEntry<TType extends string = string, TDependency extends string = string> = {
   type: TType;
   /** Overrides the default from {@link defaultRetryable} for every error with this code. */
   retryable?: boolean;
@@ -163,7 +163,7 @@ export const MUX_AI_ERROR_CATALOG = {
   // Audio dubbing.
   [MUX_AI_ERROR_CODES.DUBBING_LANGUAGE_UNSUPPORTED]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER },
   [MUX_AI_ERROR_CODES.DUBBING_FAILED]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER },
-} as const satisfies Record<MuxAiErrorCode, ErrorCatalogEntry>;
+} as const satisfies Record<MuxAiErrorCode, ErrorCatalogEntry<MuxAiErrorType, MuxAiErrorDependency>>;
 
 export interface ModelCallDiagnostics {
   phase: "brief" | "draft" | "format_repair" | "length_repair";

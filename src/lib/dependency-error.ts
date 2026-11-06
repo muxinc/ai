@@ -93,7 +93,7 @@ export function classifyDependencyFailure(init: Pick<DependencyErrorInit, "call"
 export function dependencyError(message: string, init: DependencyErrorInit): MuxAiError {
   const { source, ...classification } = classifyDependencyFailure(init);
   // Every source is fine here: the dependency is always named.
-  const where: SourceAndDependency = { source, dependency: init.dependency };
+  const where: SourceAndDependency<MuxAiErrorDependency> = { source, dependency: init.dependency };
   return new MuxAiError(message, { ...classification, ...where, cause: init.cause });
 }
 
