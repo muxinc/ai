@@ -120,7 +120,8 @@ export interface AudioTranslationOptions extends MuxAIOptions {
    * voiced) is attached as a subtitles text track on the Mux asset. Implies
    * `uploadToS3: true`. Defaults to false. Existing text tracks are handled
    * according to `captionsReplaceExistingTracks` (falling back to
-   * `replaceExistingTracks`), checked before dubbing starts.
+   * `replaceExistingTracks`). Caption conflicts are reported in `captionsOutcome`
+   * without failing the dub.
    */
   uploadCaptionsToMux?: boolean;
   /** Subtitle name override. Defaults to `trackName`, then the generated audio track name. */
@@ -128,9 +129,10 @@ export interface AudioTranslationOptions extends MuxAIOptions {
   /** Subtitle conflict policy override. Defaults to `replaceExistingTracks`. */
   captionsReplaceExistingTracks?: ReplaceExistingTracksPolicy;
   /**
-   * What to do when the asset already has an audio track (or, with
-   * `uploadCaptionsToMux`, a text track) in the target language or with the
-   * target name. Defaults to `"fail"`, which rejects before dubbing starts.
+   * What to do when the asset already has an audio track in the target language
+   * or with the target name. Defaults to `"fail"`, which rejects before dubbing
+   * starts. Also the subtitle policy unless `captionsReplaceExistingTracks` is set;
+   * subtitle conflicts only fail caption attachment.
    * The asset's primary audio track is never deleted under any policy.
    */
   replaceExistingTracks?: ReplaceExistingTracksPolicy;
@@ -791,14 +793,10 @@ export async function translateAudio(
     throw new MuxAiError(`Asset ${assetId} ${audioTrackUnsupported}`, { type: "validation_error" });
   }
 
-  // Check both target tracks against the asset we already have so a blocked
-  // policy rejects before ElevenLabs is asked to do anything. The create step
-  // re-plans against a fresh asset.
-  for (const { target, policy } of [
-    ...(uploadToMux ? [{ target: audioTrackTarget, policy: replaceExistingTracks }] : []),
-    ...(uploadCaptionsToMux ? [{ target: captionsTrackTarget, policy: captionsReplaceExistingTracks }] : []),
-  ]) {
-    const plan = planTextTrackReplacement(initialAsset, target, policy);
+  // Audio conflicts reject before paid dubbing; optional caption conflicts are
+  // reported by the caption attachment step without failing the dub.
+  if (uploadToMux) {
+    const plan = planTextTrackReplacement(initialAsset, audioTrackTarget, replaceExistingTracks);
     if (plan.kind === "blocked") {
       throw new MuxAiError(plan.reason, { type: "validation_error" });
     }
@@ -1027,8 +1025,7 @@ export async function translateAudio(
 
       // The dub's translated transcript is the same translation that was voiced, and
       // fetching it costs nothing extra. Soft-fail everything here: a transcript problem
-      // must never fail a completed, paid-for dub. Conflicts were checked before dubbing,
-      // so a blocked result here is a race with another writer and is logged, not thrown.
+      // must never fail a completed, paid-for dub, including caption policy conflicts.
       try {
         console.warn("📥 Downloading dub transcript from ElevenLabs and staging to S3...");
         const transcript = await downloadAndUploadDubTranscript({
