@@ -9,8 +9,8 @@ import {
 } from "../lib/content-policy-error.ts";
 import { getLanguageName } from "../lib/language-codes.ts";
 import { withModelCallDiagnostics } from "../lib/model-call-diagnostics.ts";
-import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
-import type { ModelCallDiagnostics } from "../lib/mux-ai-error.ts";
+import { isLegacyMuxAiError, LegacyMuxAiError, legacyWrapError } from "../lib/mux-ai-error.ts";
+import type { ModelCallDiagnostics, MuxAiError } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -204,7 +204,7 @@ const LANGUAGE_TAG_PATTERN = /^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/i;
 const LENGTH_UNITS = ["characters", "words"] as const;
 
 function validationError(message: string): MuxAiError {
-  return new MuxAiError(message, { type: "validation_error" });
+  return new LegacyMuxAiError(message, { type: "validation_error" });
 }
 
 function assertOneOf<T extends string>(value: string, allowed: readonly T[], label: string): void {
@@ -466,7 +466,7 @@ function scrubBrief(brief: GenerateTextBrief, safety: SafetyReporter): GenerateT
   const centralIdea = safety.scrubDetailed(brief.centralIdea, "editorial_brief.centralIdea");
   const readerValue = safety.scrubDetailed(brief.readerValue, "editorial_brief.readerValue");
   if (centralIdea.leaked || readerValue.leaked || !centralIdea.text.trim()) {
-    throw new MuxAiError(
+    throw new LegacyMuxAiError(
       "The editorial brief was suppressed by the output safety filter.",
       { type: "processing_error", retryable: true },
     );
@@ -888,11 +888,11 @@ async function generateArtifactWithModel(args: {
       let failure: Error;
       if (isIncompleteGenerationError(cause)) {
         failure = new IncompleteGenerationError(cause.finishReason, cause.rawFinishReason);
-      } else if (MuxAiError.is(cause)) {
-        failure = new MuxAiError(cause.publicMessage, { type: cause.publicType, retryable: cause.retryable });
+      } else if (isLegacyMuxAiError(cause)) {
+        failure = new LegacyMuxAiError(cause.publicMessage, { type: cause.publicType, retryable: cause.retryable });
       } else {
         const apiError = APICallError.isInstance(cause) ? cause : undefined;
-        failure = new MuxAiError("Unable to complete text generation.", {
+        failure = new LegacyMuxAiError("Unable to complete text generation.", {
           type: "processing_error",
           retryable: apiError?.isRetryable ?? true,
           cause,
@@ -960,7 +960,7 @@ async function generateArtifactsInBatches(
           collectedUsage.push(usage);
         }
       }
-      wrapError(failures[0], `Failed to generate text with ${provider}`);
+      legacyWrapError(failures[0], `Failed to generate text with ${provider}`);
     }
   }
   return results;
@@ -1008,15 +1008,15 @@ async function generateTextInternal(
       );
 
   if (useShots && isAudioOnly) {
-    throw new MuxAiError("useShots is not supported for audio-only assets.", { type: "validation_error" });
+    throw new LegacyMuxAiError("useShots is not supported for audio-only assets.", { type: "validation_error" });
   }
   if (useShots && assetDurationSeconds === undefined) {
-    throw new MuxAiError("Asset has no valid duration.", { type: "validation_error" });
+    throw new LegacyMuxAiError("Asset has no valid duration.", { type: "validation_error" });
   }
 
   const signingContext = await resolveMuxSigningContext(credentials);
   if (policy === "signed" && !signingContext) {
-    throw new MuxAiError(
+    throw new LegacyMuxAiError(
       "Signed playback ID requires signing credentials. " +
       "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
       { type: "validation_error" },
@@ -1039,7 +1039,7 @@ async function generateTextInternal(
 
   const transcriptText = transcriptResult.transcriptText.trim();
   if (!transcriptText) {
-    throw new MuxAiError(
+    throw new LegacyMuxAiError(
       effectiveScope ? "Transcript has no usable content in the requested scope." : "Transcript has no usable content.",
       { type: "validation_error" },
     );
@@ -1065,7 +1065,7 @@ async function generateTextInternal(
     userPrompt: buildBriefUserPrompt({ transcriptText, imageCount: imageUrls.length, audience, languageName }),
     imageUrls,
     credentials,
-  }).catch((error: unknown) => wrapError(error, `Failed to extract editorial brief with ${provider}`));
+  }).catch((error: unknown) => legacyWrapError(error, `Failed to extract editorial brief with ${provider}`));
   collectedUsage.push(briefStep.usage);
   for (const key of briefStep.unexpectedKeys) {
     safety.record(`editorial_brief.${key}`, "unexpected_key");
@@ -1096,10 +1096,10 @@ async function generateTextInternal(
         safety.record(`${field}.${key}`, "unexpected_key");
       }
       if (item.violation === "empty") {
-        throw new MuxAiError(`Generated text for ${field} was empty after a retry.`, { type: "processing_error", retryable: true });
+        throw new LegacyMuxAiError(`Generated text for ${field} was empty after a retry.`, { type: "processing_error", retryable: true });
       }
       if (item.violation) {
-        throw new MuxAiError(
+        throw new LegacyMuxAiError(
           `Generated text for ${field} exceeded the ${item.violation.limit.value} ${item.violation.limit.unit} limit after a retry (${item.violation.actual} returned).`,
           { type: "processing_error", retryable: true },
         );

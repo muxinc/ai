@@ -8,7 +8,7 @@ import {
 } from "../lib/content-policy-error.ts";
 import type { ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImageAsBase64 } from "../lib/image-download.ts";
-import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
+import { LegacyMuxAiError, legacyWrapError } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -524,7 +524,7 @@ function normalizeQuestion(q: Question, idx: number): NormalizedQuestion {
   const isFreeForm = q.freeFormReply === true;
 
   if (hasOptions && isFreeForm) {
-    throw new MuxAiError(
+    throw new LegacyMuxAiError(
       `Question at index ${idx} sets both answerOptions and freeFormReply: true. These are mutually exclusive — pick one.`,
       { type: "validation_error" },
     );
@@ -541,7 +541,7 @@ function normalizeQuestion(q: Question, idx: number): NormalizedQuestion {
       ),
     );
     if (!options.length) {
-      throw new MuxAiError(
+      throw new LegacyMuxAiError(
         `Question at index ${idx} has invalid answerOptions: must include at least one non-empty value.`,
         { type: "validation_error" },
       );
@@ -842,11 +842,11 @@ async function askQuestionsInternal(
 ): Promise<AskQuestionsResult> {
   // Validate questions array is non-empty
   if (!questions || questions.length === 0) {
-    throw new MuxAiError("At least one question must be provided.", { type: "validation_error" });
+    throw new LegacyMuxAiError("At least one question must be provided.", { type: "validation_error" });
   }
 
   if (questions.length > ASK_QUESTIONS_MAX_QUESTIONS_PER_CALL) {
-    throw new MuxAiError(
+    throw new LegacyMuxAiError(
       `Too many questions: received ${questions.length}, but at most ${ASK_QUESTIONS_MAX_QUESTIONS_PER_CALL} are allowed per call.`,
       { type: "validation_error" },
     );
@@ -856,13 +856,13 @@ async function askQuestionsInternal(
   // (see ASK_QUESTIONS_MAX_QUESTION_LENGTH for rationale).
   questions.forEach((q, idx) => {
     if (!q.question || typeof q.question !== "string" || !q.question.trim()) {
-      throw new MuxAiError(
+      throw new LegacyMuxAiError(
         `Question at index ${idx} is invalid: must have a non-empty question field.`,
         { type: "validation_error" },
       );
     }
     if (q.question.length > ASK_QUESTIONS_MAX_QUESTION_LENGTH) {
-      throw new MuxAiError(
+      throw new LegacyMuxAiError(
         `Question at index ${idx} exceeds the ${ASK_QUESTIONS_MAX_QUESTION_LENGTH}-character limit (received ${q.question.length}).`,
         { type: "validation_error" },
       );
@@ -877,7 +877,7 @@ async function askQuestionsInternal(
   const maxAnswerOptionLength =
     options?.maxAnswerOptionLength ?? ASK_QUESTIONS_DEFAULT_MAX_ANSWER_OPTION_LENGTH;
   if (!Number.isFinite(maxAnswerOptionLength) || maxAnswerOptionLength <= 0) {
-    throw new MuxAiError(
+    throw new LegacyMuxAiError(
       `maxAnswerOptionLength must be a positive number (received ${maxAnswerOptionLength}).`,
       { type: "validation_error" },
     );
@@ -889,7 +889,7 @@ async function askQuestionsInternal(
       return;
     for (const opt of q.answerOptions ?? []) {
       if (typeof opt === "string" && opt.length > maxAnswerOptionLength) {
-        throw new MuxAiError(
+        throw new LegacyMuxAiError(
           `Question at index ${idx} has an answerOption exceeding the ${maxAnswerOptionLength}-character limit (received ${opt.length}). Answer options should be short labels, not sentences.`,
           { type: "validation_error" },
         );
@@ -901,7 +901,7 @@ async function askQuestionsInternal(
   const maxFreeFormAnswerLength =
     options?.maxFreeFormAnswerLength ?? ASK_QUESTIONS_DEFAULT_MAX_FREE_FORM_ANSWER_LENGTH;
   if (!Number.isFinite(maxFreeFormAnswerLength) || maxFreeFormAnswerLength <= 0) {
-    throw new MuxAiError(
+    throw new LegacyMuxAiError(
       `maxFreeFormAnswerLength must be a positive number (received ${maxFreeFormAnswerLength}).`,
       { type: "validation_error" },
     );
@@ -946,7 +946,7 @@ async function askQuestionsInternal(
   }
 
   if (isAudioOnly && !includeTranscript) {
-    throw new MuxAiError(
+    throw new LegacyMuxAiError(
       "Audio-only assets require a transcript. Set includeTranscript: true and ensure the asset has a ready text track (captions/subtitles).",
       { type: "validation_error" },
     );
@@ -955,7 +955,7 @@ async function askQuestionsInternal(
   // Resolve signing context for signed playback IDs
   const signingContext = await resolveMuxSigningContext(credentials);
   if (policy === "signed" && !signingContext) {
-    throw new MuxAiError(
+    throw new LegacyMuxAiError(
       "Signed playback ID requires signing credentials. " +
       "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
       { type: "validation_error" },
@@ -1037,18 +1037,18 @@ async function askQuestionsInternal(
     }
   } catch (error: unknown) {
     const contentType = isAudioOnly ? "audio" : "video";
-    wrapError(error, `Failed to analyze ${contentType} questions with ${provider}`);
+    legacyWrapError(error, `Failed to analyze ${contentType} questions with ${provider}`);
   }
 
   collectedUsage.push(analysisResponse.usage);
 
   if (!analysisResponse.result?.answers) {
-    throw new MuxAiError(`Failed to generate answers for asset ${assetId}.`);
+    throw new LegacyMuxAiError(`Failed to generate answers for asset ${assetId}.`);
   }
 
   // Validate we got answers for all questions
   if (analysisResponse.result.answers.length !== questions.length) {
-    throw new MuxAiError(
+    throw new LegacyMuxAiError(
       `Failed to generate answers for all questions for asset ${assetId}.`,
     );
   }
@@ -1123,7 +1123,7 @@ async function askQuestionsInternal(
     if (!isSkipped && !isFreeForm) {
       const allowed = allowedAnswersForQuestion(question);
       if (!allowed.includes(raw.answer)) {
-        throw new MuxAiError(
+        throw new LegacyMuxAiError(
           `Answer "${raw.answer}" for question ${idx} is not in allowed options: ${allowed.join(", ")}`,
         );
       }

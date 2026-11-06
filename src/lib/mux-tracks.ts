@@ -1,7 +1,7 @@
 import type { AssetTextTrack, MuxAsset, WorkflowCredentialsInput } from "../types.ts";
 
 import { isUndeterminedLanguageCode, toISO639_1 } from "./language-codes.ts";
-import { MuxAiError } from "./mux-ai-error.ts";
+import { LegacyMuxAiError } from "./mux-ai-error.ts";
 import { resolveMuxClient } from "./workflow-credentials.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -274,7 +274,7 @@ export function buildMuxAiTrackPassthrough(workflow: string): string {
 
 export function validateTrackPassthrough(passthrough: string | undefined): string | undefined {
   if (passthrough !== undefined && passthrough.length > MUX_TRACK_PASSTHROUGH_MAX_CHARS) {
-    throw new MuxAiError(
+    throw new LegacyMuxAiError(
       `Track passthrough must be at most ${MUX_TRACK_PASSTHROUGH_MAX_CHARS} characters (received ${passthrough.length}).`,
       { type: "validation_error" },
     );

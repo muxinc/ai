@@ -1,6 +1,6 @@
 import type { WorkflowScope } from "../types.ts";
 
-import { MuxAiError } from "./mux-ai-error.ts";
+import { LegacyMuxAiError } from "./mux-ai-error.ts";
 
 /** A workflow scope with both asset-relative boundaries resolved. */
 export interface ResolvedWorkflowScope {
@@ -30,35 +30,35 @@ export function resolveWorkflowScope(
     !Number.isFinite(assetDurationSeconds) ||
     assetDurationSeconds <= 0
   ) {
-    throw new MuxAiError("Asset has no valid duration.", { type: "validation_error" });
+    throw new LegacyMuxAiError("Asset has no valid duration.", { type: "validation_error" });
   }
 
   const startTime = scope?.startTime ?? 0;
   const endTime = scope?.endTime ?? assetDurationSeconds;
 
   if (!Number.isFinite(startTime) || startTime < 0) {
-    throw new MuxAiError(
+    throw new LegacyMuxAiError(
       `scope.startTime must be a finite, non-negative number (received ${startTime}).`,
       { type: "validation_error" },
     );
   }
 
   if (!Number.isFinite(endTime) || endTime < 0) {
-    throw new MuxAiError(
+    throw new LegacyMuxAiError(
       `scope.endTime must be a finite, non-negative number (received ${endTime}).`,
       { type: "validation_error" },
     );
   }
 
   if (endTime > assetDurationSeconds) {
-    throw new MuxAiError(
+    throw new LegacyMuxAiError(
       `scope.endTime (${endTime}) cannot exceed the asset duration (${assetDurationSeconds}).`,
       { type: "validation_error" },
     );
   }
 
   if (startTime >= endTime) {
-    throw new MuxAiError(
+    throw new LegacyMuxAiError(
       `scope.startTime (${startTime}) must be less than scope.endTime (${endTime}).`,
       { type: "validation_error" },
     );
@@ -95,7 +95,7 @@ export function resolveRenderableVideoScope(
   };
 
   if (renderableScope.startTime >= renderableScope.endTime) {
-    throw new MuxAiError("The requested scope does not include any renderable video.", {
+    throw new LegacyMuxAiError("The requested scope does not include any renderable video.", {
       type: "validation_error",
     });
   }

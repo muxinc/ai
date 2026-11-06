@@ -1,0 +1,79 @@
+import { describe, expect, it } from "vitest";
+
+import type { ClassifiedErrorInit, ErrorCatalogEntry, SerializedClassification } from "../../src/lib/mux-ai-error.ts";
+import {
+  classificationInit,
+  ClassifiedError,
+  LegacyMuxAiError,
+  MUX_AI_ERROR_CODES,
+  MUX_AI_ERROR_SOURCES,
+  MUX_AI_ERROR_TYPES,
+  MuxAiError,
+  restoreClassification,
+  serializeClassification,
+} from "../../src/lib/mux-ai-error.ts";
+import { createPublicErrorView, MUX_AI_ERROR_PUBLIC_MAPPINGS } from "../../src/lib/public-error.ts";
+
+// A consumer's own error on the shared model: its own extra type, codes and dependency.
+const APP_TYPES = { ...MUX_AI_ERROR_TYPES, CONFLICT: "conflict" } as const;
+type AppType = typeof APP_TYPES[keyof typeof APP_TYPES];
+const APP_CODES = { JOB_ALREADY_RUNNING: "job_already_running", INDEX_UNAVAILABLE: "index_unavailable" } as const;
+type AppCode = typeof APP_CODES[keyof typeof APP_CODES];
+type AppDependency = "search_index";
+
+const APP_CATALOG = {
+  [APP_CODES.JOB_ALREADY_RUNNING]: { type: APP_TYPES.CONFLICT, source: MUX_AI_ERROR_SOURCES.REQUEST },
+  [APP_CODES.INDEX_UNAVAILABLE]: { type: APP_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: "search_index" },
+} as const satisfies Record<AppCode, ErrorCatalogEntry<AppType, AppDependency>>;
+
+class AppError extends ClassifiedError<AppType, AppCode, AppDependency> {
+  constructor(message: string, init: ClassifiedErrorInit<AppType, AppCode, AppDependency>) {
+    super(message, init, APP_CATALOG);
+  }
+
+  static fromRecord(record: SerializedClassification<AppType, AppCode, AppDependency>): AppError {
+    return restoreClassification(new AppError(record.message, classificationInit(record)), record);
+  }
+}
+
+describe("classifiedError as a shared base", () => {
+  it("applies the same catalog and retry policy to a consumer's own codes", () => {
+    const error = new AppError("Search index returned 503", { code: APP_CODES.INDEX_UNAVAILABLE, facts: { status: 503 } });
+
+    expect(error).toMatchObject({ type: "processing_error", source: "upstream", dependency: "search_index", transient: true, retryable: true, name: "Error" });
+    expect(new AppError("Already running", { code: APP_CODES.JOB_ALREADY_RUNNING })).toMatchObject({ type: "conflict", retryable: false, name: "FatalError" });
+    expect(ClassifiedError.isClassified(error)).toBe(true);
+    expect(MuxAiError.is(error)).toBe(false);
+  });
+
+  it("round-trips through the shared serializer helpers", () => {
+    const original = new AppError("Search index returned 503", { code: APP_CODES.INDEX_UNAVAILABLE, facts: { status: 503 }, cause: new Error("socket hang up") });
+
+    const revived = AppError.fromRecord(JSON.parse(JSON.stringify(serializeClassification(original))));
+
+    expect(revived).toMatchObject({ code: "index_unavailable", type: "processing_error", transient: true, facts: { status: 503 } });
+    expect(revived.causes).toEqual([{ name: "Error", message: "socket hang up" }]);
+  });
+
+  it("renders one public view over the SDK's errors and the consumer's", () => {
+    const view = createPublicErrorView<string, string>({
+      mappings: {
+        ...MUX_AI_ERROR_PUBLIC_MAPPINGS,
+        [APP_CODES.JOB_ALREADY_RUNNING]: { message: "A job with these parameters is already running." },
+      },
+      genericMessage: error => (error.source === MUX_AI_ERROR_SOURCES.REQUEST ? "Bad request." : "The job failed."),
+    });
+
+    expect(view(new AppError("dup", { code: APP_CODES.JOB_ALREADY_RUNNING }))).toEqual({
+      type: "conflict",
+      code: "job_already_running",
+      message: "A job with these parameters is already running.",
+      retryable: false,
+    });
+    expect(view(new AppError("index down", { code: APP_CODES.INDEX_UNAVAILABLE, facts: { status: 400 } })).message).toBe("The job failed.");
+    expect(view(new MuxAiError("x", { code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID }))).toEqual({ type: "processing_error", message: "The job failed.", retryable: false });
+    // A module not yet on the model: its message is end-user text, shown as before.
+    expect(view(new LegacyMuxAiError("The transcript is empty.", { type: "validation_error" })))
+      .toEqual({ type: "validation_error", message: "The transcript is empty.", retryable: false });
+  });
+});

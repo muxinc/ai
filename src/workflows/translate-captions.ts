@@ -17,7 +17,7 @@ import {
 } from "../lib/content-policy-error.ts";
 import { getLanguageCodePair, getLanguageName } from "../lib/language-codes.ts";
 import type { LanguageCodePair, SupportedISO639_1 } from "../lib/language-codes.ts";
-import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
+import { LegacyMuxAiError, legacyWrapError } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -275,7 +275,7 @@ const MAX_NEVER_TRANSLATE_TERM_CHARS = 100;
  */
 export function validateNeverTranslateTerms(terms: string[]): string[] {
   if (terms.length > MAX_NEVER_TRANSLATE_TERMS) {
-    throw new MuxAiError(
+    throw new LegacyMuxAiError(
       `neverTranslate accepts at most ${MAX_NEVER_TRANSLATE_TERMS} terms (received ${terms.length}).`,
       { type: "validation_error" },
     );
@@ -286,19 +286,19 @@ export function validateNeverTranslateTerms(terms: string[]): string[] {
   for (const term of terms) {
     const trimmed = term.trim();
     if (trimmed.length === 0) {
-      throw new MuxAiError(
+      throw new LegacyMuxAiError(
         "neverTranslate terms must be non-empty.",
         { type: "validation_error" },
       );
     }
     if (trimmed.length > MAX_NEVER_TRANSLATE_TERM_CHARS) {
-      throw new MuxAiError(
+      throw new LegacyMuxAiError(
         `neverTranslate terms must be at most ${MAX_NEVER_TRANSLATE_TERM_CHARS} characters (received ${trimmed.length}).`,
         { type: "validation_error" },
       );
     }
     if (trimmed.includes("<") || trimmed.includes(">")) {
-      throw new MuxAiError(
+      throw new LegacyMuxAiError(
         "neverTranslate terms must not contain '<' or '>'.",
         { type: "validation_error" },
       );
@@ -307,7 +307,7 @@ export function validateNeverTranslateTerms(terms: string[]): string[] {
     // sanitiser rewrites can never be preserved verbatim — reject it
     // rather than verify in a space the caller didn't ask for.
     if (sanitizeUntrustedText(trimmed) !== trimmed) {
-      throw new MuxAiError(
+      throw new LegacyMuxAiError(
         "neverTranslate terms must not contain invisible characters or characters altered by Unicode NFKC normalization.",
         { type: "validation_error" },
       );
@@ -1004,7 +1004,7 @@ async function translateChunkWithFallback({
     };
   } catch (error) {
     if (!shouldSplitChunkTranslationError(error) || chunk.cueCount <= 1) {
-      wrapError(error, `Chunk ${chunk.id} failed for ${Math.round(chunk.startTime)}s-${Math.round(chunk.endTime)}s`);
+      legacyWrapError(error, `Chunk ${chunk.id} failed for ${Math.round(chunk.startTime)}s-${Math.round(chunk.endTime)}s`);
     }
 
     const [leftChunk, rightChunk] = splitTranslationChunkAtMidpoint(chunk);
@@ -1240,7 +1240,7 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
   });
 
   if (uploadToS3 && (!s3Endpoint || !s3Bucket || (!effectiveStorageAdapter && (!s3AccessKeyId || !s3SecretAccessKey)))) {
-    throw new MuxAiError("Storage configuration is required for uploading. Provide s3Endpoint and s3Bucket. If no storageAdapter is supplied, also provide s3AccessKeyId and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.", { type: "validation_error" });
+    throw new LegacyMuxAiError("Storage configuration is required for uploading. Provide s3Endpoint and s3Bucket. If no storageAdapter is supplied, also provide s3AccessKeyId and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.", { type: "validation_error" });
   }
 
   // Fetch asset data and playback ID from Mux
@@ -1250,7 +1250,7 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
   // Resolve signing context for signed playback IDs
   const signingContext = await resolveMuxSigningContext(credentials);
   if (policy === "signed" && !signingContext) {
-    throw new MuxAiError(
+    throw new LegacyMuxAiError(
       "Signed playback ID requires signing credentials. " +
       "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
       { type: "validation_error" },
@@ -1265,7 +1265,7 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
       .map(t => t.id)
       .filter(Boolean)
       .join(", ");
-    throw new MuxAiError(
+    throw new LegacyMuxAiError(
       `Track ${trackId} not found or not ready on asset ${assetId}. Available track IDs: ${availableTrackIds || "none"}.`,
       { type: "validation_error" },
     );
@@ -1273,7 +1273,7 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
 
   const fromLanguageCode = sourceTextTrack.language_code;
   if (!fromLanguageCode) {
-    throw new MuxAiError(
+    throw new LegacyMuxAiError(
       `Track ${trackId} is missing language metadata. Cannot determine source language for translation.`,
       { type: "validation_error" },
     );
@@ -1288,7 +1288,7 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
   if (uploadToMux) {
     const plan = planTextTrackReplacement(assetData, outputTrack, replaceExistingTracks);
     if (plan.kind === "blocked") {
-      throw new MuxAiError(plan.reason, { type: "validation_error" });
+      throw new LegacyMuxAiError(plan.reason, { type: "validation_error" });
     }
   }
 
@@ -1299,7 +1299,7 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
   try {
     vttContent = await fetchVttFromMux(vttUrl);
   } catch (error) {
-    wrapError(error, "Failed to fetch VTT content");
+    legacyWrapError(error, "Failed to fetch VTT content");
   }
 
   // Translate VTT content using configured provider via ai-sdk
@@ -1330,7 +1330,7 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
     scrubbedCueCounts = result.scrubbedCueCounts;
     unexpectedKeyCount = result.unexpectedKeyCount;
   } catch (error) {
-    wrapError(error, `Failed to translate VTT with ${modelConfig.provider}`);
+    legacyWrapError(error, `Failed to translate VTT with ${modelConfig.provider}`);
   }
 
   // Synthesise a SafetyReport from the aggregate counts. We emit one
@@ -1405,7 +1405,7 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
         s3SignedUrlExpirySeconds: options.s3SignedUrlExpirySeconds,
       });
     } catch (error) {
-      wrapError(error, "Failed to upload VTT to S3");
+      legacyWrapError(error, "Failed to upload VTT to S3");
     }
 
     if (uploadToMux) {
@@ -1420,7 +1420,7 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
           credentials,
         });
       } catch (error) {
-        wrapError(error, "Failed to add translated track to Mux asset");
+        legacyWrapError(error, "Failed to add translated track to Mux asset");
       }
       if (outcome.kind !== "created") {
         // Nothing to restore here: only target-language tracks are ever deleted
@@ -1429,7 +1429,7 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
           ` Tracks already deleted before the failure: ${outcome.deleted.map(track => `${track.name ?? track.id} (${track.id})`).join(", ")}.` :
           "";
         if (outcome.kind === "blocked") {
-          throw new MuxAiError(`${outcome.reason}${deletedNote}`, { type: "validation_error" });
+          throw new LegacyMuxAiError(`${outcome.reason}${deletedNote}`, { type: "validation_error" });
         }
         throw new Error(`Failed to add translated track to Mux asset: ${outcome.reason}.${deletedNote}`);
       }
