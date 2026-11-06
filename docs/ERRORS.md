@@ -45,7 +45,7 @@ catch (error) {
   if (error.code === MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID) {
     // React to the exact condition; `error.facts` says which call and model.
   }
-  log.warn({ type: error.type, source: error.source, code: error.code, facts: error.facts }, error.message);
+  log.warn({ type: error.type, source: error.source, code: error.code, facts: error.facts, causes: error.causes }, error.message);
   showToEndUser(toPublicError(error));
 }
 ```
@@ -150,7 +150,7 @@ Both flags are policies decided from the classification, not by hand: the site's
 None of this is end-user data.
 
 - **`cause`:** the raw error a site classified, passed as `cause` when raising (`dependencyError()` and `wrapError()` pass it for you). It stays on the instance only: it's non-enumerable, so it isn't in JSON or in logs of the error object, and it's never serialized.
-- **`causes`:** a bounded summary of the `cause` chain that does cross step boundaries, for logs: up to three `{ name, message, status? }` entries, each message capped at 500 characters with URL queries and credentials stripped and high-confidence prompt leaks suppressed. A classified cause contributes its own `causes`.
+- **`causes`:** a bounded summary of the `cause` chain that does cross step boundaries, for logs: up to three `{ name, message, status? }` entries, each message capped at 500 characters with URL queries and credentials stripped and high-confidence prompt leaks suppressed. A classified cause contributes its own `causes`. After a step boundary it's the only trace of the raw error. Like `cause`, it's non-enumerable, so error serializers and `JSON.stringify` skip it: log it explicitly, as in the example above.
 - **`usage`:** model tokens spent before the failure, so a caller can still account for them. `wrapError()` carries it over from the error it wraps.
 - **`diagnostics`:** for a failed model call, which phase failed and with what provider, model and output limit.
 
