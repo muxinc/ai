@@ -305,6 +305,113 @@ describe("translateAudio track replacement", () => {
   });
 });
 
+describe("independent dubbed subtitles", () => {
+  it("uses independent names and policies for both preflight and attachment", async () => {
+    mockAsset([PRIMARY_AUDIO, OLD_DUB]);
+    stubElevenLabsFetch();
+    vi.mocked(replaceAndCreateTrack).mockResolvedValue({ kind: "created", trackId: "new", deleted: [] });
+
+    await translateAudio(ASSET_ID, "es", {
+      trackName: "Spanish audio",
+      replaceExistingTracks: "replace_all",
+      uploadCaptionsToMux: true,
+      captionsTrackName: "Spanish subtitles",
+      captionsReplaceExistingTracks: "fail",
+    });
+
+    expect(replaceAndCreateTrack).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      target: { type: "audio", languageCode: "es", name: "Spanish audio" },
+      policy: "replace_all",
+    }));
+    expect(replaceAndCreateTrack).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      target: { type: "text", languageCode: "es", name: "Spanish subtitles" },
+      policy: "fail",
+    }));
+  });
+
+  it("does not let audio replacement authorize subtitle deletion", async () => {
+    mockAsset([PRIMARY_AUDIO, OLD_DUB_CAPTIONS]);
+    const fetchMock = stubElevenLabsFetch();
+    await expect(translateAudio(ASSET_ID, "es", {
+      replaceExistingTracks: "replace_all",
+      uploadCaptionsToMux: true,
+      captionsReplaceExistingTracks: "fail",
+    })).rejects.toThrow("A text track already exists");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("preflights subtitle name collisions independently of the audio name", async () => {
+    mockAsset([PRIMARY_AUDIO, { ...OLD_DUB_CAPTIONS, language_code: "fr", name: "Course subtitles" }]);
+    const fetchMock = stubElevenLabsFetch();
+    await expect(translateAudio(ASSET_ID, "es", {
+      uploadCaptionsToMux: true,
+      captionsTrackName: "Course subtitles",
+    })).rejects.toThrow();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("can publish only subtitles and records the created track", async () => {
+    stubElevenLabsFetch();
+    vi.mocked(replaceAndCreateTrack).mockResolvedValue({ kind: "created", trackId: "subtitles", deleted: [] });
+    const result = await translateAudio(ASSET_ID, "es", { uploadToMux: false, uploadCaptionsToMux: true });
+    expect(replaceAndCreateTrack).toHaveBeenCalledTimes(1);
+    expect(result.uploadedTrackId).toBeUndefined();
+    expect(result.captionsOutcome).toEqual({ status: "created", trackId: "subtitles", replacedTracks: [] });
+  });
+
+  it("records deletions even when subtitle creation fails", async () => {
+    stubElevenLabsFetch();
+    const deleted = [{ id: "old-text", type: "text" as const }];
+    vi.mocked(replaceAndCreateTrack)
+      .mockResolvedValueOnce({ kind: "created", trackId: "audio", deleted: [] })
+      .mockResolvedValueOnce({ kind: "create_failed", reason: "unreachable", deleted });
+    const result = await translateAudio(ASSET_ID, "es", { uploadCaptionsToMux: true });
+    expect(result.uploadedTrackId).toBe("audio");
+    expect(result.captionsOutcome).toEqual({ status: "failed", message: "unreachable", retryable: true, replacedTracks: deleted });
+    expect(result.replacedTracks).toEqual(deleted);
+    expect(result.captionsPresignedUrl).toBeDefined();
+  });
+
+  it("returns an outcome for a thrown subtitle attachment failure", async () => {
+    stubElevenLabsFetch();
+    vi.mocked(replaceAndCreateTrack)
+      .mockResolvedValueOnce({ kind: "created", trackId: "audio", deleted: [] })
+      .mockRejectedValueOnce(new Error("Mux unavailable"));
+    const result = await translateAudio(ASSET_ID, "es", { uploadCaptionsToMux: true });
+    expect(result.captionsOutcome).toMatchObject({ status: "failed", message: "Mux unavailable", replacedTracks: [] });
+    expect(result.uploadedTrackId).toBe("audio");
+  });
+
+  it("keeps downloads available without publishing any tracks", async () => {
+    stubElevenLabsFetch();
+    const result = await translateAudio(ASSET_ID, "es", { uploadToMux: false, uploadToS3: true });
+    expect(result.captionsOutcome).toEqual({ status: "available" });
+    expect(result.captionsPresignedUrl).toBeDefined();
+    expect(replaceAndCreateTrack).not.toHaveBeenCalled();
+  });
+
+  it("records an unavailable transcript without failing the audio", async () => {
+    const fetchMock = stubElevenLabsFetch();
+    const original = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input, init) => String(input).includes("/transcripts/") ?
+        new Response("missing", { status: 404 }) :
+        original(input, init));
+    vi.mocked(replaceAndCreateTrack).mockResolvedValue({ kind: "created", trackId: "audio", deleted: [] });
+    const result = await translateAudio(ASSET_ID, "es", { uploadCaptionsToMux: true });
+    expect(result.captionsOutcome).toMatchObject({ status: "unavailable", retryable: false });
+    expect(result.uploadedTrackId).toBe("audio");
+    expect(replaceAndCreateTrack).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns transcript storage failures from inside the step", async () => {
+    stubElevenLabsFetch();
+    vi.mocked(putObjectWithStorageAdapter).mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("Storage unavailable"));
+    const result = await translateAudio(ASSET_ID, "es", { uploadToMux: false, uploadToS3: true });
+    expect(result.captionsOutcome).toEqual({ status: "unavailable", message: "Storage unavailable", retryable: true });
+    expect(result.presignedUrl).toBeDefined();
+  });
+});
+
 describe("project output storage", () => {
   it("stores native lossless audio and raw WebVTT without sending provider credentials to signed URLs", async () => {
     const fetchMock = stubElevenLabsFetch();

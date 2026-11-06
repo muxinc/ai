@@ -936,7 +936,7 @@ ElevenLabs charges for the first language when a project is created. If creation
 
 ### Replacing Existing Tracks
 
-By default `translateAudio` rejects before dubbing starts if the asset already has an audio track in the target language or with the target name, so a re-dub never pays ElevenLabs only to fail at Mux. Pass `replaceExistingTracks: "replace_all"` to delete the old dub first. The asset's primary audio track is never deleted, under any policy. With `uploadCaptionsToMux`, the same policy applies to the dubbed captions text track, which lives in its own name group.
+By default `translateAudio` rejects before dubbing starts if the asset already has an audio track in the target language or with the target name, so a re-dub never pays ElevenLabs only to fail at Mux. Pass `replaceExistingTracks: "replace_all"` to delete the old dub first. The asset's primary audio track is never deleted, under any policy. With `uploadCaptionsToMux`, that policy also applies to subtitles unless `captionsReplaceExistingTracks` overrides it. Use `captionsTrackName` to name subtitles independently. Both targets are checked before dubbing starts. `captionsOutcome` records transcript availability and subtitle attachment failures without failing a completed dub.
 
 ```typescript
 const result = await translateAudio(assetId, "es", {
