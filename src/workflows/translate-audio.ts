@@ -6,7 +6,7 @@ import { elevenLabsResponseFailure, elevenLabsSdkFailure } from "../lib/elevenla
 import type { ElevenLabsFailure } from "../lib/elevenlabs-errors.ts";
 import { getLanguageCodePair, getLanguageName, toISO639_1 } from "../lib/language-codes.ts";
 import type { LanguageCodePair } from "../lib/language-codes.ts";
-import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
+import { extractErrorDetail, MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset, isAudioOnlyAsset, isVideoOnlyAsset } from "../lib/mux-assets.ts";
 import {
   getLegacyMp4SupportRenditionSizeError,
@@ -42,6 +42,13 @@ import type {
 /** What happened to the audio-only static rendition `translateAudio` created as dubbing input. */
 export type StaticRenditionCleanupOutcome = "deleted" | "delete_failed" | "kept" | "not_created";
 
+/** Transcript staging and optional subtitle attachment are independent of a successful dub. */
+export type DubbedCaptionsOutcome =
+  | { status: "available" } |
+  { status: "unavailable"; message: string; retryable: boolean } |
+  { status: "created"; trackId: string; replacedTracks: TextTrackSummary[] } |
+  { status: "failed"; message: string; retryable: boolean; replacedTracks: TextTrackSummary[] };
+
 /** Output returned from `translateAudio`. */
 export interface AudioTranslationResult {
   assetId: string;
@@ -65,6 +72,8 @@ export interface AudioTranslationResult {
   captionsTrackId?: string;
   /** Presigned URL for the dub's translated transcript (WebVTT) staged to S3. */
   captionsPresignedUrl?: string;
+  /** Recorded when transcript staging was attempted, including non-fatal failures. */
+  captionsOutcome?: DubbedCaptionsOutcome;
   /** ID of the audio-only static rendition this run created, `undefined` when a usable rendition already existed. */
   createdStaticRenditionId?: string;
   /** Outcome of cleaning up the static rendition this run created (`not_created` when it reused an existing one). */
@@ -110,19 +119,27 @@ export interface AudioTranslationOptions extends MuxAIOptions {
    * When true the dub's translated transcript (the same translation that was
    * voiced) is attached as a subtitles text track on the Mux asset. Implies
    * `uploadToS3: true`. Defaults to false. Existing text tracks are handled
-   * according to `replaceExistingTracks`, checked before dubbing starts.
+   * according to `captionsReplaceExistingTracks` (falling back to
+   * `replaceExistingTracks`). Caption conflicts are reported in `captionsOutcome`
+   * without failing the dub.
    */
   uploadCaptionsToMux?: boolean;
+  /** Subtitle name override. Defaults to `trackName`, then the generated audio track name. */
+  captionsTrackName?: string;
+  /** Subtitle conflict policy override. Defaults to `replaceExistingTracks`. */
+  captionsReplaceExistingTracks?: ReplaceExistingTracksPolicy;
   /**
-   * What to do when the asset already has an audio track (or, with
-   * `uploadCaptionsToMux`, a text track) in the target language or with the
-   * target name. Defaults to `"fail"`, which rejects before dubbing starts.
+   * What to do when the asset already has an audio track in the target language
+   * or with the target name. Defaults to `"fail"`, which rejects before dubbing
+   * starts. Also the subtitle policy unless `captionsReplaceExistingTracks` is set;
+   * subtitle conflicts only fail caption attachment.
    * The asset's primary audio track is never deleted under any policy.
    */
   replaceExistingTracks?: ReplaceExistingTracksPolicy;
   /**
    * Name for the created Mux tracks. Audio and text tracks are separate name
-   * groups, so the same name is used for both. Defaults to
+   * groups, so the same name is used unless `captionsTrackName` overrides
+   * the subtitle name. Defaults to
    * "<Language> (Auto-dubbed)", e.g. "Spanish (Auto-dubbed)".
    */
   trackName?: string;
@@ -150,6 +167,9 @@ export interface AudioTranslationOptions extends MuxAIOptions {
 // ─────────────────────────────────────────────────────────────────────────────
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
+
+const CAPTIONS_UNAVAILABLE_MESSAGE = "The dub completed, but its subtitles could not be retrieved.";
+const CAPTIONS_ATTACHMENT_FAILED_MESSAGE = "Dub subtitles could not be attached to the Mux asset.";
 
 const STATIC_RENDITION_POLL_INTERVAL_MS = 10_000;
 const STATIC_RENDITION_MAX_ATTEMPTS = 180; // 30 minutes
@@ -642,44 +662,64 @@ async function downloadAndUploadDubTranscript({
   credentials?: WorkflowCredentialsInput;
 }): Promise<{ kind: "staged"; presignedUrl: string } | { kind: "failed"; failure: ElevenLabsFailure }> {
   "use step";
-  const fetched = await fetchDubbingOutput(dubbingId, languageId, "subtitles", credentials);
-  if (fetched.kind === "failed") {
-    return fetched;
+  try {
+    const fetched = await fetchDubbingOutput(dubbingId, languageId, "subtitles", credentials);
+    if (fetched.kind === "failed") {
+      return fetched;
+    }
+    const transcriptVtt = await fetched.response.text();
+    if (!transcriptVtt.trim()) {
+      return { kind: "failed", failure: { retryable: false, detail: "Dub transcript response did not include webvtt content" } };
+    }
+
+    const s3AccessKeyId = env.S3_ACCESS_KEY_ID;
+    const s3SecretAccessKey = env.S3_SECRET_ACCESS_KEY;
+
+    const vttKey = `audio-translations/${assetId}/auto-to-${toLanguageCode}-${Date.now()}.vtt`;
+
+    await putObjectWithStorageAdapter({
+      accessKeyId: s3AccessKeyId,
+      secretAccessKey: s3SecretAccessKey,
+      endpoint: s3Endpoint,
+      region: s3Region,
+      bucket: s3Bucket,
+      key: vttKey,
+      body: transcriptVtt,
+      contentType: "text/vtt",
+    }, storageAdapter);
+
+    const presignedUrl = await createPresignedGetUrlWithStorageAdapter({
+      accessKeyId: s3AccessKeyId,
+      secretAccessKey: s3SecretAccessKey,
+      endpoint: s3Endpoint,
+      region: s3Region,
+      bucket: s3Bucket,
+      key: vttKey,
+      expiresInSeconds: s3SignedUrlExpirySeconds ?? 86400,
+    }, storageAdapter);
+
+    console.warn(`✅ Dub transcript uploaded successfully to: ${vttKey}`);
+
+    return { kind: "staged", presignedUrl };
+  } catch (error) {
+    return { kind: "failed", failure: { retryable: true, detail: extractErrorDetail(error) } };
   }
-  const transcriptVtt = await fetched.response.text();
-  if (!transcriptVtt.trim()) {
-    return { kind: "failed", failure: { retryable: false, detail: "Dub transcript response did not include webvtt content" } };
+}
+
+/** Return attachment failures from inside the step so they cannot freeze a completed dub. */
+async function attachDubbedCaptions(input: Parameters<typeof replaceAndCreateTrack>[0]): Promise<Extract<DubbedCaptionsOutcome, { status: "created" | "failed" }>> {
+  "use step";
+  try {
+    const outcome = await replaceAndCreateTrack(input);
+    if (outcome.kind === "created") {
+      return { status: "created", trackId: outcome.trackId, replacedTracks: outcome.deleted };
+    }
+    console.warn(`⚠️ Failed to attach dubbed captions: ${outcome.reason}`);
+    return { status: "failed", message: outcome.kind === "blocked" ? outcome.reason : CAPTIONS_ATTACHMENT_FAILED_MESSAGE, retryable: outcome.kind === "create_failed", replacedTracks: outcome.deleted };
+  } catch (error) {
+    console.warn(`⚠️ Failed to attach dubbed captions: ${extractErrorDetail(error)}`);
+    return { status: "failed", message: CAPTIONS_ATTACHMENT_FAILED_MESSAGE, retryable: true, replacedTracks: [] };
   }
-
-  const s3AccessKeyId = env.S3_ACCESS_KEY_ID;
-  const s3SecretAccessKey = env.S3_SECRET_ACCESS_KEY;
-
-  const vttKey = `audio-translations/${assetId}/auto-to-${toLanguageCode}-${Date.now()}.vtt`;
-
-  await putObjectWithStorageAdapter({
-    accessKeyId: s3AccessKeyId,
-    secretAccessKey: s3SecretAccessKey,
-    endpoint: s3Endpoint,
-    region: s3Region,
-    bucket: s3Bucket,
-    key: vttKey,
-    body: transcriptVtt,
-    contentType: "text/vtt",
-  }, storageAdapter);
-
-  const presignedUrl = await createPresignedGetUrlWithStorageAdapter({
-    accessKeyId: s3AccessKeyId,
-    secretAccessKey: s3SecretAccessKey,
-    endpoint: s3Endpoint,
-    region: s3Region,
-    bucket: s3Bucket,
-    key: vttKey,
-    expiresInSeconds: s3SignedUrlExpirySeconds ?? 86400,
-  }, storageAdapter);
-
-  console.warn(`✅ Dub transcript uploaded successfully to: ${vttKey}`);
-
-  return { kind: "staged", presignedUrl };
 }
 
 export async function translateAudio(
@@ -700,6 +740,7 @@ export async function translateAudio(
     storageAdapter,
     credentials: providedCredentials,
     replaceExistingTracks = "fail",
+    captionsReplaceExistingTracks = replaceExistingTracks,
     trackName: providedTrackName,
     trackPassthrough: providedTrackPassthrough,
   } = options;
@@ -724,7 +765,7 @@ export async function translateAudio(
   const muxLangCode = targetLanguageCode;
   const trackName = providedTrackName ?? `${getLanguageName(muxLangCode) ?? muxLangCode.toUpperCase()} (Auto-dubbed)`;
   const audioTrackTarget: TextTrackTarget = { type: "audio", languageCode: muxLangCode, name: trackName };
-  const captionsTrackTarget: TextTrackTarget = { type: "text", languageCode: muxLangCode, name: trackName };
+  const captionsTrackTarget: TextTrackTarget = { type: "text", languageCode: muxLangCode, name: options.captionsTrackName ?? trackName };
 
   // S3 configuration
   const s3Endpoint = options.s3Endpoint ?? env.S3_ENDPOINT;
@@ -757,14 +798,10 @@ export async function translateAudio(
     throw new MuxAiError(`Asset ${assetId} ${audioTrackUnsupported}`, { type: "validation_error" });
   }
 
-  // Check both target tracks against the asset we already have so a blocked
-  // policy rejects before ElevenLabs is asked to do anything. The create step
-  // re-plans against a fresh asset.
-  for (const target of [
-    ...(uploadToMux ? [audioTrackTarget] : []),
-    ...(uploadCaptionsToMux ? [captionsTrackTarget] : []),
-  ]) {
-    const plan = planTextTrackReplacement(initialAsset, target, replaceExistingTracks);
+  // Audio conflicts reject before paid dubbing; optional caption conflicts are
+  // reported by the caption attachment step without failing the dub.
+  if (uploadToMux) {
+    const plan = planTextTrackReplacement(initialAsset, audioTrackTarget, replaceExistingTracks);
     if (plan.kind === "blocked") {
       throw new MuxAiError(plan.reason, { type: "validation_error" });
     }
@@ -797,6 +834,7 @@ export async function translateAudio(
   let replacedTracks: TextTrackSummary[] | undefined;
   let captionsPresignedUrl: string | undefined;
   let captionsTrackId: string | undefined;
+  let captionsOutcome: DubbedCaptionsOutcome | undefined;
 
   try {
     let sourceRenditionName = "audio.m4a";
@@ -992,8 +1030,7 @@ export async function translateAudio(
 
       // The dub's translated transcript is the same translation that was voiced, and
       // fetching it costs nothing extra. Soft-fail everything here: a transcript problem
-      // must never fail a completed, paid-for dub. Conflicts were checked before dubbing,
-      // so a blocked result here is a race with another writer and is logged, not thrown.
+      // must never fail a completed, paid-for dub, including caption policy conflicts.
       try {
         console.warn("📥 Downloading dub transcript from ElevenLabs and staging to S3...");
         const transcript = await downloadAndUploadDubTranscript({
@@ -1009,31 +1046,38 @@ export async function translateAudio(
           credentials,
         });
         if (transcript.kind === "failed") {
-          throw new Error(transcript.failure.detail);
+          captionsOutcome = { status: "unavailable", message: CAPTIONS_UNAVAILABLE_MESSAGE, retryable: transcript.failure.retryable };
+          console.warn(`⚠️ Failed to retrieve dubbed captions: ${transcript.failure.detail}`);
+        } else {
+          captionsPresignedUrl = transcript.presignedUrl;
+          captionsOutcome = { status: "available" };
         }
-        captionsPresignedUrl = transcript.presignedUrl;
 
-        if (uploadCaptionsToMux) {
+        if (uploadCaptionsToMux && captionsPresignedUrl) {
           console.warn("📹 Adding dubbed captions track to Mux asset...");
-          const captionsOutcome = await replaceAndCreateTrack({
+          captionsOutcome = await attachDubbedCaptions({
             assetId,
             target: captionsTrackTarget,
-            policy: replaceExistingTracks,
+            policy: captionsReplaceExistingTracks,
             presignedUrl: captionsPresignedUrl,
             passthrough: trackPassthrough,
             credentials,
           });
-          if (captionsOutcome.deleted.length > 0) {
-            replacedTracks = [...(replacedTracks ?? []), ...captionsOutcome.deleted];
+          if (captionsOutcome.replacedTracks.length > 0) {
+            replacedTracks = [...(replacedTracks ?? []), ...captionsOutcome.replacedTracks];
           }
-          if (captionsOutcome.kind !== "created") {
-            throw new Error(captionsOutcome.reason);
+          if (captionsOutcome.status === "created") {
+            captionsTrackId = captionsOutcome.trackId;
+            console.warn(`✅ Captions track added to Mux asset with ID: ${captionsTrackId}`);
+          } else {
+            console.warn(`⚠️ Failed to attach dubbed captions: ${captionsOutcome.message}`);
           }
-          captionsTrackId = captionsOutcome.trackId;
-          console.warn(`✅ Captions track added to Mux asset with ID: ${captionsTrackId}`);
         }
       } catch (error) {
-        console.warn(`⚠️ Failed to attach dubbed captions: ${error instanceof Error ? error.message : "Unknown error"}`);
+        captionsOutcome = captionsPresignedUrl ?
+            { status: "failed", message: CAPTIONS_ATTACHMENT_FAILED_MESSAGE, retryable: true, replacedTracks: [] } :
+            { status: "unavailable", message: CAPTIONS_UNAVAILABLE_MESSAGE, retryable: true };
+        console.warn(`⚠️ Failed to attach dubbed captions: ${extractErrorDetail(error)}`);
         if (captionsPresignedUrl) {
           console.warn("🔗 You can manually add the captions track using this presigned URL:");
           console.warn(captionsPresignedUrl);
@@ -1066,6 +1110,7 @@ export async function translateAudio(
     replacedTracks,
     captionsTrackId,
     captionsPresignedUrl,
+    captionsOutcome,
     createdStaticRenditionId,
     staticRenditionCleanup,
     usage: {

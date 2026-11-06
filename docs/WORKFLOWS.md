@@ -936,16 +936,20 @@ ElevenLabs charges for the first language when a project is created. If creation
 
 ### Replacing Existing Tracks
 
-By default `translateAudio` rejects before dubbing starts if the asset already has an audio track in the target language or with the target name, so a re-dub never pays ElevenLabs only to fail at Mux. Pass `replaceExistingTracks: "replace_all"` to delete the old dub first. The asset's primary audio track is never deleted, under any policy. With `uploadCaptionsToMux`, the same policy applies to the dubbed captions text track, which lives in its own name group.
+By default `translateAudio` rejects before dubbing starts if the asset already has an audio track in the target language or with the target name, so a re-dub never pays ElevenLabs only to fail at Mux. Pass `replaceExistingTracks: "replace_all"` to delete the old dub first. The asset's primary audio track is never deleted, under any policy. With `uploadCaptionsToMux`, that policy also applies to subtitles unless `captionsReplaceExistingTracks` overrides it. Use `captionsTrackName` to name subtitles independently, for example `Spanish (dub)` to identify the audio they follow. The SDK retains the shared audio name when this override is omitted. Only audio conflicts reject before dubbing starts. A subtitle conflict fails caption attachment and is reported in `captionsOutcome`, preserving the dubbed audio and staged downloads. `captionsOutcome` records transcript availability and subtitle attachment failures without failing a completed dub.
 
 ```typescript
 const result = await translateAudio(assetId, "es", {
   replaceExistingTracks: "replace_all",
   uploadCaptionsToMux: true,
+  captionsTrackName: "Spanish (dub)",
+  captionsReplaceExistingTracks: "fail",
 });
 
 console.log(result.replacedTracks); // [{ id, type: "audio", name: "Spanish (Auto-dubbed)", ... }, ...]
 ```
+
+`uploadToMux` controls the primary audio output; `uploadCaptionsToMux` independently controls the optional subtitle upload. With `uploadToMux: false, uploadCaptionsToMux: true`, only subtitles are attached and the dubbed audio is available through its staged download URL.
 
 A failure creating the audio track fails the workflow, with the staged S3 URL in the error so the track can be attached manually. The captions track stays best-effort: a paid dub is never failed over its transcript.
 
