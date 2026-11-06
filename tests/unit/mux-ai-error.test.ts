@@ -2,7 +2,7 @@ import { WORKFLOW_DESERIALIZE } from "@workflow/serde";
 import { describe, expect, it, vi } from "vitest";
 
 import { isLegacyMuxAiError, LegacyMuxAiError, legacyWrapError } from "../../src/lib/legacy-mux-ai-error.ts";
-import { assertNever, internalError, MUX_AI_ERROR_CATALOG, MUX_AI_ERROR_TYPE_VALUES, MuxAiError, wrapError } from "../../src/lib/mux-ai-error.ts";
+import { assertNever, internalError, MUX_AI_ERROR_CATALOG, MUX_AI_ERROR_TYPE_VALUES, MuxAiError, stripUrlQueries, wrapError } from "../../src/lib/mux-ai-error.ts";
 
 function thrown(fn: () => unknown): unknown {
   try {
@@ -190,5 +190,26 @@ describe("internalError and assertNever", () => {
 
   it("throws an internal error for an unexpected value", () => {
     expect(() => assertNever("x" as never, "phase")).toThrow("Unexpected phase: x");
+  });
+});
+
+describe("stripUrlQueries", () => {
+  it("drops the query and fragment, keeping the host and path", () => {
+    expect(stripUrlQueries("GET https://image.mux.com/abc/storyboard.png?token=SECRET: 403 Forbidden"))
+      .toBe("GET https://image.mux.com/abc/storyboard.png?… 403 Forbidden");
+    expect(stripUrlQueries("see https://stream.mux.com/abc.m3u8#t=10")).toBe("see https://stream.mux.com/abc.m3u8?…");
+  });
+
+  it("drops credentials", () => {
+    expect(stripUrlQueries("PUT https://AKIAEXAMPLE:s3cr3t@bucket.s3.amazonaws.com/key failed"))
+      .toBe("PUT https://bucket.s3.amazonaws.com/key failed");
+  });
+
+  it("leaves a URL with nothing to drop as it is", () => {
+    expect(stripUrlQueries("fetch https://api.mux.com failed")).toBe("fetch https://api.mux.com failed");
+  });
+
+  it("still drops the query of a URL it can't parse", () => {
+    expect(stripUrlQueries("bad https://[::1?token=x")).toBe("bad https://[::1?…");
   });
 });

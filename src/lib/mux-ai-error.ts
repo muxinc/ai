@@ -526,14 +526,28 @@ export function extractErrorDetail(error: unknown): string {
   return "Unknown error";
 }
 
-const URL_QUERY = /(https?:\/\/[^\s?#"'<>]+)[?#][^\s"'<>]*/g;
+const URL_IN_TEXT = /https?:\/\/[^\s"'<>]+/g;
+const URL_QUERY = /^([^?#]+)[?#].*$/s;
 
 /**
- * Drops the query string and fragment from every URL in `text`. Signed Mux and
- * presigned S3 URLs carry their tokens there; the host and path stay for debugging.
+ * Drops the query string, fragment and any credentials (`user:password@`) from every
+ * URL in `text`. Signed Mux and presigned S3 URLs carry their tokens in the query; the
+ * host and path stay for debugging, and a URL with nothing to drop is left as it is.
  */
 export function stripUrlQueries(text: string): string {
-  return text.replace(URL_QUERY, "$1?…");
+  return text.replace(URL_IN_TEXT, (match) => {
+    let url: URL;
+    try {
+      url = new URL(match);
+    } catch {
+      // Not a parseable URL: still drop anything after `?` or `#`.
+      return match.replace(URL_QUERY, "$1?…");
+    }
+    if (!url.username && !url.password && !url.search && !url.hash) {
+      return match;
+    }
+    return `${url.origin}${url.pathname}${url.search || url.hash ? "?…" : ""}`;
+  });
 }
 
 /**
