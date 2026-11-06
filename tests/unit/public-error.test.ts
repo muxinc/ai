@@ -2,7 +2,10 @@ import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 import { describe, expect, it } from "vitest";
 
 import { LegacyMuxAiError, MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "../../src/lib/mux-ai-error.ts";
+import { resolveLegacyMp4SupportRendition } from "../../src/lib/mux-static-renditions.ts";
+import { planTextTrackReplacement, trackReplacementBlockedError, trackTargetFacts } from "../../src/lib/mux-tracks.ts";
 import { createPublicErrorView, genericPublicMessage, MUX_AI_ERROR_GENERIC_MESSAGES, MUX_AI_ERROR_PUBLIC_MAPPINGS, toPublicError } from "../../src/lib/public-error.ts";
+import type { MuxAsset } from "../../src/types.ts";
 
 function acrossStepBoundary(error: MuxAiError): MuxAiError {
   const serde = MuxAiError as unknown as Record<symbol, (value: unknown) => unknown>;
@@ -36,14 +39,91 @@ describe("toPublicError", () => {
     expect(toPublicError(acrossStepBoundary(error))).toEqual(toPublicError(error));
   });
 
-  it("keeps working after a step boundary", () => {
-    const revived = acrossStepBoundary(new MuxAiError("x", { code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID, facts: { call: "generate_text" } }));
+  it("keeps a public code and only its allowed facts", () => {
+    const error = new MuxAiError("Audio dubbing failed: No speech was detected in the source media.", {
+      code: MUX_AI_ERROR_CODES.DUBBING_FAILED,
+      facts: { call: "elevenlabs_get_dubbing", status: 200, providerCode: "no_speech", providerError: "No speech was detected in the source media." },
+      retryable: false,
+    });
 
-    expect(toPublicError(revived)).toEqual({ type: "processing_error", message: MUX_AI_ERROR_GENERIC_MESSAGES.failed, retryable: false });
+    expect(toPublicError(error)).toEqual({
+      type: "processing_error",
+      code: "dubbing_failed",
+      message: "Audio dubbing failed: No speech was detected in the source media.",
+      retryable: false,
+      facts: { providerError: "No speech was detected in the source media." },
+    });
   });
 
-  it("has no public codes yet: each module adds its own as it moves onto the model", () => {
-    expect(Object.keys(MUX_AI_ERROR_PUBLIC_MAPPINGS)).toEqual([]);
+  it("renders each public code from facts, as its sites raise it", () => {
+    const view = (code: (typeof MUX_AI_ERROR_CODES)[keyof typeof MUX_AI_ERROR_CODES], facts?: Record<string, any>) =>
+      toPublicError(new MuxAiError("internal", { code, facts })).message;
+
+    expect(view(MUX_AI_ERROR_CODES.INVALID_SCOPE, { reason: "exceeds_duration", endTime: 90, assetDurationSeconds: 60 }))
+      .toBe("The requested end time (90s) is after the end of the asset (60s).");
+    expect(view(MUX_AI_ERROR_CODES.INVALID_SCOPE, { reason: "no_transcript", startTime: 10 }))
+      .toBe("The transcript has no content in the requested time range.");
+    expect(view(MUX_AI_ERROR_CODES.CAPTION_TRACK_NOT_FOUND, { languageCode: "fr", availableLanguages: ["en", "es"] }))
+      .toBe("No ready caption track was found for language fr. Available languages: en, es.");
+    expect(view(MUX_AI_ERROR_CODES.CAPTION_TRACK_NOT_FOUND, { trackId: "trk_1", availableTrackIds: [] }))
+      .toBe("Track trk_1 was not found or is not ready. Available track IDs: none.");
+    expect(view(MUX_AI_ERROR_CODES.AUDIO_TRACK_UNSUPPORTED, { reason: "audio_only" })).toContain("audio-only assets");
+    expect(view(MUX_AI_ERROR_CODES.DUBBING_LANGUAGE_UNSUPPORTED, { language: "ur", which: "target" }))
+      .toBe("Audio dubbing doesn't support the target language \"ur\".");
+    expect(view(MUX_AI_ERROR_CODES.CONTENT_POLICY_BLOCKED, { reason: "safety", category: "violence", provider: "openai" }))
+      .toBe("The content was blocked by a content policy (reason: safety; category: violence).");
+  });
+
+  it("describes a blocked track replacement from the plan's facts, without SDK option names", () => {
+    const asset = { id: "asset-1", tracks: [{ id: "up-en", type: "text", language_code: "en", name: "English", text_source: "uploaded", status: "ready" }] } as unknown as MuxAsset;
+    const target = { languageCode: "en", name: "English" };
+    const plan = planTextTrackReplacement(asset, target, "fail");
+    if (plan.kind !== "blocked") {
+      throw new Error("expected a blocked plan");
+    }
+
+    const view = toPublicError(trackReplacementBlockedError(plan, { facts: { ...trackTargetFacts(target), assetId: "asset-1" } }));
+
+    expect(view).toMatchObject({ code: "track_replacement_blocked", type: "validation_error" });
+    expect(view.message).toBe("A text track already exists for language 'en' or name 'English': English [en, uploaded, ready]. Allow existing tracks to be replaced to replace it.");
+    expect(view.message).not.toContain("replaceExistingTracks");
+    expect(view.facts).not.toHaveProperty("assetId");
+  });
+
+  it("words an unusable mp4_support rendition the same way the SDK reports it", () => {
+    const rendition = resolveLegacyMp4SupportRendition({ id: "a", mp4_support: "standard", static_renditions: { status: "errored" } } as unknown as MuxAsset);
+    if (rendition?.kind !== "unusable") {
+      throw new Error("expected an unusable rendition");
+    }
+
+    const error = new MuxAiError(rendition.reason, {
+      code: MUX_AI_ERROR_CODES.STATIC_RENDITION_UNSUPPORTED,
+      facts: { reason: "unusable", mp4Support: rendition.mp4Support, renditionStatus: rendition.status! },
+    });
+
+    expect(toPublicError(error).message).toBe(rendition.reason);
+  });
+
+  it("keeps working after a step boundary", () => {
+    const revived = acrossStepBoundary(new MuxAiError("x", { code: MUX_AI_ERROR_CODES.DUBBING_LANGUAGE_UNSUPPORTED, facts: { language: "ur", which: "source" } }));
+
+    expect(toPublicError(revived)).toMatchObject({ code: "dubbing_language_unsupported", facts: { language: "ur", which: "source" } });
+  });
+
+  it("only maps codes whose classification an end user can act on or needs to know", () => {
+    expect(Object.keys(MUX_AI_ERROR_PUBLIC_MAPPINGS).sort()).toEqual([
+      "audio_track_unsupported",
+      "caption_track_not_found",
+      "content_policy_blocked",
+      "dubbing_failed",
+      "dubbing_language_unsupported",
+      "invalid_scope",
+      "playback_id_not_found",
+      "static_rendition_failed",
+      "static_rendition_unsupported",
+      "track_replacement_blocked",
+      "transcript_empty",
+    ]);
   });
 });
 

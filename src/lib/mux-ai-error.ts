@@ -85,24 +85,77 @@ export interface ErrorCatalogEntry<TType extends string = MuxAiErrorType, TDepen
  * them. Codes name the condition, never the vendor.
  */
 export const MUX_AI_ERROR_CODES = {
+  /** The requested time range is invalid, or has nothing to work with. Facts: `reason` (`invalid_start_time`, `invalid_end_time`, `exceeds_duration`, `empty_range`, `no_video`, `no_transcript`) and the bounds involved. */
+  INVALID_SCOPE: "invalid_scope",
+  /** Existing tracks block writing the output track under the chosen replacement policy. Facts: `reason` (`policy_fail`, `not_generated`, `name_collision`, `primary_audio`), `conflictingTracks` and the target track. */
+  TRACK_REPLACEMENT_BLOCKED: "track_replacement_blocked",
+  /** No ready caption track matches the requested track or language. Facts: `trackId` or `languageCode`, and what is available. */
+  CAPTION_TRACK_NOT_FOUND: "caption_track_not_found",
+  /** The asset has no public or signed playback ID (DRM-only assets included). */
+  PLAYBACK_ID_NOT_FOUND: "playback_id_not_found",
+  /** The transcript has no usable content. */
+  TRANSCRIPT_EMPTY: "transcript_empty",
+  /** Mux won't add an audio track to this asset. Facts: `reason` (`clip`, `live_stream`, `audio_only`). */
+  AUDIO_TRACK_UNSUPPORTED: "audio_track_unsupported",
+  /** The asset's existing static rendition can't be used as a source. Facts: `reason` (`unusable`, `too_large`) and the rendition's details. */
+  STATIC_RENDITION_UNSUPPORTED: "static_rendition_unsupported",
   /** Signed playback needs signing keys the service running the SDK didn't provide. */
   SIGNING_CREDENTIALS_MISSING: "signing_credentials_missing",
+  /** Storage is needed but the service running the SDK didn't configure it. */
+  STORAGE_NOT_CONFIGURED: "storage_not_configured",
+  /** The model provider refused the content. Facts: `reason` and `category`. */
+  CONTENT_POLICY_BLOCKED: "content_policy_blocked",
   /** The model returned no output, or a required field was empty. */
   MODEL_OUTPUT_MISSING: "model_output_missing",
   /** The model's output breaks the expected shape or constraints (counts, allowed values, limits). */
   MODEL_OUTPUT_INVALID: "model_output_invalid",
+  /** The model's output was withheld by the SDK's output safety filter (a suspected prompt leak). */
+  MODEL_OUTPUT_SUPPRESSED: "model_output_suppressed",
+  /** The model stopped early for a reason other than the length limit. */
+  MODEL_OUTPUT_INCOMPLETE: "model_output_incomplete",
+  /** The model hit the output length limit. */
+  MODEL_OUTPUT_TRUNCATED: "model_output_truncated",
+  /** Mux reported the static rendition a workflow needs as errored. */
+  STATIC_RENDITION_FAILED: "static_rendition_failed",
+  /** The dubbing provider doesn't support the requested language. Facts: `language` and `which` (`target` or `source`). */
+  DUBBING_LANGUAGE_UNSUPPORTED: "dubbing_language_unsupported",
+  /** The dubbing provider ran the dub and reported it failed. Facts: `providerError`, the provider's display text, when it gave one. */
+  DUBBING_FAILED: "dubbing_failed",
 } as const;
 export type MuxAiErrorCode = typeof MUX_AI_ERROR_CODES[keyof typeof MUX_AI_ERROR_CODES];
 export const MUX_AI_ERROR_CODE_VALUES: readonly MuxAiErrorCode[] = Object.values(MUX_AI_ERROR_CODES);
 
 /** The classification and retry policy each code implies. */
 export const MUX_AI_ERROR_CATALOG = {
+  // The caller's input.
+  [MUX_AI_ERROR_CODES.INVALID_SCOPE]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
+  [MUX_AI_ERROR_CODES.TRACK_REPLACEMENT_BLOCKED]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
+  // The asset's state.
+  [MUX_AI_ERROR_CODES.CAPTION_TRACK_NOT_FOUND]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },
+  [MUX_AI_ERROR_CODES.PLAYBACK_ID_NOT_FOUND]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },
+  [MUX_AI_ERROR_CODES.TRANSCRIPT_EMPTY]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },
+  [MUX_AI_ERROR_CODES.AUDIO_TRACK_UNSUPPORTED]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },
+  [MUX_AI_ERROR_CODES.STATIC_RENDITION_UNSUPPORTED]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },
   // The configuration of the service running the SDK.
   [MUX_AI_ERROR_CODES.SIGNING_CREDENTIALS_MISSING]: { type: MUX_AI_ERROR_TYPES.SERVER_ERROR, source: MUX_AI_ERROR_SOURCES.INTERNAL },
-  // Model calls. These keep what these failures did before classification (fatal, not
-  // resubmittable). Whether they should be retried is an open follow-up, not decided here.
+  [MUX_AI_ERROR_CODES.STORAGE_NOT_CONFIGURED]: { type: MUX_AI_ERROR_TYPES.SERVER_ERROR, source: MUX_AI_ERROR_SOURCES.INTERNAL },
+  // Model calls.
+  [MUX_AI_ERROR_CODES.CONTENT_POLICY_BLOCKED]: { type: MUX_AI_ERROR_TYPES.CONTENT_POLICY_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER },
+  // The model-output policies below keep what these failures did before classification
+  // (fatal, not resubmittable); sites that differed keep their old values explicitly.
+  // Whether they should be retried is an open follow-up, not decided here.
   [MUX_AI_ERROR_CODES.MODEL_OUTPUT_MISSING]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER, transient: false, retryable: false },
   [MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER, transient: false, retryable: false },
+  [MUX_AI_ERROR_CODES.MODEL_OUTPUT_SUPPRESSED]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER, transient: false, retryable: false },
+  // Not transient: a step retry would repeat a full generation; the job can be resubmitted.
+  [MUX_AI_ERROR_CODES.MODEL_OUTPUT_INCOMPLETE]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER, transient: false },
+  [MUX_AI_ERROR_CODES.MODEL_OUTPUT_TRUNCATED]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.INTERNAL, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER },
+  // Mux Video.
+  // Not resubmittable: the same asset errors again.
+  [MUX_AI_ERROR_CODES.STATIC_RENDITION_FAILED]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO, retryable: false },
+  // Audio dubbing.
+  [MUX_AI_ERROR_CODES.DUBBING_LANGUAGE_UNSUPPORTED]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER },
+  [MUX_AI_ERROR_CODES.DUBBING_FAILED]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER },
 } as const satisfies Record<MuxAiErrorCode, ErrorCatalogEntry>;
 
 export interface ModelCallDiagnostics {

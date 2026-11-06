@@ -10,12 +10,13 @@ import type { MuxAsset } from "../types.ts";
  *
  * - `ready`: serve `name`. `filesizeBytes` is set when Mux reports it.
  * - `preparing`: Mux is still generating the files; check again later.
- * - `unusable`: the files will never be usable as-is. `reason` is customer-safe.
+ * - `unusable`: the files will never be usable as-is. `reason` is customer-safe;
+ *   `status` is the renditions' status when they aren't `ready`.
  */
 export type LegacyMp4SupportRendition =
   { kind: "ready"; name: string; filesizeBytes?: number } |
   { kind: "preparing" } |
-  { kind: "unusable"; reason: string };
+  { kind: "unusable"; reason: string; mp4Support: string; status?: string };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -72,10 +73,7 @@ export function resolveLegacyMp4SupportRendition(asset: MuxAsset): LegacyMp4Supp
     return { kind: "preparing" };
   }
   if (status !== "ready") {
-    return {
-      kind: "unusable",
-      reason: `This asset uses the deprecated mp4_support setting, and its static renditions are ${status}. Move the asset to the Static Renditions API (${STATIC_RENDITIONS_GUIDE_URL}) and add an audio-only static rendition, then retry.`,
-    };
+    return { kind: "unusable", reason: legacyMp4SupportUnusableMessage({ status }), mp4Support: asset.mp4_support!, status };
   }
 
   const files = asset.static_renditions?.files ?? [];
@@ -86,10 +84,21 @@ export function resolveLegacyMp4SupportRendition(asset: MuxAsset): LegacyMp4Supp
     }
   }
 
-  return {
-    kind: "unusable",
-    reason: `This asset uses the deprecated mp4_support setting ("${asset.mp4_support}"), and none of its static renditions can be used by this workflow. Move the asset to the Static Renditions API (${STATIC_RENDITIONS_GUIDE_URL}) and add an audio-only static rendition, then retry.`,
-  };
+  return { kind: "unusable", reason: legacyMp4SupportUnusableMessage({ mp4Support: asset.mp4_support }), mp4Support: asset.mp4_support! };
+}
+
+const MOVE_TO_STATIC_RENDITIONS = `Move the asset to the Static Renditions API (${STATIC_RENDITIONS_GUIDE_URL}) and add an audio-only static rendition, then retry.`;
+
+/** Why an `mp4_support` asset's renditions can't be used: they aren't `ready` (`status`), or none fits. */
+export function legacyMp4SupportUnusableMessage({ status, mp4Support }: { status?: string; mp4Support?: string }): string {
+  return status ?
+    `This asset uses the deprecated mp4_support setting, and its static renditions are ${status}. ${MOVE_TO_STATIC_RENDITIONS}` :
+    `This asset uses the deprecated mp4_support setting${mp4Support ? ` ("${mp4Support}")` : ""}, and none of its static renditions can be used by this workflow. ${MOVE_TO_STATIC_RENDITIONS}`;
+}
+
+/** An `mp4_support` rendition larger than a workflow can process. */
+export function legacyMp4SupportTooLargeMessage({ name, filesizeBytes, maxBytes }: { name: string; filesizeBytes: number; maxBytes: number }): string {
+  return `This asset uses the deprecated mp4_support setting, and its ${name} static rendition (${formatGigabytes(filesizeBytes)}) is larger than the ${formatGigabytes(maxBytes)} this workflow can process. ${MOVE_TO_STATIC_RENDITIONS}`;
 }
 
 function formatGigabytes(bytes: number): string {
@@ -107,5 +116,5 @@ export function getLegacyMp4SupportRenditionSizeError(
   if (rendition.filesizeBytes === undefined || rendition.filesizeBytes <= maxBytes) {
     return undefined;
   }
-  return `This asset uses the deprecated mp4_support setting, and its ${rendition.name} static rendition (${formatGigabytes(rendition.filesizeBytes)}) is larger than the ${formatGigabytes(maxBytes)} this workflow can process. Move the asset to the Static Renditions API (${STATIC_RENDITIONS_GUIDE_URL}) and add an audio-only static rendition, then retry.`;
+  return legacyMp4SupportTooLargeMessage({ name: rendition.name, filesizeBytes: rendition.filesizeBytes, maxBytes });
 }

@@ -105,13 +105,28 @@ A remote service reached over the network. Libraries running in-process are neve
 
 | Code | Type | Source | Dependency | Public | Condition |
 |---|---|---|---|---|---|
+| `invalid_scope` | `validation_error` | `request` |  | yes | The requested time range is invalid, or has nothing to work with. Facts: `reason` (`invalid_start_time`, `invalid_end_time`, `exceeds_duration`, `empty_range`, `no_video`, `no_transcript`) and the bounds involved. |
+| `track_replacement_blocked` | `validation_error` | `request` |  | yes | Existing tracks block writing the output track under the chosen replacement policy. Facts: `reason` (`policy_fail`, `not_generated`, `name_collision`, `primary_audio`), `conflictingTracks` and the target track. |
+| `caption_track_not_found` | `validation_error` | `asset` |  | yes | No ready caption track matches the requested track or language. Facts: `trackId` or `languageCode`, and what is available. |
+| `playback_id_not_found` | `validation_error` | `asset` |  | yes | The asset has no public or signed playback ID (DRM-only assets included). |
+| `transcript_empty` | `validation_error` | `asset` |  | yes | The transcript has no usable content. |
+| `audio_track_unsupported` | `validation_error` | `asset` |  | yes | Mux won't add an audio track to this asset. Facts: `reason` (`clip`, `live_stream`, `audio_only`). |
+| `static_rendition_unsupported` | `validation_error` | `asset` |  | yes | The asset's existing static rendition can't be used as a source. Facts: `reason` (`unusable`, `too_large`) and the rendition's details. |
+| `content_policy_blocked` | `content_policy_error` | `asset` | `ai_provider` | yes | The model provider refused the content. Facts: `reason` and `category`. |
+| `static_rendition_failed` | `processing_error` | `upstream` | `mux_video` | yes | Mux reported the static rendition a workflow needs as errored. |
+| `dubbing_language_unsupported` | `validation_error` | `request` | `ai_provider` | yes | The dubbing provider doesn't support the requested language. Facts: `language` and `which` (`target` or `source`). |
+| `dubbing_failed` | `processing_error` | `upstream` | `ai_provider` | yes | The dubbing provider ran the dub and reported it failed. Facts: `providerError`, the provider's display text, when it gave one. |
 | `signing_credentials_missing` | `server_error` | `internal` |  | no | Signed playback needs signing keys the service running the SDK didn't provide. |
+| `storage_not_configured` | `server_error` | `internal` |  | no | Storage is needed but the service running the SDK didn't configure it. |
 | `model_output_missing` | `processing_error` | `upstream` | `ai_provider` | no | The model returned no output, or a required field was empty. |
 | `model_output_invalid` | `processing_error` | `upstream` | `ai_provider` | no | The model's output breaks the expected shape or constraints (counts, allowed values, limits). |
+| `model_output_suppressed` | `processing_error` | `upstream` | `ai_provider` | no | The model's output was withheld by the SDK's output safety filter (a suspected prompt leak). |
+| `model_output_incomplete` | `processing_error` | `upstream` | `ai_provider` | no | The model stopped early for a reason other than the length limit. |
+| `model_output_truncated` | `processing_error` | `internal` | `ai_provider` | no | The model hit the output length limit. |
 
 <!-- END GENERATED: error codes -->
 
-A failure without a code still has a type and source; that's normal for conditions not yet worth naming.
+A failure without a code still has a type and source; that's normal for conditions not yet worth naming. A module that hasn't moved onto the model yet raises its conditions as [legacy errors](#legacy-errors) rather than with these codes.
 
 ## Retries
 

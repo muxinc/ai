@@ -85,6 +85,8 @@ export {
   replaceAndCreateTrack,
   replaceSourceTrack,
   summarizeTextTrack,
+  trackReplacementBlockedError,
+  trackTargetFacts,
   validateTrackPassthrough,
 } from "./lib/mux-tracks.ts";
 export type {
@@ -98,6 +100,8 @@ export type {
   TextTrackReplacementPlan,
   TextTrackSummary,
   TextTrackTarget,
+  TrackReplacementBlocked,
+  TrackReplacementBlockedReason,
   TrackSummary,
   TrackTarget,
 } from "./lib/mux-tracks.ts";
