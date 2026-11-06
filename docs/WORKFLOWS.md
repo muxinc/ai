@@ -936,12 +936,14 @@ ElevenLabs charges for the first language when a project is created. If creation
 
 ### Replacing Existing Tracks
 
-By default `translateAudio` rejects before dubbing starts if the asset already has an audio track in the target language or with the target name, so a re-dub never pays ElevenLabs only to fail at Mux. Pass `replaceExistingTracks: "replace_all"` to delete the old dub first. The asset's primary audio track is never deleted, under any policy. With `uploadCaptionsToMux`, that policy also applies to subtitles unless `captionsReplaceExistingTracks` overrides it. Use `captionsTrackName` to name subtitles independently. Both targets are checked before dubbing starts. `captionsOutcome` records transcript availability and subtitle attachment failures without failing a completed dub.
+By default `translateAudio` rejects before dubbing starts if the asset already has an audio track in the target language or with the target name, so a re-dub never pays ElevenLabs only to fail at Mux. Pass `replaceExistingTracks: "replace_all"` to delete the old dub first. The asset's primary audio track is never deleted, under any policy. With `uploadCaptionsToMux`, that policy also applies to subtitles unless `captionsReplaceExistingTracks` overrides it. Use `captionsTrackName` to name subtitles independently, for example `Spanish (dub)` to identify the audio they follow. The SDK retains the shared audio name when this override is omitted. Both targets are checked before dubbing starts. `captionsOutcome` records transcript availability and subtitle attachment failures without failing a completed dub.
 
 ```typescript
 const result = await translateAudio(assetId, "es", {
   replaceExistingTracks: "replace_all",
   uploadCaptionsToMux: true,
+  captionsTrackName: "Spanish (dub)",
+  captionsReplaceExistingTracks: "fail",
 });
 
 console.log(result.replacedTracks); // [{ id, type: "audio", name: "Spanish (Auto-dubbed)", ... }, ...]
