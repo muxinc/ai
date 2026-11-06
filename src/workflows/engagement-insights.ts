@@ -594,6 +594,9 @@ async function generateInsightsWithAI(
   if (!output) {
     throw new MuxAiError("AI returned empty or unparseable response", {
       code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_MISSING,
+      type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+      source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+      dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
       facts: { call: "generate_engagement_insights", provider, model: modelId },
     });
   }
@@ -877,6 +880,9 @@ async function generateEngagementInsightsInternal(
   if (!aiInsights.momentInsights || aiInsights.momentInsights.length === 0) {
     throw new MuxAiError(`Failed to generate insights for asset ${assetId}.`, {
       code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_MISSING,
+      type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+      source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+      dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
       facts: modelOutputFacts,
     });
   }
@@ -938,6 +944,9 @@ async function generateEngagementInsightsInternal(
       `Failed to generate valid insights for asset ${assetId}.`,
       {
         code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID,
+        type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+        source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+        dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
         facts: { ...modelOutputFacts, returnedCount: aiInsights.momentInsights.length },
       },
     );

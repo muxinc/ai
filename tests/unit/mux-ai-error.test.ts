@@ -24,7 +24,7 @@ function thrown(fn: () => unknown): unknown {
 
 describe("muxAiError", () => {
   it("takes type, source and dependency from a code's catalog entry", () => {
-    const error = new MuxAiError("Generated text was empty", { code: "model_output_missing", facts: { call: "generate_text", provider: "openai" } });
+    const error = new MuxAiError("Generated text was empty", { code: "model_output_missing", type: "processing_error", source: "upstream", dependency: "ai_provider", facts: { call: "generate_text", provider: "openai" } });
 
     expect(error).toMatchObject({
       type: "processing_error",
@@ -56,7 +56,7 @@ describe("muxAiError", () => {
 
   it("lets a code's catalog entry override the defaults", () => {
     // `upstream` with no status would be transient and retryable by rule.
-    expect(new MuxAiError("x", { code: "model_output_invalid" })).toMatchObject({ source: "upstream", transient: false, retryable: false });
+    expect(new MuxAiError("x", { code: "model_output_invalid", type: "processing_error", source: "upstream", dependency: "ai_provider" })).toMatchObject({ source: "upstream", transient: false, retryable: false });
   });
 
   it("is named FatalError only when it is not transient", () => {

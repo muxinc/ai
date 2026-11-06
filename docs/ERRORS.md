@@ -30,7 +30,7 @@ Modules are moving onto this model one at a time. Until a module has moved, its 
 | `transient` | Whether the Workflow step runner should retry the step now | `false` |
 | `message` | Internal detail for developers and logs. **Never end-user text** | `Failed to generate valid insights for asset abc123.` |
 
-Types are generic and codes are specific: many codes share a type, and a code always implies its type, source and dependency. Facts carry what varies from one occurrence to the next, so codes can stay few and stable.
+Types are generic and codes are specific: many codes share a type, and a code always has one type, source and dependency (its catalog entry). Every site states its type and source, and the compiler only accepts the ones a code's catalog entry gives it, so a site reads on its own and can't contradict the catalog. Facts carry what varies from one occurrence to the next, so codes can stay few and stable.
 
 ```ts
 import { MUX_AI_ERROR_CODES, MuxAiError, toPublicError } from "@mux/ai";
@@ -184,7 +184,8 @@ const APP_ERROR_CATALOG = {
 } as const satisfies Record<AppErrorCode, ErrorCatalogEntry<AppErrorType>>;
 
 class AppError extends ClassifiedError<AppErrorType, AppErrorCode> {
-  constructor(message: string, init: ClassifiedErrorInit<AppErrorType, AppErrorCode, string>) {
+  // Passing the catalog's type makes each code accept only its own type, source and dependency.
+  constructor(message: string, init: ClassifiedErrorInit<AppErrorType, AppErrorCode, string, typeof APP_ERROR_CATALOG>) {
     super(message, init, APP_ERROR_CATALOG);
   }
   // For Workflow DevKit, add static WORKFLOW_SERIALIZE / WORKFLOW_DESERIALIZE hooks
@@ -215,8 +216,8 @@ const toPublic = createPublicErrorView<string, string>({
 
 1. **Whose problem is it?** Pick the `source`. If a remote service answered with something the caller can fix (a missing track, a 404 for their asset), it's still `asset` or `request`; if it failed, it's `upstream`; if it's our bug or the service's configuration, it's `internal`.
 2. **Was a remote service involved?** Set `dependency`. An `upstream` failure always names it: the types require it, in a catalog entry and at a site.
-3. **Is there an existing code for this exact condition?** Use it: `{ code }` alone implies the type, source and dependency, so the site can't contradict them.
-4. **Otherwise,** pass `type` and `source` explicitly, and consider whether the condition deserves a code (below).
+3. **Is there an existing code for this exact condition?** Add it: `{ code, type, source }` (and `dependency` when its catalog entry has one). The compiler only accepts the type, source and dependency the code's catalog entry gives it.
+4. **Otherwise,** pass `type` and `source` alone, and consider whether the condition deserves a code (below).
 5. **Record what varies as facts:** IDs, languages, limits, statuses, the call that failed. Keep values JSON-safe. Pass provider free text through `errorDetailFact()`, which strips URL tokens, suppresses prompt leaks and caps the length. Never put credentials, signed URLs or raw model output in facts.
 6. **Write `message` for a developer reading a log.** It can be specific; it is never shown to end users.
 

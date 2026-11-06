@@ -6,6 +6,7 @@ import {
   ClassifiedError,
   LegacyMuxAiError,
   MUX_AI_ERROR_CODES,
+  MUX_AI_ERROR_DEPENDENCIES,
   MUX_AI_ERROR_SOURCES,
   MUX_AI_ERROR_TYPES,
   MuxAiError,
@@ -27,27 +28,27 @@ const APP_CATALOG = {
 } as const satisfies Record<AppCode, ErrorCatalogEntry<AppType, AppDependency>>;
 
 class AppError extends ClassifiedError<AppType, AppCode, AppDependency> {
-  constructor(message: string, init: ClassifiedErrorInit<AppType, AppCode, AppDependency>) {
+  constructor(message: string, init: ClassifiedErrorInit<AppType, AppCode, AppDependency, typeof APP_CATALOG>) {
     super(message, init, APP_CATALOG);
   }
 
   static fromRecord(record: SerializedClassification<AppType, AppCode, AppDependency>): AppError {
-    return restoreClassification(new AppError(record.message, classificationInit(record)), record);
+    return restoreClassification(new AppError(record.message, classificationInit(record) as ClassifiedErrorInit<AppType, AppCode, AppDependency, typeof APP_CATALOG>), record);
   }
 }
 
 describe("classifiedError as a shared base", () => {
   it("applies the same catalog and retry policy to a consumer's own codes", () => {
-    const error = new AppError("Search index returned 503", { code: APP_CODES.INDEX_UNAVAILABLE, facts: { status: 503 } });
+    const error = new AppError("Search index returned 503", { code: APP_CODES.INDEX_UNAVAILABLE, type: APP_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: "search_index", facts: { status: 503 } });
 
     expect(error).toMatchObject({ type: "processing_error", source: "upstream", dependency: "search_index", transient: true, retryable: true, name: "Error" });
-    expect(new AppError("Already running", { code: APP_CODES.JOB_ALREADY_RUNNING })).toMatchObject({ type: "conflict", retryable: false, name: "FatalError" });
+    expect(new AppError("Already running", { code: APP_CODES.JOB_ALREADY_RUNNING, type: APP_TYPES.CONFLICT, source: MUX_AI_ERROR_SOURCES.REQUEST })).toMatchObject({ type: "conflict", retryable: false, name: "FatalError" });
     expect(ClassifiedError.isClassified(error)).toBe(true);
     expect(MuxAiError.is(error)).toBe(false);
   });
 
   it("round-trips through the shared serializer helpers", () => {
-    const original = new AppError("Search index returned 503", { code: APP_CODES.INDEX_UNAVAILABLE, facts: { status: 503 }, cause: new Error("socket hang up") });
+    const original = new AppError("Search index returned 503", { code: APP_CODES.INDEX_UNAVAILABLE, type: APP_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: "search_index", facts: { status: 503 }, cause: new Error("socket hang up") });
 
     const revived = AppError.fromRecord(JSON.parse(JSON.stringify(serializeClassification(original))));
 
@@ -64,14 +65,14 @@ describe("classifiedError as a shared base", () => {
       genericMessage: error => (error.source === MUX_AI_ERROR_SOURCES.REQUEST ? "Bad request." : "The job failed."),
     });
 
-    expect(view(new AppError("dup", { code: APP_CODES.JOB_ALREADY_RUNNING }))).toEqual({
+    expect(view(new AppError("dup", { code: APP_CODES.JOB_ALREADY_RUNNING, type: APP_TYPES.CONFLICT, source: MUX_AI_ERROR_SOURCES.REQUEST }))).toEqual({
       type: "conflict",
       code: "job_already_running",
       message: "A job with these parameters is already running.",
       retryable: false,
     });
-    expect(view(new AppError("index down", { code: APP_CODES.INDEX_UNAVAILABLE, facts: { status: 400 } })).message).toBe("The job failed.");
-    expect(view(new MuxAiError("x", { code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID }))).toEqual({ type: "processing_error", message: "The job failed.", retryable: false });
+    expect(view(new AppError("index down", { code: APP_CODES.INDEX_UNAVAILABLE, type: APP_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: "search_index", facts: { status: 400 } })).message).toBe("The job failed.");
+    expect(view(new MuxAiError("x", { code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID, type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER }))).toEqual({ type: "processing_error", message: "The job failed.", retryable: false });
     // A module not yet on the model: its message is end-user text, shown as before.
     expect(view(new LegacyMuxAiError("The transcript is empty.", { type: "validation_error" })))
       .toEqual({ type: "validation_error", message: "The transcript is empty.", retryable: false });

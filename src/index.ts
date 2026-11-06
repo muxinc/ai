@@ -49,6 +49,7 @@ export {
 } from "./lib/mux-ai-error.ts";
 export type {
   ClassifiedErrorInit,
+  CodedClassification,
   ErrorCatalogEntry,
   ErrorCauseSummary,
   MuxAiErrorCode,

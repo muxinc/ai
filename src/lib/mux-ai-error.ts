@@ -213,12 +213,26 @@ export interface ErrorCauseSummary {
 }
 
 /**
- * How a site classifies an error: a code (which implies type, source and maybe
- * dependency) or an explicit type and source, never both, plus what varies.
+ * The classification a coded site states: the code, and the type, source and dependency
+ * its catalog entry implies. Each code accepts only its own, so a site reads on its own
+ * and can't contradict the catalog.
  */
-export type ClassifiedErrorInit<TType extends string, TCode extends string, TDependency extends string> = (
-  // A code implies its source and dependency; `dependency` only overrides the code's.
-  { code: TCode; type?: never; source?: never; dependency?: TDependency } |
+export type CodedClassification<TCatalog extends Readonly<Record<string, ErrorCatalogEntry>>> = {
+  [C in keyof TCatalog & string]: {
+    code: C;
+    type: TCatalog[C]["type"];
+    source: TCatalog[C]["source"];
+  } & (TCatalog[C] extends { dependency: infer D extends string } ? { dependency: D } : { dependency?: never });
+}[keyof TCatalog & string];
+
+/**
+ * How a site classifies an error: always a type and source (with the dependency for an
+ * `upstream` failure), plus a code when the condition has one, plus what varies. With a
+ * catalog type (`TCatalog`), a code accepts only the type, source and dependency its
+ * catalog entry implies.
+ */
+export type ClassifiedErrorInit<TType extends string, TCode extends string, TDependency extends string, TCatalog extends Readonly<Record<string, ErrorCatalogEntry>> = never> = (
+  ([TCatalog] extends [never] ? ({ code: TCode; type: TType } & SourceAndDependency<TDependency>) : CodedClassification<TCatalog>) |
   ({ code?: never; type: TType } & SourceAndDependency<TDependency>)
 ) & {
   facts?: MuxAiErrorFacts;
@@ -239,7 +253,7 @@ export type ClassifiedErrorInit<TType extends string, TCode extends string, TDep
   cause?: unknown;
 };
 
-export type MuxAiErrorInit = ClassifiedErrorInit<MuxAiErrorType, MuxAiErrorCode, MuxAiErrorDependency>;
+export type MuxAiErrorInit = ClassifiedErrorInit<MuxAiErrorType, MuxAiErrorCode, MuxAiErrorDependency, typeof MUX_AI_ERROR_CATALOG>;
 
 /**
  * A classified error's fields as JSON-safe data, for a subclass's Workflow serializer
@@ -501,7 +515,8 @@ export class MuxAiError extends ClassifiedError<MuxAiErrorType, MuxAiErrorCode, 
     // Subclasses inherit this codec. Restore their fields for structural guards
     // without depending on subclass constructor signatures or raw causes.
     const error = value.v === 2 ?
-        restoreClassification(new MuxAiError(value.message, classificationInit(value)), value) :
+        // The stored classification matched the catalog when it was written.
+        restoreClassification(new MuxAiError(value.message, classificationInit(value) as MuxAiErrorInit), value) :
         // eslint-disable-next-line no-restricted-syntax -- Revives a legacy error as it was serialized.
         new LegacyMuxAiError(value.message, { type: value.publicType, retryable: value.retryable });
     Object.assign(error, {

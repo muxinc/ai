@@ -362,7 +362,12 @@ export function trackReplacementBlockedError(
       facts,
     });
   }
-  return new MuxAiError(message, { code: MUX_AI_ERROR_CODES.TRACK_REPLACEMENT_BLOCKED, facts });
+  return new MuxAiError(message, {
+    code: MUX_AI_ERROR_CODES.TRACK_REPLACEMENT_BLOCKED,
+    type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+    source: MUX_AI_ERROR_SOURCES.REQUEST,
+    facts,
+  });
 }
 
 /** Default audit tag written to `passthrough` on tracks created by `@mux/ai`. */

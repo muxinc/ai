@@ -1,7 +1,7 @@
 import env from "../env.ts";
 import type { WorkflowCredentialsInput } from "../types.ts";
 
-import { MUX_AI_ERROR_CODES, MuxAiError } from "./mux-ai-error.ts";
+import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
 import { resolveMuxSigningContext } from "./workflow-credentials.ts";
 
 import type Mux from "@mux/ts";
@@ -118,6 +118,6 @@ export function signingCredentialsMissingError(): MuxAiError {
   return new MuxAiError(
     "Signed playback ID requires signing credentials. " +
     "Provide muxSigningKey and muxPrivateKey via workflow credentials or set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
-    { code: MUX_AI_ERROR_CODES.SIGNING_CREDENTIALS_MISSING },
+    { code: MUX_AI_ERROR_CODES.SIGNING_CREDENTIALS_MISSING, type: MUX_AI_ERROR_TYPES.SERVER_ERROR, source: MUX_AI_ERROR_SOURCES.INTERNAL },
   );
 }

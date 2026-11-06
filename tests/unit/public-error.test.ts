@@ -1,7 +1,8 @@
 import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 import { describe, expect, it } from "vitest";
 
-import { LegacyMuxAiError, MUX_AI_ERROR_CODES, MUX_AI_ERROR_DEPENDENCIES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "../../src/lib/mux-ai-error.ts";
+import type { MuxAiErrorInit } from "../../src/lib/mux-ai-error.ts";
+import { LegacyMuxAiError, MUX_AI_ERROR_CATALOG, MUX_AI_ERROR_CODES, MUX_AI_ERROR_DEPENDENCIES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "../../src/lib/mux-ai-error.ts";
 import { resolveLegacyMp4SupportRendition } from "../../src/lib/mux-static-renditions.ts";
 import { planTextTrackReplacement, trackReplacementBlockedError, trackTargetFacts } from "../../src/lib/mux-tracks.ts";
 import { createPublicErrorView, genericPublicMessage, MUX_AI_ERROR_GENERIC_MESSAGES, MUX_AI_ERROR_PUBLIC_MAPPINGS, toPublicError } from "../../src/lib/public-error.ts";
@@ -16,6 +17,8 @@ describe("toPublicError", () => {
   it("never exposes an internal code, its facts or the error's message", () => {
     const error = new MuxAiError("Signed playback ID requires signing credentials. Set MUX_SIGNING_KEY …", {
       code: MUX_AI_ERROR_CODES.SIGNING_CREDENTIALS_MISSING,
+      type: MUX_AI_ERROR_TYPES.SERVER_ERROR,
+      source: MUX_AI_ERROR_SOURCES.INTERNAL,
       facts: { env: "MUX_SIGNING_KEY" },
     });
 
@@ -42,6 +45,9 @@ describe("toPublicError", () => {
   it("keeps a public code and only its allowed facts", () => {
     const error = new MuxAiError("Audio dubbing failed: No speech was detected in the source media.", {
       code: MUX_AI_ERROR_CODES.DUBBING_FAILED,
+      type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+      source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+      dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
       facts: { call: "elevenlabs_get_dubbing", status: 200, providerCode: "no_speech", providerError: "No speech was detected in the source media." },
       retryable: false,
     });
@@ -57,7 +63,8 @@ describe("toPublicError", () => {
 
   it("renders each public code from facts, as its sites raise it", () => {
     const view = (code: (typeof MUX_AI_ERROR_CODES)[keyof typeof MUX_AI_ERROR_CODES], facts?: Record<string, any>) =>
-      toPublicError(new MuxAiError("internal", { code, facts })).message;
+      // The code is chosen at runtime here, so its classification comes from the catalog.
+      toPublicError(new MuxAiError("internal", { code, ...MUX_AI_ERROR_CATALOG[code], facts } as MuxAiErrorInit)).message;
 
     expect(view(MUX_AI_ERROR_CODES.INVALID_SCOPE, { reason: "exceeds_duration", endTime: 90, assetDurationSeconds: 60 }))
       .toBe("The requested end time (90s) is after the end of the asset (60s).");
@@ -98,6 +105,8 @@ describe("toPublicError", () => {
 
     const error = new MuxAiError(rendition.reason, {
       code: MUX_AI_ERROR_CODES.STATIC_RENDITION_UNSUPPORTED,
+      type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+      source: MUX_AI_ERROR_SOURCES.ASSET,
       facts: { reason: "unusable", mp4Support: rendition.mp4Support, renditionStatus: rendition.status! },
     });
 
@@ -105,7 +114,7 @@ describe("toPublicError", () => {
   });
 
   it("keeps working after a step boundary", () => {
-    const revived = acrossStepBoundary(new MuxAiError("x", { code: MUX_AI_ERROR_CODES.DUBBING_LANGUAGE_UNSUPPORTED, facts: { language: "ur", which: "source" } }));
+    const revived = acrossStepBoundary(new MuxAiError("x", { code: MUX_AI_ERROR_CODES.DUBBING_LANGUAGE_UNSUPPORTED, type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER, facts: { language: "ur", which: "source" } }));
 
     expect(toPublicError(revived)).toMatchObject({ code: "dubbing_language_unsupported", facts: { language: "ur", which: "source" } });
   });
@@ -141,6 +150,9 @@ describe("createPublicErrorView", () => {
   it("keeps a public code and only its allowed facts, built into its wording", () => {
     const error = new MuxAiError("Failed to generate valid insights for asset abc.", {
       code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID,
+      type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+      source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+      dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
       facts: { call: "generate_engagement_insights", provider: "openai", assetId: "abc", returnedCount: 3 },
     });
 
