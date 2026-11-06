@@ -949,6 +949,8 @@ const result = await translateAudio(assetId, "es", {
 console.log(result.replacedTracks); // [{ id, type: "audio", name: "Spanish (Auto-dubbed)", ... }, ...]
 ```
 
+`uploadToMux` controls the primary audio output; `uploadCaptionsToMux` independently controls the optional subtitle upload. With `uploadToMux: false, uploadCaptionsToMux: true`, only subtitles are attached and the dubbed audio is available through its staged download URL.
+
 A failure creating the audio track fails the workflow, with the staged S3 URL in the error so the track can be attached manually. The captions track stays best-effort: a paid dub is never failed over its transcript.
 
 > [!WARNING]
