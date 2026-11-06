@@ -720,6 +720,7 @@ async function generateEngagementInsightsInternal(
 
   if (!assetDurationSeconds) {
     throw new MuxAiError(`Asset ${assetId} has no valid duration.`, {
+      code: MUX_AI_ERROR_CODES.ASSET_DURATION_UNAVAILABLE,
       type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
       source: MUX_AI_ERROR_SOURCES.ASSET,
       facts: { assetId },

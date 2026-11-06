@@ -130,7 +130,7 @@ describe("generateEngagementInsights failures", () => {
 
     const error = await failure(() => generateEngagementInsights("asset-1", { assetSnapshot }));
 
-    expect(error).toMatchObject({ type: "validation_error", source: "asset", facts: { assetId: "asset-1" } });
-    expect(toPublicError(error).message).toBe(MUX_AI_ERROR_GENERIC_MESSAGES.asset);
+    expect(error).toMatchObject({ code: "asset_duration_unavailable", type: "validation_error", source: "asset", facts: { assetId: "asset-1" } });
+    expect(toPublicError(error)).toMatchObject({ code: "asset_duration_unavailable", message: "Asset asset-1 has no valid duration." });
   });
 });

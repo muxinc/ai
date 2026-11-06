@@ -110,16 +110,17 @@ A remote service reached over the network. Libraries running in-process are neve
 | `caption_track_not_found` | `validation_error` | `asset` |  | yes | No ready caption track matches the requested track or language. Facts: `trackId` or `languageCode`, and what is available. |
 | `playback_id_not_found` | `validation_error` | `asset` |  | yes | The asset has no public or signed playback ID (DRM-only assets included). |
 | `transcript_empty` | `validation_error` | `asset` |  | yes | The transcript has no usable content. |
+| `asset_duration_unavailable` | `validation_error` | `asset` |  | yes | The asset has no valid duration, so work that depends on it can't run. Facts: `assetId`. |
 | `audio_track_unsupported` | `validation_error` | `asset` |  | yes | Mux won't add an audio track to this asset. Facts: `reason` (`clip`, `live_stream`, `audio_only`). |
 | `static_rendition_unsupported` | `validation_error` | `asset` |  | yes | The asset's existing static rendition can't be used as a source. Facts: `reason` (`unusable`, `too_large`) and the rendition's details. |
 | `content_policy_blocked` | `content_policy_error` | `asset` | `ai_provider` | yes | The model provider refused the content. Facts: `reason` and `category`. |
+| `model_output_missing` | `processing_error` | `upstream` | `ai_provider` | yes | The model returned no output, or a required field was empty. Facts: `call`, `provider`, `model`, and `assetId` when there is one. |
+| `model_output_invalid` | `processing_error` | `upstream` | `ai_provider` | yes | The model's output breaks the expected shape or constraints (counts, allowed values, limits). Facts: `call`, `provider`, `model`, and `assetId` when there is one. |
 | `static_rendition_failed` | `processing_error` | `upstream` | `mux_video` | yes | Mux reported the static rendition a workflow needs as errored. |
 | `dubbing_language_unsupported` | `validation_error` | `request` | `ai_provider` | yes | The dubbing provider doesn't support the requested language. Facts: `language` and `which` (`target` or `source`). |
 | `dubbing_failed` | `processing_error` | `upstream` | `ai_provider` | yes | The dubbing provider ran the dub and reported it failed. Facts: `providerError`, the provider's display text, when it gave one. |
 | `signing_credentials_missing` | `server_error` | `internal` |  | no | Signed playback needs signing keys the service running the SDK didn't provide. |
 | `storage_not_configured` | `server_error` | `internal` |  | no | Storage is needed but the service running the SDK didn't configure it. |
-| `model_output_missing` | `processing_error` | `upstream` | `ai_provider` | no | The model returned no output, or a required field was empty. |
-| `model_output_invalid` | `processing_error` | `upstream` | `ai_provider` | no | The model's output breaks the expected shape or constraints (counts, allowed values, limits). |
 | `model_output_suppressed` | `processing_error` | `upstream` | `ai_provider` | no | The model's output was withheld by the SDK's output safety filter (a suspected prompt leak). |
 | `model_output_incomplete` | `processing_error` | `upstream` | `ai_provider` | no | The model stopped early for a reason other than the length limit. |
 | `model_output_truncated` | `processing_error` | `internal` | `ai_provider` | no | The model hit the output length limit. |
@@ -244,7 +245,7 @@ Override `retryable` or `transient` only with a one-line comment saying why, and
 ### Moving a module onto the model
 
 1. Replace each `LegacyMuxAiError` and plain `throw new Error(...)` with a classified `MuxAiError`, and `legacyWrapError()` with `wrapError()`.
-2. Keep what end users see: where a legacy message told them something they can act on, give the condition a public code whose wording carries the same information.
+2. Keep what end users see: where a legacy message told them something they can act on, or carried a fact they could use, give the condition a public code whose wording carries the same information (see [When to make a code public](#when-to-make-a-code-public)).
 3. Add the module to `CLASSIFIED_ERROR_MODULES` in `eslint.config.mjs`. There, a lint rule bans plain `throw new Error`, `LegacyMuxAiError` and `legacyWrapError()`.
 
 ### When to add a code
@@ -261,3 +262,5 @@ Don't add one for differences that facts already carry: the vendor (`dependency`
 ### When to make a code public
 
 Map a code in `MUX_AI_ERROR_PUBLIC_MAPPINGS` when end users can act on it or need to know it. Allow only facts that are safe to show and useful to them, and write wording that doesn't name SDK options, internal calls or vendors' internals. Internal codes still reach end users through the generic wording, so leaving a code internal never hides that a failure happened.
+
+**Don't drop facts end users could use.** When a failure's facts include details that are safe and useful for end users (the asset it was about, the limit that was exceeded, the language that isn't supported), the public view must carry them: give the condition a public code whose wording uses them, rather than letting generic wording drop them. Leave a code internal only when none of its facts are appropriate for end users (credentials, configuration names, provider or model names, raw provider text) or the condition can't reach them.

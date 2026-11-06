@@ -121,14 +121,29 @@ describe("toPublicError", () => {
     expect(toPublicError(revived)).toMatchObject({ code: "dubbing_language_unsupported", facts: { language: "ur", which: "source" } });
   });
 
+  it("keeps the asset in model-output wording, never the provider or model", () => {
+    const view = toPublicError(new MuxAiError("Failed to generate insights for asset abc.", {
+      code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_MISSING,
+      type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+      source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+      dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
+      facts: { call: "generate_engagement_insights", provider: "openai", model: "gpt-x", assetId: "abc" },
+    }));
+
+    expect(view).toEqual({ type: "processing_error", code: "model_output_missing", message: "The AI model returned no usable output for asset abc.", retryable: false, facts: { assetId: "abc" } });
+  });
+
   it("only maps codes whose classification an end user can act on or needs to know", () => {
     expect(Object.keys(MUX_AI_ERROR_PUBLIC_MAPPINGS).sort()).toEqual([
+      "asset_duration_unavailable",
       "audio_track_unsupported",
       "caption_track_not_found",
       "content_policy_blocked",
       "dubbing_failed",
       "dubbing_language_unsupported",
       "invalid_scope",
+      "model_output_invalid",
+      "model_output_missing",
       "playback_id_not_found",
       "static_rendition_failed",
       "static_rendition_unsupported",

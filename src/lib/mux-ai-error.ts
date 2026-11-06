@@ -111,6 +111,8 @@ export const MUX_AI_ERROR_CODES = {
   PLAYBACK_ID_NOT_FOUND: "playback_id_not_found",
   /** The transcript has no usable content. */
   TRANSCRIPT_EMPTY: "transcript_empty",
+  /** The asset has no valid duration, so work that depends on it can't run. Facts: `assetId`. */
+  ASSET_DURATION_UNAVAILABLE: "asset_duration_unavailable",
   /** Mux won't add an audio track to this asset. Facts: `reason` (`clip`, `live_stream`, `audio_only`). */
   AUDIO_TRACK_UNSUPPORTED: "audio_track_unsupported",
   /** The asset's existing static rendition can't be used as a source. Facts: `reason` (`unusable`, `too_large`) and the rendition's details. */
@@ -121,9 +123,9 @@ export const MUX_AI_ERROR_CODES = {
   STORAGE_NOT_CONFIGURED: "storage_not_configured",
   /** The model provider refused the content. Facts: `reason` and `category`. */
   CONTENT_POLICY_BLOCKED: "content_policy_blocked",
-  /** The model returned no output, or a required field was empty. */
+  /** The model returned no output, or a required field was empty. Facts: `call`, `provider`, `model`, and `assetId` when there is one. */
   MODEL_OUTPUT_MISSING: "model_output_missing",
-  /** The model's output breaks the expected shape or constraints (counts, allowed values, limits). */
+  /** The model's output breaks the expected shape or constraints (counts, allowed values, limits). Facts: `call`, `provider`, `model`, and `assetId` when there is one. */
   MODEL_OUTPUT_INVALID: "model_output_invalid",
   /** The model's output was withheld by the SDK's output safety filter (a suspected prompt leak). */
   MODEL_OUTPUT_SUPPRESSED: "model_output_suppressed",
@@ -149,6 +151,7 @@ export const MUX_AI_ERROR_CATALOG = {
   // The asset's state.
   [MUX_AI_ERROR_CODES.CAPTION_TRACK_NOT_FOUND]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },
   [MUX_AI_ERROR_CODES.PLAYBACK_ID_NOT_FOUND]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },
+  [MUX_AI_ERROR_CODES.ASSET_DURATION_UNAVAILABLE]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },
   [MUX_AI_ERROR_CODES.TRANSCRIPT_EMPTY]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },
   [MUX_AI_ERROR_CODES.AUDIO_TRACK_UNSUPPORTED]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },
   [MUX_AI_ERROR_CODES.STATIC_RENDITION_UNSUPPORTED]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },

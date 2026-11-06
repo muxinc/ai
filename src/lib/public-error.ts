@@ -132,6 +132,19 @@ export const MUX_AI_ERROR_PUBLIC_MAPPINGS = {
   [MUX_AI_ERROR_CODES.TRANSCRIPT_EMPTY]: {
     message: "The transcript has no usable content.",
   },
+  [MUX_AI_ERROR_CODES.ASSET_DURATION_UNAVAILABLE]: {
+    facts: ["assetId"],
+    message: facts => (facts.assetId ? `Asset ${text(facts.assetId)} has no valid duration.` : "The asset has no valid duration."),
+  },
+  // Only the asset: the call, provider and model stay internal.
+  [MUX_AI_ERROR_CODES.MODEL_OUTPUT_MISSING]: {
+    facts: ["assetId"],
+    message: facts => `The AI model returned no usable output${facts.assetId ? ` for asset ${text(facts.assetId)}` : ""}.`,
+  },
+  [MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID]: {
+    facts: ["assetId"],
+    message: facts => (facts.assetId ? `The AI model's output for asset ${text(facts.assetId)} couldn't be used.` : "The AI model's output couldn't be used."),
+  },
   [MUX_AI_ERROR_CODES.AUDIO_TRACK_UNSUPPORTED]: {
     facts: ["reason"],
     message: facts => AUDIO_TRACK_UNSUPPORTED_MESSAGES[text(facts.reason)] ?? "Mux doesn't support adding audio tracks to this asset.",
