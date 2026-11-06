@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import type { TokenUsage } from "../types.ts";
 
+import { LegacyMuxAiError } from "./legacy-mux-ai-error.ts";
 import { MuxAiError } from "./mux-ai-error.ts";
 import { withRetry } from "./retry.ts";
 import type { RetryOptions } from "./retry.ts";
@@ -92,7 +93,7 @@ export interface ContentPolicyBlock {
  * `NoOutputGeneratedError`. MuxAiError's custom Workflow codec preserves the
  * metadata; detect it with {@link isIncompleteGenerationError}.
  */
-export class IncompleteGenerationError extends MuxAiError {
+export class IncompleteGenerationError extends LegacyMuxAiError {
   readonly finishReason: string;
   readonly rawFinishReason?: string;
   readonly usage?: TokenUsage;
@@ -238,7 +239,7 @@ export function getGeneratedOutputWithContentPolicyHandling<T>(response: Generat
 
 function throwContentPolicyError(block: ContentPolicyBlock, usage?: TokenUsage): never {
   const category = block.category ? `; category: ${block.category}` : "";
-  const contentPolicyError = new MuxAiError(
+  const contentPolicyError = new LegacyMuxAiError(
     `The supplied content was blocked by a content policy (reason: ${block.reason}${category}).`,
     {
       type: "content_policy_error",

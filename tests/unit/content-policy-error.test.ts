@@ -12,7 +12,7 @@ import {
   withContentPolicyAwareRetry,
   withContentPolicyErrorHandling,
 } from "../../src/lib/content-policy-error.ts";
-import { wrapError } from "../../src/lib/mux-ai-error.ts";
+import { legacyWrapError } from "../../src/lib/legacy-mux-ai-error.ts";
 import { withRetry } from "../../src/lib/retry.ts";
 
 function createApiCallError(responseBody: string) {
@@ -445,7 +445,7 @@ describe("content policy errors", () => {
       retryable: false,
     };
 
-    expect(captureThrown(() => wrapError(serializedError, "Failed to analyze video content")))
+    expect(captureThrown(() => legacyWrapError(serializedError, "Failed to analyze video content")))
       .toBe(serializedError);
   });
 
@@ -463,7 +463,7 @@ describe("content policy errors", () => {
     }).catch(error => error);
 
     expect(errorAfterRetry).toBe(serializedError);
-    expect(captureThrown(() => wrapError(errorAfterRetry, "Failed to analyze video content")))
+    expect(captureThrown(() => legacyWrapError(errorAfterRetry, "Failed to analyze video content")))
       .toBe(serializedError);
   });
 

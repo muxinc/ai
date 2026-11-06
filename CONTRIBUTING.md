@@ -239,6 +239,10 @@ To keep that compatibility, we need to follow these guidelines.
   - Be cautious about what information is returned by `"use step"` functions. The return values are logged and visibile in observability tools, so be careful not to leak secrets.
 - To ensure we maintain compatability, every top-level `"use workflow"` function must have an accompanying integration test
 
+### Errors
+
+Raise every failure as a classified `MuxAiError` (or with `internalError()` / `assertNever()` for this code's own failures), never `throw new Error`. Modules not yet on the model still raise legacy errors; a lint rule enforces the model in the modules listed in `CLASSIFIED_ERROR_MODULES` (`eslint.config.mjs`). The [Errors guide](./docs/ERRORS.md) covers choosing a type, source and code, when a new code is worth adding, when to make one public, and how to move a module onto the model.
+
 ## Submitting Changes
 
 ### Branch Naming

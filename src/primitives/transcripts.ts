@@ -1,5 +1,5 @@
 import { isUndeterminedLanguageCode } from "../lib/language-codes.ts";
-import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
+import { LegacyMuxAiError, legacyWrapError } from "../lib/legacy-mux-ai-error.ts";
 import { isAudioOnlyAsset } from "../lib/mux-assets.ts";
 import { getMuxStreamOrigin } from "../lib/mux-url.ts";
 import { normalizeUntrustedUnicode } from "../lib/output-safety.ts";
@@ -844,7 +844,7 @@ export async function fetchTranscriptDataForUrl(
 
     return { transcriptText };
   } catch (error) {
-    wrapError(error, "Failed to fetch transcript");
+    legacyWrapError(error, "Failed to fetch transcript");
   }
 }
 
@@ -862,7 +862,7 @@ export async function fetchTranscriptForAsset(
         .map(t => t.language_code)
         .filter(Boolean)
         .join(", ");
-      throw new MuxAiError(
+      throw new LegacyMuxAiError(
         `No caption track found${languageCode ? ` for language ${languageCode}` : ""}. Available languages: ${availableLanguages || "none"}.`,
         { type: "validation_error" },
       );
@@ -872,7 +872,7 @@ export async function fetchTranscriptForAsset(
 
   if (!track.id) {
     if (required) {
-      throw new MuxAiError("Transcript track is missing an id.", { type: "validation_error" });
+      throw new LegacyMuxAiError("Transcript track is missing an id.", { type: "validation_error" });
     }
     return { transcriptText: "", track };
   }
@@ -901,8 +901,8 @@ export async function fetchTranscriptForAsset(
   // generic Error at the step boundary.
   switch (result.emptyReason) {
     case "no_scoped_cues":
-      throw new MuxAiError("Transcript has no cues in the requested scope.", { type: "validation_error" });
+      throw new LegacyMuxAiError("Transcript has no cues in the requested scope.", { type: "validation_error" });
     case "empty_body":
-      throw new MuxAiError("Transcript is empty.", { type: "validation_error" });
+      throw new LegacyMuxAiError("Transcript is empty.", { type: "validation_error" });
   }
 }

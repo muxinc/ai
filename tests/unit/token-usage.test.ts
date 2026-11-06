@@ -1,7 +1,7 @@
 import { NoObjectGeneratedError } from "ai";
 import { describe, expect, it } from "vitest";
 
-import { MuxAiError, wrapError } from "../../src/lib/mux-ai-error";
+import { LegacyMuxAiError, legacyWrapError } from "../../src/lib/legacy-mux-ai-error";
 import { getErrorTokenUsage, rethrowWithTokenUsage } from "../../src/lib/token-usage";
 import type { TokenUsage } from "../../src/types";
 
@@ -118,13 +118,13 @@ describe("rethrowWithTokenUsage", () => {
   });
 });
 
-describe("wrapError usage propagation", () => {
+describe("legacyWrapError usage propagation", () => {
   it("carries usage from the original error onto the wrapped error", () => {
     const original = Object.assign(new Error("provider exploded"), {
       usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
     });
 
-    const thrown = captureThrown(() => wrapError(original, "Failed to analyze"));
+    const thrown = captureThrown(() => legacyWrapError(original, "Failed to analyze"));
 
     expect(thrown).toBeInstanceOf(Error);
     expect((thrown as Error).message).toBe("Failed to analyze: provider exploded");
@@ -136,17 +136,17 @@ describe("wrapError usage propagation", () => {
   });
 
   it("does not add a usage property when the original error carries none", () => {
-    const thrown = captureThrown(() => wrapError(new Error("boom"), "Failed"));
+    const thrown = captureThrown(() => legacyWrapError(new Error("boom"), "Failed"));
 
     expect(Object.hasOwn(thrown as object, "usage")).toBe(false);
   });
 
-  it("rethrows MuxAiError instances as-is, preserving any attached usage", () => {
-    const error = Object.assign(new MuxAiError("customer-safe"), {
+  it("rethrows legacy SDK errors as-is, preserving any attached usage", () => {
+    const error = Object.assign(new LegacyMuxAiError("customer-safe"), {
       usage: { totalTokens: 7 },
     });
 
-    const thrown = captureThrown(() => wrapError(error, "context"));
+    const thrown = captureThrown(() => legacyWrapError(error, "context"));
 
     expect(thrown).toBe(error);
     expect((thrown as { usage?: TokenUsage }).usage).toEqual({ totalTokens: 7 });

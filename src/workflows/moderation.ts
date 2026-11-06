@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getApiKeyFromEnv } from "../lib/client-factory.ts";
 import type { ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImagesAsBase64 } from "../lib/image-download.ts";
-import { MuxAiError } from "../lib/mux-ai-error.ts";
+import { LegacyMuxAiError } from "../lib/legacy-mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -1371,7 +1371,7 @@ export async function getModerationScores(
     };
   } else {
     if (!captionTrack.id) {
-      throw new MuxAiError("Transcript track is missing an id.", { type: "validation_error" });
+      throw new LegacyMuxAiError("Transcript track is missing an id.", { type: "validation_error" });
     }
     // Fetch the raw VTT (cleanTranscript: false) so per-cue timecodes survive
     // for time-window segmentation. An empty transcript is a skip; a failed
@@ -1413,7 +1413,7 @@ export async function getModerationScores(
     // Never return a result with nothing scored: `exceedsThreshold: false`
     // would read as "clean" to anything automating off it. Both surfaces are
     // skipped here, and every skipMessage already ends with a period.
-    throw new MuxAiError(
+    throw new LegacyMuxAiError(
       `Nothing to moderate. Thumbnails skipped: ${thumbnailModeration.skipMessage} ` +
       `Transcript skipped: ${transcriptModeration.skipMessage}`,
       { type: "validation_error" },

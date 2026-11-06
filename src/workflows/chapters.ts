@@ -7,7 +7,7 @@ import {
   withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
 import { getLanguageName } from "../lib/language-codes.ts";
-import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
+import { LegacyMuxAiError, legacyWrapError } from "../lib/legacy-mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -489,7 +489,7 @@ async function generateChaptersInternal(
   // Resolve signing context for signed playback IDs
   const signingContext = await resolveMuxSigningContext(credentials);
   if (policy === "signed" && !signingContext) {
-    throw new MuxAiError(
+    throw new LegacyMuxAiError(
       "Signed playback ID requires signing credentials. " +
       "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
       { type: "validation_error" },
@@ -510,7 +510,7 @@ async function generateChaptersInternal(
       .map(t => t.language_code)
       .filter(Boolean)
       .join(", ");
-    throw new MuxAiError(
+    throw new LegacyMuxAiError(
       `No caption track found${languageCode ? ` for language ${languageCode}` : ""}. Available languages: ${availableLanguages || "none"}.`,
       { type: "validation_error" },
     );
@@ -518,7 +518,7 @@ async function generateChaptersInternal(
   const timestampedTranscript = extractTimestampedTranscript(transcriptResult.transcriptText);
   if (!timestampedTranscript) {
     const contentLabel = isAudioOnly ? "transcript" : "caption track";
-    throw new MuxAiError(`No usable content found in ${contentLabel}.`, { type: "validation_error" });
+    throw new LegacyMuxAiError(`No usable content found in ${contentLabel}.`, { type: "validation_error" });
   }
 
   // Resolve output language: explicit code takes priority, otherwise auto-detect from transcript track.
@@ -532,7 +532,7 @@ async function generateChaptersInternal(
       resolvedScope ? boundary >= resolvedScope.startTime && boundary < resolvedScope.endTime : true,
     );
   if (sceneContext?.length && sceneBoundarySeconds.length === 0) {
-    throw new MuxAiError(
+    throw new LegacyMuxAiError(
       "Scene context has no chapter boundaries within the requested scope.",
       { type: "validation_error" },
     );
@@ -565,7 +565,7 @@ async function generateChaptersInternal(
       credentials,
     });
   } catch (error) {
-    wrapError(error, `Failed to generate chapters with ${provider}`);
+    legacyWrapError(error, `Failed to generate chapters with ${provider}`);
   }
 
   if (chaptersData) {
@@ -573,7 +573,7 @@ async function generateChaptersInternal(
   }
 
   if (!chaptersData || !chaptersData.chapters) {
-    throw new MuxAiError(`Failed to generate chapters for asset ${assetId}.`);
+    throw new LegacyMuxAiError(`Failed to generate chapters for asset ${assetId}.`);
   }
 
   // Validate and sort chapters
@@ -593,7 +593,7 @@ async function generateChaptersInternal(
   );
 
   if (validChapters.length === 0) {
-    throw new MuxAiError(`Failed to generate valid chapters for asset ${assetId}.`);
+    throw new LegacyMuxAiError(`Failed to generate valid chapters for asset ${assetId}.`);
   }
 
   // Scrub chapter titles for signs of a system-prompt leak. Titles are
@@ -645,7 +645,7 @@ async function generateChaptersInternal(
   });
 
   if (scrubbedChapters.length === 0) {
-    throw new MuxAiError(`Failed to generate valid chapters for asset ${assetId}.`);
+    throw new LegacyMuxAiError(`Failed to generate valid chapters for asset ${assetId}.`);
   }
 
   // Preserve the standalone workflow's existing first-chapter behavior. Scene-aware

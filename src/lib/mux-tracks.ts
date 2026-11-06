@@ -1,7 +1,9 @@
 import type { AssetTextTrack, MuxAsset, WorkflowCredentialsInput } from "../types.ts";
 
 import { isUndeterminedLanguageCode, toISO639_1 } from "./language-codes.ts";
-import { MuxAiError } from "./mux-ai-error.ts";
+import { LegacyMuxAiError } from "./legacy-mux-ai-error.ts";
+import type { MuxAiErrorFacts, MuxAiErrorFactValue } from "./mux-ai-error.ts";
+import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
 import { resolveMuxClient } from "./workflow-credentials.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -56,9 +58,31 @@ export interface TextTrackSummary {
 
 export type TrackSummary = TextTrackSummary;
 
+/**
+ * Why a replacement was blocked:
+ *
+ * - `policy_fail`: the `fail` policy and a conflicting track exists.
+ * - `not_generated`: `replace_generated` and a conflicting track is not Mux-generated.
+ * - `name_collision`: another track already has the target's name.
+ * - `primary_audio`: the asset's primary audio track conflicts; it can never be replaced.
+ */
+export type TrackReplacementBlockedReason = "policy_fail" | "not_generated" | "name_collision" | "primary_audio";
+
+export interface TrackReplacementBlocked {
+  kind: "blocked";
+  /** Human-readable explanation naming the conflicting tracks. */
+  reason: string;
+  /** Machine-readable reason for the block. */
+  code: TrackReplacementBlockedReason;
+  /** The conflicting tracks. */
+  tracks: TextTrackSummary[];
+  /** Whether any conflicting track matched on language (rather than only on name). */
+  conflictsOnLanguage: boolean;
+}
+
 export type TextTrackReplacementPlan =
   { kind: "clear" } |
-  { kind: "blocked"; reason: string; tracks: TextTrackSummary[] } |
+  TrackReplacementBlocked |
   { kind: "replace"; toDelete: TextTrackSummary[] };
 
 /**
@@ -68,7 +92,7 @@ export type TextTrackReplacementPlan =
  */
 export type ReplaceAndCreateTextTrackResult =
   { kind: "created"; trackId: string; deleted: TextTrackSummary[] } |
-  { kind: "blocked"; reason: string; tracks: TextTrackSummary[]; deleted: TextTrackSummary[] } |
+  (TrackReplacementBlocked & { deleted: TextTrackSummary[] }) |
   { kind: "create_failed"; reason: string; deleted: TextTrackSummary[] };
 
 /** Mux caps track `passthrough` at 255 characters. */
@@ -167,8 +191,13 @@ function itOrThem(tracks: AssetTextTrack[]): string {
 }
 
 function describeTracks(tracks: AssetTextTrack[]): string {
+  return describeTrackSummaries(tracks.map(summarizeTextTrack));
+}
+
+/** e.g. `English [en, uploaded, ready]; Spanish [es, generated_vod, ready]`. */
+export function describeTrackSummaries(tracks: TextTrackSummary[]): string {
   return tracks
-    .map(track => `${track.name ?? "(unnamed)"} [${track.language_code ?? "?"}, ${track.type === "audio" ? (track.primary ? "primary audio" : "audio") : (track.text_source ?? "unknown source")}, ${track.status ?? "ready"}]`)
+    .map(track => `${track.name ?? "(unnamed)"} [${track.languageCode ?? "?"}, ${track.type === "audio" ? (track.primary ? "primary audio" : "audio") : (track.textSource ?? "unknown source")}, ${track.status ?? "ready"}]`)
     .join("; ");
 }
 
@@ -185,8 +214,10 @@ export function planTextTrackReplacement(
   policy: ReplaceExistingTracksPolicy,
 ): TextTrackReplacementPlan {
   const label = targetType(target) === "audio" ? "Audio" : "Text";
+  const sameLanguage = findSameLanguageTextTracks(asset, target);
+  const sameLanguageIds = new Set(sameLanguage.map(track => track.id!));
   const conflicts = new Map<string, AssetTextTrack>();
-  for (const track of [...findSameLanguageTextTracks(asset, target), ...findNameCollisionTextTracks(asset, target)]) {
+  for (const track of [...sameLanguage, ...findNameCollisionTextTracks(asset, target)]) {
     conflicts.set(track.id!, track);
   }
   const conflicting = [...conflicts.values()];
@@ -195,31 +226,39 @@ export function planTextTrackReplacement(
     return { kind: "clear" };
   }
 
+  const blocked = (code: TrackReplacementBlockedReason, reason: string, tracks: AssetTextTrack[]): TrackReplacementBlocked => ({
+    kind: "blocked",
+    reason,
+    code,
+    tracks: tracks.map(summarizeTextTrack),
+    conflictsOnLanguage: tracks.some(track => sameLanguageIds.has(track.id!)),
+  });
+
   if (policy === "fail") {
-    return {
-      kind: "blocked",
-      reason: `${countTracks(conflicting, label, "already exists", "already exist")} for language '${target.languageCode}' or name '${target.name}': ${describeTracks(conflicting)}. Set replaceExistingTracks to replace ${itOrThem(conflicting)}.`,
-      tracks: conflicting.map(summarizeTextTrack),
-    };
+    return blocked(
+      "policy_fail",
+      `${countTracks(conflicting, label, "already exists", "already exist")} for language '${target.languageCode}' or name '${target.name}': ${describeTracks(conflicting)}. Set replaceExistingTracks to replace ${itOrThem(conflicting)}.`,
+      conflicting,
+    );
   }
 
   const primary = conflicting.filter(track => track.type === "audio" && track.primary === true);
   if (primary.length > 0) {
-    return {
-      kind: "blocked",
-      reason: `The asset's primary audio track is in the way for language '${target.languageCode}' or name '${target.name}': ${describeTracks(primary)}. Primary audio cannot be replaced; choose a different trackName.`,
-      tracks: primary.map(summarizeTextTrack),
-    };
+    return blocked(
+      "primary_audio",
+      `The asset's primary audio track is in the way for language '${target.languageCode}' or name '${target.name}': ${describeTracks(primary)}. Primary audio cannot be replaced; choose a different trackName.`,
+      primary,
+    );
   }
 
   if (policy === "replace_generated") {
     const notGenerated = conflicting.filter(track => track.type !== "text" || !isMuxGeneratedTextTrack(track));
     if (notGenerated.length > 0) {
-      return {
-        kind: "blocked",
-        reason: `${countTracks(notGenerated, label, "that is not Mux-generated exists", "that are not Mux-generated exist")} for language '${target.languageCode}' or name '${target.name}': ${describeTracks(notGenerated)}. Use replaceExistingTracks: "replace_all" to replace ${itOrThem(notGenerated)}.`,
-        tracks: notGenerated.map(summarizeTextTrack),
-      };
+      return blocked(
+        "not_generated",
+        `${countTracks(notGenerated, label, "that is not Mux-generated exists", "that are not Mux-generated exist")} for language '${target.languageCode}' or name '${target.name}': ${describeTracks(notGenerated)}. Use replaceExistingTracks: "replace_all" to replace ${itOrThem(notGenerated)}.`,
+        notGenerated,
+      );
     }
   }
 
@@ -238,8 +277,10 @@ export function planSourceTrackReplacement(
   if (blocking.length > 0) {
     return {
       kind: "blocked",
+      code: "name_collision",
       reason: `${countTracks(blocking, "Text", "already has", "already have")} the name '${target.name}': ${describeTracks(blocking)}. Choose a different trackName.`,
       tracks: blocking.map(summarizeTextTrack),
+      conflictsOnLanguage: false,
     };
   }
 
@@ -267,6 +308,69 @@ function isNotFoundError(error: unknown): boolean {
   return typeof error === "object" && error !== null && (error as { status?: unknown }).status === 404;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Errors
+// ─────────────────────────────────────────────────────────────────────────────
+
+function trackFacts(track: TextTrackSummary): MuxAiErrorFactValue {
+  return Object.fromEntries(
+    Object.entries({
+      id: track.id,
+      type: track.type,
+      name: track.name,
+      languageCode: track.languageCode,
+      status: track.status,
+      textSource: track.textSource,
+      primary: track.primary,
+    }).filter(([, value]) => value !== undefined),
+  ) as MuxAiErrorFactValue;
+}
+
+/** The track a write was for, as error facts: `trackType`, `languageCode` and `trackName`. */
+export function trackTargetFacts(target: TextTrackTarget): MuxAiErrorFacts {
+  return {
+    trackType: targetType(target),
+    languageCode: target.languageCode,
+    ...(target.name !== undefined && { trackName: target.name }),
+  };
+}
+
+/** JSON-safe summaries of `tracks` for error facts. */
+export function trackSummaryFacts(tracks: TextTrackSummary[]): MuxAiErrorFactValue[] {
+  return tracks.map(trackFacts);
+}
+
+/**
+ * The error for a blocked replacement plan or outcome. The caller chose the policy
+ * and the name, so it is `track_replacement_blocked` (`request`), except the
+ * asset's primary audio in the target's language: no option avoids that, so it is
+ * the `asset`'s.
+ */
+export function trackReplacementBlockedError(
+  blocked: Pick<TrackReplacementBlocked, "reason" | "code" | "tracks" | "conflictsOnLanguage">,
+  options: { message?: string; facts?: MuxAiErrorFacts } = {},
+): MuxAiError {
+  const message = options.message ?? blocked.reason;
+  const facts: MuxAiErrorFacts = {
+    ...options.facts,
+    reason: blocked.code,
+    conflictingTracks: trackSummaryFacts(blocked.tracks),
+  };
+  if (blocked.code === "primary_audio" && blocked.conflictsOnLanguage) {
+    return new MuxAiError(message, {
+      type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+      source: MUX_AI_ERROR_SOURCES.ASSET,
+      facts,
+    });
+  }
+  return new MuxAiError(message, {
+    code: MUX_AI_ERROR_CODES.TRACK_REPLACEMENT_BLOCKED,
+    type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+    source: MUX_AI_ERROR_SOURCES.REQUEST,
+    facts,
+  });
+}
+
 /** Default audit tag written to `passthrough` on tracks created by `@mux/ai`. */
 export function buildMuxAiTrackPassthrough(workflow: string): string {
   return JSON.stringify({ mux_ai: { workflow } });
@@ -274,7 +378,7 @@ export function buildMuxAiTrackPassthrough(workflow: string): string {
 
 export function validateTrackPassthrough(passthrough: string | undefined): string | undefined {
   if (passthrough !== undefined && passthrough.length > MUX_TRACK_PASSTHROUGH_MAX_CHARS) {
-    throw new MuxAiError(
+    throw new LegacyMuxAiError(
       `Track passthrough must be at most ${MUX_TRACK_PASSTHROUGH_MAX_CHARS} characters (received ${passthrough.length}).`,
       { type: "validation_error" },
     );
