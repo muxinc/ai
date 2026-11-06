@@ -732,7 +732,7 @@ interface TranslateAudioResult {
 }
 ```
 
-`translateAudio` reports transcript staging and attachment through `captionsOutcome` whenever staging is attempted. `unavailable` includes `message` and `retryable`; `created` includes `trackId` and `replacedTracks`; `failed` includes `message`, `retryable`, and `replacedTracks`, including deletions before failed creation. Subtitle failures preserve the completed dub and any staged download URLs.
+`translateAudio` reports transcript staging and attachment through `captionsOutcome` whenever staging is attempted. `unavailable` includes `message` and `retryable`; `created` includes `trackId` and `replacedTracks`; `failed` includes `message`, `retryable`, and `replacedTracks`, including deletions before failed creation. Subtitle failures preserve the completed dub and any staged download URLs. Outcome messages are safe for callers; provider and storage diagnostics are logged separately.
 
 **Requirements:**
 

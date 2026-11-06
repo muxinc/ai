@@ -149,7 +149,7 @@ export class MuxAiError extends Error {
  * Duck-typing `message` avoids collapsing the real cause (e.g. "fetch failed")
  * to "Unknown error".
  */
-function extractErrorDetail(error: unknown): string {
+export function extractErrorDetail(error: unknown): string {
   if (error instanceof Error && error.message) {
     return error.message;
   }

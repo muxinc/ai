@@ -6,7 +6,7 @@ import { elevenLabsResponseFailure, elevenLabsSdkFailure } from "../lib/elevenla
 import type { ElevenLabsFailure } from "../lib/elevenlabs-errors.ts";
 import { getLanguageCodePair, getLanguageName, toISO639_1 } from "../lib/language-codes.ts";
 import type { LanguageCodePair } from "../lib/language-codes.ts";
-import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
+import { extractErrorDetail, MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset, isAudioOnlyAsset, isVideoOnlyAsset } from "../lib/mux-assets.ts";
 import {
   getLegacyMp4SupportRenditionSizeError,
@@ -167,6 +167,9 @@ export interface AudioTranslationOptions extends MuxAIOptions {
 // ─────────────────────────────────────────────────────────────────────────────
 // Implementation
 // ─────────────────────────────────────────────────────────────────────────────
+
+const CAPTIONS_UNAVAILABLE_MESSAGE = "The dub completed, but its subtitles could not be retrieved.";
+const CAPTIONS_ATTACHMENT_FAILED_MESSAGE = "Dub subtitles could not be attached to the Mux asset.";
 
 const STATIC_RENDITION_POLL_INTERVAL_MS = 10_000;
 const STATIC_RENDITION_MAX_ATTEMPTS = 180; // 30 minutes
@@ -699,7 +702,7 @@ async function downloadAndUploadDubTranscript({
 
     return { kind: "staged", presignedUrl };
   } catch (error) {
-    return { kind: "failed", failure: { retryable: true, detail: error instanceof Error ? error.message : String(error) } };
+    return { kind: "failed", failure: { retryable: true, detail: extractErrorDetail(error) } };
   }
 }
 
@@ -711,9 +714,11 @@ async function attachDubbedCaptions(input: Parameters<typeof replaceAndCreateTra
     if (outcome.kind === "created") {
       return { status: "created", trackId: outcome.trackId, replacedTracks: outcome.deleted };
     }
-    return { status: "failed", message: outcome.reason, retryable: outcome.kind === "create_failed", replacedTracks: outcome.deleted };
+    console.warn(`⚠️ Failed to attach dubbed captions: ${outcome.reason}`);
+    return { status: "failed", message: outcome.kind === "blocked" ? outcome.reason : CAPTIONS_ATTACHMENT_FAILED_MESSAGE, retryable: outcome.kind === "create_failed", replacedTracks: outcome.deleted };
   } catch (error) {
-    return { status: "failed", message: error instanceof Error ? error.message : String(error), retryable: true, replacedTracks: [] };
+    console.warn(`⚠️ Failed to attach dubbed captions: ${extractErrorDetail(error)}`);
+    return { status: "failed", message: CAPTIONS_ATTACHMENT_FAILED_MESSAGE, retryable: true, replacedTracks: [] };
   }
 }
 
@@ -1041,7 +1046,7 @@ export async function translateAudio(
           credentials,
         });
         if (transcript.kind === "failed") {
-          captionsOutcome = { status: "unavailable", message: transcript.failure.detail, retryable: transcript.failure.retryable };
+          captionsOutcome = { status: "unavailable", message: CAPTIONS_UNAVAILABLE_MESSAGE, retryable: transcript.failure.retryable };
           console.warn(`⚠️ Failed to retrieve dubbed captions: ${transcript.failure.detail}`);
         } else {
           captionsPresignedUrl = transcript.presignedUrl;
@@ -1070,9 +1075,9 @@ export async function translateAudio(
         }
       } catch (error) {
         captionsOutcome = captionsPresignedUrl ?
-            { status: "failed", message: error instanceof Error ? error.message : String(error), retryable: true, replacedTracks: [] } :
-            { status: "unavailable", message: error instanceof Error ? error.message : String(error), retryable: true };
-        console.warn(`⚠️ Failed to attach dubbed captions: ${error instanceof Error ? error.message : "Unknown error"}`);
+            { status: "failed", message: CAPTIONS_ATTACHMENT_FAILED_MESSAGE, retryable: true, replacedTracks: [] } :
+            { status: "unavailable", message: CAPTIONS_UNAVAILABLE_MESSAGE, retryable: true };
+        console.warn(`⚠️ Failed to attach dubbed captions: ${extractErrorDetail(error)}`);
         if (captionsPresignedUrl) {
           console.warn("🔗 You can manually add the captions track using this presigned URL:");
           console.warn(captionsPresignedUrl);

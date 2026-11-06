@@ -374,18 +374,22 @@ describe("independent dubbed subtitles", () => {
       .mockResolvedValueOnce({ kind: "create_failed", reason: "unreachable", deleted });
     const result = await translateAudio(ASSET_ID, "es", { uploadCaptionsToMux: true });
     expect(result.uploadedTrackId).toBe("audio");
-    expect(result.captionsOutcome).toEqual({ status: "failed", message: "unreachable", retryable: true, replacedTracks: deleted });
+    expect(result.captionsOutcome).toEqual({ status: "failed", message: "Dub subtitles could not be attached to the Mux asset.", retryable: true, replacedTracks: deleted });
     expect(result.replacedTracks).toEqual(deleted);
     expect(result.captionsPresignedUrl).toBeDefined();
+    expect(JSON.stringify(result)).not.toContain("unreachable");
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("unreachable"));
   });
 
-  it("returns an outcome for a thrown subtitle attachment failure", async () => {
+  it.each([new Error("Mux unavailable: private request ID"), { message: "Mux unavailable: private request ID" }])("keeps thrown attachment diagnostics in logs: %j", async (error) => {
     stubElevenLabsFetch();
     vi.mocked(replaceAndCreateTrack)
       .mockResolvedValueOnce({ kind: "created", trackId: "audio", deleted: [] })
-      .mockRejectedValueOnce(new Error("Mux unavailable"));
+      .mockRejectedValueOnce(error);
     const result = await translateAudio(ASSET_ID, "es", { uploadCaptionsToMux: true });
-    expect(result.captionsOutcome).toMatchObject({ status: "failed", message: "Mux unavailable", replacedTracks: [] });
+    expect(result.captionsOutcome).toMatchObject({ status: "failed", message: "Dub subtitles could not be attached to the Mux asset.", replacedTracks: [] });
+    expect(JSON.stringify(result)).not.toContain("private request ID");
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("Mux unavailable: private request ID"));
     expect(result.uploadedTrackId).toBe("audio");
   });
 
@@ -397,24 +401,28 @@ describe("independent dubbed subtitles", () => {
     expect(replaceAndCreateTrack).not.toHaveBeenCalled();
   });
 
-  it("records an unavailable transcript without failing the audio", async () => {
+  it.each([404, 500])("hides transcript provider diagnostics without failing the audio (HTTP %s)", async (status) => {
     const fetchMock = stubElevenLabsFetch();
     const original = fetchMock.getMockImplementation()!;
     fetchMock.mockImplementation(async (input, init) => String(input).includes("/transcripts/") ?
-        new Response("missing", { status: 404 }) :
+        new Response("private-provider-detail request_id=123 signed_url=secret", { status }) :
         original(input, init));
     vi.mocked(replaceAndCreateTrack).mockResolvedValue({ kind: "created", trackId: "audio", deleted: [] });
     const result = await translateAudio(ASSET_ID, "es", { uploadCaptionsToMux: true });
-    expect(result.captionsOutcome).toMatchObject({ status: "unavailable", retryable: false });
+    expect(result.captionsOutcome).toEqual({ status: "unavailable", message: "The dub completed, but its subtitles could not be retrieved.", retryable: status === 500 });
+    expect(JSON.stringify(result)).not.toContain("private-provider-detail");
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("private-provider-detail"));
     expect(result.uploadedTrackId).toBe("audio");
     expect(replaceAndCreateTrack).toHaveBeenCalledTimes(1);
   });
 
-  it("returns transcript storage failures from inside the step", async () => {
+  it.each([new Error("Storage unavailable: private request ID"), { message: "Storage unavailable: private request ID" }])("returns safe transcript storage failures with readable diagnostics: %j", async (error) => {
     stubElevenLabsFetch();
-    vi.mocked(putObjectWithStorageAdapter).mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("Storage unavailable"));
+    vi.mocked(putObjectWithStorageAdapter).mockResolvedValueOnce(undefined).mockRejectedValueOnce(error);
     const result = await translateAudio(ASSET_ID, "es", { uploadToMux: false, uploadToS3: true });
-    expect(result.captionsOutcome).toEqual({ status: "unavailable", message: "Storage unavailable", retryable: true });
+    expect(result.captionsOutcome).toEqual({ status: "unavailable", message: "The dub completed, but its subtitles could not be retrieved.", retryable: true });
+    expect(JSON.stringify(result)).not.toContain("private request ID");
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("Storage unavailable: private request ID"));
     expect(result.presignedUrl).toBeDefined();
   });
 });
