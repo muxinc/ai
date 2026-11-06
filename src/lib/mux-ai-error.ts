@@ -2,7 +2,14 @@ import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 
 import type { TokenUsage } from "../types.ts";
 
-// Type only, so no runtime cycle: LegacyMuxAiError extends MuxAiError and writes its own shape.
+// The legacy payload type, for MuxAiError's WORKFLOW_SERIALIZE return type only.
+// LegacyMuxAiError (in legacy-mux-ai-error.ts) extends MuxAiError and overrides its
+// static serializer to write this pre-classification shape, and TypeScript requires an
+// overriding static method to return a type the base one allows, so the base return
+// type names it. The import is type only and is erased from the output, so it adds no
+// runtime import back to the legacy module, which itself imports MuxAiError at runtime
+// to extend it (a runtime cycle there could break class definition order). It goes away
+// with the legacy module.
 import type { LegacySerializedMuxAiError } from "./legacy-mux-ai-error.ts";
 import { detectLeakReason } from "./output-safety.ts";
 import { getErrorTokenUsage } from "./token-usage.ts";

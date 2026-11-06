@@ -50,7 +50,7 @@ catch (error) {
 }
 ```
 
-Use `MuxAiError.is()`, not `instanceof`: errors revived across a Workflow step boundary or from another bundle copy fail `instanceof`.
+Use `MuxAiError.is()`, not `instanceof`: errors revived across a Workflow step boundary or from another bundle copy fail `instanceof`. `ClassifiedError.isClassified()` matches any error on this model, including [your own](#building-your-own-errors-on-the-same-model). Both check brand fields (`__mux_ai_error`, `__classified_error`), so they work across copies of the SDK.
 
 ### Types
 
@@ -145,6 +145,15 @@ Both flags are policies decided from the classification, not by hand: the site's
 - **Transient implies retryable.** If retrying the step may succeed, so may resubmitting.
 - Only non-transient errors are named `FatalError`, which tells Workflow DevKit not to retry the step.
 
+## What else an error carries
+
+None of this is end-user data.
+
+- **`cause`:** the raw error a site classified, passed as `cause` when raising (`dependencyError()` and `wrapError()` pass it for you). It stays on the instance only: it's non-enumerable, so it isn't in JSON or in logs of the error object, and it's never serialized.
+- **`causes`:** a bounded summary of the `cause` chain that does cross step boundaries, for logs: up to three `{ name, message, status? }` entries, each message capped at 500 characters with URL queries and credentials stripped and high-confidence prompt leaks suppressed. A classified cause contributes its own `causes`.
+- **`usage`:** model tokens spent before the failure, so a caller can still account for them. `wrapError()` carries it over from the error it wraps.
+- **`diagnostics`:** for a failed model call, which phase failed and with what provider, model and output limit.
+
 ## Showing errors to end users
 
 `message` is internal: it may name options, call names, statuses and other detail meant for developers. Never show it to end users. `toPublicError(error)` returns what end users may see, `{ type, code?, message, retryable, facts? }`, using a ladder:
@@ -153,7 +162,7 @@ Both flags are policies decided from the classification, not by hand: the site's
 2. **Otherwise, by source:** generic wording for `request`, `asset` and `account` failures.
 3. **Otherwise, by type:** generic wording for timeouts, capacity, content policy, and other failures (worded "try again" when retryable).
 
-Codes, facts and messages are internal by default; only an explicit mapping makes a code and some of its facts public. `MUX_AI_ERROR_GENERIC_MESSAGES` holds the generic wording. Consumers with their own vocabulary (e.g. API parameter names) can override the message per public code and keep the rest of the view.
+Codes, facts and messages are internal by default; only an explicit mapping makes a code and some of its facts public. `MUX_AI_ERROR_GENERIC_MESSAGES` holds the generic wording, and `genericPublicMessage()` picks it for an error (steps 2 and 3), for reuse in your own view. Consumers with their own vocabulary (e.g. API parameter names) can override the message per public code and keep the rest of the view.
 
 A [legacy error](#legacy-errors) is the one exception: its message was written as end-user text, so the view shows it as it always has.
 
@@ -184,7 +193,8 @@ const APP_ERROR_CATALOG = {
 } as const satisfies Record<AppErrorCode, ErrorCatalogEntry<AppErrorType>>;
 
 class AppError extends ClassifiedError<AppErrorType, AppErrorCode> {
-  // Passing the catalog's type makes each code accept only its own type, source and dependency.
+  // Passing the catalog's type makes each code accept only its own type, source and
+  // dependency (CodedClassification), so a site can't contradict the catalog.
   constructor(message: string, init: ClassifiedErrorInit<AppErrorType, AppErrorCode, string, typeof APP_ERROR_CATALOG>) {
     super(message, init, APP_ERROR_CATALOG);
   }
@@ -201,6 +211,8 @@ const toPublic = createPublicErrorView<string, string>({
 - **Types:** extend `MUX_AI_ERROR_TYPES` rather than redefining it, and keep every type safe to show end users.
 - **Sources** are shared as they are; **dependencies** are yours to extend with the services you call. An `upstream` entry or site must name its dependency (`SourceAndDependency`).
 - **One view for both:** pass the SDK's public mappings along with yours, so SDK failures keep their public wording.
+- **Remote calls:** `classifyDependencyFailure()` gives the status-based classification `dependencyError()` uses (below) without building an error, so your own errors treat statuses the same way. `httpStatusOf()` and `requestIdOf()` read them off an HTTP client's error, and `isTransientStatus()` is the transient rule on its own.
+- **The SDK's codes in your code:** when your code hits a condition the SDK has a code for, raise a `MuxAiError` with that code so it renders with the SDK's public wording, e.g. `trackReplacementBlockedError()` (with `trackTargetFacts()`) for a blocked track replacement.
 - **Serialization:** give your class its own Workflow serializer hooks and put a version in the payload (as `MuxAiError` does with `v`). A run replays the events it already wrote, so a shape change must keep earlier versions readable.
 
 ## Serialization
@@ -218,7 +230,7 @@ const toPublic = createPublicErrorView<string, string>({
 2. **Was a remote service involved?** Set `dependency`. An `upstream` failure always names it: the types require it, in a catalog entry and at a site.
 3. **Is there an existing code for this exact condition?** Add it: `{ code, type, source }` (and `dependency` when its catalog entry has one). The compiler only accepts the type, source and dependency the code's catalog entry gives it.
 4. **Otherwise,** pass `type` and `source` alone, and consider whether the condition deserves a code (below).
-5. **Record what varies as facts:** IDs, languages, limits, statuses, the call that failed. Keep values JSON-safe. Pass provider free text through `errorDetailFact()`, which strips URL tokens, suppresses prompt leaks and caps the length. Never put credentials, signed URLs or raw model output in facts.
+5. **Record what varies as facts:** IDs, languages, limits, statuses, the call that failed. Keep values JSON-safe. Pass provider free text through `errorDetailFact()`, which strips URL queries and credentials, suppresses prompt leaks and caps the length. Never put credentials, signed URLs or raw model output in facts.
 6. **Write `message` for a developer reading a log.** It can be specific; it is never shown to end users.
 
 Helpers:
