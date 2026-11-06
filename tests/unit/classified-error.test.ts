@@ -1,18 +1,8 @@
 import { describe, expect, it } from "vitest";
 
+import { LegacyMuxAiError } from "../../src/lib/legacy-mux-ai-error.ts";
 import type { ClassifiedErrorInit, ErrorCatalogEntry, SerializedClassification } from "../../src/lib/mux-ai-error.ts";
-import {
-  classificationInit,
-  ClassifiedError,
-  LegacyMuxAiError,
-  MUX_AI_ERROR_CODES,
-  MUX_AI_ERROR_DEPENDENCIES,
-  MUX_AI_ERROR_SOURCES,
-  MUX_AI_ERROR_TYPES,
-  MuxAiError,
-  restoreClassification,
-  serializeClassification,
-} from "../../src/lib/mux-ai-error.ts";
+import { classificationInit, ClassifiedError, MUX_AI_ERROR_CODES, MUX_AI_ERROR_DEPENDENCIES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError, restoreClassification, serializeClassification } from "../../src/lib/mux-ai-error.ts";
 import { createPublicErrorView, MUX_AI_ERROR_PUBLIC_MAPPINGS } from "../../src/lib/public-error.ts";
 
 // A consumer's own error on the shared model: its own extra type, codes and dependency.

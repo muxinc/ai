@@ -1,8 +1,9 @@
 import type { AssetTextTrack, MuxAsset, WorkflowCredentialsInput } from "../types.ts";
 
 import { isUndeterminedLanguageCode, toISO639_1 } from "./language-codes.ts";
+import { LegacyMuxAiError } from "./legacy-mux-ai-error.ts";
 import type { MuxAiErrorFacts, MuxAiErrorFactValue } from "./mux-ai-error.ts";
-import { LegacyMuxAiError, MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
+import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
 import { resolveMuxClient } from "./workflow-credentials.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────

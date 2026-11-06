@@ -1,17 +1,8 @@
 import { WORKFLOW_DESERIALIZE } from "@workflow/serde";
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  assertNever,
-  internalError,
-  isLegacyMuxAiError,
-  LegacyMuxAiError,
-  legacyWrapError,
-  MUX_AI_ERROR_CATALOG,
-  MUX_AI_ERROR_TYPE_VALUES,
-  MuxAiError,
-  wrapError,
-} from "../../src/lib/mux-ai-error.ts";
+import { isLegacyMuxAiError, LegacyMuxAiError, legacyWrapError } from "../../src/lib/legacy-mux-ai-error.ts";
+import { assertNever, internalError, MUX_AI_ERROR_CATALOG, MUX_AI_ERROR_TYPE_VALUES, MuxAiError, wrapError } from "../../src/lib/mux-ai-error.ts";
 
 function thrown(fn: () => unknown): unknown {
   try {
@@ -92,8 +83,8 @@ describe("muxAiError", () => {
     expect(missing).toEqual([]);
   });
 
-  it("revives the pre-classification serialized shape as a legacy error", () => {
-    const revived = (MuxAiError as unknown as Record<symbol, (value: unknown) => MuxAiError>)[WORKFLOW_DESERIALIZE]({
+  it("revives a legacy error from its serialized shape", () => {
+    const revived = (LegacyMuxAiError as unknown as Record<symbol, (value: unknown) => MuxAiError>)[WORKFLOW_DESERIALIZE]({
       message: "No caption track found.",
       publicType: "validation_error",
       retryable: false,

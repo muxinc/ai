@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getApiKeyFromEnv } from "../lib/client-factory.ts";
 import type { ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImagesAsBase64 } from "../lib/image-download.ts";
-import { LegacyMuxAiError } from "../lib/mux-ai-error.ts";
+import { LegacyMuxAiError } from "../lib/legacy-mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,

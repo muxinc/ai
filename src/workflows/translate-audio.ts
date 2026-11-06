@@ -6,8 +6,9 @@ import { elevenLabsResponseFailure, elevenLabsSdkFailure } from "../lib/elevenla
 import type { ElevenLabsFailure } from "../lib/elevenlabs-errors.ts";
 import { getLanguageCodePair, getLanguageName, toISO639_1 } from "../lib/language-codes.ts";
 import type { LanguageCodePair } from "../lib/language-codes.ts";
+import { LegacyMuxAiError, legacyWrapError } from "../lib/legacy-mux-ai-error.ts";
 import type { MuxAiError } from "../lib/mux-ai-error.ts";
-import { extractErrorDetail, LegacyMuxAiError, legacyWrapError } from "../lib/mux-ai-error.ts";
+import { extractErrorDetail } from "../lib/mux-ai-error.ts";
 import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset, isAudioOnlyAsset, isVideoOnlyAsset } from "../lib/mux-assets.ts";
 import {
   getLegacyMp4SupportRenditionSizeError,

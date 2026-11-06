@@ -2,6 +2,8 @@ import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 
 import type { TokenUsage } from "../types.ts";
 
+// Type only, so no runtime cycle: LegacyMuxAiError extends MuxAiError and writes its own shape.
+import type { LegacySerializedMuxAiError } from "./legacy-mux-ai-error.ts";
 import { detectLeakReason } from "./output-safety.ts";
 import { getErrorTokenUsage } from "./token-usage.ts";
 
@@ -276,24 +278,8 @@ export interface SerializedClassification<TType extends string = string, TCode e
  * What crosses a Workflow step boundary. A run replays the events it already wrote,
  * so `v` is bumped on a shape change and earlier versions stay readable.
  */
-interface SerializedMuxAiError extends SerializedClassification<MuxAiErrorType, MuxAiErrorCode, MuxAiErrorDependency> {
+export interface SerializedMuxAiError extends SerializedClassification<MuxAiErrorType, MuxAiErrorCode, MuxAiErrorDependency> {
   v: 2;
-  usage?: TokenUsage;
-  finishReason?: string;
-  rawFinishReason?: string;
-  diagnostics?: ModelCallDiagnostics;
-}
-
-/**
- * The pre-classification shape (no `v`). {@link LegacyMuxAiError} still crosses step
- * boundaries in it, so it revives with its end-user message.
- */
-interface LegacySerializedMuxAiError {
-  v?: undefined;
-  message: string;
-  publicType: MuxAiErrorType;
-  retryable: boolean;
-  stack?: string;
   usage?: TokenUsage;
   finishReason?: string;
   rawFinishReason?: string;
@@ -487,20 +473,9 @@ export class MuxAiError extends ClassifiedError<MuxAiErrorType, MuxAiErrorCode, 
     );
   }
 
+  // Subclasses with their own codec (LegacyMuxAiError) write their own shape.
   static [WORKFLOW_SERIALIZE](instance: MuxAiError): SerializedMuxAiError | LegacySerializedMuxAiError {
     const incomplete = instance as MuxAiError & { finishReason?: string; rawFinishReason?: string };
-    if (isLegacyMuxAiError(instance)) {
-      return {
-        message: instance.publicMessage,
-        publicType: instance.publicType,
-        retryable: instance.retryable,
-        stack: instance.stack,
-        usage: getErrorTokenUsage(instance),
-        finishReason: incomplete.finishReason,
-        rawFinishReason: incomplete.rawFinishReason,
-        diagnostics: instance.diagnostics,
-      };
-    }
     return {
       v: 2,
       ...serializeClassification(instance),
@@ -511,87 +486,19 @@ export class MuxAiError extends ClassifiedError<MuxAiErrorType, MuxAiErrorCode, 
     };
   }
 
-  static [WORKFLOW_DESERIALIZE](value: SerializedMuxAiError | LegacySerializedMuxAiError): MuxAiError {
+  static [WORKFLOW_DESERIALIZE](value: SerializedMuxAiError): MuxAiError {
     // Subclasses inherit this codec. Restore their fields for structural guards
     // without depending on subclass constructor signatures or raw causes.
-    const error = value.v === 2 ?
-        // The stored classification matched the catalog when it was written.
-        restoreClassification(new MuxAiError(value.message, classificationInit(value) as MuxAiErrorInit), value) :
-        // eslint-disable-next-line no-restricted-syntax -- Revives a legacy error as it was serialized.
-        new LegacyMuxAiError(value.message, { type: value.publicType, retryable: value.retryable });
+    // The stored classification matched the catalog when it was written.
+    const error = restoreClassification(new MuxAiError(value.message, classificationInit(value) as MuxAiErrorInit), value);
     Object.assign(error, {
       usage: value.usage,
       diagnostics: value.diagnostics,
       ...(value.finishReason !== undefined && { finishReason: value.finishReason }),
       ...(value.rawFinishReason !== undefined && { rawFinishReason: value.rawFinishReason }),
     });
-    if (value.v !== 2 && value.stack !== undefined) {
-      error.stack = value.stack;
-    }
     return error;
   }
-}
-
-/**
- * The source a legacy error is recorded with. Approximate: legacy errors carry only a
- * type, and are reworded by their own end-user message, never by source.
- */
-function legacySource(type: MuxAiErrorType): Exclude<MuxAiErrorSource, typeof MUX_AI_ERROR_SOURCES.UPSTREAM> {
-  switch (type) {
-    case MUX_AI_ERROR_TYPES.VALIDATION_ERROR:
-      return MUX_AI_ERROR_SOURCES.REQUEST;
-    case MUX_AI_ERROR_TYPES.CONTENT_POLICY_ERROR:
-      return MUX_AI_ERROR_SOURCES.ASSET;
-    default:
-      return MUX_AI_ERROR_SOURCES.INTERNAL;
-  }
-}
-
-/**
- * A failure raised the way it was before classification: its message is end-user
- * text, shown verbatim by the public view, and it is never step-retried. It keeps
- * the fields consumers read before classification (`__robots_error`, `publicType`,
- * `publicMessage`, `retryable`), so their handling of it doesn't change.
- *
- * Temporary and internal: each module moves its sites to {@link MuxAiError} with a
- * code or an explicit type and source, and this class goes away with the last one.
- *
- * @deprecated Raise a {@link MuxAiError}. A lint rule bans this class in migrated modules.
- */
-export class LegacyMuxAiError extends MuxAiError {
-  readonly __robots_error = true;
-
-  readonly publicType: MuxAiErrorType;
-
-  /** End-user text. Same as `message`. */
-  readonly publicMessage: string;
-
-  constructor(message: string, opts?: {
-    type?: MuxAiErrorType;
-    retryable?: boolean;
-    cause?: unknown;
-  }) {
-    const type = opts?.type ?? MUX_AI_ERROR_TYPES.PROCESSING_ERROR;
-    // Never step-retried, as before classification.
-    super(message, { type, source: legacySource(type), retryable: opts?.retryable ?? false, transient: false, cause: opts?.cause });
-    this.publicType = type;
-    this.publicMessage = message;
-  }
-}
-
-/**
- * Whether `value` is a legacy error, whose message is end-user text: a
- * {@link LegacyMuxAiError} from any copy of the SDK, or a consumer's own legacy error
- * with the same fields. Duck-typed, so it also matches one revived across a step boundary.
- */
-export function isLegacyMuxAiError(value: unknown): value is LegacyMuxAiError {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "__robots_error" in value &&
-    value.__robots_error === true &&
-    typeof (value as { publicMessage?: unknown }).publicMessage === "string"
-  );
 }
 
 /**
@@ -662,35 +569,6 @@ function scrubDetail(detail: string, context?: string): string {
   }
   console.warn(`[@mux/ai] Suppressed suspected prompt leak in error detail${context ? ` (context: ${context})` : ""} (reason: ${leakReason}).`);
   return "Upstream error details suppressed by safety filter";
-}
-
-/**
- * {@link wrapError} as it was before classification, for modules not yet migrated:
- * passes an SDK error through, and wraps anything else in a plain `Error` (which the
- * step runner retries) with a scrubbed detail.
- *
- * @deprecated Use {@link wrapError}. Goes away with {@link LegacyMuxAiError}.
- */
-export function legacyWrapError(error: unknown, message: string): never {
-  if (MuxAiError.is(error) || isLegacyMuxAiError(error)) {
-    throw error;
-  }
-  const rawDetail = extractErrorDetail(error);
-  const leakReason = detectLeakReason(rawDetail);
-  const shouldSuppress = leakReason === "canary" || leakReason === "prompt_tag";
-  const detail = shouldSuppress ?
-    "Upstream error details suppressed by safety filter" :
-    rawDetail;
-  if (shouldSuppress) {
-    console.warn(`[@mux/ai] Suppressed suspected prompt leak in wrapped error (context: ${message}, reason: ${leakReason}).`);
-  }
-  const wrapped = new Error(`${message}: ${detail}`);
-  // Carry `usage` through wrapping so failed workflows still report tokens burned.
-  const usage = getErrorTokenUsage(error);
-  if (usage) {
-    (wrapped as Error & { usage?: TokenUsage }).usage = usage;
-  }
-  throw wrapped;
 }
 
 /**

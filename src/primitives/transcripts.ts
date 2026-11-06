@@ -1,5 +1,5 @@
 import { isUndeterminedLanguageCode } from "../lib/language-codes.ts";
-import { LegacyMuxAiError, legacyWrapError } from "../lib/mux-ai-error.ts";
+import { LegacyMuxAiError, legacyWrapError } from "../lib/legacy-mux-ai-error.ts";
 import { isAudioOnlyAsset } from "../lib/mux-assets.ts";
 import { getMuxStreamOrigin } from "../lib/mux-url.ts";
 import { normalizeUntrustedUnicode } from "../lib/output-safety.ts";

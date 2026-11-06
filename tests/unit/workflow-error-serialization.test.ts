@@ -8,12 +8,14 @@ import { build, transform } from "esbuild";
 import { describe, expect, it } from "vitest";
 
 import type { IncompleteGenerationError, isIncompleteGenerationError } from "../../src/lib/content-policy-error.ts";
-import type { LegacyMuxAiError, MuxAiError } from "../../src/lib/mux-ai-error.ts";
+import type { LegacyMuxAiError } from "../../src/lib/legacy-mux-ai-error.ts";
+import type { MuxAiError } from "../../src/lib/mux-ai-error.ts";
 
 async function loadErrors(mode: "step" | "workflow") {
   const bundled = await build({
     stdin: {
-      contents: `export { LegacyMuxAiError, MuxAiError } from "./src/lib/mux-ai-error.ts";
+      contents: `export { MuxAiError } from "./src/lib/mux-ai-error.ts";
+        export { LegacyMuxAiError } from "./src/lib/legacy-mux-ai-error.ts";
         export { IncompleteGenerationError, isIncompleteGenerationError } from "./src/lib/content-policy-error.ts";`,
       resolveDir: fileURLToPath(new URL("../..", import.meta.url)),
       sourcefile: "workflow-errors.ts",

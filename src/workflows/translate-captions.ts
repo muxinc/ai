@@ -17,7 +17,7 @@ import {
 } from "../lib/content-policy-error.ts";
 import { getLanguageCodePair, getLanguageName } from "../lib/language-codes.ts";
 import type { LanguageCodePair, SupportedISO639_1 } from "../lib/language-codes.ts";
-import { LegacyMuxAiError, legacyWrapError } from "../lib/mux-ai-error.ts";
+import { LegacyMuxAiError, legacyWrapError } from "../lib/legacy-mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,

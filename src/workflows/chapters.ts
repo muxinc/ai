@@ -7,7 +7,7 @@ import {
   withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
 import { getLanguageName } from "../lib/language-codes.ts";
-import { LegacyMuxAiError, legacyWrapError } from "../lib/mux-ai-error.ts";
+import { LegacyMuxAiError, legacyWrapError } from "../lib/legacy-mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,

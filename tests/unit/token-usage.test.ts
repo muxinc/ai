@@ -1,7 +1,7 @@
 import { NoObjectGeneratedError } from "ai";
 import { describe, expect, it } from "vitest";
 
-import { LegacyMuxAiError, legacyWrapError } from "../../src/lib/mux-ai-error";
+import { LegacyMuxAiError, legacyWrapError } from "../../src/lib/legacy-mux-ai-error";
 import { getErrorTokenUsage, rethrowWithTokenUsage } from "../../src/lib/token-usage";
 import type { TokenUsage } from "../../src/types";
 

@@ -1,6 +1,6 @@
 import type { WorkflowScope } from "../types.ts";
 
-import { LegacyMuxAiError } from "./mux-ai-error.ts";
+import { LegacyMuxAiError } from "./legacy-mux-ai-error.ts";
 
 /** A workflow scope with both asset-relative boundaries resolved. */
 export interface ResolvedWorkflowScope {

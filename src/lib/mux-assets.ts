@@ -1,7 +1,7 @@
 import type { MuxAsset, PlaybackAsset, PlaybackPolicy, WorkflowCredentialsInput, WorkflowMuxClient } from "../types.ts";
 
 import { getMuxClientFromEnv } from "./client-factory.ts";
-import { LegacyMuxAiError } from "./mux-ai-error.ts";
+import { LegacyMuxAiError } from "./legacy-mux-ai-error.ts";
 
 /**
  * Finds a usable playback ID for the given asset.

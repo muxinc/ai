@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { isLegacyMuxAiError, MuxAiError } from "../../src/lib/mux-ai-error";
+import { isLegacyMuxAiError } from "../../src/lib/legacy-mux-ai-error";
+import { MuxAiError } from "../../src/lib/mux-ai-error";
 import { MUX_AI_ERROR_GENERIC_MESSAGES, toPublicError } from "../../src/lib/public-error";
 import type { Hotspot } from "../../src/primitives/hotspots";
 import type { Shot } from "../../src/primitives/shots";

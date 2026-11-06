@@ -1,15 +1,17 @@
 import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 import { describe, expect, it } from "vitest";
 
+import { LegacyMuxAiError } from "../../src/lib/legacy-mux-ai-error.ts";
 import type { MuxAiErrorInit } from "../../src/lib/mux-ai-error.ts";
-import { LegacyMuxAiError, MUX_AI_ERROR_CATALOG, MUX_AI_ERROR_CODES, MUX_AI_ERROR_DEPENDENCIES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "../../src/lib/mux-ai-error.ts";
+import { MUX_AI_ERROR_CATALOG, MUX_AI_ERROR_CODES, MUX_AI_ERROR_DEPENDENCIES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "../../src/lib/mux-ai-error.ts";
 import { resolveLegacyMp4SupportRendition } from "../../src/lib/mux-static-renditions.ts";
 import { planTextTrackReplacement, trackReplacementBlockedError, trackTargetFacts } from "../../src/lib/mux-tracks.ts";
 import { createPublicErrorView, genericPublicMessage, MUX_AI_ERROR_GENERIC_MESSAGES, MUX_AI_ERROR_PUBLIC_MAPPINGS, toPublicError } from "../../src/lib/public-error.ts";
 import type { MuxAsset } from "../../src/types.ts";
 
 function acrossStepBoundary(error: MuxAiError): MuxAiError {
-  const serde = MuxAiError as unknown as Record<symbol, (value: unknown) => unknown>;
+  // Like Workflow DevKit, use the codec of the error's own class.
+  const serde = error.constructor as unknown as Record<symbol, (value: unknown) => unknown>;
   return serde[WORKFLOW_DESERIALIZE](JSON.parse(JSON.stringify(serde[WORKFLOW_SERIALIZE](error)))) as MuxAiError;
 }
 

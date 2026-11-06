@@ -1,5 +1,5 @@
 import { getMuxClientFromEnv } from "../lib/client-factory.ts";
-import { LegacyMuxAiError } from "../lib/mux-ai-error.ts";
+import { LegacyMuxAiError } from "../lib/legacy-mux-ai-error.ts";
 import type { WorkflowCredentialsInput } from "../types.ts";
 
 import type { AssetShots } from "@mux/ts/resources/video/assets";

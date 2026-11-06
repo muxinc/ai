@@ -12,7 +12,7 @@ import {
   withContentPolicyAwareRetry,
   withContentPolicyErrorHandling,
 } from "../../src/lib/content-policy-error.ts";
-import { legacyWrapError } from "../../src/lib/mux-ai-error.ts";
+import { legacyWrapError } from "../../src/lib/legacy-mux-ai-error.ts";
 import { withRetry } from "../../src/lib/retry.ts";
 
 function createApiCallError(responseBody: string) {

@@ -1,5 +1,6 @@
+import { isLegacyMuxAiError } from "./legacy-mux-ai-error.ts";
 import type { ClassifiedError, MuxAiErrorCode, MuxAiErrorFacts, MuxAiErrorFactValue, MuxAiErrorType } from "./mux-ai-error.ts";
-import { isLegacyMuxAiError, MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES } from "./mux-ai-error.ts";
+import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES } from "./mux-ai-error.ts";
 import { legacyMp4SupportTooLargeMessage, legacyMp4SupportUnusableMessage } from "./mux-static-renditions.ts";
 import type { TextTrackSummary } from "./mux-tracks.ts";
 import { describeTrackSummaries } from "./mux-tracks.ts";

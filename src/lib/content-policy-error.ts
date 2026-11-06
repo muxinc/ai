@@ -3,7 +3,8 @@ import { z } from "zod";
 
 import type { TokenUsage } from "../types.ts";
 
-import { LegacyMuxAiError, MuxAiError } from "./mux-ai-error.ts";
+import { LegacyMuxAiError } from "./legacy-mux-ai-error.ts";
+import { MuxAiError } from "./mux-ai-error.ts";
 import { withRetry } from "./retry.ts";
 import type { RetryOptions } from "./retry.ts";
 import { aggregateTokenUsage, getErrorTokenUsage, rethrowWithTokenUsage } from "./token-usage.ts";
