@@ -119,7 +119,8 @@ export interface AudioTranslationOptions extends MuxAIOptions {
    * When true the dub's translated transcript (the same translation that was
    * voiced) is attached as a subtitles text track on the Mux asset. Implies
    * `uploadToS3: true`. Defaults to false. Existing text tracks are handled
-   * according to `replaceExistingTracks`, checked before dubbing starts.
+   * according to `captionsReplaceExistingTracks` (falling back to
+   * `replaceExistingTracks`), checked before dubbing starts.
    */
   uploadCaptionsToMux?: boolean;
   /** Subtitle name override. Defaults to `trackName`, then the generated audio track name. */
@@ -135,7 +136,8 @@ export interface AudioTranslationOptions extends MuxAIOptions {
   replaceExistingTracks?: ReplaceExistingTracksPolicy;
   /**
    * Name for the created Mux tracks. Audio and text tracks are separate name
-   * groups, so the same name is used for both. Defaults to
+   * groups, so the same name is used unless `captionsTrackName` overrides
+   * the subtitle name. Defaults to
    * "<Language> (Auto-dubbed)", e.g. "Spanish (Auto-dubbed)".
    */
   trackName?: string;
