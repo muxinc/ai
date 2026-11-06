@@ -73,7 +73,7 @@ npm run basic abc123 "Describe the primary subject.|*" --free-form-max-length 20
 npm run basic abc123 "Are there people visible in this video?" --no-transcript
 
 # Use a specific model
-npm run basic abc123 "Is this video shot outdoors?" --model gpt-5-mini
+npm run basic abc123 "Is this video shot outdoors?" --model gpt-5.6-terra
 ```
 
 ### Multiple Questions Example
