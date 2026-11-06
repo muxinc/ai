@@ -27,7 +27,7 @@ program
 
     const providers = [
       { name: "OpenAI", provider: "openai" as const, model: "gpt-5.6-luna" },
-      { name: "Anthropic", provider: "anthropic" as const, model: "claude-sonnet-4-5" },
+      { name: "Anthropic", provider: "anthropic" as const, model: "claude-sonnet-5-5" },
       { name: "Google", provider: "google" as const, model: "gemini-3-flash-preview" },
     ];
 
