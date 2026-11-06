@@ -107,6 +107,7 @@ A remote service reached over the network. Libraries running in-process are neve
 |---|---|---|---|---|---|
 | `invalid_scope` | `validation_error` | `request` |  | yes | The requested time range is invalid, or has nothing to work with. Facts: `reason` (`invalid_start_time`, `invalid_end_time`, `exceeds_duration`, `empty_range`, `no_video`, `no_transcript`) and the bounds involved. |
 | `track_replacement_blocked` | `validation_error` | `request` |  | yes | Existing tracks block writing the output track under the chosen replacement policy. Facts: `reason` (`policy_fail`, `not_generated`, `name_collision`, `primary_audio`), `conflictingTracks` and the target track. |
+| `parameter_out_of_range` | `validation_error` | `request` |  | yes | A numeric option is outside its allowed range. Facts: `parameter` (the caller's option name), `value`, `min`, `max`, and `integer` when it must be a whole number. |
 | `caption_track_not_found` | `validation_error` | `asset` |  | yes | No ready caption track matches the requested track or language. Facts: `trackId` or `languageCode`, and what is available. |
 | `playback_id_not_found` | `validation_error` | `asset` |  | yes | The asset has no public or signed playback ID (DRM-only assets included). |
 | `transcript_empty` | `validation_error` | `asset` |  | yes | The transcript has no usable content. |
@@ -261,6 +262,6 @@ Don't add one for differences that facts already carry: the vendor (`dependency`
 
 ### When to make a code public
 
-Map a code in `MUX_AI_ERROR_PUBLIC_MAPPINGS` when end users can act on it or need to know it. Allow only facts that are safe to show and useful to them, and write wording that doesn't name SDK options, internal calls or vendors' internals. Internal codes still reach end users through the generic wording, so leaving a code internal never hides that a failure happened.
+Map a code in `MUX_AI_ERROR_PUBLIC_MAPPINGS` when end users can act on it or need to know it. Allow only facts that are safe to show and useful to them, and write wording that doesn't name internal calls or vendors' internals. Name an SDK option only when the option itself is the subject, as in `parameter_out_of_range`; a consumer that exposes its own names for options overrides that code's wording. Internal codes still reach end users through the generic wording, so leaving a code internal never hides that a failure happened.
 
 **Don't drop facts end users could use.** When a failure's facts include details that are safe and useful for end users (the asset it was about, the limit that was exceeded, the language that isn't supported), the public view must carry them: give the condition a public code whose wording uses them, rather than letting generic wording drop them. Leave a code internal only when none of its facts are appropriate for end users (credentials, configuration names, provider or model names, raw provider text) or the condition can't reach them.

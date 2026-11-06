@@ -702,9 +702,10 @@ async function generateEngagementInsightsInternal(
 
   if (!Number.isInteger(hotspotLimit) || hotspotLimit < 1 || hotspotLimit > 10) {
     throw new MuxAiError("hotspotLimit must be an integer between 1 and 10.", {
+      code: MUX_AI_ERROR_CODES.PARAMETER_OUT_OF_RANGE,
       type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
       source: MUX_AI_ERROR_SOURCES.REQUEST,
-      facts: { parameter: "hotspotLimit", value: hotspotLimit, min: 1, max: 10 },
+      facts: { parameter: "hotspotLimit", value: hotspotLimit, min: 1, max: 10, integer: true },
     });
   }
 

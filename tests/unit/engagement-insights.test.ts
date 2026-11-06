@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { isLegacyMuxAiError } from "../../src/lib/legacy-mux-ai-error";
 import { MuxAiError } from "../../src/lib/mux-ai-error";
-import { MUX_AI_ERROR_GENERIC_MESSAGES, toPublicError } from "../../src/lib/public-error";
+import { toPublicError } from "../../src/lib/public-error";
 import type { Hotspot } from "../../src/primitives/hotspots";
 import type { Shot } from "../../src/primitives/shots";
 import type { MuxAsset } from "../../src/types";
@@ -117,12 +117,13 @@ describe("generateEngagementInsights failures", () => {
     expect(error).toMatchObject({
       type: "validation_error",
       source: "request",
-      facts: { parameter: "hotspotLimit", value: 11, min: 1, max: 10 },
+      code: "parameter_out_of_range",
+      facts: { parameter: "hotspotLimit", value: 11, min: 1, max: 10, integer: true },
       retryable: false,
       name: "FatalError",
     });
     expect(isLegacyMuxAiError(error)).toBe(false);
-    expect(toPublicError(error).message).toBe(MUX_AI_ERROR_GENERIC_MESSAGES.request);
+    expect(toPublicError(error)).toMatchObject({ code: "parameter_out_of_range", message: "hotspotLimit must be an integer between 1 and 10 (received 11)." });
   });
 
   it("rejects an asset without a duration as the asset's state", async () => {

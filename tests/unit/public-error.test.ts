@@ -144,6 +144,7 @@ describe("toPublicError", () => {
       "invalid_scope",
       "model_output_invalid",
       "model_output_missing",
+      "parameter_out_of_range",
       "playback_id_not_found",
       "static_rendition_failed",
       "static_rendition_unsupported",

@@ -132,6 +132,11 @@ export const MUX_AI_ERROR_PUBLIC_MAPPINGS = {
   [MUX_AI_ERROR_CODES.TRANSCRIPT_EMPTY]: {
     message: "The transcript has no usable content.",
   },
+  // Names the caller's own option; a consumer that exposes different names overrides the wording.
+  [MUX_AI_ERROR_CODES.PARAMETER_OUT_OF_RANGE]: {
+    facts: ["parameter", "value", "min", "max", "integer"],
+    message: facts => `${text(facts.parameter) || "A parameter"} must be ${facts.integer ? "an integer " : ""}between ${text(facts.min)} and ${text(facts.max)}${facts.value === undefined ? "" : ` (received ${text(facts.value)})`}.`,
+  },
   [MUX_AI_ERROR_CODES.ASSET_DURATION_UNAVAILABLE]: {
     facts: ["assetId"],
     message: facts => (facts.assetId ? `Asset ${text(facts.assetId)} has no valid duration.` : "The asset has no valid duration."),
