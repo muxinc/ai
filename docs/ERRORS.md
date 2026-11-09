@@ -179,6 +179,8 @@ A module not yet on this model raises legacy errors: `MuxAiError`s whose message
 
 They also have a `type` and an approximate `source`, but no `code` or `facts`. Code handling them by those older fields keeps working until its module moves; new code should use `type`, `source` and `code`, and `toPublicError()` for end-user text.
 
+Inside the SDK, code that inspects an error must handle classified and legacy errors alike (`MuxAiError.is()`, `type`, `retryable`, `code`), since a module it calls may move at any time. A lint rule bans `isLegacyMuxAiError()` and the legacy fields outside the error modules.
+
 As each module moves, its failures become classified errors, and its plain `throw new Error(...)` failures become classified too. The legacy fields go away when the last module has moved.
 
 ## Building your own errors on the same model
@@ -239,6 +241,7 @@ const toPublic = createPublicErrorView<string, string>({
 Helpers:
 
 - **Remote calls:** classify where the call is made, while the status is still in hand. `dependencyError()` (in `dependency-error.ts`) turns a status into a source and retry policy: no response, 408, 425, 429 and 5xx are `upstream` and transient; 401/403 and 404 take the source the caller chooses (`authSource`, `notFoundSource`); other 4xx are `internal`, a request we built. It records `call`, `status` and `requestId`, and takes `idempotent: false` for calls that may have taken effect (a create), so a no-response or 5xx failure isn't step-retried. `dependencyErrorFrom()` does the same for an error thrown by an SDK client, reading its status.
+- **Model calls:** pass a `ModelCallContext` (`call`, `provider`, `model`) to `withContentPolicyErrorHandling()`, `withContentPolicyAwareRetry()` and `getGeneratedOutputWithContentPolicyHandling()`. The call's failures then carry those facts, and provider API errors and unparseable or missing output are classified where they happen. Without one, those failures stay the AI SDK's raw errors, so a caller that inspects raw errors itself must handle classified ones before it passes a context.
 - **This code's own failures:** `internalError()` and `assertNever()`.
 - **Passing errors up:** `wrapError()` passes a classified error through, merging facts, and turns anything unclassified into an `internal` failure.
 

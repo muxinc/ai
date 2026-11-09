@@ -1,3 +1,4 @@
+import { assertNever } from "../lib/mux-ai-error.ts";
 import type { ChunkingStrategy, TextChunk } from "../types.ts";
 
 import type { VTTCue } from "./transcripts.ts";
@@ -378,8 +379,7 @@ export function chunkText(text: string, strategy: ChunkingStrategy): TextChunk[]
       return chunkByTokens(text, strategy.maxTokens, strategy.overlap ?? 0);
     }
     default: {
-      const exhaustiveCheck: never = strategy as never;
-      throw new Error(`Unsupported chunking strategy: ${exhaustiveCheck}`);
+      assertNever((strategy as { type: string }).type as never, "chunking strategy");
     }
   }
 }

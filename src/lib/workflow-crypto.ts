@@ -8,6 +8,8 @@
 
 import { gcm } from "@noble/ciphers/aes.js";
 
+import { internalError } from "./mux-ai-error.ts";
+
 const BASE64_CHUNK_SIZE = 0x8000;
 const BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 const BASE64_LOOKUP = (() => {
@@ -52,7 +54,7 @@ export type Encrypted<T> = EncryptedPayload & { __type?: T };
 function getWebCrypto(): NonNullable<typeof globalThis.crypto> {
   const webCrypto = globalThis.crypto;
   if (!webCrypto || typeof webCrypto.getRandomValues !== "function") {
-    throw new Error("Web Crypto API is required in workflow functions.");
+    throw internalError("Web Crypto API is required in workflow functions.");
   }
   return webCrypto;
 }
@@ -98,7 +100,7 @@ function normalizeBase64Input(value: string): string {
 
 function base64ToBytes(value: string, label: string): Uint8Array {
   if (!value) {
-    throw new Error(`${label} is missing`);
+    throw internalError(`${label} is missing`);
   }
   const normalized = normalizeBase64Input(value);
   const atobImpl = typeof globalThis.atob === "function" ? globalThis.atob.bind(globalThis) : undefined;
@@ -107,10 +109,10 @@ function base64ToBytes(value: string, label: string): Uint8Array {
     try {
       binary = atobImpl(normalized);
     } catch {
-      throw new Error(`${label} is not valid base64`);
+      throw internalError(`${label} is not valid base64`);
     }
     if (!binary) {
-      throw new Error(`${label} decoded to empty value`);
+      throw internalError(`${label} decoded to empty value`);
     }
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) {
@@ -120,7 +122,7 @@ function base64ToBytes(value: string, label: string): Uint8Array {
   }
 
   if (normalized.length % 4 !== 0) {
-    throw new Error(`${label} is not valid base64`);
+    throw internalError(`${label} is not valid base64`);
   }
 
   const padding = normalized.endsWith("==") ? 2 : normalized.endsWith("=") ? 1 : 0;
@@ -135,7 +137,7 @@ function base64ToBytes(value: string, label: string): Uint8Array {
     const c3 = normalized.charCodeAt(i + 3);
 
     if (c0 === 61 || c1 === 61) {
-      throw new Error(`${label} is not valid base64`);
+      throw internalError(`${label} is not valid base64`);
     }
 
     const n0 = BASE64_LOOKUP[c0] ?? 255;
@@ -144,7 +146,7 @@ function base64ToBytes(value: string, label: string): Uint8Array {
     const n3 = c3 === 61 ? 0 : (BASE64_LOOKUP[c3] ?? 255);
 
     if (n0 === 255 || n1 === 255 || n2 === 255 || n3 === 255) {
-      throw new Error(`${label} is not valid base64`);
+      throw internalError(`${label} is not valid base64`);
     }
 
     const triple = (n0 << 18) | (n1 << 12) | (n2 << 6) | n3;
@@ -158,7 +160,7 @@ function base64ToBytes(value: string, label: string): Uint8Array {
   }
 
   if (!bytes.length) {
-    throw new Error(`${label} decoded to empty value`);
+    throw internalError(`${label} decoded to empty value`);
   }
 
   return bytes;
@@ -170,7 +172,7 @@ function payloadBase64ToBytes(value: string, field: string): Uint8Array {
     return base64ToBytes(value, field);
   } catch (error) {
     const detail = error instanceof Error ? error.message : `${field} is invalid`;
-    throw new Error(`Invalid encrypted payload: ${detail}`);
+    throw internalError(`Invalid encrypted payload: ${detail}`, { field }, error);
   }
 }
 
@@ -182,14 +184,14 @@ function normalizeKey(key: Uint8Array | string): Uint8Array {
       keyBytes = base64ToBytes(key, "value");
     } catch (error) {
       const detail = error instanceof Error ? error.message : "value is not valid base64";
-      throw new Error(`Invalid workflow secret key: ${detail}. Expected 32-byte base64 value.`);
+      throw internalError(`Invalid workflow secret key: ${detail}. Expected 32-byte base64 value.`, undefined, error);
     }
   } else {
     keyBytes = new Uint8Array(key);
   }
 
   if (keyBytes.length !== 32) {
-    throw new Error(`Invalid workflow secret key: expected 32 bytes, got ${keyBytes.length}.`);
+    throw internalError(`Invalid workflow secret key: expected 32 bytes, got ${keyBytes.length}.`, { keyLength: keyBytes.length });
   }
 
   return keyBytes;
@@ -214,22 +216,22 @@ export function isEncryptedPayload(value: unknown): value is EncryptedPayload {
 /** Validates payload structure and cryptographic parameters before decryption */
 function assertEncryptedPayload(payload: EncryptedPayload): void {
   if (payload.v !== WORKFLOW_ENCRYPTION_VERSION) {
-    throw new Error("Invalid encrypted payload: unsupported version.");
+    throw internalError("Invalid encrypted payload: unsupported version.");
   }
 
   if (payload.alg !== WORKFLOW_ENCRYPTION_ALGORITHM) {
-    throw new Error("Invalid encrypted payload: unsupported algorithm.");
+    throw internalError("Invalid encrypted payload: unsupported algorithm.");
   }
 
   const iv = payloadBase64ToBytes(payload.iv, "iv");
   const tag = payloadBase64ToBytes(payload.tag, "tag");
 
   if (iv.length !== IV_LENGTH_BYTES) {
-    throw new Error("Invalid encrypted payload: iv length mismatch.");
+    throw internalError("Invalid encrypted payload: iv length mismatch.");
   }
 
   if (tag.length !== AUTH_TAG_LENGTH_BYTES) {
-    throw new Error("Invalid encrypted payload: tag length mismatch.");
+    throw internalError("Invalid encrypted payload: tag length mismatch.");
   }
 
   payloadBase64ToBytes(payload.ciphertext, "ciphertext");
@@ -257,7 +259,7 @@ export async function encryptForWorkflow<T>(
   try {
     serialized = JSON.stringify(value);
   } catch {
-    throw new Error("Failed to serialize value for encryption.");
+    throw internalError("Failed to serialize value for encryption.");
   }
 
   const encoder = new TextEncoder();
@@ -289,7 +291,7 @@ export async function decryptFromWorkflow<T>(
   key: Uint8Array | string,
 ): Promise<T> {
   if (!isEncryptedPayload(payload)) {
-    throw new Error("Invalid encrypted payload.");
+    throw internalError("Invalid encrypted payload.");
   }
 
   assertEncryptedPayload(payload);
@@ -308,13 +310,13 @@ export async function decryptFromWorkflow<T>(
     plaintext = gcm(keyBytes, iv).decrypt(combined);
   } catch (error) {
     const message = (error as { message?: string } | undefined)?.message;
-    throw new Error(`Failed to decrypt workflow payload. ${message ?? String(error)}`);
+    throw internalError(`Failed to decrypt workflow payload. ${message ?? String(error)}`, undefined, error);
   }
 
   try {
     const decoder = new TextDecoder();
     return JSON.parse(decoder.decode(plaintext)) as T;
   } catch {
-    throw new Error("Failed to parse decrypted payload.");
+    throw internalError("Failed to parse decrypted payload.");
   }
 }

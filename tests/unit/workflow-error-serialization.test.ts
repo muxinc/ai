@@ -78,10 +78,11 @@ describe("sDK errors across Workflow step boundaries", () => {
     const restored = await hydrateStepError(bytes, "wrun_offline", undefined, workflow.global);
     expect(workflow.isIncompleteGenerationError(restored)).toBe(true);
     expect(restored).toMatchObject({
-      __robots_error: true,
       name: "FatalError",
-      publicType: "processing_error",
-      publicMessage: error.publicMessage,
+      type: "processing_error",
+      code: "model_output_truncated",
+      source: "internal",
+      message: error.message,
       retryable: false,
       finishReason: "length",
       rawFinishReason: "MAX_TOKENS",

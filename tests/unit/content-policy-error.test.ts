@@ -138,8 +138,9 @@ describe("content policy errors", () => {
       throw error;
     })).rejects.toMatchObject({
       name: "FatalError",
-      publicType: "content_policy_error",
-      publicMessage: "The supplied content was blocked by a content policy (reason: PROHIBITED_CONTENT).",
+      type: "content_policy_error",
+      code: "content_policy_blocked",
+      message: "The supplied content was blocked by a content policy (reason: PROHIBITED_CONTENT).",
       retryable: false,
     });
   });
@@ -167,7 +168,8 @@ describe("content policy errors", () => {
       baseDelay: 0,
       maxDelay: 0,
     })).rejects.toMatchObject({
-      publicType: "content_policy_error",
+      type: "content_policy_error",
+      code: "content_policy_blocked",
       retryable: false,
     });
 
@@ -200,7 +202,8 @@ describe("content policy errors", () => {
       attempts++;
       throw error;
     }, { maxRetries: 3, baseDelay: 0, maxDelay: 0 })).rejects.toMatchObject({
-      publicType: "content_policy_error",
+      type: "content_policy_error",
+      code: "content_policy_blocked",
       retryable: false,
       usage: { totalTokens: kind === "structured-output" ? 10 : 12 },
     });
@@ -274,7 +277,8 @@ describe("content policy errors", () => {
     }).catch(error => error);
 
     expect(normalizedError).toMatchObject({
-      publicType: "content_policy_error",
+      type: "content_policy_error",
+      code: "content_policy_blocked",
       usage: {
         inputTokens: 10,
         outputTokens: 0,
@@ -302,7 +306,8 @@ describe("content policy errors", () => {
     }).catch(error => error);
 
     expect(normalizedError).toMatchObject({
-      publicType: "content_policy_error",
+      type: "content_policy_error",
+      code: "content_policy_blocked",
       usage: {
         inputTokens: 100,
         outputTokens: 6,
@@ -340,8 +345,9 @@ describe("content policy errors", () => {
     }).catch(error => error);
 
     expect(normalizedError).toMatchObject({
-      publicType: "content_policy_error",
-      publicMessage: "The supplied content was blocked by a content policy (reason: PROHIBITED_CONTENT).",
+      type: "content_policy_error",
+      code: "content_policy_blocked",
+      message: "The supplied content was blocked by a content policy (reason: PROHIBITED_CONTENT).",
       retryable: false,
       usage: {
         inputTokens: 100,
@@ -377,8 +383,9 @@ describe("content policy errors", () => {
 
     expect(outputRead).toBe(false);
     expect(normalizedError).toMatchObject({
-      publicType: "content_policy_error",
-      publicMessage: "The supplied content was blocked by a content policy (reason: PROHIBITED_CONTENT).",
+      type: "content_policy_error",
+      code: "content_policy_blocked",
+      message: "The supplied content was blocked by a content policy (reason: PROHIBITED_CONTENT).",
       retryable: false,
       usage: response.usage,
     });
@@ -403,8 +410,9 @@ describe("content policy errors", () => {
     expect(isIncompleteGenerationError(error)).toBe(true);
     expect(error).toMatchObject({
       name: "FatalError",
-      publicType: "processing_error",
-      publicMessage: "The model reached its output limit before producing a complete response (finish reason: MAX_TOKENS).",
+      type: "processing_error",
+      code: "model_output_truncated",
+      message: "The model reached its output limit before producing a complete response (finish reason: MAX_TOKENS).",
       retryable: false,
       finishReason: "length",
       rawFinishReason: "MAX_TOKENS",
@@ -420,7 +428,7 @@ describe("content policy errors", () => {
     }));
 
     expect(error).toMatchObject({
-      publicMessage: "The model stopped before producing a complete response (finish reason: error).",
+      message: "The model stopped before producing a complete response (finish reason: error).",
       retryable: true,
       finishReason: "error",
       rawFinishReason: undefined,

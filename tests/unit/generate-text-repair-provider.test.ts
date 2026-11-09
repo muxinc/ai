@@ -85,7 +85,8 @@ describe("production repair through the real AI SDK provider", () => {
   it("retains provider usage and stops when the real adapter receives incomplete repair output", async () => {
     state.failure = "length";
     await expect(generateText("asset-test", { artifacts: [{ key: "post", channel: "x" }] })).rejects.toMatchObject({
-      publicType: "processing_error",
+      type: "processing_error",
+      code: "model_output_truncated",
       retryable: false,
       usage: { totalTokens: 330, cacheWriteTokens: 90 },
     });
@@ -94,7 +95,8 @@ describe("production repair through the real AI SDK provider", () => {
   it.each(["filter", "refusal", "refusal-with-reasoning"] as const)("preserves %s policy classification and usage with one repair request", async (failure) => {
     state.failure = failure;
     await expect(generateText("asset-test", { artifacts: [{ key: "post", channel: "x" }] })).rejects.toMatchObject({
-      publicType: "content_policy_error",
+      type: "content_policy_error",
+      code: "content_policy_blocked",
       retryable: false,
       usage: { totalTokens: 330, cachedInputTokens: 60, cacheWriteTokens: 90 },
     });
@@ -133,7 +135,8 @@ describe("production repair through the real AI SDK provider", () => {
   it("normalizes a truncated JSON exception before generateText can return, retaining usage", async () => {
     state.failure = "truncated-json";
     await expect(generateText("asset-test", { artifacts: [{ key: "post", channel: "x" }] })).rejects.toMatchObject({
-      publicType: "processing_error",
+      type: "processing_error",
+      code: "model_output_truncated",
       retryable: false,
       finishReason: "length",
       usage: { totalTokens: 330, cacheWriteTokens: 90 },
@@ -144,7 +147,8 @@ describe("production repair through the real AI SDK provider", () => {
   it("normalizes an OpenAI API policy failure before recording the repair error", async () => {
     state.failure = "policy";
     await expect(generateText("asset-test", { artifacts: [{ key: "post", channel: "x" }] })).rejects.toMatchObject({
-      publicType: "content_policy_error",
+      type: "content_policy_error",
+      code: "content_policy_blocked",
       retryable: false,
       usage: { totalTokens: 220 },
     });

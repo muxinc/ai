@@ -1,5 +1,7 @@
+import { dependencyError, requestIdOf } from "../lib/dependency-error.ts";
 import { isUndeterminedLanguageCode } from "../lib/language-codes.ts";
-import { LegacyMuxAiError, legacyWrapError } from "../lib/legacy-mux-ai-error.ts";
+import type { MuxAiErrorFacts } from "../lib/mux-ai-error.ts";
+import { internalError, MUX_AI_ERROR_CODES, MUX_AI_ERROR_DEPENDENCIES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import { isAudioOnlyAsset } from "../lib/mux-assets.ts";
 import { getMuxStreamOrigin } from "../lib/mux-url.ts";
 import { normalizeUntrustedUnicode } from "../lib/output-safety.ts";
@@ -733,7 +735,7 @@ export function replaceCueText(cueBlock: string, translatedText: string): string
   const timingLineIndex = lines.findIndex(line => line.includes("-->"));
 
   if (timingLineIndex === -1) {
-    throw new Error("Cue block is missing a timestamp line");
+    throw internalError("Cue block is missing a timestamp line");
   }
 
   const headerLines = lines.slice(0, timingLineIndex + 1);
@@ -751,7 +753,10 @@ export function buildVttFromTranslatedCueBlocks(
   preamble: string = "WEBVTT",
 ): string {
   if (cueBlocks.length !== translatedTexts.length) {
-    throw new Error(`Expected ${cueBlocks.length} translated cues, received ${translatedTexts.length}`);
+    throw internalError(`Expected ${cueBlocks.length} translated cues, received ${translatedTexts.length}`, {
+      expectedCueCount: cueBlocks.length,
+      receivedCueCount: translatedTexts.length,
+    });
   }
 
   return buildVttFromCueBlocks(
@@ -823,13 +828,34 @@ export async function fetchTranscriptDataForUrl(
   "use step";
   const { cleanTranscript = true, scope } = options;
 
+  // Only the fetch is classified as a Mux failure. Transient failures (no
+  // response, 429, 5xx) stay `transient` so Workflow DevKit retries the step.
+  let rawVtt: string;
   try {
     const response = await fetch(transcriptUrl);
     if (!response.ok) {
-      throw new Error(`Failed to fetch transcript (HTTP ${response.status})`);
+      throw dependencyError(`Failed to fetch transcript (HTTP ${response.status})`, {
+        dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO,
+        call: "fetch_transcript",
+        status: response.status,
+        requestId: requestIdOf(response.headers),
+        notFoundSource: MUX_AI_ERROR_SOURCES.ASSET,
+        authSource: MUX_AI_ERROR_SOURCES.ACCOUNT,
+      });
     }
+    rawVtt = await response.text();
+  } catch (error) {
+    if (MuxAiError.is(error)) {
+      throw error;
+    }
+    throw dependencyError("Failed to fetch transcript", {
+      dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO,
+      call: "fetch_transcript",
+      cause: error,
+    });
+  }
 
-    const rawVtt = await response.text();
+  try {
     const effectiveScope = hasWorkflowScopeBoundaries(scope) ? scope : undefined;
     const scopedVtt = filterVttByScope(rawVtt, effectiveScope);
     const transcriptText = cleanTranscript ? extractTextFromVTT(scopedVtt) : scopedVtt;
@@ -844,7 +870,7 @@ export async function fetchTranscriptDataForUrl(
 
     return { transcriptText };
   } catch (error) {
-    legacyWrapError(error, "Failed to fetch transcript");
+    wrapError(error, "Failed to parse transcript");
   }
 }
 
@@ -860,11 +886,15 @@ export async function fetchTranscriptForAsset(
     if (required) {
       const availableLanguages = getReadyTextTracks(asset)
         .map(t => t.language_code)
-        .filter(Boolean)
-        .join(", ");
-      throw new LegacyMuxAiError(
-        `No caption track found${languageCode ? ` for language ${languageCode}` : ""}. Available languages: ${availableLanguages || "none"}.`,
-        { type: "validation_error" },
+        .filter((code): code is string => Boolean(code));
+      throw new MuxAiError(
+        `No caption track found${languageCode ? ` for language ${languageCode}` : ""}. Available languages: ${availableLanguages.join(", ") || "none"}.`,
+        {
+          code: MUX_AI_ERROR_CODES.CAPTION_TRACK_NOT_FOUND,
+          type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+          source: MUX_AI_ERROR_SOURCES.ASSET,
+          facts: { ...(languageCode && { languageCode }), availableLanguages },
+        },
       );
     }
     return { transcriptText: "" };
@@ -872,7 +902,15 @@ export async function fetchTranscriptForAsset(
 
   if (!track.id) {
     if (required) {
-      throw new LegacyMuxAiError("Transcript track is missing an id.", { type: "validation_error" });
+      // The track came from the Mux asset payload without an id.
+      throw new MuxAiError("Transcript track is missing an id.", {
+        type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+        source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+        dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO,
+        facts: { call: "get_asset" },
+        // Not retryable: the same asset returns the same payload.
+        retryable: false,
+      });
     }
     return { transcriptText: "", track };
   }
@@ -883,10 +921,10 @@ export async function fetchTranscriptForAsset(
   try {
     result = await fetchTranscriptDataForUrl(transcriptUrl, { cleanTranscript, scope });
   } catch (error) {
-    // The step only throws an error for transient network errors that have
-    // exhausted WDK's retries. Swallow the error if the transcript is not required.
+    // Transient fetch failures reach here only after exhausting WDK's step
+    // retries. Swallow the error if the transcript is not required.
     if (required) {
-      throw error;
+      wrapError(error, "Failed to fetch transcript", { trackId: track.id });
     }
     console.warn("Failed to fetch transcript:", error);
     return { transcriptText: "", transcriptUrl, track };
@@ -901,8 +939,27 @@ export async function fetchTranscriptForAsset(
   // generic Error at the step boundary.
   switch (result.emptyReason) {
     case "no_scoped_cues":
-      throw new LegacyMuxAiError("Transcript has no cues in the requested scope.", { type: "validation_error" });
+      // The caller chose the window, so this is the scope's problem, not the transcript's.
+      throw new MuxAiError("Transcript has no cues in the requested scope.", {
+        code: MUX_AI_ERROR_CODES.INVALID_SCOPE,
+        type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+        source: MUX_AI_ERROR_SOURCES.REQUEST,
+        facts: { reason: "no_transcript", trackId: track.id, ...scopeFacts(scope) },
+      });
     case "empty_body":
-      throw new LegacyMuxAiError("Transcript is empty.", { type: "validation_error" });
+      throw new MuxAiError("Transcript is empty.", {
+        code: MUX_AI_ERROR_CODES.TRANSCRIPT_EMPTY,
+        type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+        source: MUX_AI_ERROR_SOURCES.ASSET,
+        facts: { trackId: track.id, reason: result.emptyReason },
+      });
   }
+}
+
+/** The requested scope's bounds, for an error's facts. */
+function scopeFacts(scope: WorkflowScope | undefined): MuxAiErrorFacts {
+  return {
+    ...(scope?.startTime !== undefined && { startTime: scope.startTime }),
+    ...(scope?.endTime !== undefined && { endTime: scope.endTime }),
+  };
 }

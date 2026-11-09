@@ -16,6 +16,7 @@ import type {
   WorkflowMuxClient,
 } from "../types.ts";
 
+import { internalError } from "./mux-ai-error.ts";
 import type { SigningContext } from "./url-signing.ts";
 import { decryptFromWorkflow, isEncryptedPayload } from "./workflow-crypto.ts";
 
@@ -69,8 +70,9 @@ async function shouldEnforceEncryptedCredentials(): Promise<boolean> {
 function getWorkflowSecretKeyFromEnv(): string {
   const key = env.MUX_AI_WORKFLOW_SECRET_KEY;
   if (!key) {
-    throw new Error(
+    throw internalError(
       "Workflow secret key is required. Set MUX_AI_WORKFLOW_SECRET_KEY environment variable.",
+      { setting: "MUX_AI_WORKFLOW_SECRET_KEY" },
     );
   }
   return key;
@@ -90,7 +92,7 @@ async function resolveProviderCredentials(): Promise<WorkflowCredentials | undef
   }
 
   if (typeof provided !== "object") {
-    throw new TypeError("Workflow credentials provider must return an object.");
+    throw internalError("Workflow credentials provider must return an object.");
   }
 
   return provided;
@@ -127,13 +129,15 @@ export async function resolveWorkflowCredentials(
       );
       return { ...resolved, ...decrypted };
     } catch (error) {
+      // Every workflow-crypto failure (and a missing secret key) lands here. A key
+      // mismatch or tampered payload is a deployment problem, never the caller's.
       const detail = error instanceof Error ? error.message : "Unknown error.";
-      throw new Error(`Failed to decrypt workflow credentials. ${detail}`);
+      throw internalError(`Failed to decrypt workflow credentials. ${detail}`, undefined, error);
     }
   }
 
   if (await shouldEnforceEncryptedCredentials()) {
-    throw new Error(
+    throw internalError(
       "Plaintext workflow credentials are not allowed when using Workflow Dev Kit." +
       " Pass encrypted credentials (encryptForWorkflow) or resolve secrets via environment variables.",
     );
@@ -168,8 +172,9 @@ function resolveDirectMuxCredentials(record: Record<string, unknown> | undefined
   }
 
   if ((!tokenId || !tokenSecret) && !authorizationToken) {
-    throw new Error(
+    throw internalError(
       "Both muxTokenId and muxTokenSecret are required when passing direct Mux workflow credentials.",
+      { setting: "muxTokenId/muxTokenSecret" },
     );
   }
 
@@ -228,8 +233,9 @@ export async function resolveMuxClient(
   const muxTokenSecret = env.MUX_TOKEN_SECRET;
 
   if (!muxTokenId || !muxTokenSecret) {
-    throw new Error(
+    throw internalError(
       "Mux credentials are required. Provide muxTokenId/muxTokenSecret via workflow credentials, or set MUX_TOKEN_ID and MUX_TOKEN_SECRET environment variables.",
+      { setting: "MUX_TOKEN_ID/MUX_TOKEN_SECRET" },
     );
   }
 
@@ -282,8 +288,9 @@ export function resolveProviderApiKeyFromCredentials(
       "elevenlabs": "ELEVENLABS_API_KEY",
     } as const satisfies Record<ApiKeyProvider, keyof Env>;
 
-    throw new Error(
+    throw internalError(
       `${provider} API key is required. Provide ${provider} credentials via workflow credentials or set ${envVarNames[provider]} environment variable.`,
+      { provider, setting: envVarNames[provider] },
     );
   }
 

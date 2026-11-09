@@ -10,7 +10,8 @@ import {
 import { getLanguageName } from "../lib/language-codes.ts";
 import { isLegacyMuxAiError, LegacyMuxAiError, legacyWrapError } from "../lib/legacy-mux-ai-error.ts";
 import { withModelCallDiagnostics } from "../lib/model-call-diagnostics.ts";
-import type { ModelCallDiagnostics, MuxAiError } from "../lib/mux-ai-error.ts";
+import type { ModelCallDiagnostics } from "../lib/mux-ai-error.ts";
+import { MuxAiError } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -888,8 +889,13 @@ async function generateArtifactWithModel(args: {
       let failure: Error;
       if (isIncompleteGenerationError(cause)) {
         failure = new IncompleteGenerationError(cause.finishReason, cause.rawFinishReason);
-      } else if (isLegacyMuxAiError(cause)) {
-        failure = new LegacyMuxAiError(cause.publicMessage, { type: cause.publicType, retryable: cause.retryable });
+      } else if (MuxAiError.is(cause)) {
+        // An SDK error (e.g. a content-policy refusal), classified or legacy, keeps its
+        // classification. Its own usage is already in usages.
+        cause.usage = undefined;
+        failure = cause;
+      } else if (isLegacyShaped(cause)) {
+        failure = rebuildLegacyShaped(cause);
       } else {
         const apiError = APICallError.isInstance(cause) ? cause : undefined;
         failure = new LegacyMuxAiError("Unable to complete text generation.", {
@@ -1124,4 +1130,18 @@ async function generateTextInternal(
     },
     safety: safety.report(),
   };
+}
+
+/**
+ * A consumer's own legacy-shaped error without the SDK's brand (e.g. one revived
+ * from a plain object), checked only after `MuxAiError.is()`.
+ */
+function isLegacyShaped(error: unknown): error is LegacyMuxAiError {
+  // eslint-disable-next-line no-restricted-syntax -- runs after MuxAiError.is(), so classified errors never reach it
+  return isLegacyMuxAiError(error);
+}
+
+function rebuildLegacyShaped(error: LegacyMuxAiError): LegacyMuxAiError {
+  // eslint-disable-next-line no-restricted-syntax -- the only fields a legacy-shaped error has
+  return new LegacyMuxAiError(error.publicMessage, { type: error.publicType, retryable: error.retryable });
 }

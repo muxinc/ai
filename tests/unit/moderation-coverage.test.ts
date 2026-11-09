@@ -686,8 +686,9 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
 
     expect(error).toBeInstanceOf(Error);
     expect(error.message).toContain("Failed to fetch transcript");
-    // A transient fetch failure is not a customer-safe validation error.
-    expect(MuxAiError.is(error)).toBe(false);
+    // A transient Mux failure, retried by the step runner, not a customer-safe validation error.
+    expect(MuxAiError.is(error)).toBe(true);
+    expect(error).toMatchObject({ type: "processing_error", source: "upstream", dependency: "mux_video", transient: true });
     // Surfaces are resolved before any provider call, so nothing was spent.
     expect(counts.image).toBe(0);
     expect(counts.transcript).toBe(0);

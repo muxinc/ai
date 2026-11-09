@@ -444,7 +444,7 @@ describe("generateText", () => {
   it("retains repair usage on incomplete output and stops the repair loop", async () => {
     queueGenerations(["x".repeat(281)]);
     vi.mocked(generateTextWithModel).mockResolvedValueOnce({ ...modelResponse({ p_0: "Fits." }, 15), finishReason: "length" });
-    await expect(generateText("asset-123", { artifacts: [{ key: "x_post", channel: "x" }] })).rejects.toMatchObject({ publicType: "processing_error", retryable: false, finishReason: "length", usage: { totalTokens: 125 } });
+    await expect(generateText("asset-123", { artifacts: [{ key: "x_post", channel: "x" }] })).rejects.toMatchObject({ type: "processing_error", code: "model_output_truncated", retryable: false, finishReason: "length", usage: { totalTokens: 125 } });
     expect(generateTextWithModel).toHaveBeenCalledTimes(3);
   });
 
@@ -474,7 +474,8 @@ describe("generateText", () => {
     } });
     vi.mocked(generateTextWithModel).mockResolvedValueOnce(response);
     await expect(generateText("asset-123", { artifacts: [{ key: "post", channel: "x" }] })).rejects.toMatchObject({
-      publicType: "content_policy_error",
+      type: "content_policy_error",
+      code: "content_policy_blocked",
       retryable: false,
       usage: { totalTokens: 125 },
     });

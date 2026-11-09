@@ -1,6 +1,7 @@
 import type { WorkflowScope } from "../types.ts";
 
-import { LegacyMuxAiError } from "./legacy-mux-ai-error.ts";
+import type { MuxAiErrorFacts } from "./mux-ai-error.ts";
+import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
 
 /** A workflow scope with both asset-relative boundaries resolved. */
 export interface ResolvedWorkflowScope {
@@ -17,6 +18,15 @@ export function hasWorkflowScopeBoundaries(
   return scope?.startTime !== undefined || scope?.endTime !== undefined;
 }
 
+function invalidScopeError(message: string, facts: MuxAiErrorFacts): MuxAiError {
+  return new MuxAiError(message, {
+    code: MUX_AI_ERROR_CODES.INVALID_SCOPE,
+    type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+    source: MUX_AI_ERROR_SOURCES.REQUEST,
+    facts,
+  });
+}
+
 /**
  * Validates a caller-provided scope and fills omitted boundaries from the
  * asset duration.
@@ -30,37 +40,42 @@ export function resolveWorkflowScope(
     !Number.isFinite(assetDurationSeconds) ||
     assetDurationSeconds <= 0
   ) {
-    throw new LegacyMuxAiError("Asset has no valid duration.", { type: "validation_error" });
+    throw new MuxAiError("Asset has no valid duration.", {
+      code: MUX_AI_ERROR_CODES.ASSET_DURATION_UNAVAILABLE,
+      type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+      source: MUX_AI_ERROR_SOURCES.ASSET,
+      facts: { assetDurationSeconds: assetDurationSeconds ?? null },
+    });
   }
 
   const startTime = scope?.startTime ?? 0;
   const endTime = scope?.endTime ?? assetDurationSeconds;
 
   if (!Number.isFinite(startTime) || startTime < 0) {
-    throw new LegacyMuxAiError(
+    throw invalidScopeError(
       `scope.startTime must be a finite, non-negative number (received ${startTime}).`,
-      { type: "validation_error" },
+      { reason: "invalid_start_time", field: "scope.startTime", received: String(startTime) },
     );
   }
 
   if (!Number.isFinite(endTime) || endTime < 0) {
-    throw new LegacyMuxAiError(
+    throw invalidScopeError(
       `scope.endTime must be a finite, non-negative number (received ${endTime}).`,
-      { type: "validation_error" },
+      { reason: "invalid_end_time", field: "scope.endTime", received: String(endTime) },
     );
   }
 
   if (endTime > assetDurationSeconds) {
-    throw new LegacyMuxAiError(
+    throw invalidScopeError(
       `scope.endTime (${endTime}) cannot exceed the asset duration (${assetDurationSeconds}).`,
-      { type: "validation_error" },
+      { reason: "exceeds_duration", field: "scope.endTime", endTime, assetDurationSeconds },
     );
   }
 
   if (startTime >= endTime) {
-    throw new LegacyMuxAiError(
+    throw invalidScopeError(
       `scope.startTime (${startTime}) must be less than scope.endTime (${endTime}).`,
-      { type: "validation_error" },
+      { reason: "empty_range", field: "scope.startTime", startTime, endTime },
     );
   }
 
@@ -95,8 +110,11 @@ export function resolveRenderableVideoScope(
   };
 
   if (renderableScope.startTime >= renderableScope.endTime) {
-    throw new LegacyMuxAiError("The requested scope does not include any renderable video.", {
-      type: "validation_error",
+    throw invalidScopeError("The requested scope does not include any renderable video.", {
+      reason: "no_video",
+      startTime: resolvedScope.startTime,
+      endTime: resolvedScope.endTime,
+      videoTrackDurationSeconds: videoTrackDurationSeconds ?? null,
     });
   }
 
