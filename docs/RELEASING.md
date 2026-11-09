@@ -7,7 +7,7 @@ and run from [`.github/workflows/publish.yml`](../.github/workflows/publish.yml)
 
 1. Every merge to `main` runs release-please. It reads the conventional commit
    titles merged since the last release and keeps one **release PR** open
-   (titled `chore: release <version>`). The PR bumps `package.json`,
+   (titled `chore(main): release <version>`). The PR bumps `package.json`,
    `package-lock.json` and the release-please manifest, and adds the release's
    entry to `CHANGELOG.md`. Each new merge to `main` updates it.
 2. **Merging the release PR is the release.** The same workflow run tags
