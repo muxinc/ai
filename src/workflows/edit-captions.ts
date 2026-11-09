@@ -6,9 +6,18 @@ import {
   getGeneratedOutputWithContentPolicyHandling,
   withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
-import { LegacyMuxAiError, legacyWrapError } from "../lib/legacy-mux-ai-error.ts";
-import { attributeToCaller } from "../lib/mux-ai-error.ts";
-import type { CallerInputs } from "../lib/mux-ai-error.ts";
+import type { ModelCallContext } from "../lib/content-policy-error.ts";
+import { httpStatusOf } from "../lib/dependency-error.ts";
+import {
+  attributeToCaller,
+  errorDetailFact,
+  MUX_AI_ERROR_CODES,
+  MUX_AI_ERROR_SOURCES,
+  MUX_AI_ERROR_TYPES,
+  MuxAiError,
+  wrapError,
+} from "../lib/mux-ai-error.ts";
+import type { CallerInputs, MuxAiErrorFacts } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -17,9 +26,15 @@ import {
   buildMuxAiTrackPassthrough,
   createTextTrackOnMux,
   fetchVttFromMux,
+  muxVideoCallError,
   normalizeTrackName,
   planSourceTrackReplacement,
   replaceSourceTrack,
+  summarizeTextTrack,
+  trackReplacementBlockedError,
+  trackSummaryFacts,
+  trackTargetFacts,
+  trackWriteFailedError,
   validateTrackPassthrough,
 } from "../lib/mux-tracks.ts";
 import type { SourceTrackReplacementPolicy, TextTrackSummary, TextTrackTarget } from "../lib/mux-tracks.ts";
@@ -37,8 +52,10 @@ import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
 import {
   createPresignedGetUrlWithStorageAdapter,
   putObjectWithStorageAdapter,
+  storageNotConfiguredError,
 } from "../lib/storage-adapter.ts";
 import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
+import { signingCredentialsMissingError } from "../lib/url-signing.ts";
 import {
   resolveMuxClient,
   resolveMuxSigningContext,
@@ -541,6 +558,7 @@ async function identifyProfanityWithAI({
     content: plainText,
   });
 
+  const context: ModelCallContext = { call: "detect_profanity", provider, model: modelId };
   const response = await withContentPolicyAwareRetry(() => generateText({
     model,
     maxRetries: 0,
@@ -553,8 +571,8 @@ async function identifyProfanityWithAI({
           `Identify all profane words and phrases in the following subtitle transcript. Return each unique profane word or phrase exactly as it appears in the text.\n\n${transcriptSection}`,
       },
     ],
-  }));
-  const output = getGeneratedOutputWithContentPolicyHandling(response);
+  }), undefined, context);
+  const output = getGeneratedOutputWithContentPolicyHandling(response, context);
 
   // Detect schema-smuggling (an extra key alongside `profanity`).
   const unexpectedKeys = detectUnexpectedKeysFromRawText(
@@ -635,12 +653,36 @@ async function deleteTrackOnMux(
   "use step";
   const muxClient = await resolveMuxClient(credentials);
   const mux = await muxClient.createClient();
-  await mux.video.assets.deleteTrack(assetId, trackId);
+  try {
+    await mux.video.assets.deleteTrack(assetId, trackId);
+  } catch (error) {
+    // Already gone (e.g. a retried step whose first delete succeeded): the goal is met.
+    if (httpStatusOf(error) === 404) {
+      return;
+    }
+    throw muxVideoCallError("Failed to delete the original track on Mux", "delete_track", error, { assetId, trackId });
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Main workflow
 // ─────────────────────────────────────────────────────────────────────────────
+
+/** Names of the storage settings an upload still needs. */
+function missingStorageSettings(config: {
+  s3Endpoint?: string;
+  s3Bucket?: string;
+  storageAdapter?: StorageAdapter;
+  s3AccessKeyId?: string;
+  s3SecretAccessKey?: string;
+}): string[] {
+  return [
+    ...(config.s3Endpoint ? [] : ["s3Endpoint"]),
+    ...(config.s3Bucket ? [] : ["s3Bucket"]),
+    ...(config.storageAdapter || config.s3AccessKeyId ? [] : ["S3_ACCESS_KEY_ID"]),
+    ...(config.storageAdapter || config.s3SecretAccessKey ? [] : ["S3_SECRET_ACCESS_KEY"]),
+  ];
+}
 
 export async function editCaptions<P extends SupportedProvider = SupportedProvider>(
   assetId: string,
@@ -687,31 +729,35 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
   const hasReplacements = !!replacementsOption && replacementsOption.length > 0;
   const hasSpeakerReplacements = !!speakerReplacementsOption && speakerReplacementsOption.length > 0;
   if (!hasAutoCensor && !hasReplacements && !hasSpeakerReplacements) {
-    throw new LegacyMuxAiError("At least one of autoCensorProfanity, replacements, or speakerReplacements must be provided.", { type: "validation_error" });
+    throw new MuxAiError("At least one of autoCensorProfanity, replacements, or speakerReplacements must be provided.", { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST });
   }
 
   if (autoCensorOption && !provider) {
-    throw new LegacyMuxAiError("provider is required when using autoCensorProfanity.", { type: "validation_error" });
+    throw new MuxAiError("provider is required when using autoCensorProfanity.", { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST });
   }
 
   const legacyTrackNaming = deleteOriginalTrack !== undefined || trackNameSuffix !== undefined;
   if (legacyTrackNaming && (replaceExistingTracksOption !== undefined || providedTrackName !== undefined)) {
-    throw new LegacyMuxAiError(
+    throw new MuxAiError(
       "deleteOriginalTrack and trackNameSuffix are deprecated and cannot be combined with replaceExistingTracks or trackName.",
-      { type: "validation_error" },
+      { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
     );
   }
   if (replaceExistingTracksOption !== undefined && replaceExistingTracksOption !== "replace" && replaceExistingTracksOption !== "fail") {
-    throw new LegacyMuxAiError(
+    throw new MuxAiError(
       `replaceExistingTracks must be "replace" or "fail" for editCaptions (received "${String(replaceExistingTracksOption)}").`,
-      { type: "validation_error" },
+      {
+        type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+        source: MUX_AI_ERROR_SOURCES.REQUEST,
+        facts: { parameter: "replaceExistingTracks", value: String(replaceExistingTracksOption) },
+      },
     );
   }
   const replaceExistingTracks: SourceTrackReplacementPolicy = replaceExistingTracksOption ?? "replace";
   if (!legacyTrackNaming && replaceExistingTracks === "fail" && !providedTrackName) {
-    throw new LegacyMuxAiError(
+    throw new MuxAiError(
       "trackName is required when replaceExistingTracks is \"fail\": the edited track cannot reuse the source track's name while the source is kept.",
-      { type: "validation_error" },
+      { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
     );
   }
   const trackPassthrough = validateTrackPassthrough(providedTrackPassthrough) ?? buildMuxAiTrackPassthrough("edit-captions");
@@ -723,9 +769,9 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
     const hasInvalidFindCharacter = replacement.find.includes("[") || replacement.find.includes("]") || /[\r\n]/.test(replacement.find);
     const hasInvalidReplaceCharacter = replacement.replace.includes("[") || replacement.replace.includes("]") || /[\r\n]/.test(replacement.replace);
     if (!replacement.find || !replacement.replace || hasInvalidFindCharacter || hasInvalidReplaceCharacter) {
-      throw new LegacyMuxAiError(
+      throw new MuxAiError(
         "Speaker replacement labels must be non-empty and must not contain square brackets or newlines.",
-        { type: "validation_error" },
+        { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
       );
     }
   }
@@ -737,13 +783,11 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
   const s3AccessKeyId = env.S3_ACCESS_KEY_ID;
   const s3SecretAccessKey = env.S3_SECRET_ACCESS_KEY;
 
-  if (uploadToS3 && (!s3Endpoint || !s3Bucket || (!storageAdapter && (!s3AccessKeyId || !s3SecretAccessKey)))) {
-    throw new LegacyMuxAiError(
-      "Storage configuration is required for uploading. Provide s3Endpoint and s3Bucket. " +
-      "If no storageAdapter is supplied, also provide s3AccessKeyId and s3SecretAccessKey in options " +
-      "or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.",
-      { type: "validation_error" },
-    );
+  if (uploadToS3) {
+    const missing = missingStorageSettings({ s3Endpoint, s3Bucket, storageAdapter, s3AccessKeyId, s3SecretAccessKey });
+    if (missing.length > 0) {
+      throw storageNotConfiguredError(missing);
+    }
   }
 
   // Fetch asset data and playback ID from Mux
@@ -753,24 +797,22 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
   // Resolve signing context for signed playback IDs
   const signingContext = await resolveMuxSigningContext(credentials);
   if (policy === "signed" && !signingContext) {
-    throw new LegacyMuxAiError(
-      "Signed playback ID requires signing credentials. " +
-      "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
-      { type: "validation_error" },
-    );
+    throw signingCredentialsMissingError();
   }
 
   // Validate track exists
   const readyTextTracks = getReadyTextTracks(assetData);
   const sourceTrack = readyTextTracks.find(t => t.id === trackId);
   if (!sourceTrack) {
-    const availableTrackIds = readyTextTracks
-      .map(t => t.id)
-      .filter(Boolean)
-      .join(", ");
-    throw new LegacyMuxAiError(
-      `Track ${trackId} not found or not ready on asset ${assetId}. Available track IDs: ${availableTrackIds || "none"}.`,
-      { type: "validation_error" },
+    const availableTrackIds = readyTextTracks.map(t => t.id).filter((id): id is string => !!id);
+    throw new MuxAiError(
+      `Track ${trackId} not found or not ready on asset ${assetId}. Available track IDs: ${availableTrackIds.join(", ") || "none"}.`,
+      {
+        code: MUX_AI_ERROR_CODES.CAPTION_TRACK_NOT_FOUND,
+        type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+        source: MUX_AI_ERROR_SOURCES.ASSET,
+        facts: { assetId, trackId, availableTrackIds },
+      },
     );
   }
 
@@ -781,17 +823,21 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
     name: providedTrackName ?? sourceName,
   };
   if (replaceExistingTracks === "fail" && normalizeTrackName(outputTrack.name) === normalizeTrackName(sourceName)) {
-    throw new LegacyMuxAiError(
-      `trackName "${outputTrack.name}" matches the source track's name. Mux track names must be unique; choose a different trackName or use replaceExistingTracks: "replace" to replace the source.`,
-      { type: "validation_error" },
-    );
+    // The kept source is the track in the way, so this is a blocked replacement: its
+    // public wording names the track and asks for a different name.
+    throw trackReplacementBlockedError({
+      reason: `trackName "${outputTrack.name}" matches the source track's name. Mux track names must be unique; choose a different trackName or use replaceExistingTracks: "replace" to replace the source.`,
+      code: "name_collision",
+      tracks: [summarizeTextTrack(sourceTrack)],
+      conflictsOnLanguage: false,
+    }, { facts: { ...trackTargetFacts(outputTrack), assetId, policy: replaceExistingTracks } });
   }
   // Check against the asset we already have so a blocked policy rejects before
   // any tokens are spent. The create step re-plans against a fresh asset.
   if (uploadToMux && !legacyTrackNaming) {
     const plan = planSourceTrackReplacement(assetData, trackId, outputTrack, replaceExistingTracks);
     if (plan.kind === "blocked") {
-      throw new LegacyMuxAiError(plan.reason, { type: "validation_error" });
+      throw trackReplacementBlockedError(plan, { facts: { ...trackTargetFacts(outputTrack), assetId, policy: replaceExistingTracks } });
     }
   }
 
@@ -802,7 +848,7 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
   try {
     vttContent = await fetchVttFromMux(vttUrl);
   } catch (error) {
-    legacyWrapError(error, "Failed to fetch VTT content");
+    wrapError(error, "Failed to fetch VTT content", { assetId, trackId });
   }
 
   let editedVtt = vttContent;
@@ -817,7 +863,12 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
 
     const plainText = extractTextFromVTT(vttContent);
     if (!plainText.trim()) {
-      throw new LegacyMuxAiError("Track transcript is empty; nothing to censor.", { type: "validation_error" });
+      throw new MuxAiError("Track transcript is empty; nothing to censor.", {
+        code: MUX_AI_ERROR_CODES.TRANSCRIPT_EMPTY,
+        type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+        source: MUX_AI_ERROR_SOURCES.ASSET,
+        facts: { assetId, trackId },
+      });
     }
 
     const modelConfig = resolveLanguageModelConfig({
@@ -826,30 +877,34 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
       model,
     });
 
-    let detectedProfanity: string[];
+    let result: Awaited<ReturnType<typeof identifyProfanityWithAI>>;
     try {
-      const result = await identifyProfanityWithAI({
+      result = await identifyProfanityWithAI({
         plainText,
         provider: modelConfig.provider,
         modelId: modelConfig.modelId,
         credentials,
       });
-      detectedProfanity = result.profanity;
-      usage = result.usage;
-      collectedUsage.push(result.usage);
-      // Record schema-smuggling signals from the step. zod.strip() has
-      // already removed extras from the parsed output; the safety report
-      // surfaces what was stripped.
-      if (result.unexpectedKeys.length > 0) {
-        console.warn(
-          `[@mux/ai] Model emitted unexpected keys in profanity detection (stripped): ${result.unexpectedKeys.join(", ")}.`,
-        );
-        for (const key of result.unexpectedKeys) {
-          safety.record(`profanity_detection.${key}`, "unexpected_key");
-        }
-      }
     } catch (error) {
-      legacyWrapError(error, `Failed to detect profanity with ${modelConfig.provider}`);
+      wrapError(error, `Failed to detect profanity with ${modelConfig.provider}`, {
+        call: "detect_profanity",
+        provider: modelConfig.provider,
+        model: modelConfig.modelId,
+      });
+    }
+    const detectedProfanity = result.profanity;
+    usage = result.usage;
+    collectedUsage.push(result.usage);
+    // Record schema-smuggling signals from the step. zod.strip() has
+    // already removed extras from the parsed output; the safety report
+    // surfaces what was stripped.
+    if (result.unexpectedKeys.length > 0) {
+      console.warn(
+        `[@mux/ai] Model emitted unexpected keys in profanity detection (stripped): ${result.unexpectedKeys.join(", ")}.`,
+      );
+      for (const key of result.unexpectedKeys) {
+        safety.record(`profanity_detection.${key}`, "unexpected_key");
+      }
     }
 
     // Scrub individual profanity entries. The blast radius of a leaked
@@ -919,12 +974,12 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
     try {
       presignedUrl = await uploadEditedVttToS3({ editedVtt, ...s3Config });
     } catch (error) {
-      legacyWrapError(error, "Failed to upload VTT to S3");
+      wrapError(error, "Failed to upload VTT to S3", { call: "put_object", bucket: s3Bucket! });
     }
 
     if (uploadToMux && legacyTrackNaming) {
+      const trackName = `${sourceName} (${trackNameSuffix ?? "edited"})`;
       try {
-        const trackName = `${sourceName} (${trackNameSuffix ?? "edited"})`;
         uploadedTrackId = await createTextTrackOnMux(
           assetId,
           sourceLanguageCode,
@@ -934,7 +989,7 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
           { closedCaptions: sourceTrack.closed_captions, passthrough: trackPassthrough },
         );
       } catch (error) {
-        legacyWrapError(error, "Failed to add edited track to Mux asset");
+        wrapError(error, "Failed to add edited track to Mux asset", { assetId, languageCode: sourceLanguageCode });
       }
 
       // Delete original track only if the replacement track was created
@@ -942,7 +997,7 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
         try {
           await deleteTrackOnMux(assetId, trackId, credentials);
         } catch (error) {
-          legacyWrapError(error, "Failed to delete original track");
+          wrapError(error, "Failed to delete original track", { assetId, trackId });
         }
       }
     } else if (uploadToMux) {
@@ -959,7 +1014,8 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
           credentials,
         });
       } catch (error) {
-        legacyWrapError(error, "Failed to add edited track to Mux asset");
+        // Only the asset fetch before any delete throws; create failures come back as outcomes.
+        wrapError(error, "Failed to fetch the asset before adding the edited track", { assetId });
       }
       if (outcome.kind !== "created") {
         // `replace` deletes the source before creating the edited track. If the
@@ -967,6 +1023,7 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
         // source back from the VTT we fetched so the asset keeps its captions.
         const sourceWasDeleted = outcome.deleted.some(track => track.id === trackId);
         let restoreNote = "";
+        let restoreFacts: MuxAiErrorFacts = {};
         if (sourceWasDeleted) {
           try {
             const originalUrl = await uploadEditedVttToS3({ editedVtt: vttContent, variant: "original", ...s3Config });
@@ -979,14 +1036,28 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
               { closedCaptions: sourceTrack.closed_captions, passthrough: sourceTrack.passthrough },
             );
             restoreNote = ` The source track was restored as ${restoredTrackId}.`;
+            restoreFacts = { sourceRestored: true, restoredTrackId };
           } catch (restoreError) {
-            restoreNote = ` Restoring the source track also failed: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}.`;
+            // The raw restore error is internal detail: keep it in facts, not the message.
+            restoreNote = " Restoring the source track also failed.";
+            restoreFacts = {
+              sourceRestored: false,
+              restoreError: errorDetailFact(restoreError instanceof Error ? restoreError.message : String(restoreError)),
+            };
           }
         }
+        const facts: MuxAiErrorFacts = {
+          assetId,
+          trackId,
+          languageCode: sourceLanguageCode,
+          trackName: outputTrack.name,
+          ...(outcome.deleted.length > 0 && { deletedTracks: trackSummaryFacts(outcome.deleted) }),
+          ...restoreFacts,
+        };
         if (outcome.kind === "blocked") {
-          throw new LegacyMuxAiError(`${outcome.reason}${restoreNote}`, { type: "validation_error" });
+          throw trackReplacementBlockedError(outcome, { message: `${outcome.reason}${restoreNote}`, facts: { ...trackTargetFacts(outputTrack), ...facts } });
         }
-        throw new Error(`Failed to add edited track to Mux asset: ${outcome.reason}.${restoreNote}`);
+        throw trackWriteFailedError(outcome, `Failed to add edited track to Mux asset.${restoreNote}`, facts);
       }
       uploadedTrackId = outcome.trackId;
       replacedTracks = outcome.deleted;

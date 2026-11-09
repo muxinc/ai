@@ -61,7 +61,19 @@ function trackTarget(facts: MuxAiErrorFacts): string {
   return parts.length > 0 ? ` for ${parts.join(" or ")}` : "";
 }
 
+/** What happened to a source track deleted before the replacement was blocked, when there was one. */
+function restoredSourceNote(facts: MuxAiErrorFacts): string {
+  if (facts.sourceRestored === true && facts.restoredTrackId) {
+    return ` The source track was restored as ${text(facts.restoredTrackId)}.`;
+  }
+  return facts.sourceRestored === false ? " Restoring the source track also failed." : "";
+}
+
 function blockedTrackMessage(facts: MuxAiErrorFacts): string {
+  return blockedTrackReason(facts) + restoredSourceNote(facts);
+}
+
+function blockedTrackReason(facts: MuxAiErrorFacts): string {
   const tracks = (Array.isArray(facts.conflictingTracks) ? facts.conflictingTracks : []) as unknown as TextTrackSummary[];
   const kind = facts.trackType === "audio" ? "audio" : "text";
   const subject = tracks.length > 1 ? `${tracks.length} ${kind} tracks` : `${kind === "audio" ? "An" : "A"} ${kind} track`;
@@ -117,7 +129,7 @@ export const MUX_AI_ERROR_PUBLIC_MAPPINGS = {
     message: scopeMessage,
   },
   [MUX_AI_ERROR_CODES.TRACK_REPLACEMENT_BLOCKED]: {
-    facts: ["reason", "trackType", "languageCode", "trackName", "conflictingTracks"],
+    facts: ["reason", "trackType", "languageCode", "trackName", "conflictingTracks", "sourceRestored", "restoredTrackId"],
     message: blockedTrackMessage,
   },
   [MUX_AI_ERROR_CODES.ASSET_NOT_FOUND]: {

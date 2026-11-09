@@ -53,6 +53,8 @@ const { resolveMuxClient, resolveMuxSigningContext } = await import("../../src/l
 const { createLanguageModelFromConfig, resolveLanguageModelConfig } = await import("../../src/lib/providers");
 const { translateCaptions } = await import("../../src/workflows/translate-captions");
 const { editCaptions } = await import("../../src/workflows/edit-captions");
+const { toPublicError } = await import("../../src/lib/public-error");
+type MuxAiError = import("../../src/lib/mux-ai-error").MuxAiError;
 
 const VTT = [
   "WEBVTT",
@@ -240,6 +242,12 @@ describe("editCaptions source track replacement", () => {
   it("rejects fail with a trackName equal to the source name, ignoring case and whitespace", async () => {
     const error = await captureRejection(editCaptions("asset-1", "track-en", { ...OPTIONS, replaceExistingTracks: "fail", trackName: " english " }));
     expect(error.message).toContain("matches the source track's name");
+    // The kept source is the conflicting track, so end users see which track and are asked for another name.
+    expect(toPublicError(error as MuxAiError)).toMatchObject({
+      code: "track_replacement_blocked",
+      message: expect.stringContaining("already has the name ' english '"),
+    });
+    expect(toPublicError(error as MuxAiError).message).toContain("Choose a different track name.");
     expect(vi.mocked(generateText)).not.toHaveBeenCalled();
     expect(vi.mocked(replaceSourceTrack)).not.toHaveBeenCalled();
   });
@@ -288,6 +296,7 @@ describe("editCaptions source track replacement", () => {
     vi.mocked(replaceSourceTrack).mockResolvedValue({
       kind: "create_failed",
       call: "create_track",
+      status: 500,
       reason: "Mux exploded",
       deleted: [{ id: "track-en", name: "English", languageCode: "en" }],
     });
@@ -295,8 +304,12 @@ describe("editCaptions source track replacement", () => {
 
     const error = await captureRejection(editCaptions("asset-1", "track-en", OPTIONS));
 
-    expect(error.message).toContain("Mux exploded");
     expect(error.message).toContain("restored as track-en-restored");
+    expect(error).toMatchObject({
+      source: "upstream",
+      dependency: "mux_video",
+      facts: { call: "create_track", status: 500, sourceRestored: true, restoredTrackId: "track-en-restored" },
+    });
     expect(vi.mocked(putObjectWithStorageAdapter)).toHaveBeenLastCalledWith(
       expect.objectContaining({ body: VTT, key: expect.stringContaining("-original-") }),
       undefined,
@@ -326,14 +339,35 @@ describe("editCaptions source track replacement", () => {
 
     expect(error.message).toContain("a track named English appeared");
     expect(error.message).toContain("restored as track-en-restored");
+    expect(error).toMatchObject({
+      code: "track_replacement_blocked",
+      facts: { reason: "name_collision", conflictingTracks: [expect.objectContaining({ id: "late" })] },
+    });
   });
 
-  it("does not attempt a restore when the source was not deleted", async () => {
-    vi.mocked(replaceSourceTrack).mockResolvedValue({ kind: "create_failed", call: "create_track", reason: "nope", deleted: [] });
+  it("keeps a failed restore's raw error out of the message", async () => {
+    vi.mocked(replaceSourceTrack).mockResolvedValue({
+      kind: "create_failed",
+      call: "create_track",
+      reason: "Mux exploded",
+      deleted: [{ id: "track-en", name: "English", languageCode: "en" }],
+    });
+    vi.mocked(createTextTrackOnMux).mockRejectedValue(new Error("secret restore detail"));
 
     const error = await captureRejection(editCaptions("asset-1", "track-en", OPTIONS));
 
-    expect(error.message).toContain("nope");
+    expect(error.message).toContain("Restoring the source track also failed.");
+    expect(error.message).not.toContain("secret restore detail");
+    expect(error).toMatchObject({ facts: { sourceRestored: false, restoreError: "secret restore detail" } });
+  });
+
+  it("does not attempt a restore when the source was not deleted", async () => {
+    vi.mocked(replaceSourceTrack).mockResolvedValue({ kind: "create_failed", call: "create_track", status: 400, reason: "nope", deleted: [] });
+
+    const error = await captureRejection(editCaptions("asset-1", "track-en", OPTIONS));
+
+    expect(error.message).toBe("Failed to add edited track to Mux asset.");
+    expect(error).toMatchObject({ source: "internal", facts: { status: 400 } });
     expect(vi.mocked(createTextTrackOnMux)).not.toHaveBeenCalled();
   });
 });
