@@ -173,6 +173,75 @@ jobs:
 
           npm publish --access public --provenance --tag "$dist_tag"
 
+  # Every other push to main publishes a canary to the `canary` dist-tag, so
+  # consumers can follow unreleased work with `@mux/ai@canary` or pin an exact
+  # canary version. It never touches `latest`. This job has to live in this
+  # file, since npm trusted publishing is tied to publish.yml.
+  canary:
+    needs: release-please
+    if: ${{ github.event_name == 'push' && needs.release-please.outputs.released != 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read # find the open release PR
+      id-token: write # npm trusted publishing (OIDC)
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.18.0 # Pinned to Node 24 LTS (Krypton); ships npm 11.x
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Base the canary on the version the open release PR proposes, so a
+      # canary sorts just below the release it previews. With no release PR
+      # open, fall back to the next patch. The run number keeps canaries
+      # increasing; the commit is recorded in the package's gitHead and
+      # provenance.
+      - name: Set canary version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          current=$(node -p "require('./package.json').version")
+
+          # release-please labels its open release PR `autorelease: pending`.
+          pending=''
+          branch=$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --label 'autorelease: pending' \
+            --json headRefName --jq '.[0].headRefName // empty' || true)
+          if [ -n "$branch" ]; then
+            pending=$(gh api "repos/${GITHUB_REPOSITORY}/contents/.github/release-please/.release-please-manifest.json?ref=$branch" \
+              --jq '.content | @base64d | fromjson | .["."]' 2>/dev/null || true)
+          fi
+
+          if [[ "$pending" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && [ "$pending" != "$current" ]; then
+            base=$pending
+          else
+            IFS=. read -r major minor patch <<< "${current%%-*}"
+            base="$major.$minor.$((patch + 1))"
+          fi
+
+          version="$base-canary.$RUN_NUMBER"
+          npm version "$version" --no-git-tag-version --allow-same-version
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # Build after setting the version: the bundle embeds package.json's
+      # version, so the canary reports its own version at runtime.
+      - name: Build
+        run: npm run build
+
+      - name: Publish canary
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          npm publish --access public --provenance --tag canary
+          echo "::notice::Published @mux/ai@$VERSION (dist-tag canary)"
+
   notify:
     needs: [release-please, publish]
     if: ${{ needs.publish.result == 'success' }}

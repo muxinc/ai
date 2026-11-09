@@ -61,6 +61,23 @@ reached npm, and then sends the Slack announcement. It only accepts the current
 version on `main`, so it can't move the `latest` dist-tag backwards. If `main`
 has moved on to a newer release, ship the fix in the next release instead.
 
+## Canary releases
+
+Every push to `main` that isn't a release publishes a canary to npm under the
+`canary` dist-tag. It never moves `latest`. Canaries are versioned from the
+release they lead up to: `<version in the open release PR>-canary.<run number>`,
+or the next patch when no release PR is open.
+
+```sh
+npm i @mux/ai@canary                  # latest build of main
+npm i @mux/ai@0.59.0-canary.123 -E    # pin one build
+```
+
+Use canaries to validate unreleased `main` in a consuming app (e.g. Robots
+staging) before cutting the release. Each canary's commit is in its npm
+`gitHead` and provenance. Semver ranges such as `^0.58.0` never resolve to a
+canary, so only consumers who ask for one get it.
+
 ## Preview builds
 
 Every PR from a branch in this repo, and every push to `main`, publishes an
