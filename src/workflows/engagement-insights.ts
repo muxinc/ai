@@ -485,7 +485,9 @@ async function getThumbnailUrlsForHotspots(
 
 /**
  * Classifies a Mux Data engagement call failure where its status is still in hand.
- * No views yet or Data not enabled surfaces as a 404 (`asset`) or 401/403 (`account`).
+ * An asset with no views (or an unknown ID) isn't a failure: the engagement endpoints
+ * return empty data, which yields empty insights. A 404 is still the asset's and a
+ * 401/403 the account's (e.g. no access to Mux Data).
  */
 function engagementDataError(error: unknown, call: string, assetId: string, timeframe: string): MuxAiError {
   return dependencyErrorFrom(error, `Failed to fetch engagement data for asset ${assetId}.`, {
