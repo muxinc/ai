@@ -2,7 +2,9 @@ name: Pull Request Title Check
 
 on:
   pull_request:
-    types: [opened, edited, reopened, ready_for_review]
+    # synchronize: a required check must report on the PR's latest commit, so
+    # re-run on every push, not just when the title changes.
+    types: [opened, edited, reopened, ready_for_review, synchronize]
 
 jobs:
   pr-title:
