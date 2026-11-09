@@ -491,7 +491,7 @@ async function getThumbnailUrlsForHotspots(
  */
 function engagementDataError(error: unknown, call: string, assetId: string, timeframe: string): MuxAiError {
   return dependencyErrorFrom(error, `Failed to fetch engagement data for asset ${assetId}.`, {
-    dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO,
+    dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_DATA,
     call,
     facts: { assetId, timeframe },
     notFoundSource: MUX_AI_ERROR_SOURCES.ASSET,

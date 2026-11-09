@@ -56,6 +56,8 @@ export const MUX_AI_ERROR_SOURCE_VALUES: readonly MuxAiErrorSource[] = Object.va
 export const MUX_AI_ERROR_DEPENDENCIES = {
   /** Mux Video: the API, stream and image delivery, and its static renditions and tracks. */
   MUX_VIDEO: "mux_video",
+  /** Mux Data: its API, e.g. engagement data (heatmaps and hotspots). */
+  MUX_DATA: "mux_data",
   /** A model or AI service provider, e.g. a language model API or the dubbing provider. */
   AI_PROVIDER: "ai_provider",
   /** Object storage the SDK writes to or reads from, e.g. an S3-compatible bucket. */
@@ -173,11 +175,12 @@ export const MUX_AI_ERROR_CATALOG = {
   [MUX_AI_ERROR_CODES.MODEL_OUTPUT_INCOMPLETE]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER, transient: false },
   [MUX_AI_ERROR_CODES.MODEL_OUTPUT_TRUNCATED]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.INTERNAL, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER },
   // Mux Video.
-  // Not resubmittable: the same asset errors again.
-  [MUX_AI_ERROR_CODES.STATIC_RENDITION_FAILED]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO, retryable: false },
+  // Reported by Mux: a step retry would find the same errored rendition, and resubmitting the same asset errors again.
+  [MUX_AI_ERROR_CODES.STATIC_RENDITION_FAILED]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO, transient: false, retryable: false },
   // Audio dubbing.
   [MUX_AI_ERROR_CODES.DUBBING_LANGUAGE_UNSUPPORTED]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER },
-  [MUX_AI_ERROR_CODES.DUBBING_FAILED]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER },
+  // Reported by the dubbing provider: a step retry would find the same failed dub.
+  [MUX_AI_ERROR_CODES.DUBBING_FAILED]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER, transient: false },
 } as const satisfies Record<MuxAiErrorCode, ErrorCatalogEntry<MuxAiErrorType, MuxAiErrorDependency>>;
 
 export interface ModelCallDiagnostics {
@@ -197,12 +200,14 @@ export function isTransientStatus(status: number | undefined): boolean {
 }
 
 /**
- * Default for `transient`: an `upstream` failure with no response or a transient
- * status (the `status` fact). Everything else would fail the same way on a step retry.
+ * Default for `transient`: an `upstream` failure with a transient status (the `status`
+ * fact). Without one, the dependency reported the failure (e.g. a failed dub), which a
+ * step retry would find again. A call that got no response is transient too, but the
+ * dependency helpers decide that where the call is made ({@link classifyDependencyFailure}).
  */
 export function defaultTransient(source: MuxAiErrorSource, facts: MuxAiErrorFacts = {}): boolean {
   return source === MUX_AI_ERROR_SOURCES.UPSTREAM &&
-    isTransientStatus(typeof facts.status === "number" ? facts.status : undefined);
+    typeof facts.status === "number" && isTransientStatus(facts.status);
 }
 
 /**

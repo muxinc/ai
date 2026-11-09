@@ -42,7 +42,7 @@ export function classifyDependencyFailure(init: Pick<DependencyErrorInit, "call"
   type: MuxAiErrorType;
   source: MuxAiErrorSource;
   facts: MuxAiErrorFacts;
-  transient?: boolean;
+  transient: boolean;
   retryable?: boolean;
 } {
   const { call, status, requestId, facts, timedOut } = init;
@@ -75,12 +75,11 @@ export function classifyDependencyFailure(init: Pick<DependencyErrorInit, "call"
       ...(requestId && { requestId }),
       ...facts,
     },
-    // A timeout with no status is transient by the default rule too; retryable and
-    // transient otherwise follow from the classification.
+    // Set here, not left to the default: only the call site knows a missing status
+    // means no response (transient), rather than a failure the dependency reported.
     // A non-idempotent call may have taken effect only with no response or a 5xx;
     // a 408, 425 or 429 means it wasn't processed, so retrying stays safe.
-    ...(init.idempotent === false && (status === undefined || status >= 500) && { transient: false }),
-    ...(init.transient !== undefined && { transient: init.transient }),
+    transient: init.transient ?? (init.idempotent === false && (status === undefined || status >= 500) ? false : transient),
     ...(init.retryable !== undefined && { retryable: init.retryable }),
   };
 }

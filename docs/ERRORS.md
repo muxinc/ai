@@ -94,6 +94,7 @@ A remote service reached over the network. Libraries running in-process are neve
 | Dependency | Meaning |
 |---|---|
 | `mux_video` | Mux Video: the API, stream and image delivery, and its static renditions and tracks. |
+| `mux_data` | Mux Data: its API, e.g. engagement data (heatmaps and hotspots). |
 | `ai_provider` | A model or AI service provider, e.g. a language model API or the dubbing provider. |
 | `storage` | Object storage the SDK writes to or reads from, e.g. an S3-compatible bucket. |
 
@@ -142,7 +143,7 @@ A failure without a code still has a type and source; that's normal for conditio
 
 Both flags are policies decided from the classification, not by hand: the site's explicit value wins, then the code's catalog entry, then the rule.
 
-- **`transient`:** `upstream` with no response, or a 408, 425, 429 or 5xx status. A 409 is not transient.
+- **`transient`:** `upstream` with a 408, 425, 429 or 5xx status. A 409 is not transient, and neither is an `upstream` failure with no status: the dependency reported it, so a step retry would find it again. A call that got no response is transient too, which the dependency helpers set where the call is made.
 - **`retryable`:** true when transient, for a timeout or a capacity error, or otherwise for `upstream`; false for `request`, `asset`, `account` and `internal` failures and for validation and content-policy errors.
 - **Transient implies retryable.** If retrying the step may succeed, so may resubmitting.
 - Only non-transient errors are named `FatalError`, which tells Workflow DevKit not to retry the step.
@@ -241,7 +242,7 @@ Helpers:
 - **This code's own failures:** `internalError()` and `assertNever()`.
 - **Passing errors up:** `wrapError()` passes a classified error through, merging facts, and turns anything unclassified into an `internal` failure.
 
-Override `retryable` or `transient` only with a one-line comment saying why, and prefer a fact that explains it (`status: 200` for a dependency that answered with a failure makes it non-transient by rule).
+Override `retryable` or `transient` only with a one-line comment saying why, and prefer a fact that explains it (a transient `status` makes a failure transient by rule).
 
 ### Moving a module onto the model
 

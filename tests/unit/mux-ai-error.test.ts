@@ -1,6 +1,7 @@
 import { WORKFLOW_DESERIALIZE } from "@workflow/serde";
 import { describe, expect, it, vi } from "vitest";
 
+import { dependencyError } from "../../src/lib/dependency-error.ts";
 import { isLegacyMuxAiError, LegacyMuxAiError, legacyWrapError } from "../../src/lib/legacy-mux-ai-error.ts";
 import { assertNever, internalError, MUX_AI_ERROR_CATALOG, MUX_AI_ERROR_TYPE_VALUES, MuxAiError, stripUrlQueries, wrapError } from "../../src/lib/mux-ai-error.ts";
 
@@ -33,6 +34,8 @@ describe("muxAiError", () => {
   it("derives transient and retryable from the classification unless the site overrides them", () => {
     expect(new MuxAiError("x", { type: "processing_error", source: "upstream", dependency: "mux_video", facts: { status: 503 } })).toMatchObject({ transient: true, retryable: true });
     expect(new MuxAiError("x", { type: "processing_error", source: "upstream", dependency: "mux_video", facts: { status: 400 } })).toMatchObject({ transient: false, retryable: true });
+    // No status: the dependency reported the failure, so a step retry would find it again.
+    expect(new MuxAiError("x", { type: "processing_error", source: "upstream", dependency: "mux_video" })).toMatchObject({ transient: false, retryable: true });
     expect(new MuxAiError("x", { type: "timeout_error", source: "upstream", dependency: "mux_video", facts: { status: 400 } })).toMatchObject({ transient: false, retryable: true });
     expect(new MuxAiError("x", { type: "validation_error", source: "request" })).toMatchObject({ transient: false, retryable: false });
     expect(new MuxAiError("x", { type: "server_error", source: "internal" })).toMatchObject({ transient: false, retryable: false });
@@ -46,12 +49,17 @@ describe("muxAiError", () => {
   });
 
   it("lets a code's catalog entry override the defaults", () => {
-    // `upstream` with no status would be transient and retryable by rule.
-    expect(new MuxAiError("x", { code: "model_output_invalid", type: "processing_error", source: "upstream", dependency: "ai_provider" })).toMatchObject({ source: "upstream", transient: false, retryable: false });
+    // `upstream` with a 503 would be transient and retryable by rule.
+    expect(new MuxAiError("x", { code: "model_output_invalid", type: "processing_error", source: "upstream", dependency: "ai_provider", facts: { status: 503 } })).toMatchObject({ source: "upstream", transient: false, retryable: false });
+  });
+
+  it("never step-retries a failure the dependency reported", () => {
+    expect(new MuxAiError("x", { code: "static_rendition_failed", type: "processing_error", source: "upstream", dependency: "mux_video", facts: { status: 503 } })).toMatchObject({ transient: false, retryable: false, name: "FatalError" });
+    expect(new MuxAiError("x", { code: "dubbing_failed", type: "processing_error", source: "upstream", dependency: "ai_provider", facts: { status: 503 } })).toMatchObject({ transient: false, retryable: true, name: "FatalError" });
   });
 
   it("is named FatalError only when it is not transient", () => {
-    expect(new MuxAiError("x", { type: "processing_error", source: "upstream", dependency: "mux_video" }).name).toBe("Error");
+    expect(new MuxAiError("x", { type: "processing_error", source: "upstream", dependency: "mux_video", facts: { status: 503 } }).name).toBe("Error");
     expect(new MuxAiError("x", { type: "server_error", source: "internal" }).name).toBe("FatalError");
   });
 
@@ -92,6 +100,18 @@ describe("muxAiError", () => {
 
     expect(revived).toBeInstanceOf(LegacyMuxAiError);
     expect(revived).toMatchObject({ publicMessage: "No caption track found.", publicType: "validation_error", type: "validation_error", source: "request", retryable: false });
+  });
+});
+
+describe("dependencyError", () => {
+  it("step-retries a call that got no response", () => {
+    expect(dependencyError("x", { dependency: "mux_video", call: "get_asset" })).toMatchObject({ source: "upstream", transient: true, retryable: true, name: "Error" });
+    expect(dependencyError("x", { dependency: "mux_video", call: "get_asset", timedOut: true })).toMatchObject({ type: "timeout_error", transient: true });
+  });
+
+  it("doesn't step-retry a call that may have taken effect, or one the dependency rejected", () => {
+    expect(dependencyError("x", { dependency: "mux_video", call: "create_track", idempotent: false })).toMatchObject({ transient: false, retryable: true });
+    expect(dependencyError("x", { dependency: "mux_video", call: "get_asset", status: 404, notFoundSource: "asset" })).toMatchObject({ source: "asset", transient: false, retryable: false });
   });
 });
 
