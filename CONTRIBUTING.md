@@ -254,9 +254,12 @@ docs/update-readme
 chore/upgrade-dependencies
 ```
 
-### Commit Messages
+### Commit Messages and PR Titles
 
-Write clear, concise commit messages:
+PRs are squash-merged, and the **PR title** becomes the commit on `main`. Those
+commit messages decide the next version and the changelog, so PR titles must
+follow [Conventional Commits](https://www.conventionalcommits.org/) (a CI check
+enforces this):
 
 ```
 feat: add support for Gemini 2.0 models
@@ -266,7 +269,18 @@ chore: update dependencies
 test: add unit tests for summarization
 ```
 
-We loosely follow [Conventional Commits](https://www.conventionalcommits.org/).
+How the type affects the release (while `@mux/ai` is below 1.0):
+
+| Title                                                       | Version bump           | In the changelog               |
+| ----------------------------------------------------------- | ---------------------- | ------------------------------ |
+| `feat: ...`                                                 | minor                  | Features                       |
+| `fix: ...` / `perf: ...`                                    | patch                  | Bug Fixes / Performance        |
+| `feat!: ...` or a `BREAKING CHANGE:` footer                 | minor (major from 1.0) | Breaking changes, listed first |
+| `docs`, `chore`, `refactor`, `test`, `build`, `ci`, `style` | none on its own        | hidden                         |
+
+Write titles for consumers: they are the changelog entries. A change consumers
+should hear about, such as a dependency bump that changes behavior, should be a
+`fix` or `feat`, not a `chore`.
 
 ### Pull Request Process
 
@@ -290,9 +304,9 @@ We loosely follow [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## Releasing (Maintainers)
 
-Cutting a new release is a maintainer-only step, done after a PR is merged —
-not something contributors need to do. See [docs/RELEASING.md](docs/RELEASING.md)
-for the full process.
+Releases are automated: merging the release PR that release-please keeps open
+on `main` publishes to npm. Contributors don't need to bump versions. See
+[docs/RELEASING.md](docs/RELEASING.md) for the full process.
 
 ## Reporting Issues
 

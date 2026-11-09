@@ -1,28 +1,154 @@
-name: Publish to npm
+name: Release
 
+# Every push to main runs release-please, which keeps a release PR open with the
+# next version and changelog, built from the conventional commit titles merged
+# since the last release. Merging that PR tags the release, creates the GitHub
+# release, and this same run publishes to npm and posts to Slack.
+#
+# IMPORTANT: npm trusted publishing (OIDC) is configured for muxinc/ai and this
+# workflow's file name, publish.yml. Renaming this file breaks publishing until
+# the trusted publisher on npmjs.com is updated to match.
 on:
-  release:
-    types: [created]
-  workflow_dispatch: # Allow manual trigger
+  push:
+    branches:
+      - main
+  # With a version, finishes publishing a release that was tagged but failed to
+  # reach npm. Left empty, it just re-runs release-please.
+  workflow_dispatch:
+    inputs:
+      recover_version:
+        description: Released version to finish publishing (for example, 0.59.0); leave empty to run release-please
+        required: false
+        type: string
 
-# IMPORTANT: This enables OIDC for npm
-# Configure npm trusted publishing with: muxinc/ai + workflow: publish.yml
-permissions:
-  contents: read
-  id-token: write # Required for npm publish with OIDC
+# Queue rather than cancel: a cancelled run could stop between tagging and
+# publishing.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions: {}
 
 jobs:
-  publish:
+  release-please:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      released: ${{ steps.target.outputs.released }}
+      ref: ${{ steps.target.outputs.ref }}
+      tag: ${{ steps.target.outputs.tag }}
+      version: ${{ steps.target.outputs.version }}
 
     steps:
+      # A release PR opened with GITHUB_TOKEN starts no workflows, so CI would
+      # never run on it. A GitHub App token avoids that and attributes release
+      # PRs and tags to the app's bot. Until the app is configured, this falls
+      # back to GITHUB_TOKEN: releases still work, but the release PR's checks
+      # have to be started by hand (close and reopen it).
+      - name: Create release token
+        id: app-token
+        if: ${{ inputs.recover_version == '' && vars.RELEASE_APP_CLIENT_ID != '' }}
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - name: Run release-please
+        id: release
+        if: ${{ inputs.recover_version == '' }}
+        uses: googleapis/release-please-action@v5
+        with:
+          token: ${{ steps.app-token.outputs.token || github.token }}
+          config-file: .github/release-please/release-please-config.json
+          manifest-file: .github/release-please/.release-please-manifest.json
+
+      - name: Select release to publish
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RECOVER_VERSION: ${{ inputs.recover_version }}
+          RELEASE_CREATED: ${{ steps.release.outputs.release_created }}
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag_name }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          if [ -n "$RECOVER_VERSION" ]; then
+            if [[ ! "$RECOVER_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+              echo "::error::Invalid release version: $RECOVER_VERSION"
+              exit 1
+            fi
+
+            if [ "$GITHUB_REF" != 'refs/heads/main' ]; then
+              echo '::error::Release recovery must be dispatched from main'
+              exit 1
+            fi
+
+            # Publishing moves the npm dist-tag, so only the current release is
+            # safe to resume. An older one would move `latest` backwards.
+            current_version=$(gh api "repos/${GITHUB_REPOSITORY}/contents/package.json?ref=main" --jq '.content | @base64d | fromjson | .version')
+            if [ "$RECOVER_VERSION" != "$current_version" ]; then
+              echo "::error::Release recovery must use the current version on main ($current_version)"
+              exit 1
+            fi
+
+            tag="v$RECOVER_VERSION"
+            gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName > /dev/null
+            echo "ref=refs/tags/$tag" >> "$GITHUB_OUTPUT"
+            echo "tag=$tag" >> "$GITHUB_OUTPUT"
+            echo "version=$RECOVER_VERSION" >> "$GITHUB_OUTPUT"
+          elif [ "$RELEASE_CREATED" = 'true' ]; then
+            if [ -z "$RELEASE_SHA" ] || [ -z "$RELEASE_TAG" ] || [ -z "$RELEASE_VERSION" ]; then
+              echo '::error::release-please reported a release without its sha, tag, and version'
+              exit 1
+            fi
+            echo "ref=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
+            echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+            echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+          else
+            echo 'No release created; nothing to publish.'
+            exit 0
+          fi
+
+          echo 'released=true' >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.released == 'true' }}
+    runs-on: ubuntu-latest
+    # Protection rules (required reviewers, wait timers) can be added to this
+    # environment in the repository settings without changing the workflow.
+    environment: production
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing (OIDC)
+
+    steps:
+      # release-please tags the release during the run, so the commit that
+      # triggered it is the one before the release PR. Check out the tagged
+      # commit instead.
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release-please.outputs.ref }}
 
       - uses: actions/setup-node@v6
         with:
           node-version: 24.18.0 # Pinned to Node 24 LTS (Krypton); ships npm 11.x
           cache: npm
 
+      - name: Verify checkout matches the release
+        env:
+          VERSION: ${{ needs.release-please.outputs.version }}
+        run: |
+          actual=$(node -p "require('./package.json').version")
+          if [ "$actual" != "$VERSION" ]; then
+            echo "::error::package.json is $actual but the release is $VERSION"
+            exit 1
+          fi
+
+      # `prepare` also builds, but keep the build explicit so a change to
+      # lifecycle scripts can't silently publish an empty dist/.
       - name: Install dependencies
         run: npm ci
 
@@ -30,4 +156,46 @@ jobs:
         run: npm run build
 
       - name: Publish to npm
-        run: npm publish --access public
+        env:
+          VERSION: ${{ needs.release-please.outputs.version }}
+        run: |
+          # A recovery run may follow a publish that reached npm before failing.
+          if npm view "@mux/ai@$VERSION" version > /dev/null 2>&1; then
+            echo "::notice::@mux/ai@$VERSION is already on npm; skipping publish"
+            exit 0
+          fi
+
+          # Prereleases go to `next` so they never become the default install.
+          dist_tag=latest
+          if [[ "$VERSION" == *-* ]]; then
+            dist_tag=next
+          fi
+
+          npm publish --access public --provenance --tag "$dist_tag"
+
+  notify:
+    needs: [release-please, publish]
+    if: ${{ needs.publish.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions: {}
+
+    steps:
+      - name: Check for Slack webhook
+        id: webhook
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_RELEASE_WEBHOOK_URL }}
+        run: |
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            echo 'configured=true' >> "$GITHUB_OUTPUT"
+          else
+            echo '::notice::SLACK_RELEASE_WEBHOOK_URL is not set; skipping the release announcement'
+          fi
+
+      - name: Announce release
+        if: ${{ steps.webhook.outputs.configured == 'true' }}
+        uses: slackapi/slack-github-action@v4
+        with:
+          webhook: ${{ secrets.SLACK_RELEASE_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            text: "@mux/ai ${{ needs.release-please.outputs.version }} is on npm: <${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ needs.release-please.outputs.tag }}|release notes>"
