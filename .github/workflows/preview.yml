@@ -44,10 +44,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Version previews 0.0.0-preview-<sha> so a preview can never satisfy a
+      # semver range meant for a real release. Set it before building: the
+      # bundle embeds package.json's version, so the preview reports its own
+      # version at runtime, matching its manifest.
+      - name: Set preview version
+        run: npm version "0.0.0-preview-$(git rev-parse --short=7 HEAD)" --no-git-tag-version
+
       - name: Build
         run: npm run build
 
-      # --previewVersion rewrites the version to 0.0.0-preview-<sha> so a preview
-      # can never satisfy a semver range meant for a real release.
       - name: Publish preview
-        run: npx --yes pkg-pr-new@0.0.93 publish --previewVersion
+        run: npx --yes pkg-pr-new@0.0.93 publish
