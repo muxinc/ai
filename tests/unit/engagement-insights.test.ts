@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
 
+import { isLegacyMuxAiError } from "../../src/lib/legacy-mux-ai-error";
+import { MuxAiError } from "../../src/lib/mux-ai-error";
+import { toPublicError } from "../../src/lib/public-error";
 import type { Hotspot } from "../../src/primitives/hotspots";
 import type { Shot } from "../../src/primitives/shots";
+import type { MuxAsset } from "../../src/types";
 import {
   extractTranscriptSegmentsForHotspots,
+  generateEngagementInsights,
   mapShotsToHotspots,
 } from "../../src/workflows/engagement-insights";
 import { MOCK_HOTSPOTS_COMBINED, MOCK_SHOTS } from "../helpers/mock-engagement-data";
@@ -90,5 +95,43 @@ Here is the key technique`;
     const hotspots: Hotspot[] = [{ startMs: 45000, endMs: 50000, score: 0.5 }];
     const result = extractTranscriptSegmentsForHotspots(sampleVTT, hotspots);
     expect(result[0].text).toBe("");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Classified failures
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("generateEngagementInsights failures", () => {
+  async function failure(run: () => Promise<unknown>): Promise<MuxAiError> {
+    const error = await run().then(() => undefined, (thrown: unknown) => thrown);
+    if (!MuxAiError.is(error)) {
+      throw new Error(`expected a MuxAiError, got ${String(error)}`);
+    }
+    return error;
+  }
+
+  it("rejects an out-of-range hotspotLimit as the caller's input", async () => {
+    const error = await failure(() => generateEngagementInsights("asset-1", { hotspotLimit: 11 }));
+
+    expect(error).toMatchObject({
+      type: "validation_error",
+      source: "request",
+      code: "parameter_out_of_range",
+      facts: { parameter: "hotspotLimit", value: 11, min: 1, max: 10, integer: true },
+      retryable: false,
+      name: "FatalError",
+    });
+    expect(isLegacyMuxAiError(error)).toBe(false);
+    expect(toPublicError(error)).toMatchObject({ code: "parameter_out_of_range", message: "hotspotLimit must be an integer between 1 and 10 (received 11)." });
+  });
+
+  it("rejects an asset without a duration as the asset's state", async () => {
+    const assetSnapshot = { id: "asset-1", playback_ids: [{ id: "pb-1", policy: "public" }], tracks: [] } as unknown as MuxAsset;
+
+    const error = await failure(() => generateEngagementInsights("asset-1", { assetSnapshot }));
+
+    expect(error).toMatchObject({ code: "asset_duration_unavailable", type: "validation_error", source: "asset", facts: { assetId: "asset-1" } });
+    expect(toPublicError(error)).toMatchObject({ code: "asset_duration_unavailable", message: "Asset asset-1 has no valid duration." });
   });
 });

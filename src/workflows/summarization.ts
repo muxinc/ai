@@ -8,8 +8,8 @@ import {
 import type { ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImageAsBase64 } from "../lib/image-download.ts";
 import { getLanguageName } from "../lib/language-codes.ts";
+import { LegacyMuxAiError, legacyWrapError } from "../lib/legacy-mux-ai-error.ts";
 import { normalizeMarkdownDescription } from "../lib/markdown-normalization.ts";
-import { MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -680,7 +680,7 @@ async function getSummaryAndTagsInternal(
 
   // Validate tone parameter
   if (!VALID_TONES.includes(tone)) {
-    throw new MuxAiError(
+    throw new LegacyMuxAiError(
       `Invalid tone "${tone}". Valid tones are: ${VALID_TONES.join(", ")}.`,
       { type: "validation_error" },
     );
@@ -714,7 +714,7 @@ async function getSummaryAndTagsInternal(
 
   // Audio-only assets require transcripts since there's no visual content
   if (isAudioOnly && !includeTranscript) {
-    throw new MuxAiError(
+    throw new LegacyMuxAiError(
       "Audio-only assets require a transcript. Set includeTranscript: true and ensure the asset has a ready text track (captions/subtitles).",
       { type: "validation_error" },
     );
@@ -724,7 +724,7 @@ async function getSummaryAndTagsInternal(
   const signingContext = await resolveMuxSigningContext(workflowCredentials);
   const requiresSignedPlaybackAccess = includeTranscript || !isAudioOnly;
   if (policy === "signed" && requiresSignedPlaybackAccess && !signingContext) {
-    throw new MuxAiError(
+    throw new LegacyMuxAiError(
       "Signed playback ID requires signing credentials. " +
       "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
       { type: "validation_error" },
@@ -826,22 +826,22 @@ async function getSummaryAndTagsInternal(
     }
   } catch (error: unknown) {
     const contentType = isAudioOnly ? "audio" : "video";
-    wrapError(error, `Failed to analyze ${contentType} content with ${provider}`);
+    legacyWrapError(error, `Failed to analyze ${contentType} content with ${provider}`);
   }
 
   collectedUsage.push(analysisResponse.usage);
 
   if (!analysisResponse.result) {
     const contentType = isAudioOnly ? "audio" : "video";
-    throw new MuxAiError(`Failed to analyze ${contentType} content for asset ${assetId}.`);
+    throw new LegacyMuxAiError(`Failed to analyze ${contentType} content for asset ${assetId}.`);
   }
 
   if (!analysisResponse.result.title) {
-    throw new MuxAiError(`Failed to generate title for asset ${assetId}.`);
+    throw new LegacyMuxAiError(`Failed to generate title for asset ${assetId}.`);
   }
 
   if (!analysisResponse.result.description) {
-    throw new MuxAiError(`Failed to generate description for asset ${assetId}.`);
+    throw new LegacyMuxAiError(`Failed to generate description for asset ${assetId}.`);
   }
 
   // Scrub model-generated free-text fields for signs of a system-prompt

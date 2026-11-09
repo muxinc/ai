@@ -84,7 +84,7 @@ Workflows are high-level functions that handle complete media AI tasks end-to-en
 | [`editCaptions`](./docs/WORKFLOWS.md#caption-editing) | Edit captions: censor profanity and/or apply static replacements | OpenAI, Anthropic, Google, Baseten, OpenAI-compatible | Yes |
 | [`translateAudio`](./docs/WORKFLOWS.md#audio-dubbing) | Create AI-dubbed audio tracks | ElevenLabs | Yes |
 
-See the [Workflows guide](./docs/WORKFLOWS.md) for detailed documentation, options, and examples for each workflow. See the [API Reference](./docs/API.md) for complete parameter and return type details.
+See the [Workflows guide](./docs/WORKFLOWS.md) for detailed documentation, options, and examples for each workflow. See the [API Reference](./docs/API.md) for complete parameter and return type details. See the [Errors guide](./docs/ERRORS.md) for how failures are classified and what to show end users.
 
 ### Quick Examples
 

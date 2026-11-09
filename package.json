@@ -85,6 +85,7 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc --noEmit",
+    "docs:errors": "npx tsx scripts/error-docs.ts",
     "example:ask-questions": "npx tsx examples/ask-questions/basic-example.ts",
     "example:ask-questions:audio-only": "npx tsx examples/ask-questions/audio-only-example.ts",
     "example:ask-questions:multiple": "npx tsx examples/ask-questions/multiple-questions-example.ts",

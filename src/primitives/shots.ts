@@ -1,5 +1,5 @@
 import { getMuxClientFromEnv } from "../lib/client-factory.ts";
-import { MuxAiError } from "../lib/mux-ai-error.ts";
+import { LegacyMuxAiError } from "../lib/legacy-mux-ai-error.ts";
 import type { WorkflowCredentialsInput } from "../types.ts";
 
 import type { AssetShots } from "@mux/ts/resources/video/assets";
@@ -265,18 +265,18 @@ export async function waitForShotsForAsset(
     }
 
     if (result.status === "errored") {
-      throw new MuxAiError(`Shot generation failed for asset ${assetId}.`);
+      throw new LegacyMuxAiError(`Shot generation failed for asset ${assetId}.`);
     }
 
     if (result.status === "skipped") {
-      throw new MuxAiError(
+      throw new LegacyMuxAiError(
         `Shot generation was skipped for asset ${assetId}; the asset may have no video track.`,
         { type: "validation_error" },
       );
     }
 
     if (result.status === "deleted") {
-      throw new MuxAiError(`Shots for asset ${assetId} have been deleted.`, { type: "validation_error" });
+      throw new LegacyMuxAiError(`Shots for asset ${assetId} have been deleted.`, { type: "validation_error" });
     }
 
     if (attempt < normalizedMaxAttempts - 1) {
@@ -284,7 +284,7 @@ export async function waitForShotsForAsset(
     }
   }
 
-  throw new MuxAiError(
+  throw new LegacyMuxAiError(
     `Timed out waiting for shots for asset ${assetId}. Last status: ${lastStatus ?? "unknown"}.`,
     { type: "timeout_error", retryable: true },
   );
