@@ -25,6 +25,16 @@ each type affects the version.
 1. Open the release PR and read the changelog entry. It is what consumers
    will see, so fix anything misleading there (see below).
 2. Wait for CI to pass, get an approval, and merge.
+
+   If the checks show "Expected — Waiting for status to be reported", CI never
+   started. That's normal for now: release-please opens and updates the
+   release PR with the workflow's built-in `GITHUB_TOKEN`, and GitHub starts no
+   workflows for changes made with that token. Click **Close pull request**,
+   then **Reopen pull request**, wait for the checks, and merge. Repository
+   admins can instead tick "Merge without waiting for requirements to be met".
+   Only do this right before merging, since every merge to `main` updates the
+   release PR again. Adding a GitHub App (see [One-time setup](#one-time-setup))
+   removes this step.
 3. Watch the **Release** workflow run on `main`. When it finishes, the version
    is on npm and Slack has been notified.
 
@@ -99,7 +109,7 @@ These live outside the repository and are needed for the full flow:
 | What | Where | If it's missing |
 | --- | --- | --- |
 | npm trusted publisher for `muxinc/ai`, workflow `publish.yml` | npmjs.com package settings | Publish fails with a 404 from the token exchange |
-| GitHub App for release-please: `RELEASE_APP_CLIENT_ID` (variable) and `RELEASE_APP_PRIVATE_KEY` (secret); the app needs contents and pull-request write access | Repository settings → Secrets and variables → Actions | Release PRs are opened with `GITHUB_TOKEN`, which starts no CI; close and reopen the release PR to run its checks |
+| Optional, not set up yet: a dedicated GitHub App for release-please. Set `RELEASE_APP_CLIENT_ID` (variable) and `RELEASE_APP_PRIVATE_KEY` (secret); the app needs contents, pull-request and issues write access, and creating it needs a muxinc org admin. The workflow uses it as soon as both exist. | Repository settings → Secrets and variables → Actions | Release PRs are opened with `GITHUB_TOKEN`, which starts no CI; close and reopen the release PR to run its checks |
 | `SLACK_RELEASE_WEBHOOK_URL` secret (a Slack incoming webhook) | Repository settings → Secrets and variables → Actions | The announcement is skipped with a notice |
 | pkg.pr.new GitHub App | [github.com/apps/pkg-pr-new](https://github.com/apps/pkg-pr-new) | The preview job fails |
 | Squash merge commit title set to "Pull request title" | Repository settings → General → Pull Requests | Single-commit PRs land with their commit message instead of the checked PR title |
