@@ -103,5 +103,5 @@ These live outside the repository and are needed for the full flow:
 | `SLACK_RELEASE_WEBHOOK_URL` secret (a Slack incoming webhook) | Repository settings → Secrets and variables → Actions | The announcement is skipped with a notice |
 | pkg.pr.new GitHub App | [github.com/apps/pkg-pr-new](https://github.com/apps/pkg-pr-new) | The preview job fails |
 | Squash merge commit title set to "Pull request title" | Repository settings → General → Pull Requests | Single-commit PRs land with their commit message instead of the checked PR title |
-| `Pull Request Title Check` as a required status check | The `main` ruleset | Non-conventional titles can merge and drop out of the changelog |
+| Required status checks `Lint & Type Check` and `pr-title` (the check names, not the workflow names) | The `main` ruleset | A release PR with failing CI can merge, and non-conventional titles can merge and drop out of the changelog |
 | `production` environment | Created by the first release run; add protection rules there if wanted | n/a |

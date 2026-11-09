@@ -239,6 +239,14 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
+          # Re-running a run keeps its run number, so it computes the same
+          # canary version. If an earlier attempt already published it, there
+          # is nothing left to do.
+          if npm view "@mux/ai@$VERSION" version > /dev/null 2>&1; then
+            echo "::notice::@mux/ai@$VERSION is already on npm; skipping publish"
+            exit 0
+          fi
+
           npm publish --access public --provenance --tag canary
           echo "::notice::Published @mux/ai@$VERSION (dist-tag canary)"
 
