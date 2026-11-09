@@ -5,6 +5,7 @@ import type {
   StoragePutObjectInput,
 } from "../types.ts";
 
+import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
 import {
   createPresignedGetUrl,
   putObjectToS3,
@@ -38,10 +39,21 @@ export class WorkflowStorageClient {
     const secretAccessKey = input.secretAccessKey ?? this.secretAccessKey;
 
     if (!accessKeyId || !secretAccessKey) {
-      throw new Error(
+      throw new MuxAiError(
         "Storage credentials are required. " +
         "Provide accessKeyId/secretAccessKey in WorkflowStorageClient options " +
         "or in the storage operation input.",
+        {
+          code: MUX_AI_ERROR_CODES.STORAGE_NOT_CONFIGURED,
+          type: MUX_AI_ERROR_TYPES.SERVER_ERROR,
+          source: MUX_AI_ERROR_SOURCES.INTERNAL,
+          facts: {
+            missing: [
+              ...(accessKeyId ? [] : ["accessKeyId"]),
+              ...(secretAccessKey ? [] : ["secretAccessKey"]),
+            ],
+          },
+        },
       );
     }
 

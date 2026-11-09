@@ -168,6 +168,12 @@ describe("shouldSplitChunkTranslationError", () => {
     expect(shouldSplitChunkTranslationError(serialized)).toBe(true);
   });
 
+  it("allows splitting for unusable output, including a cue-count mismatch", () => {
+    const mismatch = new MuxAiError("The model returned 1 translated cues, expected 2", { code: "model_output_missing" });
+    expect(shouldSplitChunkTranslationError(mismatch)).toBe(true);
+    expect(shouldSplitChunkTranslationError(JSON.parse(JSON.stringify(mismatch)))).toBe(true);
+  });
+
   it("allows splitting for schema validation failures", () => {
     const error = new TypeValidationError({
       value: { translations: ["hola"] },

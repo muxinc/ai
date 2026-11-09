@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { MuxAiError } from "../../src/lib/mux-ai-error";
 import {
   createPresignedGetUrl,
 
@@ -100,20 +101,37 @@ describe("s3 sigv4 helpers", () => {
     expect(authHeader).toContain("SignedHeaders=host;x-amz-content-sha256;x-amz-date");
   });
 
-  it("throws a detailed error when S3 PUT fails", async () => {
+  it("throws a classified storage error without the raw body when S3 PUT fails", async () => {
+    const body = "<?xml version=\"1.0\"?><Error><Code>AccessDenied</Code><Message>secret detail</Message></Error>";
     const fetchMock = vi
       .fn<typeof fetch>()
-      .mockResolvedValue(new Response("AccessDenied", { status: 403, statusText: "Forbidden" }));
+      .mockResolvedValue(new Response(body, { status: 403, statusText: "Forbidden", headers: { "x-amz-request-id": "req-1" } }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(putObjectToS3(buildPutOptions())).rejects.toThrow(
-      "S3 PUT failed (403 Forbidden). AccessDenied",
-    );
+    const error = await putObjectToS3(buildPutOptions()).catch((e: unknown) => e);
+    expect(MuxAiError.is(error)).toBe(true);
+    expect(error).toMatchObject({
+      message: "S3 PUT failed (HTTP 403 AccessDenied).",
+      type: "server_error",
+      source: "internal",
+      dependency: "storage",
+      transient: false,
+      facts: { call: "put_object", status: 403, requestId: "req-1", bucket: baseTarget.bucket, s3ErrorCode: "AccessDenied" },
+    });
+    expect((error as Error).message).not.toContain("secret detail");
+  });
+
+  it("marks S3 server errors and network failures transient", async () => {
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(new Response("", { status: 503 })));
+    await expect(putObjectToS3(buildPutOptions())).rejects.toMatchObject({ source: "upstream", transient: true, facts: { status: 503 } });
+
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockRejectedValue(new TypeError("fetch failed")));
+    await expect(putObjectToS3(buildPutOptions())).rejects.toMatchObject({ source: "upstream", dependency: "storage", transient: true });
   });
 
   it("rejects invalid endpoints", async () => {
     await expect(createPresignedGetUrl(buildPresignOptions({ endpoint: "not-a-url" }))).rejects.toThrow(
-      "Invalid S3 endpoint: not-a-url",
+      "Invalid S3 endpoint.",
     );
     await expect(createPresignedGetUrl(buildPresignOptions({ endpoint: "http://storage.example.com" }))).rejects.toThrow(
       "Insecure S3 endpoint protocol \"http:\" is not allowed. Use HTTPS.",
