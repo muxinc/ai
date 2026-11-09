@@ -2,13 +2,22 @@ import { sleep } from "workflow";
 
 import env from "../env.ts";
 import { getApiKeyFromEnv } from "../lib/client-factory.ts";
-import { elevenLabsResponseFailure, elevenLabsSdkFailure } from "../lib/elevenlabs-errors.ts";
+import { elevenLabsFailureError, elevenLabsResponseFailure, elevenLabsSdkFailure } from "../lib/elevenlabs-errors.ts";
 import type { ElevenLabsFailure } from "../lib/elevenlabs-errors.ts";
 import { getLanguageCodePair, getLanguageName, toISO639_1 } from "../lib/language-codes.ts";
 import type { LanguageCodePair } from "../lib/language-codes.ts";
-import { LegacyMuxAiError, legacyWrapError } from "../lib/legacy-mux-ai-error.ts";
-import { attributeToCaller, extractErrorDetail } from "../lib/mux-ai-error.ts";
-import type { CallerInputs, MuxAiError } from "../lib/mux-ai-error.ts";
+import {
+  attributeToCaller,
+  errorDetailFact,
+  extractErrorDetail,
+  MUX_AI_ERROR_CODES,
+  MUX_AI_ERROR_DEPENDENCIES,
+  MUX_AI_ERROR_SOURCES,
+  MUX_AI_ERROR_TYPES,
+  MuxAiError,
+  wrapError,
+} from "../lib/mux-ai-error.ts";
+import type { CallerInputs, MuxAiErrorFacts } from "../lib/mux-ai-error.ts";
 import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset, isAudioOnlyAsset, isVideoOnlyAsset } from "../lib/mux-assets.ts";
 import {
   getLegacyMp4SupportRenditionSizeError,
@@ -17,8 +26,13 @@ import {
 } from "../lib/mux-static-renditions.ts";
 import {
   buildMuxAiTrackPassthrough,
+  muxVideoCallError,
   planTextTrackReplacement,
   replaceAndCreateTrack,
+  trackReplacementBlockedError,
+  trackSummaryFacts,
+  trackTargetFacts,
+  trackWriteFailedError,
   validateTrackPassthrough,
 } from "../lib/mux-tracks.ts";
 import type { ReplaceExistingTracksPolicy, TextTrackSummary, TextTrackTarget } from "../lib/mux-tracks.ts";
@@ -26,6 +40,7 @@ import { getMuxStreamOrigin } from "../lib/mux-url.ts";
 import {
   createPresignedGetUrlWithStorageAdapter,
   putObjectWithStorageAdapter,
+  storageNotConfiguredError,
 } from "../lib/storage-adapter.ts";
 import { signUrl } from "../lib/url-signing.ts";
 import { resolveMuxClient } from "../lib/workflow-credentials.ts";
@@ -254,7 +269,8 @@ async function requestStaticRenditionCreation(
       return undefined;
     }
 
-    legacyWrapError(error, "Failed to request static rendition from Mux");
+    // Transient statuses stay transient so the step runner keeps retrying them.
+    throw muxVideoCallError("Failed to request static rendition from Mux", "create_static_rendition", error, { assetId });
   }
 }
 
@@ -296,7 +312,11 @@ async function retrieveAsset(
   "use step";
   const muxClient = await resolveMuxClient(credentials);
   const mux = await muxClient.createClient();
-  return mux.video.assets.retrieve(assetId);
+  try {
+    return await mux.video.assets.retrieve(assetId);
+  } catch (error) {
+    throw muxVideoCallError("Failed to fetch the asset from Mux", "get_asset", error, { assetId });
+  }
 }
 
 // Orchestration-level (not a step): the poll loop must call the durable `sleep`,
@@ -332,15 +352,36 @@ async function waitForAudioStaticRendition({
     );
 
     if (currentStatus === "errored") {
-      throw new LegacyMuxAiError(
+      throw new MuxAiError(
         "Mux failed to create the static rendition for this asset. Please check the asset in the Mux dashboard.",
+        {
+          code: MUX_AI_ERROR_CODES.STATIC_RENDITION_FAILED,
+          type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+          source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+          dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO,
+          facts: { call: "get_asset", assetId, renditionStatus: currentStatus },
+        },
       );
     }
   }
 
-  throw new LegacyMuxAiError(
+  throw new MuxAiError(
     "Timed out waiting for the static rendition to become ready. Please try again in a moment.",
-    { type: "timeout_error", retryable: true },
+    {
+      // Mux didn't finish the rendition in time; the asset itself is fine.
+      type: MUX_AI_ERROR_TYPES.TIMEOUT_ERROR,
+      source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+      dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO,
+      facts: {
+        call: "get_asset",
+        assetId,
+        attempts: STATIC_RENDITION_MAX_ATTEMPTS,
+        pollIntervalMs: STATIC_RENDITION_POLL_INTERVAL_MS,
+        lastStatus: getAudioStaticRenditionStatus(currentAsset),
+      },
+      // Not transient: this already polled for the whole budget.
+      transient: false,
+    },
   );
 }
 
@@ -366,24 +407,47 @@ async function waitForLegacyMp4SupportRendition({
   }
 
   if (!rendition) {
-    throw new LegacyMuxAiError(
+    throw new MuxAiError(
       "The asset's static rendition settings changed while waiting for them. Please try again.",
-      { type: "processing_error", retryable: true },
+      {
+        type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+        source: MUX_AI_ERROR_SOURCES.ASSET,
+        facts: { assetId },
+        // Retryable although asset-sourced: the asset changed mid-run, and a new job uses the new settings.
+        retryable: true,
+      },
     );
   }
   if (rendition.kind === "preparing") {
-    throw new LegacyMuxAiError(
+    throw new MuxAiError(
       "Timed out waiting for the static rendition to become ready. Please try again in a moment.",
-      { type: "timeout_error", retryable: true },
+      {
+        type: MUX_AI_ERROR_TYPES.TIMEOUT_ERROR,
+        source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+        dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO,
+        facts: { call: "get_asset", assetId, attempts: STATIC_RENDITION_MAX_ATTEMPTS, pollIntervalMs: STATIC_RENDITION_POLL_INTERVAL_MS },
+        // Not transient: this already polled for the whole budget.
+        transient: false,
+      },
     );
   }
   if (rendition.kind === "unusable") {
-    throw new LegacyMuxAiError(rendition.reason, { type: "validation_error" });
+    throw new MuxAiError(rendition.reason, {
+      code: MUX_AI_ERROR_CODES.STATIC_RENDITION_UNSUPPORTED,
+      type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+      source: MUX_AI_ERROR_SOURCES.ASSET,
+      facts: { reason: "unusable", assetId, mp4Support: rendition.mp4Support, ...(rendition.status && { renditionStatus: rendition.status }) },
+    });
   }
 
   const sizeError = getLegacyMp4SupportRenditionSizeError(rendition, MAX_DUBBING_SOURCE_BYTES);
   if (sizeError) {
-    throw new LegacyMuxAiError(sizeError, { type: "validation_error" });
+    throw new MuxAiError(sizeError, {
+      code: MUX_AI_ERROR_CODES.STATIC_RENDITION_UNSUPPORTED,
+      type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+      source: MUX_AI_ERROR_SOURCES.ASSET,
+      facts: { reason: "too_large", assetId, renditionName: rendition.name, sizeBytes: rendition.filesizeBytes!, maxBytes: MAX_DUBBING_SOURCE_BYTES },
+    });
   }
 
   return rendition.name;
@@ -398,43 +462,72 @@ function toBaseLanguageCode(code: string): string {
  * Why Mux would refuse to add an audio track to this asset, or `undefined`
  * when it would accept one. Mirrors Mux's own audio track validation.
  */
-function audioTrackUnsupportedReason(asset: MuxAsset): string | undefined {
+function audioTrackUnsupportedReason(asset: MuxAsset): { reason: "clip" | "live_stream" | "audio_only"; message: string } | undefined {
   const useDubbedFile = "skip uploading to Mux and use the dubbed audio file directly.";
   if (asset.ingest_type === "on_demand_clip" || asset.source_asset_id) {
-    return `is a clip, and Mux does not support adding audio tracks to clipped assets. Dub the source asset instead, or ${useDubbedFile}`;
+    return { reason: "clip", message: `is a clip, and Mux does not support adding audio tracks to clipped assets. Dub the source asset instead, or ${useDubbedFile}` };
   }
   if (asset.is_live || asset.live_stream_id) {
-    return `comes from a live stream, and Mux does not support adding audio tracks to live stream assets. Instead, ${useDubbedFile}`;
+    return { reason: "live_stream", message: `comes from a live stream, and Mux does not support adding audio tracks to live stream assets. Instead, ${useDubbedFile}` };
   }
   if (isAudioOnlyAsset(asset)) {
-    return `is audio-only, and Mux does not support adding audio tracks to audio-only assets. Instead, ${useDubbedFile}`;
+    return { reason: "audio_only", message: `is audio-only, and Mux does not support adding audio tracks to audio-only assets. Instead, ${useDubbedFile}` };
   }
   return undefined;
 }
 
 /**
- * The customer-facing error for a failed ElevenLabs call. Keeps the failure's
- * retryability but none of its provider detail, which callers log instead.
+ * The error for a failed ElevenLabs call once the workflow stops retrying it. The
+ * provider detail goes in facts (and is logged by callers).
  */
-function dubbingProviderError(message: string, failure: ElevenLabsFailure): MuxAiError {
-  if (failure.reason === "timeout") {
-    return new LegacyMuxAiError(`${message} The dubbing service timed out. Please try again.`, { type: "timeout_error", retryable: true });
-  }
-  if (failure.retryable) {
-    return new LegacyMuxAiError(`${message} The dubbing service is temporarily unavailable. Please try again.`, { type: "processing_error", retryable: true });
-  }
-  return new LegacyMuxAiError(message, { type: "processing_error" });
+function dubbingProviderError(message: string, call: string, failure: ElevenLabsFailure, facts?: MuxAiErrorFacts): MuxAiError {
+  const detailed = failure.reason === "timeout" ?
+    `${message} The dubbing service timed out. Please try again.` :
+    failure.retryable ? `${message} The dubbing service is temporarily unavailable. Please try again.` : message;
+  return elevenLabsFailureError(detailed, call, failure, facts);
 }
 
-/** The customer-facing error for a dubbing project ElevenLabs would not create. */
-function dubbingStartError(failure: ElevenLabsFailure, languages: { target: string; source?: string }): MuxAiError {
-  if (failure.reason === "unsupported_target_language") {
-    return new LegacyMuxAiError(`Audio dubbing does not support the target language "${languages.target}".`, { type: "validation_error" });
+/** The error for a dubbing project ElevenLabs would not create. */
+function dubbingStartError(failure: ElevenLabsFailure, languages: { target: string; source?: string }, facts: MuxAiErrorFacts): MuxAiError {
+  const call = "elevenlabs_create_dubbing_project";
+  const unsupported = failure.reason === "unsupported_target_language" ?
+      { language: languages.target, which: "target" } :
+    failure.reason === "unsupported_source_language" && languages.source ?
+        { language: languages.source, which: "source" } :
+      undefined;
+  if (unsupported) {
+    // The caller chose the language.
+    return new MuxAiError(`Audio dubbing does not support the ${unsupported.which} language "${unsupported.language}".`, {
+      code: MUX_AI_ERROR_CODES.DUBBING_LANGUAGE_UNSUPPORTED,
+      type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+      source: MUX_AI_ERROR_SOURCES.REQUEST,
+      dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
+      facts: {
+        language: unsupported.language,
+        which: unsupported.which,
+        call,
+        provider: "elevenlabs",
+        ...(failure.httpStatus !== undefined && { status: failure.httpStatus }),
+        ...(failure.requestId && { requestId: failure.requestId }),
+        providerCode: failure.reason!,
+        ...facts,
+      },
+    });
   }
-  if (failure.reason === "unsupported_source_language" && languages.source) {
-    return new LegacyMuxAiError(`Audio dubbing does not support the source language "${languages.source}".`, { type: "validation_error" });
-  }
-  return dubbingProviderError("Audio dubbing could not be started.", failure);
+  return dubbingProviderError("Audio dubbing could not be started.", call, failure, facts);
+}
+
+/**
+ * Where the dubbed audio was staged, for errors raised after staging. The
+ * presigned URL is a bearer credential, so only the object key (parsed from its
+ * path) is reported.
+ */
+function stagedAudioFacts(presignedUrl: string | undefined, bucket: string | undefined): MuxAiErrorFacts {
+  const key = presignedUrl?.split("?")[0].match(/audio-translations\/[^?#]+$/)?.[0];
+  return {
+    ...(bucket && { stagedAudioBucket: bucket }),
+    ...(key && { stagedAudioKey: key }),
+  };
 }
 
 async function createElevenLabsDubbingJob({
@@ -769,12 +862,20 @@ async function translateAudioInternal(
   } = options;
 
   if (provider !== "elevenlabs") {
-    throw new LegacyMuxAiError("Only ElevenLabs provider is currently supported for audio translation.", { type: "validation_error" });
+    throw new MuxAiError("Only ElevenLabs provider is currently supported for audio translation.", {
+      type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+      source: MUX_AI_ERROR_SOURCES.REQUEST,
+      facts: { parameter: "provider", value: String(provider) },
+    });
   }
 
   const targetLanguageCode = toISO639_1(toLanguageCode);
   if (numSpeakers !== 0) {
-    throw new LegacyMuxAiError("The ElevenLabs project API does not support numSpeakers overrides. Omit it or use 0 for auto-detection.", { type: "validation_error" });
+    throw new MuxAiError("The ElevenLabs project API does not support numSpeakers overrides. Omit it or use 0 for auto-detection.", {
+      type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+      source: MUX_AI_ERROR_SOURCES.REQUEST,
+      facts: { parameter: "numSpeakers", value: numSpeakers },
+    });
   }
 
   const credentials = providedCredentials;
@@ -797,8 +898,16 @@ async function translateAudioInternal(
   const s3AccessKeyId = env.S3_ACCESS_KEY_ID;
   const s3SecretAccessKey = env.S3_SECRET_ACCESS_KEY;
 
-  if (uploadToS3 && (!s3Endpoint || !s3Bucket || (!effectiveStorageAdapter && (!s3AccessKeyId || !s3SecretAccessKey)))) {
-    throw new LegacyMuxAiError("Storage configuration is required for uploading. Provide s3Endpoint and s3Bucket. If no storageAdapter is supplied, also provide s3AccessKeyId and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.", { type: "validation_error" });
+  if (uploadToS3) {
+    const missing = [
+      ...(s3Endpoint ? [] : ["s3Endpoint"]),
+      ...(s3Bucket ? [] : ["s3Bucket"]),
+      ...(effectiveStorageAdapter || s3AccessKeyId ? [] : ["S3_ACCESS_KEY_ID"]),
+      ...(effectiveStorageAdapter || s3SecretAccessKey ? [] : ["S3_SECRET_ACCESS_KEY"]),
+    ];
+    if (missing.length > 0) {
+      throw storageNotConfiguredError(missing);
+    }
   }
 
   // Fetch asset data and playback ID from Mux
@@ -809,7 +918,11 @@ async function translateAudioInternal(
   // rendition "skipped" for these, so without this check the run would wait
   // out the full rendition timeout instead of failing.
   if (isVideoOnlyAsset(initialAsset)) {
-    throw new LegacyMuxAiError(`Asset ${assetId} has no audio track, so there is no audio to dub.`, { type: "validation_error" });
+    throw new MuxAiError(`Asset ${assetId} has no audio track, so there is no audio to dub.`, {
+      type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+      source: MUX_AI_ERROR_SOURCES.ASSET,
+      facts: { assetId },
+    });
   }
 
   // Mux refuses audio tracks on clips, live stream assets and audio-only
@@ -818,7 +931,12 @@ async function translateAudioInternal(
   // the staged audio file instead of a new track.
   const audioTrackUnsupported = uploadToMux ? audioTrackUnsupportedReason(initialAsset) : undefined;
   if (audioTrackUnsupported) {
-    throw new LegacyMuxAiError(`Asset ${assetId} ${audioTrackUnsupported}`, { type: "validation_error" });
+    throw new MuxAiError(`Asset ${assetId} ${audioTrackUnsupported.message}`, {
+      code: MUX_AI_ERROR_CODES.AUDIO_TRACK_UNSUPPORTED,
+      type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+      source: MUX_AI_ERROR_SOURCES.ASSET,
+      facts: { assetId, reason: audioTrackUnsupported.reason },
+    });
   }
 
   // Audio conflicts reject before paid dubbing; optional caption conflicts are
@@ -826,7 +944,7 @@ async function translateAudioInternal(
   if (uploadToMux) {
     const plan = planTextTrackReplacement(initialAsset, audioTrackTarget, replaceExistingTracks);
     if (plan.kind === "blocked") {
-      throw new LegacyMuxAiError(plan.reason, { type: "validation_error" });
+      throw trackReplacementBlockedError(plan, { facts: { ...trackTargetFacts(audioTrackTarget), assetId, policy: replaceExistingTracks } });
     }
   }
 
@@ -879,9 +997,9 @@ async function translateAudioInternal(
       const audioRendition = getReadyAudioStaticRendition(currentAsset);
 
       if (!audioRendition) {
-        throw new LegacyMuxAiError(
+        throw new MuxAiError(
           "Unable to obtain an audio-only static rendition for this asset. Please verify static renditions are enabled in Mux.",
-          { type: "validation_error" },
+          { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET, facts: { assetId } },
         );
       }
     }
@@ -912,7 +1030,7 @@ async function translateAudioInternal(
         credentials,
       });
     } catch (error) {
-      legacyWrapError(error, "Failed to create ElevenLabs dubbing job");
+      wrapError(error, "Failed to create ElevenLabs dubbing job", { provider: "elevenlabs", assetId });
     }
     if (created.kind === "failed") {
       const { failure } = created;
@@ -921,7 +1039,7 @@ async function translateAudioInternal(
       console.warn(
         `Failed to create ElevenLabs dubbing project for asset ${assetId}: ${failure.detail}${mayHaveCreated ? " The project may have been created; check ElevenLabs before retrying." : ""}`,
       );
-      throw dubbingStartError(failure, { target: elevenLabsLangCode, source: elevenLabsSourceLangCode });
+      throw dubbingStartError(failure, { target: elevenLabsLangCode, source: elevenLabsSourceLangCode }, { assetId, ...(mayHaveCreated && { mayHaveCreated }) });
     }
     dubbingId = created.projectId;
     languageId = created.languageId;
@@ -950,7 +1068,7 @@ async function translateAudioInternal(
           credentials,
         });
       } catch (error) {
-        legacyWrapError(error, "Failed to check dubbing status");
+        wrapError(error, "Failed to check dubbing status", { provider: "elevenlabs", dubbingId });
       }
 
       if (statusResult.kind === "failed") {
@@ -959,7 +1077,10 @@ async function translateAudioInternal(
         console.warn(`Status check for ElevenLabs dubbing project ${dubbingId} failed: ${failure.detail}`);
         // A transient failure only skips this poll; the next poll retries it.
         if (!failure.retryable || consecutiveStatusCheckFailures >= MAX_CONSECUTIVE_STATUS_CHECK_FAILURES) {
-          throw dubbingProviderError("Could not check audio dubbing progress.", failure);
+          throw dubbingProviderError("Could not check audio dubbing progress.", "elevenlabs_get_dubbing_project", failure, {
+            dubbingId,
+            consecutiveFailures: consecutiveStatusCheckFailures,
+          });
         }
         continue;
       }
@@ -971,18 +1092,51 @@ async function translateAudioInternal(
         console.warn(`❌ ElevenLabs dubbing project ${dubbingId} (language ${languageId}) failed: ${dubbingError ? `${dubbingError.code}: ${dubbingError.message}` : "no error reported"}`);
         // ElevenLabs documents `message` as display text and `retryable` as whether
         // resubmitting the same input could succeed.
+        const facts = { call: "elevenlabs_get_dubbing_project", provider: "elevenlabs", dubbingId, languageId };
         if (!dubbingError) {
-          throw new LegacyMuxAiError("Audio dubbing failed.", { type: "processing_error" });
+          throw new MuxAiError("Audio dubbing failed.", {
+            code: MUX_AI_ERROR_CODES.DUBBING_FAILED,
+            type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+            source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+            dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
+            facts,
+            // No reason was given, so a resubmit isn't known to help.
+            retryable: false,
+          });
         }
-        throw new LegacyMuxAiError(
+        throw new MuxAiError(
           `Audio dubbing failed: ${dubbingError.message}${dubbingError.retryable ? " Please try again." : ""}`,
-          { type: "processing_error", retryable: dubbingError.retryable },
+          {
+            code: MUX_AI_ERROR_CODES.DUBBING_FAILED,
+            type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+            source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+            dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
+            // ElevenLabs documents `message` as display text.
+            facts: { ...facts, providerCode: dubbingError.code, providerError: errorDetailFact(dubbingError.message) },
+            // ElevenLabs says whether a new attempt may succeed.
+            retryable: dubbingError.retryable,
+          },
         );
       }
     }
 
     if (dubbingStatus !== "completed") {
-      throw new LegacyMuxAiError("Audio translation timed out or failed. Please try again.", { type: "timeout_error", retryable: true });
+      throw new MuxAiError("Audio translation timed out. Please try again.", {
+        type: MUX_AI_ERROR_TYPES.TIMEOUT_ERROR,
+        source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+        dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
+        facts: {
+          call: "elevenlabs_get_dubbing_project",
+          provider: "elevenlabs",
+          dubbingId,
+          languageId,
+          pollAttempts,
+          timeoutSeconds: dubbingPollTimeoutSeconds,
+          lastStatus: dubbingStatus,
+        },
+        // Not transient: this already polled for the whole budget.
+        transient: false,
+      });
     }
 
     console.warn("✅ Dubbing completed successfully!");
@@ -1006,7 +1160,7 @@ async function translateAudioInternal(
             credentials,
           });
         } catch (error) {
-          legacyWrapError(error, "Failed to download and upload dubbed audio");
+          wrapError(error, "Failed to download and upload dubbed audio", { dubbingId, languageId });
         }
         if (staged.kind === "staged") {
           presignedUrl = staged.presignedUrl;
@@ -1015,7 +1169,7 @@ async function translateAudioInternal(
         const { failure } = staged;
         console.warn(`Downloading dubbed audio for ElevenLabs dubbing project ${dubbingId} failed (attempt ${attempt}): ${failure.detail}`);
         if (!failure.retryable || attempt >= DUBBED_AUDIO_DOWNLOAD_ATTEMPTS) {
-          throw dubbingProviderError("Could not download the dubbed audio.", failure);
+          throw dubbingProviderError("Could not download the dubbed audio.", "elevenlabs_get_dubbed_audio", failure, { dubbingId, languageId, attempts: attempt });
         }
         await sleep(DUBBED_AUDIO_DOWNLOAD_RETRY_DELAY_MS);
       }
@@ -1023,7 +1177,9 @@ async function translateAudioInternal(
 
       // Add translated audio track to Mux asset (only when uploadToMux is true).
       // The audio track is the product, so a failure here fails the workflow; the
-      // presigned URL is in the error so the caller can still attach it manually.
+      // staged object's bucket and key are in the error's facts so the caller can
+      // still attach it manually. The presigned URL is a bearer credential and is
+      // never put in an error.
       if (uploadToMux) {
         console.warn("📹 Adding dubbed audio track to Mux asset...");
         let outcome: Awaited<ReturnType<typeof replaceAndCreateTrack>>;
@@ -1037,13 +1193,26 @@ async function translateAudioInternal(
             credentials,
           });
         } catch (error) {
-          legacyWrapError(error, `Failed to add dubbed audio track to Mux asset (dubbed audio is staged at: ${presignedUrl})`);
+          // Only the asset fetch before any delete throws; create failures come back as outcomes.
+          wrapError(error, "Failed to fetch the asset before adding the dubbed audio track", {
+            assetId,
+            ...stagedAudioFacts(presignedUrl, s3Bucket),
+          });
         }
-        if (outcome.kind === "blocked") {
-          throw new LegacyMuxAiError(`${outcome.reason} Dubbed audio is staged at: ${presignedUrl}`, { type: "validation_error" });
-        }
-        if (outcome.kind === "create_failed") {
-          throw new Error(`Failed to add dubbed audio track to Mux asset: ${outcome.reason}. Dubbed audio is staged at: ${presignedUrl}`);
+        if (outcome.kind !== "created") {
+          const facts: MuxAiErrorFacts = {
+            assetId,
+            trackType: "audio",
+            languageCode: muxLangCode,
+            trackName,
+            dubbingId,
+            ...(outcome.deleted.length > 0 && { deletedTracks: trackSummaryFacts(outcome.deleted) }),
+            ...stagedAudioFacts(presignedUrl, s3Bucket),
+          };
+          if (outcome.kind === "blocked") {
+            throw trackReplacementBlockedError(outcome, { message: `${outcome.reason} The dubbed audio is still staged in storage.`, facts });
+          }
+          throw trackWriteFailedError(outcome, "Failed to add dubbed audio track to Mux asset. The dubbed audio is still staged in storage.", facts);
         }
         uploadedTrackId = outcome.trackId;
         replacedTracks = outcome.deleted;

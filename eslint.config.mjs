@@ -33,6 +33,7 @@ const ERROR_MODULES = [
 const CLASSIFIED_ERROR_MODULES = [
   "src/lib/content-policy-error.ts",
   "src/lib/dependency-error.ts",
+  "src/lib/elevenlabs-errors.ts",
   "src/lib/model-call-diagnostics.ts",
   "src/lib/mux-ai-error.ts",
   "src/lib/mux-assets.ts",
@@ -53,6 +54,7 @@ const CLASSIFIED_ERROR_MODULES = [
   "src/primitives/text-chunking.ts",
   "src/primitives/transcripts.ts",
   "src/workflows/engagement-insights.ts",
+  "src/workflows/translate-audio.ts",
   "src/workflows/translate-captions.ts",
 ];
 
