@@ -62,7 +62,7 @@ This runs all `*.eval.ts` files in one pass and opens the Evalite UI at `http://
 By default, evals run against provider default models only:
 
 - `openai:gpt-5.6-luna` (medium reasoning)
-- `anthropic:claude-sonnet-4-5`
+- `anthropic:claude-sonnet-5-5`
 - `google:gemini-3-flash-preview`
 
 Baseten and OpenAI-compatible endpoints are intentionally skipped by eval model selection. `MUX_AI_EVAL_MODEL_SET=default|all` does not include them, and explicit `MUX_AI_EVAL_MODELS=baseten:...` or `openai-compatible:...` entries are filtered out before evals run.
@@ -252,8 +252,9 @@ Evals calculate estimated costs using per-model pricing for all supported models
 |----------|-------|----------------------|-----------------------------|------------------------|
 | OpenAI | gpt-5.6-luna (default, medium reasoning) | $0.20 | $0.02 | $1.20 |
 | OpenAI | gpt-5.1 (deprecated; sunset 2026-10-01) | $1.25 | $0.125 | $10.00 |
-| OpenAI | gpt-5-mini | $0.25 | $0.025 | $2.00 |
-| Anthropic | claude-sonnet-4-5 (default) | $3.00 | $0.30 | $15.00 |
+| OpenAI | gpt-5-mini (deprecated; sunset 2026-12-11) | $0.25 | $0.025 | $2.00 |
+| Anthropic | claude-sonnet-5-5 (default) | $2.00 | $0.10 | $10.00 |
+| Anthropic | claude-sonnet-4-5 (deprecated; sunset 2026-11-30) | $3.00 | $0.30 | $15.00 |
 | Google | gemini-3-flash-preview (default) | $0.50 | $0.05 | $3.00 |
 | Google | gemini-2.5-flash | $0.30 | $0.03 | $2.50 |
 
