@@ -32,7 +32,7 @@ export default antfu({
   type: "app",
   typescript: true,
   formatters: true,
-  ignores: ["docs/**", "examples/**", "README.md"],
+  ignores: ["docs/**", "examples/**", "README.md", "CHANGELOG.md"],
   stylistic: {
     indent: 2,
     semi: true,
