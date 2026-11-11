@@ -613,6 +613,8 @@ async function uploadEditedVttToS3({
     bucket: s3Bucket,
     key: vttKey,
     expiresInSeconds: s3SignedUrlExpirySeconds ?? 86400,
+    responseContentType: "text/vtt; charset=utf-8",
+    responseContentDisposition: "attachment",
   }, storageAdapter);
 }
 
