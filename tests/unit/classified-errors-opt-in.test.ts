@@ -10,6 +10,7 @@ import {
 import { dependencyError } from "../../src/lib/dependency-error.ts";
 import { MuxAiError } from "../../src/lib/mux-ai-error.ts";
 import { fetchVttFromMux } from "../../src/lib/mux-tracks.ts";
+import { muxVideoErrorFacts } from "../../src/lib/mux-video-errors.ts";
 import { storageNotConfiguredError } from "../../src/lib/storage-adapter.ts";
 
 // Shared helpers raise classified errors only when the calling workflow opts in;
@@ -125,5 +126,13 @@ describe("dependency errors", () => {
 describe("storageNotConfiguredError", () => {
   it("names the missing settings, never their values", () => {
     expect(storageNotConfiguredError(["s3Bucket"])).toMatchObject({ code: "storage_not_configured", source: "internal", facts: { missing: ["s3Bucket"] } });
+  });
+});
+
+describe("muxVideoErrorFacts", () => {
+  it("keeps Mux's error type as a token, and nothing from a body it can't read", () => {
+    expect(muxVideoErrorFacts({ error: { error: { type: "invalid_parameters", messages: ["url is invalid"] } } })).toEqual({ muxErrorType: "invalid_parameters" });
+    expect(muxVideoErrorFacts({ error: { error: { type: "not a token!" } } })).toEqual({});
+    expect(muxVideoErrorFacts(new Error("connection reset"))).toEqual({});
   });
 });

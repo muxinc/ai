@@ -41,7 +41,6 @@ import {
   trackReplacementBlockedError,
   trackSummaryFacts,
   trackTargetFacts,
-  trackWriteFailedError,
   validateTrackPassthrough,
 } from "../lib/mux-tracks.ts";
 import type { ReplaceExistingTracksPolicy, TextTrackSummary, TextTrackTarget } from "../lib/mux-tracks.ts";
@@ -1537,7 +1536,11 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
         if (outcome.kind === "blocked") {
           throw trackReplacementBlockedError(outcome, { message: `${outcome.reason}${deletedNote}`, facts: { ...trackTargetFacts(outputTrack), ...facts } });
         }
-        throw trackWriteFailedError(outcome, `Failed to add translated track to Mux asset.${deletedNote}`, facts);
+        // Classified inside the step (we opted in); add what this workflow knows.
+        const failure = outcome.error ?? internalError(`Track write failed without a classified error: ${outcome.reason}`);
+        Object.assign(failure, { facts: { ...facts, ...failure.facts } });
+        failure.message = `Failed to add translated track to Mux asset: ${failure.message}.${deletedNote}`;
+        throw failure;
       }
       uploadedTrackId = outcome.trackId;
       replacedTracks = outcome.deleted;

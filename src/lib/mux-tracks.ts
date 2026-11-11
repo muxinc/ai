@@ -1,18 +1,11 @@
 import type { AssetTextTrack, MuxAsset, WorkflowCredentialsInput } from "../types.ts";
 
-import { dependencyError, httpStatusOf, requestIdOf } from "./dependency-error.ts";
-import type { DependencyErrorInit } from "./dependency-error.ts";
+import { requestIdOf } from "./dependency-error.ts";
 import { isUndeterminedLanguageCode, toISO639_1 } from "./language-codes.ts";
 import { LegacyMuxAiError } from "./legacy-mux-ai-error.ts";
 import type { ClassifiedErrorsOption, MuxAiErrorFacts, MuxAiErrorFactValue } from "./mux-ai-error.ts";
-import {
-  errorDetailFact,
-  MUX_AI_ERROR_CODES,
-  MUX_AI_ERROR_DEPENDENCIES,
-  MUX_AI_ERROR_SOURCES,
-  MUX_AI_ERROR_TYPES,
-  MuxAiError,
-} from "./mux-ai-error.ts";
+import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
+import { missingTrackIdError, muxVideoCallError, muxVideoError } from "./mux-video-errors.ts";
 import { resolveMuxClient } from "./workflow-credentials.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -104,22 +97,18 @@ export type ReplaceAndCreateTextTrackResult =
   (TrackReplacementBlocked & { deleted: TextTrackSummary[] }) |
   TrackWriteFailed;
 
-/** The Mux call behind a failed track write. */
-export type TrackWriteCall = "get_asset" | "delete_track" | "create_track";
-
-/**
- * A Mux failure while writing a track. `call`, `status` and `requestId` let the caller
- * classify it after the step boundary, where the raw error is gone.
- */
+/** A Mux failure while writing a track. */
 export interface TrackWriteFailed {
   kind: "create_failed";
-  call: TrackWriteCall;
-  /** HTTP status of Mux's response; absent for a network failure or a malformed response. */
-  status?: number;
-  requestId?: string;
   /** The raw error's message. Internal detail, not end-user text. */
   reason: string;
   deleted: TextTrackSummary[];
+  /**
+   * With `classifiedErrors`, the failure classified inside the step, while the raw error
+   * was still in hand: it crosses the step boundary with its status, request id, Mux's
+   * error type and a scrubbed cause summary.
+   */
+  error?: MuxAiError;
 }
 
 /** Mux caps track `passthrough` at 255 characters. */
@@ -339,61 +328,6 @@ function isNotFoundError(error: unknown): boolean {
 // Errors
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Classifies a failed Mux Video call (see `dependencyError`): a 401/403 is the caller's
- * Mux `account` (its `credentials`), and a 404 means the asset or track is gone or not
- * ready (`asset`).
- */
-export function muxVideoError(
-  message: string,
-  init: Omit<DependencyErrorInit, "dependency" | "notFoundSource" | "authSource" | "authInputs">,
-): MuxAiError {
-  return dependencyError(message, {
-    ...init,
-    dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO,
-    notFoundSource: MUX_AI_ERROR_SOURCES.ASSET,
-    authSource: MUX_AI_ERROR_SOURCES.ACCOUNT,
-    authInputs: ["credentials"],
-    // A create may have taken effect despite the failure; retrying could duplicate the track.
-    idempotent: init.call !== "create_track",
-  });
-}
-
-/**
- * `muxVideoError` for an error thrown by a Mux SDK call. An already classified error
- * (e.g. missing credentials) passes through with `facts` merged in.
- */
-export function muxVideoCallError(message: string, call: string, error: unknown, facts?: MuxAiErrorFacts): MuxAiError {
-  if (MuxAiError.is(error)) {
-    if (facts) {
-      Object.assign(error, { facts: { ...facts, ...error.facts } });
-    }
-    return error;
-  }
-  return muxVideoError(message, {
-    call,
-    status: httpStatusOf(error),
-    requestId: requestIdOf((error as { headers?: unknown } | null)?.headers),
-    facts,
-    cause: error,
-  });
-}
-
-/** The error for a `create_failed` outcome, classified by the Mux status it kept. */
-export function trackWriteFailedError(
-  failed: Pick<TrackWriteFailed, "call" | "status" | "requestId" | "reason">,
-  message: string,
-  facts?: MuxAiErrorFacts,
-): MuxAiError {
-  return muxVideoError(message, {
-    call: failed.call,
-    status: failed.status,
-    requestId: failed.requestId,
-    facts,
-    cause: new Error(failed.reason),
-  });
-}
-
 function trackFacts(track: TextTrackSummary): MuxAiErrorFactValue {
   return Object.fromEntries(
     Object.entries({
@@ -600,20 +534,15 @@ async function writeTrack(
   const type = targetType(input.target);
   const deleted: TextTrackSummary[] = [];
 
-  // Keep the status and request id: the raw error doesn't survive the step boundary.
-  const failed = (call: TrackWriteCall, error: unknown): TrackWriteFailed => {
-    const status = httpStatusOf(error);
-    const requestId = requestIdOf((error as { headers?: unknown } | null)?.headers);
-    const message = error instanceof Error ? error.message : String(error);
-    return {
-      kind: "create_failed",
-      call,
-      ...(status !== undefined && { status }),
-      ...(requestId && { requestId }),
-      reason: input.classifiedErrors ? errorDetailFact(message) : message,
-      deleted,
-    };
-  };
+  // Classified here, while the raw error is in hand: past the step boundary only its message is left.
+  const failed = (call: "get_asset" | "delete_track" | "create_track", error: unknown): TrackWriteFailed => ({
+    kind: "create_failed",
+    reason: error instanceof Error ? error.message : String(error),
+    deleted,
+    ...(input.classifiedErrors && {
+      error: muxVideoCallError(`Mux ${call} failed while writing the ${type} track`, call, error, { assetId: input.assetId }),
+    }),
+  });
 
   const clearConflicts = async (): Promise<Exclude<ReplaceAndCreateTextTrackResult, { kind: "created" }> | undefined> => {
     let asset: MuxAsset;
@@ -656,7 +585,8 @@ async function writeTrack(
       passthrough: input.passthrough,
     });
     if (!track.id) {
-      throw new Error(`Failed to create ${type} track: no track ID returned from Mux`);
+      const message = `Failed to create ${type} track: no track ID returned from Mux`;
+      throw input.classifiedErrors ? missingTrackIdError(message, { assetId: input.assetId }) : new Error(message);
     }
     return track.id;
   };
@@ -685,7 +615,7 @@ async function writeTrack(
   }
 
   if (!input.classifiedErrors) {
-    return { kind: "create_failed", call: "create_track", reason: "Mux rejected the track name as not unique after retrying.", deleted };
+    return { kind: "create_failed", reason: "Mux rejected the track name as not unique after retrying.", deleted };
   }
   // The fresh asset showed no conflict, yet Mux still rejects the name: a conflict on
   // the chosen name, not a Mux failure.

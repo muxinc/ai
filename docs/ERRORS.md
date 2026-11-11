@@ -186,7 +186,7 @@ As each module moves, its failures become classified errors, and its plain `thro
 Modules move one workflow at a time. A helper several workflows share can't switch to classified errors for all of them at once without changing what the workflows that haven't moved raise, so its classified errors are opt-in:
 
 - **Model calls** take a `ModelCallContext` (`call`, `provider`, `model`). With one, content-policy blocks, incomplete or unusable output, and provider API failures are classified where they happen, with those facts. Without one, they fail as before.
-- **Other shared helpers** take `classifiedErrors: true` (`ClassifiedErrorsOption`), e.g. `fetchVttFromMux()` and `replaceAndCreateTextTrack()`. Without it, they fail as before. Results such as a failed track write may gain fields (`call`, `status`), which callers that don't read them never notice.
+- **Other shared helpers** take `classifiedErrors: true` (`ClassifiedErrorsOption`), e.g. `fetchVttFromMux()` and `replaceAndCreateTextTrack()`. Without it, they fail as before. A helper that reports a failure as a result rather than a throw (e.g. a failed track write) classifies it inside the step and returns it as the result's `error`: a classified error crosses the step boundary intact, where the raw error would keep only its message.
 
 A workflow that moves passes the opt-in to every shared helper it calls. Once every caller has, the opt-in becomes the only behavior and goes away with the legacy fields.
 
@@ -248,7 +248,7 @@ const toPublic = createPublicErrorView<string, string>({
 Helpers:
 
 - **Remote calls:** classify where the call is made, while the status is still in hand. `dependencyError()` (in `dependency-error.ts`) turns a status into a source and retry policy: no response, 408, 425, 429 and 5xx are `upstream` and transient; 401/403 and 404 take the source the caller chooses (`authSource`, `notFoundSource`); other 4xx are `internal`, a request we built. It records `call`, `status` and `requestId`, and takes `idempotent: false` for calls that may have taken effect (a create), so a no-response or 5xx failure isn't step-retried. `dependencyErrorFrom()` does the same for an error thrown by an SDK client, reading its status.
-- **Provider API failures:** each provider means different things by the same status (a 429 can be a short rate limit or a spent quota), so each gets its own classifier, keyed by the `ModelCallContext`'s provider: `google-errors.ts` for Google, like `elevenlabs-errors.ts` for ElevenLabs. A provider without one keeps its raw error until a workflow that uses it moves.
+- **Provider API failures:** each provider means different things by the same status (a 429 can be a short rate limit or a spent quota), so each gets its own classifier, keyed by the `ModelCallContext`'s provider: `google-errors.ts` for Google, like `elevenlabs-errors.ts` for ElevenLabs. Mux Video calls go through `mux-video-errors.ts`, which also keeps Mux's error type (`muxErrorType`). Keep what a dependency says as validated tokens in facts; its free text reaches the scrubbed `causes` through the error's message, never facts. A provider without one keeps its raw error until a workflow that uses it moves.
 - **This code's own failures:** `internalError()` and `assertNever()`.
 - **Passing errors up:** `wrapError()` passes a classified error through, merging facts, and turns anything unclassified into an `internal` failure.
 
