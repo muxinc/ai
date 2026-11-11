@@ -72,9 +72,21 @@ export type MuxAiErrorFactValue = string | number | boolean | null | MuxAiErrorF
  * Details of one occurrence, JSON-safe so they survive step boundaries. Internal by
  * default: a consumer chooses what, if anything, to show. Dependency errors always
  * carry `call` (the outside call's snake_case name), plus `status` and `requestId`
- * when there was a response.
+ * when there was a response. A failure blamed on an input the caller passed carries
+ * `inputs`: the input names involved (e.g. `credentials`), so a caller that set that
+ * input itself, rather than passing on its end user's, can re-attribute the failure.
  */
 export type MuxAiErrorFacts = Readonly<Record<string, MuxAiErrorFactValue>>;
+
+/**
+ * Opts a shared helper into raising classified errors. A workflow passes it once it has
+ * moved onto the classified model; without it, the helper fails exactly as it did
+ * before, so workflows that haven't moved see no change. It goes away once every
+ * caller has moved and classified errors become the only behavior.
+ */
+export interface ClassifiedErrorsOption {
+  classifiedErrors?: boolean;
+}
 
 /**
  * What a code implies, in any catalog built on {@link ClassifiedError}: its type,

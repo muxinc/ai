@@ -132,7 +132,12 @@ describe("translateCaptions error-path token usage", () => {
       translateCaptions("asset-123", "track-1", "es", TRANSLATION_OPTIONS),
     );
 
-    expect((error as Error).message).toContain("Failed to translate VTT");
+    // No OpenAI classifier yet: the chunk's failure is internal, with the call's facts.
+    expect(error).toMatchObject({
+      source: "internal",
+      facts: { call: "translate_vtt_chunk", provider: "openai", model: "gpt-test", chunkId: expect.any(String) },
+    });
+    expect((error as { dependency?: string }).dependency).toBeUndefined();
     // One chunk of two completed before the failure, so exactly one chunk's
     // usage must ride on the error.
     expect((error as { usage?: TokenUsage }).usage).toEqual(CHUNK_USAGE);

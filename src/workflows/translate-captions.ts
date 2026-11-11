@@ -11,13 +11,24 @@ import { z } from "zod";
 
 import env from "../env.ts";
 import {
+  classifyModelCallError,
   getGeneratedOutputWithContentPolicyHandling,
   isIncompleteGenerationError,
   withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
+import type { ModelCallContext } from "../lib/content-policy-error.ts";
 import { getLanguageCodePair, getLanguageName } from "../lib/language-codes.ts";
 import type { LanguageCodePair, SupportedISO639_1 } from "../lib/language-codes.ts";
-import { LegacyMuxAiError, legacyWrapError } from "../lib/legacy-mux-ai-error.ts";
+import {
+  internalError,
+  MUX_AI_ERROR_CODES,
+  MUX_AI_ERROR_DEPENDENCIES,
+  MUX_AI_ERROR_SOURCES,
+  MUX_AI_ERROR_TYPES,
+  MuxAiError,
+  wrapError,
+} from "../lib/mux-ai-error.ts";
+import type { MuxAiErrorFacts } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -27,6 +38,10 @@ import {
   fetchVttFromMux,
   planTextTrackReplacement,
   replaceAndCreateTextTrack,
+  trackReplacementBlockedError,
+  trackSummaryFacts,
+  trackTargetFacts,
+  trackWriteFailedError,
   validateTrackPassthrough,
 } from "../lib/mux-tracks.ts";
 import type { ReplaceExistingTracksPolicy, TextTrackSummary, TextTrackTarget } from "../lib/mux-tracks.ts";
@@ -47,8 +62,10 @@ import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
 import {
   createPresignedGetUrlWithStorageAdapter,
   putObjectWithStorageAdapter,
+  storageNotConfiguredError,
 } from "../lib/storage-adapter.ts";
 import { aggregateTokenUsage, getErrorTokenUsage, rethrowWithTokenUsage } from "../lib/token-usage.ts";
+import { signingCredentialsMissingError } from "../lib/url-signing.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
 import {
   chunkVTTCuesByBudget,
@@ -269,47 +286,55 @@ const CUE_TRANSLATION_SYSTEM_PROMPT = promptDedent`
 const MAX_NEVER_TRANSLATE_TERMS = 100;
 const MAX_NEVER_TRANSLATE_TERM_CHARS = 100;
 
+function neverTranslateError(facts: MuxAiErrorFacts) {
+  return {
+    type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+    source: MUX_AI_ERROR_SOURCES.REQUEST,
+    facts: { parameter: "neverTranslate", ...facts },
+  };
+}
+
 /**
  * Trims, dedupes, and caps `neverTranslate` terms. The caps bound the
  * prompt-injection surface (see docs/SECURITY.md).
  */
 export function validateNeverTranslateTerms(terms: string[]): string[] {
   if (terms.length > MAX_NEVER_TRANSLATE_TERMS) {
-    throw new LegacyMuxAiError(
+    throw new MuxAiError(
       `neverTranslate accepts at most ${MAX_NEVER_TRANSLATE_TERMS} terms (received ${terms.length}).`,
-      { type: "validation_error" },
+      neverTranslateError({ count: terms.length, max: MAX_NEVER_TRANSLATE_TERMS }),
     );
   }
 
   const validated: string[] = [];
   const seen = new Set<string>();
-  for (const term of terms) {
+  for (const [termIndex, term] of terms.entries()) {
     const trimmed = term.trim();
     if (trimmed.length === 0) {
-      throw new LegacyMuxAiError(
+      throw new MuxAiError(
         "neverTranslate terms must be non-empty.",
-        { type: "validation_error" },
+        neverTranslateError({ termIndex }),
       );
     }
     if (trimmed.length > MAX_NEVER_TRANSLATE_TERM_CHARS) {
-      throw new LegacyMuxAiError(
+      throw new MuxAiError(
         `neverTranslate terms must be at most ${MAX_NEVER_TRANSLATE_TERM_CHARS} characters (received ${trimmed.length}).`,
-        { type: "validation_error" },
+        neverTranslateError({ termIndex, length: trimmed.length, maxLength: MAX_NEVER_TRANSLATE_TERM_CHARS }),
       );
     }
     if (trimmed.includes("<") || trimmed.includes(">")) {
-      throw new LegacyMuxAiError(
+      throw new MuxAiError(
         "neverTranslate terms must not contain '<' or '>'.",
-        { type: "validation_error" },
+        neverTranslateError({ termIndex }),
       );
     }
     // Cue text is NFKC-sanitised before the model sees it, so a term the
     // sanitiser rewrites can never be preserved verbatim — reject it
     // rather than verify in a space the caller didn't ask for.
     if (sanitizeUntrustedText(trimmed) !== trimmed) {
-      throw new LegacyMuxAiError(
+      throw new MuxAiError(
         "neverTranslate terms must not contain invisible characters or characters altered by Unicode NFKC normalization.",
-        { type: "validation_error" },
+        neverTranslateError({ termIndex }),
       );
     }
     // Case-insensitive dedupe: case variants would double-demand the
@@ -383,49 +408,85 @@ interface TranslationChunkRequest {
 // Re-exported from its original home for backwards compatibility.
 export { aggregateTokenUsage };
 
-class TranslationChunkValidationError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "TranslationChunkValidationError";
-  }
-}
-
-function isTranslationChunkValidationError(error: unknown): error is TranslationChunkValidationError {
-  return error instanceof TranslationChunkValidationError;
-}
-
-function isProviderServiceError(error: unknown): boolean {
+/** The provider call failure behind `error`, unwrapping retries and causes. */
+function findProviderServiceError(error: unknown): APICallError | undefined {
   if (!error) {
-    return false;
+    return undefined;
   }
 
   if (RetryError.isInstance(error)) {
-    return isProviderServiceError(error.lastError);
+    return findProviderServiceError(error.lastError);
   }
 
   if (APICallError.isInstance(error)) {
-    return true;
+    return error;
   }
 
   if (error instanceof Error && "cause" in error) {
-    return isProviderServiceError(error.cause);
+    return findProviderServiceError(error.cause);
   }
 
-  return false;
+  return undefined;
+}
+
+/** Output the AI SDK could not turn into the requested object. */
+function isUnusableOutputError(error: unknown): boolean {
+  return (
+    NoObjectGeneratedError.isInstance(error) ||
+    NoOutputGeneratedError.isInstance(error) ||
+    TypeValidationError.isInstance(error)
+  );
 }
 
 export function shouldSplitChunkTranslationError(error: unknown): boolean {
-  if (isProviderServiceError(error)) {
+  if (findProviderServiceError(error)) {
     return false;
   }
 
   return (
-    NoObjectGeneratedError.isInstance(error) ||
-    NoOutputGeneratedError.isInstance(error) ||
-    TypeValidationError.isInstance(error) ||
+    isUnusableOutputError(error) ||
     isIncompleteGenerationError(error) ||
-    isTranslationChunkValidationError(error)
+    // Missing or invalid output, including a wrong cue count.
+    (MuxAiError.is(error) && (error.code === MUX_AI_ERROR_CODES.MODEL_OUTPUT_MISSING || error.code === MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID))
   );
+}
+
+/**
+ * Classifies a model-call failure inside a translation step. Transient failures
+ * stay transient so the step runner retries them, as it did for the raw errors.
+ */
+function translationStepError(error: unknown, message: string, facts: MuxAiErrorFacts): MuxAiError {
+  if (MuxAiError.is(error)) {
+    Object.assign(error, { facts: { ...facts, ...error.facts } });
+    return error;
+  }
+
+  const context: ModelCallContext = { call: String(facts.call), provider: String(facts.provider), ...(facts.model !== undefined && { model: String(facts.model) }) };
+  let classified = classifyModelCallError(error, context);
+  if (classified) {
+    Object.assign(classified, { facts: { ...facts, ...classified.facts } });
+    return classified;
+  }
+  if (isUnusableOutputError(error)) {
+    classified = new MuxAiError(message, {
+      code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID,
+      type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+      source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+      dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
+      facts,
+      // As before: the raw error was retried by the step runner. See the model-output follow-up.
+      transient: true,
+      cause: error,
+    });
+  } else {
+    classified = internalError(message, facts, error);
+  }
+
+  const usage = getErrorTokenUsage(error);
+  if (usage) {
+    classified.usage = usage;
+  }
+  return classified;
 }
 
 function resolveTranslationChunkingOptions(
@@ -760,6 +821,7 @@ async function translateVttWithAI({
   // blocks implicitly.
   const sanitisedVttContent = stripVttMetadataBlocks(vttContent);
 
+  const context: ModelCallContext = { call: "translate_vtt", provider, model: modelId };
   const response = await withContentPolicyAwareRetry(() => generateText({
     model,
     maxRetries: 0,
@@ -771,8 +833,10 @@ async function translateVttWithAI({
         content: `Translate from ${fromLanguageCode} to ${toLanguageCode}:${buildNeverTranslateSection(neverTranslate)}\n\n${sanitisedVttContent}`,
       },
     ],
-  }));
-  const output = getGeneratedOutputWithContentPolicyHandling(response);
+  }), undefined, context).catch((error: unknown) => {
+    throw translationStepError(error, "Caption translation model call failed", { ...context });
+  });
+  const output = getGeneratedOutputWithContentPolicyHandling(response, context);
 
   // Whole-VTT path: scan the entire translated blob for leaks. This is
   // coarser than the cue-by-cue path below because the non-chunked path
@@ -870,6 +934,7 @@ async function translateCueChunkWithAI({
     text: cue.text,
   }));
 
+  const context: ModelCallContext = { call: "translate_vtt_chunk", provider, model: modelId };
   const response = await withContentPolicyAwareRetry(() => generateText({
     model,
     maxRetries: 0,
@@ -881,8 +946,8 @@ async function translateCueChunkWithAI({
         content: `Translate from ${fromLanguageCode} to ${toLanguageCode}.\nReturn exactly ${cues.length} translated cues in the same order as the input.${buildNeverTranslateSection(neverTranslate)}\n\n${JSON.stringify(cuePayload, null, 2)}`,
       },
     ],
-  }));
-  const output = getGeneratedOutputWithContentPolicyHandling(response);
+  }), undefined, context);
+  const output = getGeneratedOutputWithContentPolicyHandling(response, context);
 
   // Schema-smuggling detection for the cue envelope. Any extras on the
   // root envelope were stripped by zod; log + bubble count to aggregate.
@@ -915,7 +980,7 @@ async function translateCueChunkWithAI({
 function splitTranslationChunkAtMidpoint(chunk: TranslationChunkRequest): [TranslationChunkRequest, TranslationChunkRequest] {
   const midpoint = Math.floor(chunk.cueCount / 2);
   if (midpoint <= 0 || midpoint >= chunk.cueCount) {
-    throw new Error(`Cannot split chunk ${chunk.id} with cueCount=${chunk.cueCount}`);
+    throw internalError("Cannot split a translation chunk with fewer than two cues", { chunkId: chunk.id, cueCount: chunk.cueCount });
   }
 
   return [
@@ -951,6 +1016,16 @@ async function translateChunkWithFallback({
 }): Promise<TranslateStepResult> {
   "use step";
 
+  const chunkFacts: MuxAiErrorFacts = {
+    call: "translate_vtt_chunk",
+    provider,
+    model: modelId,
+    chunkId: chunk.id,
+    cueCount: chunk.cueCount,
+    startTime: Math.round(chunk.startTime),
+    endTime: Math.round(chunk.endTime),
+  };
+
   try {
     const result = await translateCueChunkWithAI({
       cues: chunk.cues,
@@ -963,9 +1038,21 @@ async function translateChunkWithFallback({
     });
 
     if (result.translations.length !== chunk.cueCount) {
-      throw new TranslationChunkValidationError(
-        `Chunk ${chunk.id} returned ${result.translations.length} cues, expected ${chunk.cueCount} for ${Math.round(chunk.startTime)}s-${Math.round(chunk.endTime)}s`,
+      // Unusable output: split the chunk and retry (see shouldSplitChunkTranslationError).
+      const mismatch = new MuxAiError(
+        `The model returned ${result.translations.length} translated cues, expected ${chunk.cueCount}`,
+        {
+          code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID,
+          type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+          source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+          dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
+          facts: { ...chunkFacts, returnedCueCount: result.translations.length, expectedCueCount: chunk.cueCount },
+          // As before (a plain Error subclass, retried by the step runner). See the model-output follow-up.
+          transient: true,
+        },
       );
+      mismatch.usage = result.usage;
+      throw mismatch;
     }
 
     // Scrub each translated cue for signs of a system-prompt leak. This
@@ -1004,7 +1091,7 @@ async function translateChunkWithFallback({
     };
   } catch (error) {
     if (!shouldSplitChunkTranslationError(error) || chunk.cueCount <= 1) {
-      legacyWrapError(error, `Chunk ${chunk.id} failed for ${Math.round(chunk.startTime)}s-${Math.round(chunk.endTime)}s`);
+      throw translationStepError(error, "Failed to translate a caption chunk", chunkFacts);
     }
 
     const [leftChunk, rightChunk] = splitTranslationChunkAtMidpoint(chunk);
@@ -1239,8 +1326,16 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
     provider: provider as SupportedProvider,
   });
 
-  if (uploadToS3 && (!s3Endpoint || !s3Bucket || (!effectiveStorageAdapter && (!s3AccessKeyId || !s3SecretAccessKey)))) {
-    throw new LegacyMuxAiError("Storage configuration is required for uploading. Provide s3Endpoint and s3Bucket. If no storageAdapter is supplied, also provide s3AccessKeyId and s3SecretAccessKey in options or set S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID, and S3_SECRET_ACCESS_KEY environment variables.", { type: "validation_error" });
+  if (uploadToS3) {
+    const missing = [
+      ...(s3Endpoint ? [] : ["s3Endpoint"]),
+      ...(s3Bucket ? [] : ["s3Bucket"]),
+      ...(effectiveStorageAdapter || s3AccessKeyId ? [] : ["S3_ACCESS_KEY_ID"]),
+      ...(effectiveStorageAdapter || s3SecretAccessKey ? [] : ["S3_SECRET_ACCESS_KEY"]),
+    ];
+    if (missing.length > 0) {
+      throw storageNotConfiguredError(missing);
+    }
   }
 
   // Fetch asset data and playback ID from Mux
@@ -1250,32 +1345,30 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
   // Resolve signing context for signed playback IDs
   const signingContext = await resolveMuxSigningContext(credentials);
   if (policy === "signed" && !signingContext) {
-    throw new LegacyMuxAiError(
-      "Signed playback ID requires signing credentials. " +
-      "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
-      { type: "validation_error" },
-    );
+    throw signingCredentialsMissingError();
   }
 
   // Validate track exists
   const readyTextTracks = getReadyTextTracks(assetData);
   const sourceTextTrack = readyTextTracks.find(t => t.id === trackId);
   if (!sourceTextTrack) {
-    const availableTrackIds = readyTextTracks
-      .map(t => t.id)
-      .filter(Boolean)
-      .join(", ");
-    throw new LegacyMuxAiError(
-      `Track ${trackId} not found or not ready on asset ${assetId}. Available track IDs: ${availableTrackIds || "none"}.`,
-      { type: "validation_error" },
+    const availableTrackIds = readyTextTracks.map(t => t.id).filter((id): id is string => !!id);
+    throw new MuxAiError(
+      `Track ${trackId} not found or not ready on asset ${assetId}. Available track IDs: ${availableTrackIds.join(", ") || "none"}.`,
+      {
+        code: MUX_AI_ERROR_CODES.CAPTION_TRACK_NOT_FOUND,
+        type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+        source: MUX_AI_ERROR_SOURCES.ASSET,
+        facts: { assetId, trackId, availableTrackIds },
+      },
     );
   }
 
   const fromLanguageCode = sourceTextTrack.language_code;
   if (!fromLanguageCode) {
-    throw new LegacyMuxAiError(
+    throw new MuxAiError(
       `Track ${trackId} is missing language metadata. Cannot determine source language for translation.`,
-      { type: "validation_error" },
+      { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET, facts: { assetId, trackId } },
     );
   }
 
@@ -1288,7 +1381,7 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
   if (uploadToMux) {
     const plan = planTextTrackReplacement(assetData, outputTrack, replaceExistingTracks);
     if (plan.kind === "blocked") {
-      throw new LegacyMuxAiError(plan.reason, { type: "validation_error" });
+      throw trackReplacementBlockedError(plan, { facts: { ...trackTargetFacts(outputTrack), assetId, policy: replaceExistingTracks } });
     }
   }
 
@@ -1297,9 +1390,9 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
 
   let vttContent: string;
   try {
-    vttContent = await fetchVttFromMux(vttUrl);
+    vttContent = await fetchVttFromMux(vttUrl, { classifiedErrors: true });
   } catch (error) {
-    legacyWrapError(error, "Failed to fetch VTT content");
+    wrapError(error, "Failed to fetch VTT content", { assetId, trackId });
   }
 
   // Translate VTT content using configured provider via ai-sdk
@@ -1330,7 +1423,12 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
     scrubbedCueCounts = result.scrubbedCueCounts;
     unexpectedKeyCount = result.unexpectedKeyCount;
   } catch (error) {
-    legacyWrapError(error, `Failed to translate VTT with ${modelConfig.provider}`);
+    wrapError(error, `Failed to translate VTT with ${modelConfig.provider}`, {
+      provider: modelConfig.provider,
+      model: modelConfig.modelId,
+      fromLanguageCode,
+      toLanguageCode,
+    });
   }
 
   // Synthesise a SafetyReport from the aggregate counts. We emit one
@@ -1405,7 +1503,7 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
         s3SignedUrlExpirySeconds: options.s3SignedUrlExpirySeconds,
       });
     } catch (error) {
-      legacyWrapError(error, "Failed to upload VTT to S3");
+      wrapError(error, "Failed to upload VTT to S3", { call: "put_object", bucket: s3Bucket! });
     }
 
     if (uploadToMux) {
@@ -1418,9 +1516,11 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
           presignedUrl,
           passthrough: trackPassthrough,
           credentials,
+          classifiedErrors: true,
         });
       } catch (error) {
-        legacyWrapError(error, "Failed to add translated track to Mux asset");
+        // Only the asset fetch before any delete throws; create failures come back as outcomes.
+        wrapError(error, "Failed to fetch the asset before adding the translated track", { assetId });
       }
       if (outcome.kind !== "created") {
         // Nothing to restore here: only target-language tracks are ever deleted
@@ -1428,10 +1528,16 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
         const deletedNote = outcome.deleted.length > 0 ?
           ` Tracks already deleted before the failure: ${outcome.deleted.map(track => `${track.name ?? track.id} (${track.id})`).join(", ")}.` :
           "";
+        const facts: MuxAiErrorFacts = {
+          assetId,
+          languageCode: toLanguageCode,
+          trackName: outputTrack.name,
+          ...(outcome.deleted.length > 0 && { deletedTracks: trackSummaryFacts(outcome.deleted) }),
+        };
         if (outcome.kind === "blocked") {
-          throw new LegacyMuxAiError(`${outcome.reason}${deletedNote}`, { type: "validation_error" });
+          throw trackReplacementBlockedError(outcome, { message: `${outcome.reason}${deletedNote}`, facts: { ...trackTargetFacts(outputTrack), ...facts } });
         }
-        throw new Error(`Failed to add translated track to Mux asset: ${outcome.reason}.${deletedNote}`);
+        throw trackWriteFailedError(outcome, `Failed to add translated track to Mux asset.${deletedNote}`, facts);
       }
       uploadedTrackId = outcome.trackId;
       replacedTracks = outcome.deleted;
