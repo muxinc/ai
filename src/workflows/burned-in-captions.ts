@@ -8,6 +8,8 @@ import {
 } from "../lib/content-policy-error.ts";
 import type { ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImageAsBase64 } from "../lib/image-download.ts";
+import { attributeToCaller } from "../lib/mux-ai-error.ts";
+import type { CallerInputs } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -89,8 +91,17 @@ export type BurnedInCaptionsPromptSections =
  */
 export type BurnedInCaptionsPromptOverrides = PromptOverrides<BurnedInCaptionsPromptSections>;
 
+/** Every input of the workflow by name: its positional parameters and its options. */
+export type BurnedInCaptionsInputs = { assetId: string } & BurnedInCaptionsOptions;
+
 /** Configuration accepted by `hasBurnedInCaptions`. */
 export interface BurnedInCaptionsOptions extends ScopedMuxAIOptions {
+  /**
+   * Inputs the code calling this workflow sets itself rather than passing on from its
+   * end user. A failure blamed on one of them is reported as `internal`, not as the
+   * end user's request (see `CallerInputs`). Defaults to none.
+   */
+  callerInputs?: CallerInputs<BurnedInCaptionsInputs>;
   /** AI provider used for storyboard inspection (defaults to 'openai'). */
   provider?: SupportedProvider;
   /** Provider-specific model identifier. */
@@ -342,7 +353,7 @@ export async function hasBurnedInCaptions(
   try {
     return await hasBurnedInCaptionsInternal(assetId, options, collectedUsage);
   } catch (error) {
-    rethrowWithTokenUsage(error, collectedUsage);
+    rethrowWithTokenUsage(attributeToCaller(error, options?.callerInputs), collectedUsage);
   }
 }
 

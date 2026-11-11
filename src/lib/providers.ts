@@ -223,7 +223,12 @@ export function getLanguageModelDeprecation(
   );
 }
 
-function maybeWarnOrThrowForDeprecatedLanguageModel(provider: SupportedProvider, modelId: string): void {
+/**
+ * `inputs` names the workflow inputs that chose the model; without them the model is
+ * this code's or its configuration's choice (a default, an eval setting), so a blocked
+ * one is an internal failure rather than the caller's.
+ */
+function maybeWarnOrThrowForDeprecatedLanguageModel(provider: SupportedProvider, modelId: string, inputs?: readonly string[]): void {
   const deprecation = getLanguageModelDeprecation(provider, modelId);
   if (!deprecation) {
     return;
@@ -241,13 +246,15 @@ function maybeWarnOrThrowForDeprecatedLanguageModel(provider: SupportedProvider,
       `Language model is deprecated and in a grace period for provider="${provider}" model="${modelId}".${replacementText}${sunsetText}${reasonText}`;
 
   if (deprecation.phase === "blocked") {
-    // The model is the caller's choice; a consumer that picks models itself may re-attribute it.
+    // A consumer that picks models itself re-attributes this through `callerInputs`.
     throw new MuxAiError(message, {
-      type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
-      source: MUX_AI_ERROR_SOURCES.REQUEST,
+      ...(inputs?.length ?
+          { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST } :
+          { type: MUX_AI_ERROR_TYPES.SERVER_ERROR, source: MUX_AI_ERROR_SOURCES.INTERNAL }),
       facts: {
         provider,
         modelId,
+        ...(inputs?.length && { inputs: [...inputs] }),
         ...(deprecation.replacementModelId && { replacementModelId: deprecation.replacementModelId }),
         ...(deprecation.sunsetOn && { sunsetOn: deprecation.sunsetOn }),
       },
@@ -401,7 +408,7 @@ export function resolveLanguageModelConfig<P extends SupportedProvider = Support
 ): { provider: P; modelId: ModelIdByProvider[P] } {
   const provider = options.provider || ("openai" as P);
   const modelId = (options.model || getDefaultLanguageModel(provider)) as ModelIdByProvider[P];
-  maybeWarnOrThrowForDeprecatedLanguageModel(provider, modelId);
+  maybeWarnOrThrowForDeprecatedLanguageModel(provider, modelId, options.model ? ["model"] : undefined);
 
   return { provider, modelId };
 }
@@ -780,7 +787,8 @@ export async function createLanguageModelFromConfig<P extends SupportedProvider 
   modelId: ModelIdByProvider[P],
   credentials?: WorkflowCredentialsInput,
 ): Promise<LanguageModel> {
-  maybeWarnOrThrowForDeprecatedLanguageModel(provider, modelId);
+  // Resolved from the workflow's options, where a default model was already checked.
+  maybeWarnOrThrowForDeprecatedLanguageModel(provider, modelId, ["model"]);
 
   const resolvedCredentials = await resolveWorkflowCredentials(credentials);
   const credentialsRecord = resolvedCredentials as Record<string, unknown>;

@@ -136,6 +136,7 @@ describe("toPublicError", () => {
   it("only maps codes whose classification an end user can act on or needs to know", () => {
     expect(Object.keys(MUX_AI_ERROR_PUBLIC_MAPPINGS).sort()).toEqual([
       "asset_duration_unavailable",
+      "asset_not_found",
       "audio_track_unsupported",
       "caption_track_not_found",
       "content_policy_blocked",

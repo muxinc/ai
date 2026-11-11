@@ -83,7 +83,24 @@ Types are public: every value is safe to show any end user, and a new type must 
 
 <!-- END GENERATED: error sources -->
 
-`request`, `asset` and `account` failures are the caller's to fix; `upstream` and `internal` ones are not. A consumer may re-attribute a failure, e.g. treat the SDK's `request` as its own bug when it built that input itself.
+`request`, `asset` and `account` failures are the caller's to fix; `upstream` and `internal` ones are not.
+
+#### Inputs the caller sets itself
+
+Sources are judged from the side of whoever calls a workflow. A service that calls workflows for its own end users often sets some inputs itself (it picks the model, supplies credentials, passes an asset snapshot). A failure blamed on one of those isn't something its end user can fix, so the service lists them in the workflow's `callerInputs` option:
+
+```ts
+await getSummaryAndTags(assetId, {
+  ...endUserOptions,
+  model: "gpt-5.6-luna",
+  credentials,
+  callerInputs: ["model", "credentials"],
+});
+```
+
+- Each workflow types `callerInputs` against its own inputs (`SummarizationInputs` and so on): its positional parameters by name, and its options. Ownership is by name, not value: a listed input the caller left out is still the caller's.
+- A failure blamed on an input carries the `inputs` fact: the inputs involved, as paths whose first segment is the input's name (`scope.startTime`). When any of them is in `callerInputs`, the workflow re-attributes the failure on its way out (`attributeToCaller()`): it becomes `internal` / `server_error`, keeps its code and facts, records `reattributedFrom`, and its retry policy is recomputed.
+- Only `request` and `account` failures are re-attributed. Without `callerInputs`, every input is the end user's.
 
 ### Dependencies
 
@@ -109,6 +126,7 @@ A remote service reached over the network. Libraries running in-process are neve
 | `invalid_scope` | `validation_error` | `request` |  | yes | The requested time range is invalid, or has nothing to work with. Facts: `reason` (`invalid_start_time`, `invalid_end_time`, `exceeds_duration`, `empty_range`, `no_video`, `no_transcript`) and the bounds involved. |
 | `track_replacement_blocked` | `validation_error` | `request` |  | yes | Existing tracks block writing the output track under the chosen replacement policy. Facts: `reason` (`policy_fail`, `not_generated`, `name_collision`, `primary_audio`), `conflictingTracks` and the target track. |
 | `parameter_out_of_range` | `validation_error` | `request` |  | yes | A numeric option is outside its allowed range. Facts: `parameter` (the caller's option name), `value`, `min`, `max`, and `integer` when it must be a whole number. |
+| `asset_not_found` | `validation_error` | `request` | `mux_video` | yes | Mux has no asset with the requested ID in this environment. Facts: `assetId`. |
 | `caption_track_not_found` | `validation_error` | `asset` |  | yes | No ready caption track matches the requested track or language. Facts: `trackId` or `languageCode`, and what is available. |
 | `playback_id_not_found` | `validation_error` | `asset` |  | yes | The asset has no public or signed playback ID (DRM-only assets included). |
 | `transcript_empty` | `validation_error` | `asset` |  | yes | The transcript has no usable content. |
@@ -167,6 +185,8 @@ None of this is end-user data.
 
 Codes, facts and messages are internal by default; only an explicit mapping makes a code and some of its facts public. `MUX_AI_ERROR_GENERIC_MESSAGES` holds the generic wording, and `genericPublicMessage()` picks it for an error (steps 2 and 3), for reuse in your own view. Consumers with their own vocabulary (e.g. API parameter names) can override the message per public code and keep the rest of the view.
 
+A [re-attributed](#inputs-the-caller-sets-itself) error keeps its code but skips step 1: a code's wording speaks to its catalog source ("the requested time range…"), so once the source no longer matches, the error gets generic wording. A view built with `createPublicErrorView()` does this when given a `catalog`.
+
 A [legacy error](#legacy-errors) is the one exception: its message was written as end-user text, so the view shows it as it always has.
 
 ## Legacy errors
@@ -215,14 +235,14 @@ const toPublic = createPublicErrorView<string, string>({
 
 - **Types:** extend `MUX_AI_ERROR_TYPES` rather than redefining it, and keep every type safe to show end users.
 - **Sources** are shared as they are; **dependencies** are yours to extend with the services you call. An `upstream` entry or site must name its dependency (`SourceAndDependency`).
-- **One view for both:** pass the SDK's public mappings along with yours, so SDK failures keep their public wording.
+- **One view for both:** pass the SDK's public mappings along with yours, so SDK failures keep their public wording, and the SDK's catalog merged with yours as `catalog`, so a re-attributed code falls back to generic wording.
 - **Remote calls:** `classifyDependencyFailure()` gives the status-based classification `dependencyError()` uses (below) without building an error, so your own errors treat statuses the same way. `httpStatusOf()` and `requestIdOf()` read them off an HTTP client's error, and `isTransientStatus()` is the transient rule on its own.
 - **The SDK's codes in your code:** when your code hits a condition the SDK has a code for, raise a `MuxAiError` with that code so it renders with the SDK's public wording, e.g. `trackReplacementBlockedError()` (with `trackTargetFacts()`) for a blocked track replacement.
 - **Serialization:** give your class its own Workflow serializer hooks and put a version in the payload (as `MuxAiError` does with `v`). A run replays the events it already wrote, so a shape change must keep earlier versions readable.
 
 ## Serialization
 
-`MuxAiError` keeps its classification across Workflow step boundaries through Workflow DevKit serializer hooks; a plain `Error` crossing a boundary keeps only its name, message and stack. Two things to know when running the SDK in a workflow:
+`MuxAiError` keeps its classification across Workflow step boundaries through Workflow DevKit serializer hooks. Any other error crossing a boundary keeps only its message, stack and cause: an HTTP client's `status`, a provider's response headers and its class are gone. That's why remote failures are classified inside the step, where the call is made. Two things to know when running the SDK in a workflow:
 
 - **Payloads are versioned.** The hooks write a versioned shape and read every earlier one, so a run can always replay errors it wrote before.
 - **Class IDs include the package version.** Workflow DevKit identifies a serialized class by an ID derived from the module that defines it, which for a package includes its entry point and version (e.g. `@mux/ai/workflows@1.2.3`). Worlds that pin each run to the deployment that started it replay with the same build, so upgrading `@mux/ai` is safe. Worlds that don't pin runs can fail to revive these errors in a run that spans an upgrade.
@@ -235,7 +255,7 @@ const toPublic = createPublicErrorView<string, string>({
 2. **Was a remote service involved?** Set `dependency`. An `upstream` failure always names it: the types require it, in a catalog entry and at a site.
 3. **Is there an existing code for this exact condition?** Add it: `{ code, type, source }` (and `dependency` when its catalog entry has one). The compiler only accepts the type, source and dependency the code's catalog entry gives it.
 4. **Otherwise,** pass `type` and `source` alone, and consider whether the condition deserves a code (below).
-5. **Record what varies as facts:** IDs, languages, limits, statuses, the call that failed. Keep values JSON-safe. Pass provider free text through `errorDetailFact()`, which strips URL queries and credentials, suppresses prompt leaks and caps the length. Never put credentials, signed URLs or raw model output in facts.
+5. **Record what varies as facts:** IDs, languages, limits, statuses, the call that failed. For a `request` or `account` failure, record the workflow inputs involved as `inputs` (e.g. `["scope"]`, `["assetId", "assetSnapshot"]`), so a caller that set one of them can [re-attribute](#inputs-the-caller-sets-itself) it; a dependency's 401/403 takes them as `authInputs`. Keep values JSON-safe. Pass provider free text through `errorDetailFact()`, which strips URL queries and credentials, suppresses prompt leaks and caps the length. Never put credentials, signed URLs or raw model output in facts.
 6. **Write `message` for a developer reading a log.** It can be specific; it is never shown to end users.
 
 Helpers:

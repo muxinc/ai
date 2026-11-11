@@ -1,7 +1,7 @@
 import type { MuxAsset, PlaybackAsset, PlaybackPolicy, WorkflowCredentialsInput, WorkflowMuxClient } from "../types.ts";
 
 import { getMuxClientFromEnv } from "./client-factory.ts";
-import { dependencyErrorFrom } from "./dependency-error.ts";
+import { dependencyErrorFrom, httpStatusOf } from "./dependency-error.ts";
 import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_DEPENDENCIES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
 
 /**
@@ -76,7 +76,7 @@ export async function getPlaybackIdForAsset(
     throw new MuxAiError("Asset snapshot does not match the requested asset ID.", {
       type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
       source: MUX_AI_ERROR_SOURCES.REQUEST,
-      facts: { assetId, snapshotAssetId: asset.id },
+      facts: { assetId, snapshotAssetId: asset.id, inputs: ["assetId", "assetSnapshot"] },
     });
   }
   return toPlaybackAsset(asset);
@@ -115,12 +115,22 @@ export async function getMuxAssetWithClient(
     return await client.video.assets.retrieve(assetId);
   } catch (error) {
     // A 404 means the caller's asset ID doesn't exist in this environment.
+    if (!MuxAiError.is(error) && httpStatusOf(error) === 404) {
+      throw new MuxAiError(`Mux asset ${assetId} not found`, {
+        code: MUX_AI_ERROR_CODES.ASSET_NOT_FOUND,
+        type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+        source: MUX_AI_ERROR_SOURCES.REQUEST,
+        dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO,
+        facts: { call: "get_asset", status: 404, assetId, inputs: ["assetId"] },
+        cause: error,
+      });
+    }
     throw dependencyErrorFrom(error, "Failed to retrieve Mux asset", {
       dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO,
       call: "get_asset",
       facts: { assetId },
-      notFoundSource: MUX_AI_ERROR_SOURCES.REQUEST,
       authSource: MUX_AI_ERROR_SOURCES.ACCOUNT,
+      authInputs: ["credentials"],
     });
   }
 }

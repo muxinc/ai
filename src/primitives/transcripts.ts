@@ -841,6 +841,7 @@ export async function fetchTranscriptDataForUrl(
         requestId: requestIdOf(response.headers),
         notFoundSource: MUX_AI_ERROR_SOURCES.ASSET,
         authSource: MUX_AI_ERROR_SOURCES.ACCOUNT,
+        authInputs: ["credentials"],
       });
     }
     rawVtt = await response.text();
@@ -944,7 +945,7 @@ export async function fetchTranscriptForAsset(
         code: MUX_AI_ERROR_CODES.INVALID_SCOPE,
         type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
         source: MUX_AI_ERROR_SOURCES.REQUEST,
-        facts: { reason: "no_transcript", trackId: track.id, ...scopeFacts(scope) },
+        facts: { reason: "no_transcript", trackId: track.id, ...scopeFacts(scope), inputs: ["scope"] },
       });
     case "empty_body":
       throw new MuxAiError("Transcript is empty.", {

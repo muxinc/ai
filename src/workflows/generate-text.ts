@@ -10,8 +10,8 @@ import {
 import { getLanguageName } from "../lib/language-codes.ts";
 import { isLegacyMuxAiError, LegacyMuxAiError, legacyWrapError } from "../lib/legacy-mux-ai-error.ts";
 import { withModelCallDiagnostics } from "../lib/model-call-diagnostics.ts";
-import type { ModelCallDiagnostics } from "../lib/mux-ai-error.ts";
-import { MuxAiError } from "../lib/mux-ai-error.ts";
+import { attributeToCaller, MuxAiError } from "../lib/mux-ai-error.ts";
+import type { CallerInputs, ModelCallDiagnostics } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -127,8 +127,17 @@ export interface GenerateTextArtifact extends GenerateTextKeyedItem {
   format?: GenerateTextFormat;
 }
 
+/** Every input of the workflow by name: its positional parameters and its options. */
+export type GenerateTextInputs = { assetId: string } & GenerateTextOptions;
+
 /** Configuration accepted by `generateText`. */
 export interface GenerateTextOptions extends ScopedMuxAIOptions {
+  /**
+   * Inputs the code calling this workflow sets itself rather than passing on from its
+   * end user. A failure blamed on one of them is reported as `internal`, not as the
+   * end user's request (see `CallerInputs`). Defaults to none.
+   */
+  callerInputs?: CallerInputs<GenerateTextInputs>;
   /** AI provider to run (defaults to 'openai'). */
   provider?: SupportedProvider;
   /** Provider-specific chat model identifier. */
@@ -933,7 +942,7 @@ export async function generateText(
   try {
     return await generateTextInternal(assetId, options, collectedUsage);
   } catch (error) {
-    rethrowWithTokenUsage(error, collectedUsage);
+    rethrowWithTokenUsage(attributeToCaller(error, options?.callerInputs), collectedUsage);
   }
 }
 

@@ -7,14 +7,8 @@ import {
   withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
 import { dependencyErrorFrom } from "../lib/dependency-error.ts";
-import {
-  MUX_AI_ERROR_CODES,
-  MUX_AI_ERROR_DEPENDENCIES,
-  MUX_AI_ERROR_SOURCES,
-  MUX_AI_ERROR_TYPES,
-  MuxAiError,
-  wrapError,
-} from "../lib/mux-ai-error.ts";
+import { attributeToCaller, MUX_AI_ERROR_CODES, MUX_AI_ERROR_DEPENDENCIES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError, wrapError } from "../lib/mux-ai-error.ts";
+import type { CallerInputs } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -57,8 +51,17 @@ import type { MuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "../type
 /**
  * Sections of the engagement insights user prompt that can be overridden.
  */
+/** Every input of the workflow by name: its positional parameters and its options. */
+export type EngagementInsightsInputs = { assetId: string } & EngagementInsightsOptions;
+
 /** Configuration options for engagement insights workflow. */
 export interface EngagementInsightsOptions extends MuxAIOptions {
+  /**
+   * Inputs the code calling this workflow sets itself rather than passing on from its
+   * end user. A failure blamed on one of them is reported as `internal`, not as the
+   * end user's request (see `CallerInputs`). Defaults to none.
+   */
+  callerInputs?: CallerInputs<EngagementInsightsInputs>;
   /** AI provider to run (defaults to 'openai'). */
   provider?: SupportedProvider;
   /** Provider-specific chat model identifier. */
@@ -496,6 +499,7 @@ function engagementDataError(error: unknown, call: string, assetId: string, time
     facts: { assetId, timeframe },
     notFoundSource: MUX_AI_ERROR_SOURCES.ASSET,
     authSource: MUX_AI_ERROR_SOURCES.ACCOUNT,
+    authInputs: ["credentials"],
   });
 }
 
@@ -684,7 +688,7 @@ export async function generateEngagementInsights(
   try {
     return await generateEngagementInsightsInternal(assetId, options, collectedUsage);
   } catch (error) {
-    rethrowWithTokenUsage(error, collectedUsage);
+    rethrowWithTokenUsage(attributeToCaller(error, options?.callerInputs), collectedUsage);
   }
 }
 
@@ -707,7 +711,7 @@ async function generateEngagementInsightsInternal(
       code: MUX_AI_ERROR_CODES.PARAMETER_OUT_OF_RANGE,
       type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
       source: MUX_AI_ERROR_SOURCES.REQUEST,
-      facts: { parameter: "hotspotLimit", value: hotspotLimit, min: 1, max: 10, integer: true },
+      facts: { parameter: "hotspotLimit", value: hotspotLimit, min: 1, max: 10, integer: true, inputs: ["hotspotLimit"] },
     });
   }
 

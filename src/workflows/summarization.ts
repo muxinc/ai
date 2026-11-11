@@ -10,6 +10,8 @@ import { downloadImageAsBase64 } from "../lib/image-download.ts";
 import { getLanguageName } from "../lib/language-codes.ts";
 import { LegacyMuxAiError, legacyWrapError } from "../lib/legacy-mux-ai-error.ts";
 import { normalizeMarkdownDescription } from "../lib/markdown-normalization.ts";
+import { attributeToCaller } from "../lib/mux-ai-error.ts";
+import type { CallerInputs } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -181,8 +183,17 @@ export type SummarizationPromptSections =
  */
 export type SummarizationPromptOverrides = PromptOverrides<SummarizationPromptSections>;
 
+/** Every input of the workflow by name: its positional parameters and its options. */
+export type SummarizationInputs = { assetId: string } & SummarizationOptions;
+
 /** Configuration accepted by `getSummaryAndTags`. */
 export interface SummarizationOptions extends ScopedMuxAIOptions {
+  /**
+   * Inputs the code calling this workflow sets itself rather than passing on from its
+   * end user. A failure blamed on one of them is reported as `internal`, not as the
+   * end user's request (see `CallerInputs`). Defaults to none.
+   */
+  callerInputs?: CallerInputs<SummarizationInputs>;
   /** AI provider to run (defaults to 'openai'). */
   provider?: SupportedProvider;
   /** Provider-specific chat model identifier. */
@@ -650,7 +661,7 @@ export async function getSummaryAndTags(
   try {
     return await getSummaryAndTagsInternal(assetId, options, collectedUsage);
   } catch (error) {
-    rethrowWithTokenUsage(error, collectedUsage);
+    rethrowWithTokenUsage(attributeToCaller(error, options?.callerInputs), collectedUsage);
   }
 }
 

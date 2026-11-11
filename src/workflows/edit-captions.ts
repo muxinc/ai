@@ -7,6 +7,8 @@ import {
   withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
 import { LegacyMuxAiError, legacyWrapError } from "../lib/legacy-mux-ai-error.ts";
+import { attributeToCaller } from "../lib/mux-ai-error.ts";
+import type { CallerInputs } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -82,8 +84,17 @@ export interface ReplacementRecord {
   after: string;
 }
 
+/** Every input of the workflow by name: its positional parameters and its options. */
+export type EditCaptionsInputs<P extends SupportedProvider = SupportedProvider> = { assetId: string; trackId: string } & EditCaptionsOptions<P>;
+
 /** Configuration accepted by `editCaptions`. */
 export interface EditCaptionsOptions<P extends SupportedProvider = SupportedProvider> extends MuxAIOptions {
+  /**
+   * Inputs the code calling this workflow sets itself rather than passing on from its
+   * end user. A failure blamed on one of them is reported as `internal`, not as the
+   * end user's request (see `CallerInputs`). Defaults to none.
+   */
+  callerInputs?: CallerInputs<EditCaptionsInputs<P>>;
   /** Provider responsible for profanity detection. Required when autoCensorProfanity is set. */
   provider?: P;
   /** Provider-specific chat model identifier. */
@@ -641,7 +652,7 @@ export async function editCaptions<P extends SupportedProvider = SupportedProvid
   try {
     return await editCaptionsInternal(assetId, trackId, options, collectedUsage);
   } catch (error) {
-    rethrowWithTokenUsage(error, collectedUsage);
+    rethrowWithTokenUsage(attributeToCaller(error, options?.callerInputs), collectedUsage);
   }
 }
 

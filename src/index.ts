@@ -29,6 +29,7 @@ export type {
 } from "./lib/language-codes.ts";
 export {
   assertNever,
+  attributeToCaller,
   classificationInit,
   ClassifiedError,
   errorDetailFact,
@@ -48,6 +49,7 @@ export {
   wrapError,
 } from "./lib/mux-ai-error.ts";
 export type {
+  CallerInputs,
   ClassifiedErrorInit,
   CodedClassification,
   ErrorCatalogEntry,

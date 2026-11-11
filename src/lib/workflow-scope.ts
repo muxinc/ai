@@ -23,7 +23,7 @@ function invalidScopeError(message: string, facts: MuxAiErrorFacts): MuxAiError 
     code: MUX_AI_ERROR_CODES.INVALID_SCOPE,
     type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
     source: MUX_AI_ERROR_SOURCES.REQUEST,
-    facts,
+    facts: { ...facts, inputs: ["scope"] },
   });
 }
 

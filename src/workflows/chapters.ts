@@ -8,6 +8,8 @@ import {
 } from "../lib/content-policy-error.ts";
 import { getLanguageName } from "../lib/language-codes.ts";
 import { LegacyMuxAiError, legacyWrapError } from "../lib/legacy-mux-ai-error.ts";
+import { attributeToCaller } from "../lib/mux-ai-error.ts";
+import type { CallerInputs } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -113,8 +115,17 @@ export type ChaptersPromptSections =
  */
 export type ChaptersPromptOverrides = PromptOverrides<ChaptersPromptSections>;
 
+/** Every input of the workflow by name: its positional parameters and its options. */
+export type ChaptersInputs = { assetId: string } & ChaptersOptions;
+
 /** Configuration accepted by `generateChapters`. */
 export interface ChaptersOptions extends ScopedMuxAIOptions {
+  /**
+   * Inputs the code calling this workflow sets itself rather than passing on from its
+   * end user. A failure blamed on one of them is reported as `internal`, not as the
+   * end user's request (see `CallerInputs`). Defaults to none.
+   */
+  callerInputs?: CallerInputs<ChaptersInputs>;
   /** BCP 47 language code of the caption track to use (e.g. "en", "fr"). When omitted, prefers English if available. */
   languageCode?: string;
   /** AI provider used to interpret the transcript (defaults to 'openai'). */
@@ -450,7 +461,7 @@ export async function generateChapters(
   try {
     return await generateChaptersInternal(assetId, options, collectedUsage);
   } catch (error) {
-    rethrowWithTokenUsage(error, collectedUsage);
+    rethrowWithTokenUsage(attributeToCaller(error, options?.callerInputs), collectedUsage);
   }
 }
 

@@ -357,6 +357,7 @@ function classifyDownloadError(download: DownloadError, error: unknown): MuxAiEr
     facts: host ? { host } : {},
     notFoundSource: MUX_AI_ERROR_SOURCES.ASSET,
     authSource: MUX_AI_ERROR_SOURCES.ACCOUNT,
+    authInputs: ["credentials"],
     cause: error,
   });
 }

@@ -1,6 +1,6 @@
 import { isLegacyMuxAiError } from "./legacy-mux-ai-error.ts";
-import type { ClassifiedError, MuxAiErrorCode, MuxAiErrorFacts, MuxAiErrorFactValue, MuxAiErrorType } from "./mux-ai-error.ts";
-import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES } from "./mux-ai-error.ts";
+import type { ClassifiedError, ErrorCatalogEntry, MuxAiErrorCode, MuxAiErrorFacts, MuxAiErrorFactValue, MuxAiErrorType } from "./mux-ai-error.ts";
+import { MUX_AI_ERROR_CATALOG, MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES } from "./mux-ai-error.ts";
 import { legacyMp4SupportTooLargeMessage, legacyMp4SupportUnusableMessage } from "./mux-static-renditions.ts";
 import type { TextTrackSummary } from "./mux-tracks.ts";
 import { describeTrackSummaries } from "./mux-tracks.ts";
@@ -120,6 +120,10 @@ export const MUX_AI_ERROR_PUBLIC_MAPPINGS = {
     facts: ["reason", "trackType", "languageCode", "trackName", "conflictingTracks"],
     message: blockedTrackMessage,
   },
+  [MUX_AI_ERROR_CODES.ASSET_NOT_FOUND]: {
+    facts: ["assetId"],
+    message: facts => (facts.assetId ? `Asset ${text(facts.assetId)} could not be found.` : "The asset could not be found."),
+  },
   [MUX_AI_ERROR_CODES.CAPTION_TRACK_NOT_FOUND]: {
     facts: ["trackId", "availableTrackIds", "languageCode", "availableLanguages"],
     message: facts => facts.trackId ?
@@ -219,17 +223,25 @@ function allowedFacts(facts: MuxAiErrorFacts | undefined, allowed: readonly stri
  * own `message`, except for a legacy error (raised before classification), whose
  * message is end-user text and is shown as it always was. Consumers build one with their own mappings (which may include the
  * SDK's) and their own generic wording.
+ *
+ * With a `catalog`, a code's mapping applies only while the error's source is still
+ * the code's catalog source: a re-attributed error (see `attributeToCaller()`) gets
+ * generic wording, since the mapping speaks to whoever the catalog blames.
  */
 export function createPublicErrorView<TType extends string, TCode extends string>(config: {
   mappings: Readonly<Partial<Record<TCode, PublicErrorMapping>>>;
   genericMessage: (error: ClassifiedError<TType, TCode>) => string;
+  catalog?: Readonly<Partial<Record<TCode, Pick<ErrorCatalogEntry, "source">>>>;
 }): (error: ClassifiedError<TType, TCode>) => PublicError<TType, TCode> {
   return (error) => {
     // Raised before classification: its message is end-user text (see LegacyMuxAiError).
     if (isLegacyMuxAiError(error)) {
       return { type: error.publicType as string as TType, message: error.publicMessage, retryable: error.retryable };
     }
-    const mapping: PublicErrorMapping | undefined = error.code ? config.mappings[error.code] : undefined;
+    const catalogSource = error.code ? config.catalog?.[error.code]?.source : undefined;
+    const mapping: PublicErrorMapping | undefined = error.code && (catalogSource === undefined || catalogSource === error.source) ?
+      config.mappings[error.code] :
+      undefined;
     if (!mapping) {
       return { type: error.type, message: config.genericMessage(error), retryable: error.retryable };
     }
@@ -248,4 +260,5 @@ export function createPublicErrorView<TType extends string, TCode extends string
 export const toPublicError: (error: ClassifiedError<MuxAiErrorType, MuxAiErrorCode>) => MuxAiPublicError = createPublicErrorView<MuxAiErrorType, MuxAiErrorCode>({
   mappings: MUX_AI_ERROR_PUBLIC_MAPPINGS,
   genericMessage: genericPublicMessage,
+  catalog: MUX_AI_ERROR_CATALOG,
 });

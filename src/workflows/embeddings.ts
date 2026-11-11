@@ -1,6 +1,8 @@
 import { embed } from "ai";
 
 import { withContentPolicyAwareRetry } from "../lib/content-policy-error.ts";
+import { attributeToCaller } from "../lib/mux-ai-error.ts";
+import type { CallerInputs } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -26,8 +28,17 @@ import type {
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Every input of the workflow by name: its positional parameters and its options. */
+export type EmbeddingsInputs = { assetId: string } & EmbeddingsOptions;
+
 /** Configuration accepted by `generateEmbeddings`. */
 export interface EmbeddingsOptions extends ScopedMuxAIOptions {
+  /**
+   * Inputs the code calling this workflow sets itself rather than passing on from its
+   * end user. A failure blamed on one of them is reported as `internal`, not as the
+   * end user's request (see `CallerInputs`). Defaults to none.
+   */
+  callerInputs?: CallerInputs<EmbeddingsInputs>;
   /** AI provider used to generate embeddings (defaults to 'openai'). */
   provider?: SupportedEmbeddingProvider;
   /** Provider-specific model identifier (defaults to text-embedding-3-small for OpenAI). */
@@ -295,7 +306,7 @@ export async function generateEmbeddings(
   try {
     return await generateEmbeddingsInternal(assetId, options, collectedUsage);
   } catch (error) {
-    rethrowWithTokenUsage(error, collectedUsage);
+    rethrowWithTokenUsage(attributeToCaller(error, options?.callerInputs), collectedUsage);
   }
 }
 
@@ -312,6 +323,6 @@ export async function generateVideoEmbeddings(
   try {
     return await generateEmbeddingsInternal(assetId, options, collectedUsage);
   } catch (error) {
-    rethrowWithTokenUsage(error, collectedUsage);
+    rethrowWithTokenUsage(attributeToCaller(error, options?.callerInputs), collectedUsage);
   }
 }

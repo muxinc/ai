@@ -4,6 +4,8 @@ import { getApiKeyFromEnv } from "../lib/client-factory.ts";
 import type { ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImagesAsBase64 } from "../lib/image-download.ts";
 import { LegacyMuxAiError } from "../lib/legacy-mux-ai-error.ts";
+import { attributeToCaller } from "../lib/mux-ai-error.ts";
+import type { CallerInputs } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -177,8 +179,17 @@ export interface HiveModerationOutput {
   }>;
 }
 
+/** Every input of the workflow by name: its positional parameters and its options. */
+export type ModerationInputs = { assetId: string } & ModerationOptions;
+
 /** Configuration accepted by `getModerationScores`. */
 export interface ModerationOptions extends ScopedMuxAIOptions {
+  /**
+   * Inputs the code calling this workflow sets itself rather than passing on from its
+   * end user. A failure blamed on one of them is reported as `internal`, not as the
+   * end user's request (see `CallerInputs`). Defaults to none.
+   */
+  callerInputs?: CallerInputs<ModerationInputs>;
   /** Provider used for moderation (defaults to 'openai'). */
   provider?: ModerationProvider;
   /** OpenAI moderation model identifier (defaults to 'omni-moderation-latest'). */
@@ -1221,6 +1232,17 @@ export async function getModerationScores(
   options: ModerationOptions = {},
 ): Promise<ModerationResult> {
   "use workflow";
+  try {
+    return await getModerationScoresInternal(assetId, options);
+  } catch (error) {
+    throw attributeToCaller(error, options.callerInputs);
+  }
+}
+
+async function getModerationScoresInternal(
+  assetId: string,
+  options: ModerationOptions,
+): Promise<ModerationResult> {
   const {
     provider = DEFAULT_PROVIDER,
     model = provider === "openai" ? "omni-moderation-latest" : undefined,

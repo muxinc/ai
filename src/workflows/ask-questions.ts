@@ -9,6 +9,8 @@ import {
 import type { ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImageAsBase64 } from "../lib/image-download.ts";
 import { LegacyMuxAiError, legacyWrapError } from "../lib/legacy-mux-ai-error.ts";
+import { attributeToCaller } from "../lib/mux-ai-error.ts";
+import type { CallerInputs } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -124,8 +126,17 @@ export interface QuestionAnswer {
   skipped: boolean;
 }
 
+/** Every input of the workflow by name: its positional parameters and its options. */
+export type AskQuestionsInputs = { assetId: string; questions: Question[] } & AskQuestionsOptions;
+
 /** Configuration options for askQuestions workflow. */
 export interface AskQuestionsOptions extends ScopedMuxAIOptions {
+  /**
+   * Inputs the code calling this workflow sets itself rather than passing on from its
+   * end user. A failure blamed on one of them is reported as `internal`, not as the
+   * end user's request (see `CallerInputs`). Defaults to none.
+   */
+  callerInputs?: CallerInputs<AskQuestionsInputs>;
   /** AI provider to run (defaults to 'openai'). */
   provider?: SupportedProvider;
   /** Provider-specific chat model identifier. */
@@ -830,7 +841,7 @@ export async function askQuestions(
   try {
     return await askQuestionsInternal(assetId, questions, options, collectedUsage);
   } catch (error) {
-    rethrowWithTokenUsage(error, collectedUsage);
+    rethrowWithTokenUsage(attributeToCaller(error, options?.callerInputs), collectedUsage);
   }
 }
 

@@ -18,6 +18,8 @@ import {
 import { getLanguageCodePair, getLanguageName } from "../lib/language-codes.ts";
 import type { LanguageCodePair, SupportedISO639_1 } from "../lib/language-codes.ts";
 import { LegacyMuxAiError, legacyWrapError } from "../lib/legacy-mux-ai-error.ts";
+import { attributeToCaller } from "../lib/mux-ai-error.ts";
+import type { CallerInputs } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -118,8 +120,17 @@ export interface TranslationResult {
   neverTranslateTermsPreserved?: boolean;
 }
 
+/** Every input of the workflow by name: its positional parameters and its options. */
+export type TranslationInputs<P extends SupportedProvider = SupportedProvider> = { assetId: string; trackId: string; toLanguageCode: string } & TranslationOptions<P>;
+
 /** Configuration accepted by `translateCaptions`. */
 export interface TranslationOptions<P extends SupportedProvider = SupportedProvider> extends MuxAIOptions {
+  /**
+   * Inputs the code calling this workflow sets itself rather than passing on from its
+   * end user. A failure blamed on one of them is reported as `internal`, not as the
+   * end user's request (see `CallerInputs`). Defaults to none.
+   */
+  callerInputs?: CallerInputs<TranslationInputs<P>>;
   /** Provider responsible for the translation. */
   provider: P;
   /** Provider-specific chat model identifier. */
@@ -1190,7 +1201,7 @@ export async function translateCaptions<P extends SupportedProvider = SupportedP
   try {
     return await translateCaptionsInternal(assetId, trackId, toLanguageCode, options, collectedUsage);
   } catch (error) {
-    rethrowWithTokenUsage(error, collectedUsage);
+    rethrowWithTokenUsage(attributeToCaller(error, options?.callerInputs), collectedUsage);
   }
 }
 

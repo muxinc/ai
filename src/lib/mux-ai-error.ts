@@ -72,7 +72,10 @@ export type MuxAiErrorFactValue = string | number | boolean | null | MuxAiErrorF
  * Details of one occurrence, JSON-safe so they survive step boundaries. Internal by
  * default: a consumer chooses what, if anything, to show. Dependency errors always
  * carry `call` (the outside call's snake_case name), plus `status` and `requestId`
- * when there was a response.
+ * when there was a response. A failure blamed on the caller's input (`request` or
+ * `account`) carries `inputs`: the workflow inputs involved, as paths whose first
+ * segment is the input's name (e.g. `scope.startTime`), so a workflow can tell
+ * whose input it was (see {@link attributeToCaller}).
  */
 export type MuxAiErrorFacts = Readonly<Record<string, MuxAiErrorFactValue>>;
 
@@ -109,6 +112,8 @@ export const MUX_AI_ERROR_CODES = {
   TRACK_REPLACEMENT_BLOCKED: "track_replacement_blocked",
   /** A numeric option is outside its allowed range. Facts: `parameter` (the caller's option name), `value`, `min`, `max`, and `integer` when it must be a whole number. */
   PARAMETER_OUT_OF_RANGE: "parameter_out_of_range",
+  /** Mux has no asset with the requested ID in this environment. Facts: `assetId`. */
+  ASSET_NOT_FOUND: "asset_not_found",
   /** No ready caption track matches the requested track or language. Facts: `trackId` or `languageCode`, and what is available. */
   CAPTION_TRACK_NOT_FOUND: "caption_track_not_found",
   /** The asset has no public or signed playback ID (DRM-only assets included). */
@@ -153,6 +158,7 @@ export const MUX_AI_ERROR_CATALOG = {
   [MUX_AI_ERROR_CODES.INVALID_SCOPE]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
   [MUX_AI_ERROR_CODES.TRACK_REPLACEMENT_BLOCKED]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
   [MUX_AI_ERROR_CODES.PARAMETER_OUT_OF_RANGE]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
+  [MUX_AI_ERROR_CODES.ASSET_NOT_FOUND]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST, dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO },
   // The asset's state.
   [MUX_AI_ERROR_CODES.CAPTION_TRACK_NOT_FOUND]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },
   [MUX_AI_ERROR_CODES.PLAYBACK_ID_NOT_FOUND]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },
@@ -411,6 +417,46 @@ export class ClassifiedError<TType extends string = string, TCode extends string
       value.__classified_error === true
     );
   }
+}
+
+/**
+ * A workflow's inputs that the code calling it sets itself, rather than passing on
+ * from its own end user: top-level input names (positional parameters by name, and
+ * options). E.g. a service that always picks the model and supplies credentials
+ * passes `["model", "credentials"]`. Ownership is by name, not value: an omitted
+ * input listed here is still the caller's.
+ */
+export type CallerInputs<TInputs> = readonly (Exclude<keyof TInputs, "callerInputs"> & string)[];
+
+/**
+ * Re-attributes a failure blamed on an input (`request` or `account`, with an
+ * `inputs` fact) to the code calling the workflow when any of those inputs is one it
+ * set itself (see {@link CallerInputs}): the end user can't fix what they didn't
+ * choose. The error becomes `internal` / `server_error`, keeps its code and facts,
+ * and records `reattributedFrom`; its retry policy is recomputed. The public view
+ * then shows generic wording, since a code's wording speaks to its catalog source.
+ * Returns the error, mutated in place, for `throw`.
+ */
+export function attributeToCaller<T>(error: T, callerInputs: readonly string[] | undefined): T {
+  if (!callerInputs?.length || !ClassifiedError.isClassified(error)) {
+    return error;
+  }
+  if (error.source !== MUX_AI_ERROR_SOURCES.REQUEST && error.source !== MUX_AI_ERROR_SOURCES.ACCOUNT) {
+    return error;
+  }
+  const inputs = error.facts.inputs;
+  const owned = new Set(callerInputs);
+  if (!Array.isArray(inputs) || !inputs.some(path => typeof path === "string" && owned.has(path.split(".")[0]))) {
+    return error;
+  }
+  Object.assign(error, {
+    type: MUX_AI_ERROR_TYPES.SERVER_ERROR,
+    source: MUX_AI_ERROR_SOURCES.INTERNAL,
+    facts: { ...error.facts, reattributedFrom: error.source },
+    // Neither request nor account failures are transient, so only the job's retry changes.
+    retryable: defaultRetryable(MUX_AI_ERROR_TYPES.SERVER_ERROR, MUX_AI_ERROR_SOURCES.INTERNAL, error.transient),
+  });
+  return error;
 }
 
 /** The classification of `error`, for a subclass's `WORKFLOW_SERIALIZE` hook. */

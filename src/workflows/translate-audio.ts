@@ -7,8 +7,8 @@ import type { ElevenLabsFailure } from "../lib/elevenlabs-errors.ts";
 import { getLanguageCodePair, getLanguageName, toISO639_1 } from "../lib/language-codes.ts";
 import type { LanguageCodePair } from "../lib/language-codes.ts";
 import { LegacyMuxAiError, legacyWrapError } from "../lib/legacy-mux-ai-error.ts";
-import type { MuxAiError } from "../lib/mux-ai-error.ts";
-import { extractErrorDetail } from "../lib/mux-ai-error.ts";
+import { attributeToCaller, extractErrorDetail } from "../lib/mux-ai-error.ts";
+import type { CallerInputs, MuxAiError } from "../lib/mux-ai-error.ts";
 import { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset, isAudioOnlyAsset, isVideoOnlyAsset } from "../lib/mux-assets.ts";
 import {
   getLegacyMp4SupportRenditionSizeError,
@@ -84,8 +84,17 @@ export interface AudioTranslationResult {
   usage?: TokenUsage;
 }
 
+/** Every input of the workflow by name: its positional parameters and its options. */
+export type AudioTranslationInputs = { assetId: string; toLanguageCode: string } & AudioTranslationOptions;
+
 /** Configuration accepted by `translateAudio`. */
 export interface AudioTranslationOptions extends MuxAIOptions {
+  /**
+   * Inputs the code calling this workflow sets itself rather than passing on from its
+   * end user. A failure blamed on one of them is reported as `internal`, not as the
+   * end user's request (see `CallerInputs`). Defaults to none.
+   */
+  callerInputs?: CallerInputs<AudioTranslationInputs>;
   /** Audio dubbing provider (currently ElevenLabs only). */
   provider?: "elevenlabs";
   /**
@@ -730,6 +739,18 @@ export async function translateAudio(
   options: AudioTranslationOptions = {},
 ): Promise<AudioTranslationResult> {
   "use workflow";
+  try {
+    return await translateAudioInternal(assetId, toLanguageCode, options);
+  } catch (error) {
+    throw attributeToCaller(error, options.callerInputs);
+  }
+}
+
+async function translateAudioInternal(
+  assetId: string,
+  toLanguageCode: string,
+  options: AudioTranslationOptions,
+): Promise<AudioTranslationResult> {
   // Uses the default audio track on your asset (source language auto-detected unless provided)
   const {
     provider = "elevenlabs",
