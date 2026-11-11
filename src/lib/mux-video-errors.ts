@@ -3,7 +3,7 @@ import { z } from "zod";
 import { dependencyError, httpStatusOf, requestIdOf } from "./dependency-error.ts";
 import type { DependencyErrorInit } from "./dependency-error.ts";
 import type { MuxAiErrorFacts } from "./mux-ai-error.ts";
-import { MUX_AI_ERROR_DEPENDENCIES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
+import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_DEPENDENCIES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
 
 // Tokens only: Mux's free-text messages stay in the scrubbed cause summary, not in facts.
 const MuxTokenSchema = z.string().regex(/^[\w.-]{1,64}$/);
@@ -65,6 +65,24 @@ export function muxVideoCallError(message: string, call: string, error: unknown,
     facts: { ...facts, ...muxVideoErrorFacts(error) },
     cause: error,
   });
+}
+
+/**
+ * A failed asset fetch: a 404 is `asset_not_found`, blamed on the caller's `assetId`;
+ * anything else is classified by status like any Mux Video call.
+ */
+export function muxAssetFetchError(assetId: string, error: unknown): MuxAiError {
+  if (!MuxAiError.is(error) && httpStatusOf(error) === 404) {
+    return new MuxAiError(`Mux asset ${assetId} not found`, {
+      code: MUX_AI_ERROR_CODES.ASSET_NOT_FOUND,
+      type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+      source: MUX_AI_ERROR_SOURCES.REQUEST,
+      dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO,
+      facts: { call: "get_asset", status: 404, assetId, inputs: ["assetId"], ...muxVideoErrorFacts(error) },
+      cause: error,
+    });
+  }
+  return muxVideoCallError("Failed to fetch the asset from Mux", "get_asset", error, { assetId });
 }
 
 /**

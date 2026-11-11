@@ -143,6 +143,31 @@ describe("translateCaptions error-path token usage", () => {
     expect((error as { usage?: TokenUsage }).usage).toEqual(CHUNK_USAGE);
   });
 
+  it("keeps a retryable failure from a provider without a classifier retryable by the step runner", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(generateText).mockImplementation((async () => {
+        throw new APICallError({
+          message: "Service Unavailable",
+          requestBodyValues: {},
+          statusCode: 503,
+          url: "https://api.example.test/v1/messages",
+        });
+      }) as any);
+
+      const pending = captureRejection(translateCaptions("asset-123", "track-1", "es", TRANSLATION_OPTIONS));
+      // Let the in-step retry loop's backoff run out.
+      await vi.runAllTimersAsync();
+      const error = await pending;
+
+      // Not classified (no OpenAI classifier), but not fatal: as before, the step is retried.
+      expect(error).toMatchObject({ source: "internal", type: "server_error", transient: true, name: "Error" });
+      expect((error as { dependency?: string }).dependency).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("attaches no usage when the workflow fails before any provider call", async () => {
     const error = await captureRejection(
       translateCaptions("asset-123", "missing-track", "es", TRANSLATION_OPTIONS),

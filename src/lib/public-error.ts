@@ -105,18 +105,20 @@ function quotedList(value: MuxAiErrorFactValue | undefined): string {
 /** An invalid option, worded by reason from its facts; the option is named as the caller passed it. */
 function invalidParameterMessage(facts: MuxAiErrorFacts): string {
   const parameter = text(facts.parameter) || "A parameter";
+  // A list option names the entry; a single value is the option itself.
+  const subject = facts.index === undefined ? parameter : `${parameter} entries`;
   const entry = facts.index === undefined ? "" : ` (entry ${text(facts.index)})`;
   switch (facts.reason) {
     case "too_many":
       return `${parameter} accepts at most ${text(facts.max)} entries${facts.count === undefined ? "" : ` (received ${text(facts.count)})`}.`;
     case "empty":
-      return `${parameter} entries must be non-empty${entry}.`;
+      return `${subject} must be non-empty${entry}.`;
     case "too_long":
-      return `${parameter} entries must be at most ${text(facts.maxLength)} characters${facts.length === undefined ? "" : ` (received ${text(facts.length)})`}${entry}.`;
+      return `${subject} must be at most ${text(facts.maxLength)} characters${facts.length === undefined ? "" : ` (received ${text(facts.length)})`}${entry}.`;
     case "disallowed_characters":
-      return `${parameter} entries must not contain ${quotedList(facts.characters)}${entry}.`;
+      return `${subject} must not contain ${quotedList(facts.characters)}${entry}.`;
     case "not_normalized":
-      return `${parameter} entries must not contain invisible characters or characters altered by Unicode NFKC normalization${entry}.`;
+      return `${subject} must not contain invisible characters or characters altered by Unicode NFKC normalization${entry}.`;
     default:
       return `${parameter} has a value that can't be used.`;
   }
@@ -149,6 +151,10 @@ export const MUX_AI_ERROR_PUBLIC_MAPPINGS = {
     message: facts => facts.trackId ?
       `Track ${text(facts.trackId)} was not found or is not ready. Available track IDs: ${list(facts.availableTrackIds)}.` :
       `No ready caption track was found${facts.languageCode ? ` for language ${text(facts.languageCode)}` : ""}. Available languages: ${list(facts.availableLanguages)}.`,
+  },
+  [MUX_AI_ERROR_CODES.ASSET_NOT_FOUND]: {
+    facts: ["assetId"],
+    message: facts => (facts.assetId ? `Asset ${text(facts.assetId)} could not be found.` : "The asset could not be found."),
   },
   [MUX_AI_ERROR_CODES.PLAYBACK_ID_NOT_FOUND]: {
     message: "The asset has no public or signed playback ID. DRM playback IDs aren't supported.",

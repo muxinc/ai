@@ -127,6 +127,8 @@ export const MUX_AI_ERROR_CODES = {
   CAPTION_TRACK_NOT_FOUND: "caption_track_not_found",
   /** The asset has no public or signed playback ID (DRM-only assets included). */
   PLAYBACK_ID_NOT_FOUND: "playback_id_not_found",
+  /** Mux has no asset with the requested ID in this environment. Facts: `assetId`. */
+  ASSET_NOT_FOUND: "asset_not_found",
   /** The transcript has no usable content. */
   TRANSCRIPT_EMPTY: "transcript_empty",
   /** The asset has no valid duration, so work that depends on it can't run. Facts: `assetId`. */
@@ -168,6 +170,7 @@ export const MUX_AI_ERROR_CATALOG = {
   [MUX_AI_ERROR_CODES.TRACK_REPLACEMENT_BLOCKED]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
   [MUX_AI_ERROR_CODES.INVALID_PARAMETER]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
   [MUX_AI_ERROR_CODES.PARAMETER_OUT_OF_RANGE]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
+  [MUX_AI_ERROR_CODES.ASSET_NOT_FOUND]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST, dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO },
   // The asset's state.
   [MUX_AI_ERROR_CODES.CAPTION_TRACK_NOT_FOUND]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },
   [MUX_AI_ERROR_CODES.PLAYBACK_ID_NOT_FOUND]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },

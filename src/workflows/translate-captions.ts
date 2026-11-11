@@ -477,7 +477,19 @@ function translationStepError(error: unknown, message: string, facts: MuxAiError
       cause: error,
     });
   } else {
-    classified = internalError(message, facts, error);
+    const providerError = findProviderServiceError(error);
+    classified = providerError ?
+        // A provider without its own classifier: not classified, but kept retryable by the
+        // step runner when the AI SDK judges it retryable (no response, 408, 409, 429, 5xx),
+        // as the raw error was before.
+        new MuxAiError(message, {
+          type: MUX_AI_ERROR_TYPES.SERVER_ERROR,
+          source: MUX_AI_ERROR_SOURCES.INTERNAL,
+          facts,
+          transient: providerError.isRetryable,
+          cause: error,
+        }) :
+        internalError(message, facts, error);
   }
 
   const usage = getErrorTokenUsage(error);
@@ -1307,7 +1319,7 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
   const neverTranslateTerms = neverTranslateOption ?
       validateNeverTranslateTerms(neverTranslateOption) :
       [];
-  const trackPassthrough = validateTrackPassthrough(providedTrackPassthrough) ?? buildMuxAiTrackPassthrough("translate-captions");
+  const trackPassthrough = validateTrackPassthrough(providedTrackPassthrough, { classifiedErrors: true }) ?? buildMuxAiTrackPassthrough("translate-captions");
 
   // S3 configuration
   const s3Endpoint = providedS3Endpoint ?? env.S3_ENDPOINT;
@@ -1337,7 +1349,7 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
   }
 
   // Fetch asset data and playback ID from Mux
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials, options.assetSnapshot);
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials, options.assetSnapshot, { classifiedErrors: true });
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
 
   // Resolve signing context for signed playback IDs

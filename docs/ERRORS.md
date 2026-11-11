@@ -112,6 +112,7 @@ A remote service reached over the network. Libraries running in-process are neve
 | `parameter_out_of_range` | `validation_error` | `request` |  | yes | A numeric option is outside its allowed range. Facts: `parameter` (the caller's option name), `value`, `min`, `max`, and `integer` when it must be a whole number. |
 | `caption_track_not_found` | `validation_error` | `asset` |  | yes | No ready caption track matches the requested track or language. Facts: `trackId` or `languageCode`, and what is available. |
 | `playback_id_not_found` | `validation_error` | `asset` |  | yes | The asset has no public or signed playback ID (DRM-only assets included). |
+| `asset_not_found` | `validation_error` | `request` | `mux_video` | yes | Mux has no asset with the requested ID in this environment. Facts: `assetId`. |
 | `transcript_empty` | `validation_error` | `asset` |  | yes | The transcript has no usable content. |
 | `asset_duration_unavailable` | `validation_error` | `asset` |  | yes | The asset has no valid duration, so work that depends on it can't run. Facts: `assetId`. |
 | `audio_track_unsupported` | `validation_error` | `asset` |  | yes | Mux won't add an audio track to this asset. Facts: `reason` (`clip`, `live_stream`, `audio_only`). |

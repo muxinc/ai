@@ -2,6 +2,9 @@ import type { MuxAsset, PlaybackAsset, PlaybackPolicy, WorkflowCredentialsInput,
 
 import { getMuxClientFromEnv } from "./client-factory.ts";
 import { LegacyMuxAiError } from "./legacy-mux-ai-error.ts";
+import type { ClassifiedErrorsOption } from "./mux-ai-error.ts";
+import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
+import { muxAssetFetchError } from "./mux-video-errors.ts";
 
 /**
  * Finds a usable playback ID for the given asset.
@@ -9,7 +12,7 @@ import { LegacyMuxAiError } from "./legacy-mux-ai-error.ts";
  * Throws an error if no public or signed playback ID is found.
  */
 // Use the asset payload we already fetched to avoid extra Mux Video API calls.
-function getPlaybackId(asset: MuxAsset): { id: string; policy: PlaybackPolicy } {
+function getPlaybackId(asset: MuxAsset, options: ClassifiedErrorsOption = {}): { id: string; policy: PlaybackPolicy } {
   const playbackIds = asset.playback_ids || [];
 
   // First, try to find a public playback ID
@@ -24,10 +27,16 @@ function getPlaybackId(asset: MuxAsset): { id: string; policy: PlaybackPolicy } 
     return { id: signedPlaybackId.id, policy: "signed" };
   }
 
-  throw new LegacyMuxAiError(
-    "No public or signed playback ID found for this asset. DRM playback IDs are not currently supported.",
-    { type: "validation_error" },
-  );
+  const message = "No public or signed playback ID found for this asset. DRM playback IDs are not currently supported.";
+  if (!options.classifiedErrors) {
+    throw new LegacyMuxAiError(message, { type: "validation_error" });
+  }
+  throw new MuxAiError(message, {
+    code: MUX_AI_ERROR_CODES.PLAYBACK_ID_NOT_FOUND,
+    type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+    source: MUX_AI_ERROR_SOURCES.ASSET,
+    facts: { assetId: asset.id, playbackPolicies: [...new Set(playbackIds.map(pid => pid.policy).filter(Boolean))] as string[] },
+  });
 }
 
 /**
@@ -50,8 +59,8 @@ export function isVideoOnlyAsset(asset: MuxAsset): boolean {
   return hasVideoTrack && !hasAudioTrack;
 }
 
-function toPlaybackAsset(asset: MuxAsset): PlaybackAsset {
-  const { id: playbackId, policy } = getPlaybackId(asset);
+function toPlaybackAsset(asset: MuxAsset, options: ClassifiedErrorsOption = {}): PlaybackAsset {
+  const { id: playbackId, policy } = getPlaybackId(asset, options);
   return { asset, playbackId, policy };
 }
 
@@ -59,17 +68,37 @@ export async function getPlaybackIdForAsset(
   assetId: string,
   credentials?: WorkflowCredentialsInput,
   assetSnapshot?: MuxAsset,
+  options: ClassifiedErrorsOption = {},
 ): Promise<PlaybackAsset> {
   "use step";
   // Centralize the Mux Video API fetch so callers can reuse the same asset payload
   // for playback IDs, duration, and other derived fields without double-hitting.
   // Note: getMuxAsset still resolves Mux token ID/secret from env or provided
   // credentials to preserve multi-tenant behavior.
-  const asset = assetSnapshot ?? await getMuxAsset(assetId, credentials);
-  if (asset.id !== assetId) {
-    throw new LegacyMuxAiError("Asset snapshot does not match the requested asset ID.", { type: "validation_error" });
+  if (!options.classifiedErrors) {
+    const asset = assetSnapshot ?? await getMuxAsset(assetId, credentials);
+    if (asset.id !== assetId) {
+      throw new LegacyMuxAiError("Asset snapshot does not match the requested asset ID.", { type: "validation_error" });
+    }
+    return toPlaybackAsset(asset);
   }
-  return toPlaybackAsset(asset);
+
+  let asset = assetSnapshot;
+  if (!asset) {
+    try {
+      asset = await getMuxAsset(assetId, credentials);
+    } catch (error) {
+      throw muxAssetFetchError(assetId, error);
+    }
+  }
+  if (asset.id !== assetId) {
+    throw new MuxAiError("Asset snapshot does not match the requested asset ID.", {
+      type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+      source: MUX_AI_ERROR_SOURCES.REQUEST,
+      facts: { assetId, snapshotAssetId: asset.id, inputs: ["assetId", "assetSnapshot"] },
+    });
+  }
+  return toPlaybackAsset(asset, options);
 }
 
 export async function getPlaybackIdForAssetWithClient(

@@ -392,12 +392,18 @@ export function buildMuxAiTrackPassthrough(workflow: string): string {
   return JSON.stringify({ mux_ai: { workflow } });
 }
 
-export function validateTrackPassthrough(passthrough: string | undefined): string | undefined {
+export function validateTrackPassthrough(passthrough: string | undefined, options: ClassifiedErrorsOption = {}): string | undefined {
   if (passthrough !== undefined && passthrough.length > MUX_TRACK_PASSTHROUGH_MAX_CHARS) {
-    throw new LegacyMuxAiError(
-      `Track passthrough must be at most ${MUX_TRACK_PASSTHROUGH_MAX_CHARS} characters (received ${passthrough.length}).`,
-      { type: "validation_error" },
-    );
+    const message = `Track passthrough must be at most ${MUX_TRACK_PASSTHROUGH_MAX_CHARS} characters (received ${passthrough.length}).`;
+    if (!options.classifiedErrors) {
+      throw new LegacyMuxAiError(message, { type: "validation_error" });
+    }
+    throw new MuxAiError(message, {
+      code: MUX_AI_ERROR_CODES.INVALID_PARAMETER,
+      type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+      source: MUX_AI_ERROR_SOURCES.REQUEST,
+      facts: { parameter: "trackPassthrough", reason: "too_long", length: passthrough.length, maxLength: MUX_TRACK_PASSTHROUGH_MAX_CHARS, inputs: ["trackPassthrough"] },
+    });
   }
   return passthrough;
 }
