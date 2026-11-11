@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { toPublicError } from "../../src/lib/public-error.ts";
 import {
   applyOverrideLists,
   applyReplacements,
@@ -789,5 +790,82 @@ describe("editCaptions validation", () => {
         autoCensorProfanity: { mode: "blank" },
       } as any),
     ).rejects.toThrow("provider is required when using autoCensorProfanity.");
+  });
+
+  // The internal messages are unchanged; the public wording comes from `invalid_parameter`'s facts.
+  it.each([
+    {
+      name: "no operation",
+      options: {},
+      message: "At least one of autoCensorProfanity, replacements, or speakerReplacements must be provided.",
+      public: "Provide at least one of autoCensorProfanity, replacements or speakerReplacements.",
+      inputs: ["autoCensorProfanity", "replacements", "speakerReplacements"],
+    },
+    {
+      name: "autoCensorProfanity without a provider",
+      options: { autoCensorProfanity: { mode: "blank" } },
+      message: "provider is required when using autoCensorProfanity.",
+      public: "provider is required when autoCensorProfanity is set.",
+      inputs: ["provider", "autoCensorProfanity"],
+    },
+    {
+      name: "deprecated naming mixed with the new options",
+      options: { replacements: [{ find: "a", replace: "b" }], deleteOriginalTrack: true, trackName: "English (clean)" },
+      message: "deleteOriginalTrack and trackNameSuffix are deprecated and cannot be combined with replaceExistingTracks or trackName.",
+      public: "deleteOriginalTrack can't be combined with trackName.",
+      inputs: ["deleteOriginalTrack", "trackName"],
+    },
+    {
+      name: "an unsupported replaceExistingTracks policy",
+      options: { replacements: [{ find: "a", replace: "b" }], replaceExistingTracks: "replace_all" },
+      message: "replaceExistingTracks must be \"replace\" or \"fail\" for editCaptions (received \"replace_all\").",
+      public: "replaceExistingTracks must be 'replace' or 'fail' (received 'replace_all').",
+      inputs: ["replaceExistingTracks"],
+    },
+    {
+      name: "fail without a trackName",
+      options: { replacements: [{ find: "a", replace: "b" }], replaceExistingTracks: "fail" },
+      message: "trackName is required when replaceExistingTracks is \"fail\": the edited track cannot reuse the source track's name while the source is kept.",
+      public: "trackName is required when replaceExistingTracks is set to 'fail'.",
+      inputs: ["trackName", "replaceExistingTracks"],
+    },
+    {
+      name: "an empty speaker label",
+      options: { speakerReplacements: [{ find: "A", replace: "B" }, { find: "", replace: "C" }] },
+      message: "Speaker replacement labels must be non-empty and must not contain square brackets or newlines.",
+      public: "speakerReplacements entries must be non-empty (entry 1).",
+      inputs: ["speakerReplacements"],
+    },
+    {
+      name: "a speaker label with brackets",
+      options: { speakerReplacements: [{ find: "A", replace: "[B]" }] },
+      message: "Speaker replacement labels must be non-empty and must not contain square brackets or newlines.",
+      public: "speakerReplacements entries must not contain '[' or ']' (entry 0).",
+      inputs: ["speakerReplacements"],
+    },
+    {
+      name: "a multi-line speaker label",
+      options: { speakerReplacements: [{ find: "A\nB", replace: "C" }] },
+      message: "Speaker replacement labels must be non-empty and must not contain square brackets or newlines.",
+      public: "speakerReplacements entries must be a single line (entry 0).",
+      inputs: ["speakerReplacements"],
+    },
+  ])("rejects $name as invalid_parameter, naming the option", async ({ options, message, public: publicMessage, inputs }) => {
+    const { editCaptions } = await import("../../src/workflows/edit-captions");
+    const error = await editCaptions("asset-id", "track-id", options as any).then(
+      () => {
+        throw new Error("expected a rejection");
+      },
+      (rejection: unknown) => rejection,
+    );
+
+    expect(error).toMatchObject({
+      message,
+      code: "invalid_parameter",
+      type: "validation_error",
+      source: "request",
+      facts: { inputs },
+    });
+    expect(toPublicError(error).message).toBe(publicMessage);
   });
 });

@@ -461,18 +461,24 @@ export async function createTextTrackOnMux(
   "use step";
   const muxClient = await resolveMuxClient(credentials);
   const mux = await muxClient.createClient();
-  const trackResponse = await mux.video.assets.createTrack(assetId, {
-    type: "text",
-    text_type: "subtitles",
-    language_code: languageCode,
-    name: trackName,
-    url: presignedUrl,
-    closed_captions: options.closedCaptions,
-    passthrough: options.passthrough,
-  });
+  let trackResponse: Awaited<ReturnType<typeof mux.video.assets.createTrack>>;
+  try {
+    trackResponse = await mux.video.assets.createTrack(assetId, {
+      type: "text",
+      text_type: "subtitles",
+      language_code: languageCode,
+      name: trackName,
+      url: presignedUrl,
+      closed_captions: options.closedCaptions,
+      passthrough: options.passthrough,
+    });
+  } catch (error) {
+    // Classified here, while the raw error is in hand: past the step boundary only its message is left.
+    throw muxVideoCallError("Failed to create the text track on Mux", "create_track", error, { assetId });
+  }
 
   if (!trackResponse.id) {
-    throw new Error("Failed to create text track: no track ID returned from Mux");
+    throw missingTrackIdError("Failed to create text track: no track ID returned from Mux", { assetId });
   }
 
   return trackResponse.id;

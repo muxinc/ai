@@ -5,7 +5,7 @@ vi.mock("../../src/lib/workflow-credentials", () => ({
 }));
 
 const { resolveMuxClient } = await import("../../src/lib/workflow-credentials");
-const { replaceAndCreateTextTrack, replaceAndCreateTrack, replaceSourceTrack } = await import("../../src/lib/mux-tracks");
+const { createTextTrackOnMux, replaceAndCreateTextTrack, replaceAndCreateTrack, replaceSourceTrack } = await import("../../src/lib/mux-tracks");
 
 const ASR_EN = { id: "asr-en", type: "text", text_type: "subtitles", status: "ready", language_code: "en", name: "English CC", text_source: "generated_vod" };
 const UPLOADED_EN = { id: "up-en", type: "text", text_type: "subtitles", status: "ready", language_code: "en", name: "English", text_source: "uploaded" };
@@ -275,6 +275,28 @@ describe("replaceSourceTrack", () => {
       tracks: [expect.objectContaining({ id: "dup" })],
       conflictsOnLanguage: false,
       deleted: [expect.objectContaining({ id: "up-en" })],
+    });
+  });
+});
+
+describe("createTextTrackOnMux", () => {
+  it("classifies a failed create inside the step, keeping Mux's status and request id", async () => {
+    createTrack.mockRejectedValue(Object.assign(new Error("500 internal"), { status: 500, headers: new Headers({ "x-request-id": "req-2" }) }));
+
+    await expect(createTextTrackOnMux("asset-1", "en", "English", "https://s3.example.test/new.vtt")).rejects.toMatchObject({
+      source: "upstream",
+      dependency: "mux_video",
+      facts: { call: "create_track", status: 500, requestId: "req-2", assetId: "asset-1" },
+    });
+  });
+
+  it("classifies a create that returns no track id", async () => {
+    createTrack.mockResolvedValue({});
+
+    await expect(createTextTrackOnMux("asset-1", "en", "English", "https://s3.example.test/new.vtt")).rejects.toMatchObject({
+      message: "Failed to create text track: no track ID returned from Mux",
+      dependency: "mux_video",
+      facts: { assetId: "asset-1" },
     });
   });
 });

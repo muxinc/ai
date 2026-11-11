@@ -107,8 +107,8 @@ A remote service reached over the network. Libraries running in-process are neve
 | Code | Type | Source | Dependency | Public | Condition |
 |---|---|---|---|---|---|
 | `invalid_scope` | `validation_error` | `request` |  | yes | The requested time range is invalid, or has nothing to work with. Facts: `reason` (`invalid_start_time`, `invalid_end_time`, `exceeds_duration`, `empty_range`, `no_video`, `no_transcript`) and the bounds involved. |
-| `track_replacement_blocked` | `validation_error` | `request` |  | yes | Existing tracks block writing the output track under the chosen replacement policy. Facts: `reason` (`policy_fail`, `not_generated`, `name_collision`, `primary_audio`), `conflictingTracks` and the target track. |
-| `invalid_parameter` | `validation_error` | `request` |  | yes | An option's value can't be used. Facts: `parameter` (the caller's option name), `reason` (`too_many`, `empty`, `too_long`, `disallowed_characters`, `not_normalized`) and the values the reason names: `count` and `max`, `index` (0-based entry), `length` and `maxLength`, `characters`. |
+| `track_replacement_blocked` | `validation_error` | `request` |  | yes | Existing tracks block writing the output track under the chosen replacement policy. Facts: `reason` (`policy_fail`, `not_generated`, `name_collision`, `primary_audio`), `conflictingTracks` and the target track, plus `sourceRestored` and `restoredTrackId` when a source track was deleted first. |
+| `invalid_parameter` | `validation_error` | `request` |  | yes | An option's value can't be used. Facts: `parameter` (the caller's option name), `reason` (`too_many`, `empty`, `too_long`, `disallowed_characters`, `not_normalized`, `multiline`, `required_with`, `conflicts_with`, `not_allowed`, `one_of_required`) and the values the reason names: `count` and `max`, `index` (0-based entry), `length` and `maxLength`, `characters`, `with` and `withValue` (the other option), `allowed` and `value`, `parameters` (the options to choose from). |
 | `parameter_out_of_range` | `validation_error` | `request` |  | yes | A numeric option is outside its allowed range. Facts: `parameter` (the caller's option name), `value`, `min`, `max`, and `integer` when it must be a whole number. |
 | `caption_track_not_found` | `validation_error` | `asset` |  | yes | No ready caption track matches the requested track or language. Facts: `trackId` or `languageCode`, and what is available. |
 | `playback_id_not_found` | `validation_error` | `asset` |  | yes | The asset has no public or signed playback ID (DRM-only assets included). |
@@ -189,6 +189,8 @@ Modules move one workflow at a time. A helper several workflows share can't swit
 
 - **Model calls** take a `ModelCallContext` (`call`, `provider`, `model`). With one, content-policy blocks, incomplete or unusable output, and provider API failures are classified where they happen, with those facts. Without one, they fail as before.
 - **Other shared helpers** take `classifiedErrors: true` (`ClassifiedErrorsOption`), e.g. `fetchVttFromMux()` and `replaceAndCreateTextTrack()`. Without it, they fail as before. A helper that reports a failure as a result rather than a throw (e.g. a failed track write) classifies it inside the step and returns it as the result's `error`: a classified error crosses the step boundary intact, where the raw error would keep only its message.
+
+An internal helper whose only callers have already moved (e.g. `createTextTrackOnMux()`, used only by `editCaptions()`) classifies its errors without an opt-in.
 
 A workflow that moves passes the opt-in to every shared helper it calls. Once every caller has, the opt-in becomes the only behavior and goes away with the legacy fields.
 

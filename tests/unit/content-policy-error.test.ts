@@ -8,11 +8,13 @@ import {
   getGeneratedOutputWithContentPolicyHandling,
   IncompleteGenerationError,
   isIncompleteGenerationError,
+  modelStepError,
   rethrowContentPolicyError,
   withContentPolicyAwareRetry,
   withContentPolicyErrorHandling,
 } from "../../src/lib/content-policy-error.ts";
 import { legacyWrapError } from "../../src/lib/legacy-mux-ai-error.ts";
+import { MuxAiError } from "../../src/lib/mux-ai-error.ts";
 import { withRetry } from "../../src/lib/retry.ts";
 
 function createApiCallError(responseBody: string) {
@@ -488,5 +490,35 @@ describe("content policy errors", () => {
     });
 
     expect(() => rethrowContentPolicyError(retryError)).toThrow(retryError);
+  });
+});
+
+describe("modelStepError", () => {
+  function providerError(statusCode: number, url = "https://api.example.test/v1/chat") {
+    return new APICallError({ message: `HTTP ${statusCode}`, url, requestBodyValues: {}, statusCode });
+  }
+
+  it("classifies a Google failure with the call's facts", () => {
+    const error = modelStepError(providerError(429, "https://generativelanguage.googleapis.com/v1beta/models/gemini:generateContent"), "Detection failed", {
+      call: "detect_profanity",
+      provider: "google",
+      model: "gemini-2.5-flash",
+    });
+
+    expect(error).toMatchObject({ dependency: "ai_provider", facts: { call: "detect_profanity", provider: "google", model: "gemini-2.5-flash" } });
+  });
+
+  it("keeps a provider without a classifier internal, step-retried only when the AI SDK judges it retryable", () => {
+    const facts = { call: "detect_profanity", provider: "openai" };
+
+    expect(modelStepError(providerError(503), "Detection failed", facts)).toMatchObject({ message: "Detection failed", source: "internal", transient: true });
+    expect(modelStepError(providerError(400), "Detection failed", facts)).toMatchObject({ source: "internal", transient: false });
+  });
+
+  it("adds the call's facts to an error that is already classified", () => {
+    const classified = new MuxAiError("blocked", { type: "validation_error", source: "request", facts: { reason: "x" } });
+
+    expect(modelStepError(classified, "Detection failed", { call: "detect_profanity", provider: "openai" })).toBe(classified);
+    expect(classified.facts).toMatchObject({ reason: "x", call: "detect_profanity", provider: "openai" });
   });
 });

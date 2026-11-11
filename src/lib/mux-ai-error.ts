@@ -117,9 +117,9 @@ export type ErrorCatalogEntry<TType extends string = string, TDependency extends
 export const MUX_AI_ERROR_CODES = {
   /** The requested time range is invalid, or has nothing to work with. Facts: `reason` (`invalid_start_time`, `invalid_end_time`, `exceeds_duration`, `empty_range`, `no_video`, `no_transcript`) and the bounds involved. */
   INVALID_SCOPE: "invalid_scope",
-  /** Existing tracks block writing the output track under the chosen replacement policy. Facts: `reason` (`policy_fail`, `not_generated`, `name_collision`, `primary_audio`), `conflictingTracks` and the target track. */
+  /** Existing tracks block writing the output track under the chosen replacement policy. Facts: `reason` (`policy_fail`, `not_generated`, `name_collision`, `primary_audio`), `conflictingTracks` and the target track, plus `sourceRestored` and `restoredTrackId` when a source track was deleted first. */
   TRACK_REPLACEMENT_BLOCKED: "track_replacement_blocked",
-  /** An option's value can't be used. Facts: `parameter` (the caller's option name), `reason` (`too_many`, `empty`, `too_long`, `disallowed_characters`, `not_normalized`) and the values the reason names: `count` and `max`, `index` (0-based entry), `length` and `maxLength`, `characters`. */
+  /** An option's value can't be used. Facts: `parameter` (the caller's option name), `reason` (`too_many`, `empty`, `too_long`, `disallowed_characters`, `not_normalized`, `multiline`, `required_with`, `conflicts_with`, `not_allowed`, `one_of_required`) and the values the reason names: `count` and `max`, `index` (0-based entry), `length` and `maxLength`, `characters`, `with` and `withValue` (the other option), `allowed` and `value`, `parameters` (the options to choose from). */
   INVALID_PARAMETER: "invalid_parameter",
   /** A numeric option is outside its allowed range. Facts: `parameter` (the caller's option name), `value`, `min`, `max`, and `integer` when it must be a whole number. */
   PARAMETER_OUT_OF_RANGE: "parameter_out_of_range",
