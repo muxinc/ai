@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.59.0](https://github.com/muxinc/ai/compare/v0.58.0...v0.59.0) (2026-11-11)
+## [0.59.0](https://github.com/muxinc/ai/compare/v0.58.0...v0.59.0) (2026-11-09)
 
 
 ### ⚠ BREAKING CHANGES
@@ -10,4 +10,3 @@
 ### Features
 
 * **errors:** classified error model, with engagement insights moved onto it ([#304](https://github.com/muxinc/ai/issues/304)) ([d07c988](https://github.com/muxinc/ai/commit/d07c98842860170867068579fc216873371e7fe3))
-* **errors:** classify translate-captions, with opt-in classified errors in shared helpers ([#314](https://github.com/muxinc/ai/issues/314)) ([30dc010](https://github.com/muxinc/ai/commit/30dc0106ead952f21976cdfc528cde24030eed6a))
