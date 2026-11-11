@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 
 import { IncompleteGenerationError } from "../../src/lib/content-policy-error";
 import { MuxAiError } from "../../src/lib/mux-ai-error";
+import { toPublicError } from "../../src/lib/public-error.ts";
 import type { TokenUsage } from "../../src/types";
 import {
   aggregateTokenUsage,
@@ -267,6 +268,31 @@ describe("validateNeverTranslateTerms", () => {
     expect(() => validateNeverTranslateTerms(["①"])).toThrow(MuxAiError);
     expect(() => validateNeverTranslateTerms(["Mu​x"])).toThrow(MuxAiError);
     expect(validateNeverTranslateTerms(["Müx"])).toEqual(["Müx"]);
+  });
+
+  it("raises invalid_parameter with today's message and public wording that names the option and the reason", () => {
+    const capture = (terms: string[]) => {
+      try {
+        validateNeverTranslateTerms(terms);
+      } catch (error) {
+        return error as MuxAiError;
+      }
+      throw new Error("expected a throw");
+    };
+    const cases = [
+      { terms: Array.from({ length: 101 }, (_, i) => `term-${i}`), message: "neverTranslate accepts at most 100 terms (received 101).", public: "neverTranslate accepts at most 100 entries (received 101)." },
+      { terms: ["Mux", "  "], message: "neverTranslate terms must be non-empty.", public: "neverTranslate entries must be non-empty (entry 1)." },
+      { terms: ["x".repeat(101)], message: "neverTranslate terms must be at most 100 characters (received 101).", public: "neverTranslate entries must be at most 100 characters (received 101) (entry 0)." },
+      { terms: ["<Mux"], message: "neverTranslate terms must not contain '<' or '>'.", public: "neverTranslate entries must not contain '<' or '>' (entry 0)." },
+      { terms: ["①"], message: "neverTranslate terms must not contain invisible characters or characters altered by Unicode NFKC normalization.", public: "neverTranslate entries must not contain invisible characters or characters altered by Unicode NFKC normalization (entry 0)." },
+    ];
+    for (const { terms, message, public: wording } of cases) {
+      const error = capture(terms);
+      // Consumers that validate requests with this function surface `message`; it must not change.
+      expect(error.message).toBe(message);
+      expect(error).toMatchObject({ code: "invalid_parameter", type: "validation_error", source: "request", facts: { parameter: "neverTranslate", inputs: ["neverTranslate"] } });
+      expect(toPublicError(error)).toMatchObject({ code: "invalid_parameter", message: wording, retryable: false });
+    }
   });
 
   it("rejects more than 100 terms", () => {

@@ -141,6 +141,7 @@ describe("toPublicError", () => {
       "content_policy_blocked",
       "dubbing_failed",
       "dubbing_language_unsupported",
+      "invalid_parameter",
       "invalid_scope",
       "model_output_invalid",
       "model_output_missing",

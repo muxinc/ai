@@ -119,6 +119,8 @@ export const MUX_AI_ERROR_CODES = {
   INVALID_SCOPE: "invalid_scope",
   /** Existing tracks block writing the output track under the chosen replacement policy. Facts: `reason` (`policy_fail`, `not_generated`, `name_collision`, `primary_audio`), `conflictingTracks` and the target track. */
   TRACK_REPLACEMENT_BLOCKED: "track_replacement_blocked",
+  /** An option's value can't be used. Facts: `parameter` (the caller's option name), `reason` (`too_many`, `empty`, `too_long`, `disallowed_characters`, `not_normalized`) and the values the reason names: `count` and `max`, `index` (0-based entry), `length` and `maxLength`, `characters`. */
+  INVALID_PARAMETER: "invalid_parameter",
   /** A numeric option is outside its allowed range. Facts: `parameter` (the caller's option name), `value`, `min`, `max`, and `integer` when it must be a whole number. */
   PARAMETER_OUT_OF_RANGE: "parameter_out_of_range",
   /** No ready caption track matches the requested track or language. Facts: `trackId` or `languageCode`, and what is available. */
@@ -164,6 +166,7 @@ export const MUX_AI_ERROR_CATALOG = {
   // The caller's input.
   [MUX_AI_ERROR_CODES.INVALID_SCOPE]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
   [MUX_AI_ERROR_CODES.TRACK_REPLACEMENT_BLOCKED]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
+  [MUX_AI_ERROR_CODES.INVALID_PARAMETER]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
   [MUX_AI_ERROR_CODES.PARAMETER_OUT_OF_RANGE]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
   // The asset's state.
   [MUX_AI_ERROR_CODES.CAPTION_TRACK_NOT_FOUND]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },

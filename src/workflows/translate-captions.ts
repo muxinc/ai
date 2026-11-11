@@ -285,12 +285,14 @@ const CUE_TRANSLATION_SYSTEM_PROMPT = promptDedent`
 const MAX_NEVER_TRANSLATE_TERMS = 100;
 const MAX_NEVER_TRANSLATE_TERM_CHARS = 100;
 
-function neverTranslateError(facts: MuxAiErrorFacts) {
-  return {
+/** `invalid_parameter` for `neverTranslate`: public wording names the option and the reason. */
+function neverTranslateError(message: string, reason: string, facts: MuxAiErrorFacts = {}): MuxAiError {
+  return new MuxAiError(message, {
+    code: MUX_AI_ERROR_CODES.INVALID_PARAMETER,
     type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
     source: MUX_AI_ERROR_SOURCES.REQUEST,
-    facts: { parameter: "neverTranslate", ...facts },
-  };
+    facts: { parameter: "neverTranslate", reason, ...facts, inputs: ["neverTranslate"] },
+  });
 }
 
 /**
@@ -299,41 +301,38 @@ function neverTranslateError(facts: MuxAiErrorFacts) {
  */
 export function validateNeverTranslateTerms(terms: string[]): string[] {
   if (terms.length > MAX_NEVER_TRANSLATE_TERMS) {
-    throw new MuxAiError(
+    throw neverTranslateError(
       `neverTranslate accepts at most ${MAX_NEVER_TRANSLATE_TERMS} terms (received ${terms.length}).`,
-      neverTranslateError({ count: terms.length, max: MAX_NEVER_TRANSLATE_TERMS }),
+      "too_many",
+      { count: terms.length, max: MAX_NEVER_TRANSLATE_TERMS },
     );
   }
 
   const validated: string[] = [];
   const seen = new Set<string>();
-  for (const [termIndex, term] of terms.entries()) {
+  for (const [index, term] of terms.entries()) {
     const trimmed = term.trim();
     if (trimmed.length === 0) {
-      throw new MuxAiError(
-        "neverTranslate terms must be non-empty.",
-        neverTranslateError({ termIndex }),
-      );
+      throw neverTranslateError("neverTranslate terms must be non-empty.", "empty", { index });
     }
     if (trimmed.length > MAX_NEVER_TRANSLATE_TERM_CHARS) {
-      throw new MuxAiError(
+      throw neverTranslateError(
         `neverTranslate terms must be at most ${MAX_NEVER_TRANSLATE_TERM_CHARS} characters (received ${trimmed.length}).`,
-        neverTranslateError({ termIndex, length: trimmed.length, maxLength: MAX_NEVER_TRANSLATE_TERM_CHARS }),
+        "too_long",
+        { index, length: trimmed.length, maxLength: MAX_NEVER_TRANSLATE_TERM_CHARS },
       );
     }
     if (trimmed.includes("<") || trimmed.includes(">")) {
-      throw new MuxAiError(
-        "neverTranslate terms must not contain '<' or '>'.",
-        neverTranslateError({ termIndex }),
-      );
+      throw neverTranslateError("neverTranslate terms must not contain '<' or '>'.", "disallowed_characters", { index, characters: ["<", ">"] });
     }
     // Cue text is NFKC-sanitised before the model sees it, so a term the
     // sanitiser rewrites can never be preserved verbatim — reject it
     // rather than verify in a space the caller didn't ask for.
     if (sanitizeUntrustedText(trimmed) !== trimmed) {
-      throw new MuxAiError(
+      throw neverTranslateError(
         "neverTranslate terms must not contain invisible characters or characters altered by Unicode NFKC normalization.",
-        neverTranslateError({ termIndex }),
+        "not_normalized",
+        { index },
       );
     }
     // Case-insensitive dedupe: case variants would double-demand the

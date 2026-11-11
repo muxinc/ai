@@ -98,6 +98,30 @@ function scopeMessage(facts: MuxAiErrorFacts): string {
   }
 }
 
+function quotedList(value: MuxAiErrorFactValue | undefined): string {
+  return Array.isArray(value) && value.length > 0 ? value.map(item => `'${text(item)}'`).join(" or ") : "certain characters";
+}
+
+/** An invalid option, worded by reason from its facts; the option is named as the caller passed it. */
+function invalidParameterMessage(facts: MuxAiErrorFacts): string {
+  const parameter = text(facts.parameter) || "A parameter";
+  const entry = facts.index === undefined ? "" : ` (entry ${text(facts.index)})`;
+  switch (facts.reason) {
+    case "too_many":
+      return `${parameter} accepts at most ${text(facts.max)} entries${facts.count === undefined ? "" : ` (received ${text(facts.count)})`}.`;
+    case "empty":
+      return `${parameter} entries must be non-empty${entry}.`;
+    case "too_long":
+      return `${parameter} entries must be at most ${text(facts.maxLength)} characters${facts.length === undefined ? "" : ` (received ${text(facts.length)})`}${entry}.`;
+    case "disallowed_characters":
+      return `${parameter} entries must not contain ${quotedList(facts.characters)}${entry}.`;
+    case "not_normalized":
+      return `${parameter} entries must not contain invisible characters or characters altered by Unicode NFKC normalization${entry}.`;
+    default:
+      return `${parameter} has a value that can't be used.`;
+  }
+}
+
 const AUDIO_TRACK_UNSUPPORTED_MESSAGES: Readonly<Record<string, string>> = {
   clip: "Mux doesn't support adding audio tracks to clipped assets. Dub the source asset instead, or use the dubbed audio file without adding it to Mux.",
   live_stream: "Mux doesn't support adding audio tracks to live stream assets. Use the dubbed audio file without adding it to Mux instead.",
@@ -133,6 +157,10 @@ export const MUX_AI_ERROR_PUBLIC_MAPPINGS = {
     message: "The transcript has no usable content.",
   },
   // Names the caller's own option; a consumer that exposes different names overrides the wording.
+  [MUX_AI_ERROR_CODES.INVALID_PARAMETER]: {
+    facts: ["parameter", "reason", "count", "max", "index", "length", "maxLength", "characters"],
+    message: invalidParameterMessage,
+  },
   [MUX_AI_ERROR_CODES.PARAMETER_OUT_OF_RANGE]: {
     facts: ["parameter", "value", "min", "max", "integer"],
     message: facts => `${text(facts.parameter) || "A parameter"} must be ${facts.integer ? "an integer " : ""}between ${text(facts.min)} and ${text(facts.max)}${facts.value === undefined ? "" : ` (received ${text(facts.value)})`}.`,
