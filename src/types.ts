@@ -21,6 +21,10 @@ export interface StoragePresignGetObjectInput {
   bucket: string;
   key: string;
   expiresInSeconds: number;
+  /** Content-Type the download URL should respond with, overriding the stored object's. */
+  responseContentType?: string;
+  /** Content-Disposition the download URL should respond with, such as attachment. */
+  responseContentDisposition?: string;
   accessKeyId?: string;
   secretAccessKey?: string;
 }

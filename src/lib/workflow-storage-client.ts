@@ -72,6 +72,8 @@ export class WorkflowStorageClient {
       bucket: input.bucket,
       key: input.key,
       expiresInSeconds: input.expiresInSeconds,
+      responseContentType: input.responseContentType,
+      responseContentDisposition: input.responseContentDisposition,
     });
   }
 

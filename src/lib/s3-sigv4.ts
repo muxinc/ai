@@ -30,6 +30,8 @@ export interface PutObjectOptions extends S3Target, S3Credentials {
 
 export interface PresignGetObjectOptions extends S3Target, S3Credentials {
   expiresInSeconds?: number;
+  responseContentType?: string;
+  responseContentDisposition?: string;
 }
 
 function getCrypto() {
@@ -167,7 +169,7 @@ function buildCanonicalUri(endpoint: URL, bucket: string, key: string): string {
 
 function buildCanonicalQuery(params: Record<string, string>): string {
   return Object.entries(params)
-    .sort(([a], [b]) => a.localeCompare(b))
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([key, value]) => `${encodeRFC3986(key)}=${encodeRFC3986(value)}`)
     .join("&");
 }
@@ -257,6 +259,8 @@ export async function createPresignedGetUrl({
   bucket,
   key,
   expiresInSeconds = 3600,
+  responseContentType,
+  responseContentDisposition,
 }: PresignGetObjectOptions): Promise<string> {
   const resolvedEndpoint = normalizeEndpoint(endpoint);
   const canonicalUri = buildCanonicalUri(resolvedEndpoint, bucket, key);
@@ -270,6 +274,8 @@ export async function createPresignedGetUrl({
     "X-Amz-Date": amzDate,
     "X-Amz-Expires": `${expiresInSeconds}`,
     "X-Amz-SignedHeaders": signedHeaders,
+    ...(responseContentType ? { "response-content-type": responseContentType } : {}),
+    ...(responseContentDisposition ? { "response-content-disposition": responseContentDisposition } : {}),
   };
   const canonicalQuery = buildCanonicalQuery(queryParams);
   const canonicalRequest = [
