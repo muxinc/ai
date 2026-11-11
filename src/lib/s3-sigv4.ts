@@ -168,9 +168,9 @@ function buildCanonicalUri(endpoint: URL, bucket: string, key: string): string {
 }
 
 function buildCanonicalQuery(params: Record<string, string>): string {
-  return Object.entries(params)
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([key, value]) => `${encodeRFC3986(key)}=${encodeRFC3986(value)}`)
+  return Object.keys(params)
+    .sort()
+    .map(key => `${encodeRFC3986(key)}=${encodeRFC3986(params[key])}`)
     .join("&");
 }
 
