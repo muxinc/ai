@@ -3,7 +3,7 @@ import type { MuxAsset, PlaybackAsset, PlaybackPolicy, WorkflowCredentialsInput,
 import { getMuxClientFromEnv } from "./client-factory.ts";
 import { LegacyMuxAiError } from "./legacy-mux-ai-error.ts";
 import type { ClassifiedErrorsOption } from "./mux-ai-error.ts";
-import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
+import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError, wrapError } from "./mux-ai-error.ts";
 import { muxAssetFetchError } from "./mux-video-errors.ts";
 
 /**
@@ -85,8 +85,16 @@ export async function getPlaybackIdForAsset(
 
   let asset = assetSnapshot;
   if (!asset) {
+    // Only Mux's answer is classified by status: a client that can't be built (e.g. no
+    // credentials) is the service's configuration, not a Mux outage.
+    let mux: Awaited<ReturnType<WorkflowMuxClient["createClient"]>>;
     try {
-      asset = await getMuxAsset(assetId, credentials);
+      mux = await (await getMuxClientFromEnv(credentials)).createClient();
+    } catch (error) {
+      wrapError(error, "Failed to create a Mux client", { assetId });
+    }
+    try {
+      asset = await mux.video.assets.retrieve(assetId);
     } catch (error) {
       throw muxAssetFetchError(assetId, error);
     }

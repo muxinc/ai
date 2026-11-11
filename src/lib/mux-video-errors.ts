@@ -49,7 +49,9 @@ export function muxVideoError(
  * `muxVideoError` for an error thrown by a Mux SDK call, classified while the error is
  * still in hand: its status, request id and Mux's error type become facts, and the error
  * itself the cause (summarized, scrubbed, across step boundaries). An already classified
- * error (e.g. missing credentials) passes through with `facts` merged in.
+ * error passes through with `facts` merged in. Only wrap the Mux call itself: a status-less
+ * failure is read as no response (transient), so a configuration failure such as missing
+ * credentials must be raised before, as `internal`.
  */
 export function muxVideoCallError(message: string, call: string, error: unknown, facts?: MuxAiErrorFacts): MuxAiError {
   if (MuxAiError.is(error)) {
