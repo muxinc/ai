@@ -108,9 +108,11 @@ A remote service reached over the network. Libraries running in-process are neve
 |---|---|---|---|---|---|
 | `invalid_scope` | `validation_error` | `request` |  | yes | The requested time range is invalid, or has nothing to work with. Facts: `reason` (`invalid_start_time`, `invalid_end_time`, `exceeds_duration`, `empty_range`, `no_video`, `no_transcript`) and the bounds involved. |
 | `track_replacement_blocked` | `validation_error` | `request` |  | yes | Existing tracks block writing the output track under the chosen replacement policy. Facts: `reason` (`policy_fail`, `not_generated`, `name_collision`, `primary_audio`), `conflictingTracks` and the target track. |
+| `invalid_parameter` | `validation_error` | `request` |  | yes | An option's value can't be used. Facts: `parameter` (the caller's option name), `reason` (`too_many`, `empty`, `too_long`, `disallowed_characters`, `not_normalized`) and the values the reason names: `count` and `max`, `index` (0-based entry), `length` and `maxLength`, `characters`. |
 | `parameter_out_of_range` | `validation_error` | `request` |  | yes | A numeric option is outside its allowed range. Facts: `parameter` (the caller's option name), `value`, `min`, `max`, and `integer` when it must be a whole number. |
 | `caption_track_not_found` | `validation_error` | `asset` |  | yes | No ready caption track matches the requested track or language. Facts: `trackId` or `languageCode`, and what is available. |
 | `playback_id_not_found` | `validation_error` | `asset` |  | yes | The asset has no public or signed playback ID (DRM-only assets included). |
+| `asset_not_found` | `validation_error` | `request` | `mux_video` | yes | Mux has no asset with the requested ID in this environment. Facts: `assetId`. |
 | `transcript_empty` | `validation_error` | `asset` |  | yes | The transcript has no usable content. |
 | `asset_duration_unavailable` | `validation_error` | `asset` |  | yes | The asset has no valid duration, so work that depends on it can't run. Facts: `assetId`. |
 | `audio_track_unsupported` | `validation_error` | `asset` |  | yes | Mux won't add an audio track to this asset. Facts: `reason` (`clip`, `live_stream`, `audio_only`). |
@@ -181,6 +183,15 @@ They also have a `type` and an approximate `source`, but no `code` or `facts`. C
 
 As each module moves, its failures become classified errors, and its plain `throw new Error(...)` failures become classified too. The legacy fields go away when the last module has moved.
 
+### Shared helpers opt in per workflow
+
+Modules move one workflow at a time. A helper several workflows share can't switch to classified errors for all of them at once without changing what the workflows that haven't moved raise, so its classified errors are opt-in:
+
+- **Model calls** take a `ModelCallContext` (`call`, `provider`, `model`). With one, content-policy blocks, incomplete or unusable output, and provider API failures are classified where they happen, with those facts. Without one, they fail as before.
+- **Other shared helpers** take `classifiedErrors: true` (`ClassifiedErrorsOption`), e.g. `fetchVttFromMux()` and `replaceAndCreateTextTrack()`. Without it, they fail as before. A helper that reports a failure as a result rather than a throw (e.g. a failed track write) classifies it inside the step and returns it as the result's `error`: a classified error crosses the step boundary intact, where the raw error would keep only its message.
+
+A workflow that moves passes the opt-in to every shared helper it calls. Once every caller has, the opt-in becomes the only behavior and goes away with the legacy fields.
+
 ## Building your own errors on the same model
 
 An application that adds its own failures can use the same model, so its errors and the SDK's share one retry policy, one serializer and one public view. `ClassifiedError` is the base `MuxAiError` is built on:
@@ -220,7 +231,7 @@ const toPublic = createPublicErrorView<string, string>({
 
 ## Serialization
 
-`MuxAiError` keeps its classification across Workflow step boundaries through Workflow DevKit serializer hooks; a plain `Error` crossing a boundary keeps only its name, message and stack. Two things to know when running the SDK in a workflow:
+`MuxAiError` keeps its classification across Workflow step boundaries through Workflow DevKit serializer hooks. Any other error crossing a boundary keeps only its message, stack and cause: an HTTP client's status, a provider's response headers and its class are gone, which is why remote failures are classified inside the step, where the call is made. Two things to know when running the SDK in a workflow:
 
 - **Payloads are versioned.** The hooks write a versioned shape and read every earlier one, so a run can always replay errors it wrote before.
 - **Class IDs include the package version.** Workflow DevKit identifies a serialized class by an ID derived from the module that defines it, which for a package includes its entry point and version (e.g. `@mux/ai/workflows@1.2.3`). Worlds that pin each run to the deployment that started it replay with the same build, so upgrading `@mux/ai` is safe. Worlds that don't pin runs can fail to revive these errors in a run that spans an upgrade.
@@ -233,12 +244,13 @@ const toPublic = createPublicErrorView<string, string>({
 2. **Was a remote service involved?** Set `dependency`. An `upstream` failure always names it: the types require it, in a catalog entry and at a site.
 3. **Is there an existing code for this exact condition?** Add it: `{ code, type, source }` (and `dependency` when its catalog entry has one). The compiler only accepts the type, source and dependency the code's catalog entry gives it.
 4. **Otherwise,** pass `type` and `source` alone, and consider whether the condition deserves a code (below).
-5. **Record what varies as facts:** IDs, languages, limits, statuses, the call that failed. Keep values JSON-safe. Pass provider free text through `errorDetailFact()`, which strips URL queries and credentials, suppresses prompt leaks and caps the length. Never put credentials, signed URLs or raw model output in facts.
+5. **Record what varies as facts:** IDs, languages, limits, statuses, the call that failed. A failure blamed on an input the caller passes records it in `inputs` (e.g. `["credentials"]`; a dependency's 401/403 takes them as `authInputs`), so a caller that sets that input itself, rather than passing on its end user's, can re-attribute the failure. Keep values JSON-safe. Pass provider free text through `errorDetailFact()`, which strips URL queries and credentials, suppresses prompt leaks and caps the length. Never put credentials, signed URLs or raw model output in facts.
 6. **Write `message` for a developer reading a log.** It can be specific; it is never shown to end users.
 
 Helpers:
 
 - **Remote calls:** classify where the call is made, while the status is still in hand. `dependencyError()` (in `dependency-error.ts`) turns a status into a source and retry policy: no response, 408, 425, 429 and 5xx are `upstream` and transient; 401/403 and 404 take the source the caller chooses (`authSource`, `notFoundSource`); other 4xx are `internal`, a request we built. It records `call`, `status` and `requestId`, and takes `idempotent: false` for calls that may have taken effect (a create), so a no-response or 5xx failure isn't step-retried. `dependencyErrorFrom()` does the same for an error thrown by an SDK client, reading its status.
+- **Provider API failures:** each provider means different things by the same status (a 429 can be a short rate limit or a spent quota), so each gets its own classifier, keyed by the `ModelCallContext`'s provider: `google-errors.ts` for Google, like `elevenlabs-errors.ts` for ElevenLabs. Mux Video calls go through `mux-video-errors.ts`, which also keeps Mux's error type (`muxErrorType`). Keep what a dependency says as validated tokens in facts; its free text reaches the scrubbed `causes` through the error's message, never facts. A provider without one keeps its raw error until a workflow that uses it moves.
 - **This code's own failures:** `internalError()` and `assertNever()`.
 - **Passing errors up:** `wrapError()` passes a classified error through, merging facts, and turns anything unclassified into an `internal` failure.
 

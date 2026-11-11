@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { runInNewContext } from "node:vm";
 
 import { applySwcTransform } from "@workflow/builders";
-import { dehydrateStepError, hydrateStepError } from "@workflow/core/serialization";
+import { dehydrateStepError, dehydrateStepReturnValue, hydrateStepError, hydrateStepReturnValue } from "@workflow/core/serialization";
 import { build, transform } from "esbuild";
 import { describe, expect, it } from "vitest";
 
@@ -96,6 +96,26 @@ describe("sDK errors across Workflow step boundaries", () => {
     const rethrown = await hydrateStepError(await dehydrateStepError(restored, "wrun_offline", undefined, [], workflow.global), "wrun_offline", undefined, step.global);
     expect(step.isIncompleteGenerationError(rethrown)).toBe(true);
     expect(rethrown).toMatchObject({ usage, diagnostics: error.diagnostics });
+  });
+
+  it("keeps a classified error returned inside a step result, e.g. a failed track write", async () => {
+    const [step, workflow] = await Promise.all([loadErrors("step"), loadErrors("workflow")]);
+    const error = new step.MuxAiError("Mux create_track failed while writing the text track", {
+      type: "processing_error",
+      source: "upstream",
+      dependency: "mux_video",
+      facts: { call: "create_track", status: 503, muxErrorType: "service_unavailable" },
+      transient: false,
+      cause: Object.assign(new Error("503 upstream down"), { status: 503, headers: { authorization: "secret" } }),
+    });
+    const result = { kind: "create_failed", reason: "503 upstream down", deleted: [], error };
+
+    const restored = await hydrateStepReturnValue(await dehydrateStepReturnValue(result, "wrun_offline", undefined, [], step.global), "wrun_offline", undefined, workflow.global) as typeof result;
+
+    expect(workflow.MuxAiError.is(restored.error)).toBe(true);
+    expect(restored.error).toMatchObject({ source: "upstream", dependency: "mux_video", retryable: true, facts: error.facts });
+    expect(restored.error.causes).toEqual([expect.objectContaining({ name: "Error", status: 503 })]);
+    expect(JSON.stringify(restored)).not.toContain("secret");
   });
 
   it("revives a legacy error with its end-user message, type and attached usage", async () => {

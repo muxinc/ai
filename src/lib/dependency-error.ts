@@ -14,6 +14,8 @@ export interface DependencyErrorInit {
   notFoundSource?: MuxAiErrorSource;
   /** Source for a 401/403. Defaults to `internal` (our own credentials). */
   authSource?: MuxAiErrorSource;
+  /** The caller's inputs a 401/403 is blamed on (e.g. `credentials`), recorded as the `inputs` fact. */
+  authInputs?: readonly string[];
   /** The call timed out before a response arrived. */
   timedOut?: boolean;
   /**
@@ -38,7 +40,7 @@ export { isTransientStatus };
  * by {@link dependencyError} and by consumers building their own errors on the same
  * model, so remote failures are classified the same way everywhere.
  */
-export function classifyDependencyFailure(init: Pick<DependencyErrorInit, "call" | "status" | "requestId" | "facts" | "notFoundSource" | "authSource" | "timedOut" | "idempotent" | "transient" | "retryable">): {
+export function classifyDependencyFailure(init: Pick<DependencyErrorInit, "call" | "status" | "requestId" | "facts" | "notFoundSource" | "authSource" | "authInputs" | "timedOut" | "idempotent" | "transient" | "retryable">): {
   type: MuxAiErrorType;
   source: MuxAiErrorSource;
   facts: MuxAiErrorFacts;
@@ -66,6 +68,7 @@ export function classifyDependencyFailure(init: Pick<DependencyErrorInit, "call"
       MUX_AI_ERROR_TYPES.VALIDATION_ERROR;
   }
 
+  const authFailure = !transient && (status === 401 || status === 403);
   return {
     type,
     source,
@@ -73,6 +76,7 @@ export function classifyDependencyFailure(init: Pick<DependencyErrorInit, "call"
       call,
       ...(status !== undefined && { status }),
       ...(requestId && { requestId }),
+      ...(authFailure && init.authInputs?.length && { inputs: [...init.authInputs] }),
       ...facts,
     },
     // Set here, not left to the default: only the call site knows a missing status

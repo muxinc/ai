@@ -4,7 +4,26 @@ import type {
   StoragePutObjectInput,
 } from "../types.ts";
 
+import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
 import { createPresignedGetUrl, putObjectToS3 } from "./s3-sigv4.ts";
+
+/**
+ * Uploading needs an S3 endpoint and bucket (options or env) and, without a custom
+ * storage adapter, S3 keys. The service running the SDK supplies them, so their
+ * absence is an `internal` problem. `missing` names the settings, never values.
+ */
+export function storageNotConfiguredError(missing: string[]): MuxAiError {
+  return new MuxAiError(
+    "Storage configuration is required for uploading. Provide s3Endpoint and s3Bucket in options " +
+    "or set S3_ENDPOINT and S3_BUCKET. If no storageAdapter is supplied, also set S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY.",
+    {
+      code: MUX_AI_ERROR_CODES.STORAGE_NOT_CONFIGURED,
+      type: MUX_AI_ERROR_TYPES.SERVER_ERROR,
+      source: MUX_AI_ERROR_SOURCES.INTERNAL,
+      facts: { missing },
+    },
+  );
+}
 
 function requireCredentials(
   accessKeyId: string | undefined,

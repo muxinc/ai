@@ -119,6 +119,23 @@ describe("replaceAndCreateTextTrack", () => {
     expect(createTrack).toHaveBeenCalledTimes(2);
   });
 
+  it("with classified errors, reports a name collision, not a failure, after the second duplicate-name rejection", async () => {
+    retrieve.mockResolvedValue({ id: "asset-1", tracks: [] });
+    createTrack.mockRejectedValue(duplicateNameError("English"));
+
+    const result = await replaceAndCreateTextTrack({ ...INPUT, policy: "replace_all", classifiedErrors: true });
+
+    expect(result).toEqual({
+      kind: "blocked",
+      code: "name_collision",
+      reason: expect.stringContaining("not unique"),
+      tracks: [],
+      conflictsOnLanguage: false,
+      deleted: [],
+    });
+    expect(createTrack).toHaveBeenCalledTimes(2);
+  });
+
   it("returns create_failed with the deletions for other create errors", async () => {
     retrieve.mockResolvedValue({ id: "asset-1", tracks: [UPLOADED_EN] });
     createTrack.mockRejectedValue(new Error("url unreachable"));
@@ -127,6 +144,29 @@ describe("replaceAndCreateTextTrack", () => {
 
     expect(result).toEqual({ kind: "create_failed", reason: "url unreachable", deleted: [expect.objectContaining({ id: "up-en" })] });
     expect(createTrack).toHaveBeenCalledTimes(1);
+  });
+
+  it("with classified errors, classifies a failed write inside the step, keeping Mux's status, request id and error type", async () => {
+    retrieve.mockResolvedValue({ id: "asset-1", tracks: [UPLOADED_EN] });
+    createTrack.mockRejectedValue(Object.assign(new Error("502 {\"error\":{\"type\":\"bad_gateway\",\"messages\":[\"upstream down\"]}}"), {
+      status: 502,
+      headers: new Headers({ "x-request-id": "req-1" }),
+      error: { error: { type: "bad_gateway", messages: ["upstream down"] } },
+    }));
+
+    const result = await replaceAndCreateTextTrack({ ...INPUT, policy: "replace_all", classifiedErrors: true });
+
+    expect(result).toMatchObject({ kind: "create_failed", deleted: [expect.objectContaining({ id: "up-en" })] });
+    const error = (result as { error?: unknown }).error;
+    expect(error).toMatchObject({
+      source: "upstream",
+      dependency: "mux_video",
+      // A create may have taken effect, so it isn't step-retried; the job stays retryable.
+      transient: false,
+      retryable: true,
+      facts: { call: "create_track", status: 502, requestId: "req-1", muxErrorType: "bad_gateway", assetId: "asset-1" },
+    });
+    expect((error as { causes: unknown[] }).causes).toEqual([expect.objectContaining({ name: "Error", status: 502, message: expect.stringContaining("upstream down") })]);
   });
 
   it("creates an audio track without text-only fields and only deletes audio conflicts", async () => {
@@ -172,9 +212,23 @@ describe("replaceAndCreateTextTrack", () => {
   });
 
   it("still throws when the first asset fetch fails, since nothing has been deleted", async () => {
-    retrieve.mockRejectedValue(new Error("mux down"));
+    retrieve.mockRejectedValue(Object.assign(new Error("mux down"), { status: 503 }));
 
     await expect(replaceAndCreateTextTrack({ ...INPUT, policy: "replace_all" })).rejects.toThrow("mux down");
+    expect(deleteTrack).not.toHaveBeenCalled();
+    expect(createTrack).not.toHaveBeenCalled();
+  });
+
+  it("with classified errors, classifies a failed first asset fetch", async () => {
+    retrieve.mockRejectedValue(Object.assign(new Error("mux down"), { status: 503 }));
+
+    await expect(replaceAndCreateTextTrack({ ...INPUT, policy: "replace_all", classifiedErrors: true })).rejects.toMatchObject({
+      message: "Failed to fetch the asset from Mux",
+      source: "upstream",
+      dependency: "mux_video",
+      transient: true,
+      facts: { call: "get_asset", status: 503, assetId: "asset-1" },
+    });
     expect(deleteTrack).not.toHaveBeenCalled();
     expect(createTrack).not.toHaveBeenCalled();
   });

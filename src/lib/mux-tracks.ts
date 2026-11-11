@@ -1,9 +1,11 @@
 import type { AssetTextTrack, MuxAsset, WorkflowCredentialsInput } from "../types.ts";
 
+import { requestIdOf } from "./dependency-error.ts";
 import { isUndeterminedLanguageCode, toISO639_1 } from "./language-codes.ts";
 import { LegacyMuxAiError } from "./legacy-mux-ai-error.ts";
-import type { MuxAiErrorFacts, MuxAiErrorFactValue } from "./mux-ai-error.ts";
+import type { ClassifiedErrorsOption, MuxAiErrorFacts, MuxAiErrorFactValue } from "./mux-ai-error.ts";
 import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
+import { missingTrackIdError, muxVideoCallError, muxVideoError } from "./mux-video-errors.ts";
 import { resolveMuxClient } from "./workflow-credentials.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -93,7 +95,21 @@ export type TextTrackReplacementPlan =
 export type ReplaceAndCreateTextTrackResult =
   { kind: "created"; trackId: string; deleted: TextTrackSummary[] } |
   (TrackReplacementBlocked & { deleted: TextTrackSummary[] }) |
-  { kind: "create_failed"; reason: string; deleted: TextTrackSummary[] };
+  TrackWriteFailed;
+
+/** A Mux failure while writing a track. */
+export interface TrackWriteFailed {
+  kind: "create_failed";
+  /** The raw error's message. Internal detail, not end-user text. */
+  reason: string;
+  deleted: TextTrackSummary[];
+  /**
+   * With `classifiedErrors`, the failure classified inside the step, while the raw error
+   * was still in hand: it crosses the step boundary with its status, request id, Mux's
+   * error type and a scrubbed cause summary.
+   */
+  error?: MuxAiError;
+}
 
 /** Mux caps track `passthrough` at 255 characters. */
 export const MUX_TRACK_PASSTHROUGH_MAX_CHARS = 255;
@@ -376,12 +392,18 @@ export function buildMuxAiTrackPassthrough(workflow: string): string {
   return JSON.stringify({ mux_ai: { workflow } });
 }
 
-export function validateTrackPassthrough(passthrough: string | undefined): string | undefined {
+export function validateTrackPassthrough(passthrough: string | undefined, options: ClassifiedErrorsOption = {}): string | undefined {
   if (passthrough !== undefined && passthrough.length > MUX_TRACK_PASSTHROUGH_MAX_CHARS) {
-    throw new LegacyMuxAiError(
-      `Track passthrough must be at most ${MUX_TRACK_PASSTHROUGH_MAX_CHARS} characters (received ${passthrough.length}).`,
-      { type: "validation_error" },
-    );
+    const message = `Track passthrough must be at most ${MUX_TRACK_PASSTHROUGH_MAX_CHARS} characters (received ${passthrough.length}).`;
+    if (!options.classifiedErrors) {
+      throw new LegacyMuxAiError(message, { type: "validation_error" });
+    }
+    throw new MuxAiError(message, {
+      code: MUX_AI_ERROR_CODES.INVALID_PARAMETER,
+      type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+      source: MUX_AI_ERROR_SOURCES.REQUEST,
+      facts: { parameter: "trackPassthrough", reason: "too_long", length: passthrough.length, maxLength: MUX_TRACK_PASSTHROUGH_MAX_CHARS, inputs: ["trackPassthrough"] },
+    });
   }
   return passthrough;
 }
@@ -390,15 +412,37 @@ export function validateTrackPassthrough(passthrough: string | undefined): strin
 // Steps
 // ─────────────────────────────────────────────────────────────────────────────
 
-export async function fetchVttFromMux(vttUrl: string): Promise<string> {
+export async function fetchVttFromMux(vttUrl: string, options: ClassifiedErrorsOption = {}): Promise<string> {
   "use step";
 
-  const vttResponse = await fetch(vttUrl);
-  if (!vttResponse.ok) {
-    throw new Error(`Failed to fetch VTT file: ${vttResponse.statusText}`);
+  if (!options.classifiedErrors) {
+    const vttResponse = await fetch(vttUrl);
+    if (!vttResponse.ok) {
+      throw new Error(`Failed to fetch VTT file: ${vttResponse.statusText}`);
+    }
+    return vttResponse.text();
   }
 
-  return vttResponse.text();
+  // The URL may carry a signed playback token, so it stays out of messages and facts.
+  let vttResponse: Response;
+  try {
+    vttResponse = await fetch(vttUrl);
+  } catch (error) {
+    throw muxVideoError("Failed to fetch VTT file from Mux", { call: "fetch_vtt", cause: error });
+  }
+  if (!vttResponse.ok) {
+    throw muxVideoError(`Failed to fetch VTT file from Mux (HTTP ${vttResponse.status})`, {
+      call: "fetch_vtt",
+      status: vttResponse.status,
+      requestId: requestIdOf(vttResponse.headers),
+    });
+  }
+  try {
+    return await vttResponse.text();
+  } catch (error) {
+    // The body failed mid-read (e.g. a reset connection): treated as no response, so transient.
+    throw muxVideoError("Failed to read VTT file from Mux", { call: "fetch_vtt", cause: error });
+  }
 }
 
 export interface CreateTextTrackOptions {
@@ -434,7 +478,7 @@ export async function createTextTrackOnMux(
   return trackResponse.id;
 }
 
-interface CreateTrackWriteInput {
+interface CreateTrackWriteInput extends ClassifiedErrorsOption {
   assetId: string;
   target: TextTrackTarget;
   presignedUrl: string;
@@ -496,10 +540,14 @@ async function writeTrack(
   const type = targetType(input.target);
   const deleted: TextTrackSummary[] = [];
 
-  const failed = (error: unknown): Extract<ReplaceAndCreateTextTrackResult, { kind: "create_failed" }> => ({
+  // Classified here, while the raw error is in hand: past the step boundary only its message is left.
+  const failed = (call: "get_asset" | "delete_track" | "create_track", error: unknown): TrackWriteFailed => ({
     kind: "create_failed",
     reason: error instanceof Error ? error.message : String(error),
     deleted,
+    ...(input.classifiedErrors && {
+      error: muxVideoCallError(`Mux ${call} failed while writing the ${type} track`, call, error, { assetId: input.assetId }),
+    }),
   });
 
   const clearConflicts = async (): Promise<Exclude<ReplaceAndCreateTextTrackResult, { kind: "created" }> | undefined> => {
@@ -508,9 +556,11 @@ async function writeTrack(
       asset = await mux.video.assets.retrieve(input.assetId);
     } catch (error) {
       if (deleted.length === 0) {
-        throw error;
+        throw input.classifiedErrors ?
+            muxVideoCallError("Failed to fetch the asset from Mux", "get_asset", error, { assetId: input.assetId }) :
+          error;
       }
-      return failed(error);
+      return failed("get_asset", error);
     }
     const planned = plan(asset);
     if (planned.kind === "blocked") {
@@ -523,7 +573,7 @@ async function writeTrack(
           deleted.push(track);
         } catch (error) {
           if (!isNotFoundError(error)) {
-            return failed(error);
+            return failed("delete_track", error);
           }
         }
       }
@@ -541,7 +591,8 @@ async function writeTrack(
       passthrough: input.passthrough,
     });
     if (!track.id) {
-      throw new Error(`Failed to create ${type} track: no track ID returned from Mux`);
+      const message = `Failed to create ${type} track: no track ID returned from Mux`;
+      throw input.classifiedErrors ? missingTrackIdError(message, { assetId: input.assetId }) : new Error(message);
     }
     return track.id;
   };
@@ -562,11 +613,26 @@ async function writeTrack(
         }
         continue;
       }
-      return failed(error);
+      if (input.classifiedErrors && isDuplicateTrackNameError(error)) {
+        break;
+      }
+      return failed("create_track", error);
     }
   }
 
-  return { kind: "create_failed", reason: "Mux rejected the track name as not unique after retrying.", deleted };
+  if (!input.classifiedErrors) {
+    return { kind: "create_failed", reason: "Mux rejected the track name as not unique after retrying.", deleted };
+  }
+  // The fresh asset showed no conflict, yet Mux still rejects the name: a conflict on
+  // the chosen name, not a Mux failure.
+  return {
+    kind: "blocked",
+    code: "name_collision",
+    reason: `Mux rejected the track name '${input.target.name.trim()}' as not unique after retrying. Choose a different track name.`,
+    tracks: [],
+    conflictsOnLanguage: false,
+    deleted,
+  };
 }
 
 /** `replaceAndCreateTrack` pinned to text tracks. */

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { muxVideoCallError } from "../../src/lib/mux-video-errors.ts";
+
 vi.mock("ai", async importOriginal => ({
   ...(await importOriginal<object>()),
   generateText: vi.fn(),
@@ -147,14 +149,30 @@ describe("translateCaptions text track replacement", () => {
   });
 
   it("fails the workflow instead of swallowing a blocked or failed create", async () => {
-    vi.mocked(replaceAndCreateTextTrack).mockResolvedValueOnce({ kind: "blocked", reason: "late conflict", tracks: [], deleted: [] });
+    vi.mocked(replaceAndCreateTextTrack).mockResolvedValueOnce({
+      kind: "blocked",
+      code: "policy_fail",
+      reason: "late conflict",
+      tracks: [],
+      conflictsOnLanguage: true,
+      deleted: [],
+    });
     const blocked = await captureRejection(translateCaptions("asset-1", "track-en", "es", OPTIONS));
     expect(blocked.message).toContain("late conflict");
+    expect(blocked).toMatchObject({ code: "track_replacement_blocked", facts: { reason: "policy_fail", conflictingTracks: [] } });
 
-    vi.mocked(replaceAndCreateTextTrack).mockResolvedValueOnce({ kind: "create_failed", reason: "boom", deleted: [] });
+    vi.mocked(replaceAndCreateTextTrack).mockResolvedValueOnce({
+      kind: "create_failed",
+      reason: "boom",
+      deleted: [],
+      error: muxVideoCallError("Mux create_track failed while writing the text track", "create_track", Object.assign(new Error("boom"), { status: 503 })),
+    });
     const failed = await captureRejection(translateCaptions("asset-1", "track-en", "es", OPTIONS));
-    expect(failed.message).toContain("boom");
+    expect(failed.message).toContain("Failed to add translated track");
     expect(failed.message).not.toContain("already deleted");
+    expect(failed).toMatchObject({ source: "upstream", dependency: "mux_video", facts: { call: "create_track", status: 503, assetId: "asset-1", languageCode: "es" } });
+    expect((failed as any).causes).toEqual([expect.objectContaining({ message: "boom", status: 503 })]);
+    expect(vi.mocked(replaceAndCreateTextTrack)).toHaveBeenLastCalledWith(expect.objectContaining({ classifiedErrors: true }));
   });
 
   it("names the tracks already deleted when the create fails after deletions", async () => {
@@ -162,12 +180,13 @@ describe("translateCaptions text track replacement", () => {
       kind: "create_failed",
       reason: "boom",
       deleted: [{ id: "track-es-asr", name: "Spanish CC", languageCode: "es", textSource: "generated_vod" }],
+      error: muxVideoCallError("Mux create_track failed while writing the text track", "create_track", new Error("boom")),
     });
 
     const failed = await captureRejection(translateCaptions("asset-1", "track-en", "es", { ...OPTIONS, replaceExistingTracks: "replace_generated" }));
 
-    expect(failed.message).toContain("boom");
     expect(failed.message).toContain("Spanish CC (track-es-asr)");
+    expect(failed).toMatchObject({ facts: { deletedTracks: [expect.objectContaining({ id: "track-es-asr" })] } });
   });
 
   it("rejects an over-long trackPassthrough before doing any work", async () => {
@@ -302,8 +321,10 @@ describe("editCaptions source track replacement", () => {
   it("restores the source when the retry is blocked after the source was already deleted", async () => {
     vi.mocked(replaceSourceTrack).mockResolvedValue({
       kind: "blocked",
+      code: "name_collision",
       reason: "a track named English appeared",
       tracks: [{ id: "late", name: "English", languageCode: "fr", textSource: "uploaded" }],
+      conflictsOnLanguage: false,
       deleted: [{ id: "track-en", name: "English", languageCode: "en" }],
     });
     vi.mocked(createTextTrackOnMux).mockResolvedValue("track-en-restored");

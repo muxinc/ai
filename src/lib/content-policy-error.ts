@@ -1,10 +1,12 @@
-import { APICallError, NoObjectGeneratedError, RetryError } from "ai";
+import { APICallError, NoObjectGeneratedError, NoOutputGeneratedError, RetryError } from "ai";
 import { z } from "zod";
 
 import type { TokenUsage } from "../types.ts";
 
+import { googleCallError } from "./google-errors.ts";
 import { LegacyMuxAiError } from "./legacy-mux-ai-error.ts";
-import { MuxAiError } from "./mux-ai-error.ts";
+import type { MuxAiErrorFacts } from "./mux-ai-error.ts";
+import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_DEPENDENCIES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
 import { withRetry } from "./retry.ts";
 import type { RetryOptions } from "./retry.ts";
 import { aggregateTokenUsage, getErrorTokenUsage, rethrowWithTokenUsage } from "./token-usage.ts";
@@ -87,6 +89,30 @@ export interface ContentPolicyBlock {
 }
 
 /**
+ * Which model call failed: its name, provider and model. Passing one opts the call
+ * into classified errors (see `ClassifiedErrorsOption`), with these as facts:
+ * content-policy blocks, incomplete or unusable output, and provider API failures for
+ * providers with their own classifier (see {@link classifyModelCallError}). Without
+ * one, the call fails as it did before classification.
+ */
+export interface ModelCallContext {
+  call: string;
+  provider: string;
+  model?: string;
+}
+
+function modelCallFacts(context: ModelCallContext): MuxAiErrorFacts {
+  return { call: context.call, provider: context.provider, ...(context.model && { model: context.model }) };
+}
+
+function withUsage(error: MuxAiError, usage: TokenUsage | undefined): MuxAiError {
+  if (usage) {
+    error.usage = usage;
+  }
+  return error;
+}
+
+/**
  * Thrown when the model stopped for a reason other than a normal `stop`
  * (e.g. `length` when the output token limit was reached) so the structured
  * output was never parsed. The AI SDK would otherwise surface a metadata-free
@@ -113,8 +139,42 @@ export class IncompleteGenerationError extends LegacyMuxAiError {
   }
 }
 
-export function isIncompleteGenerationError(error: unknown): error is IncompleteGenerationError {
+/** A model call that stopped early: the legacy {@link IncompleteGenerationError}, or its classified form. */
+export type IncompleteGeneration = MuxAiError & { finishReason: string; rawFinishReason?: string };
+
+export function isIncompleteGenerationError(error: unknown): error is IncompleteGeneration {
   return MuxAiError.is(error) && typeof (error as { finishReason?: unknown }).finishReason === "string";
+}
+
+/**
+ * An early stop: classified with a `context`, otherwise the legacy error. Hitting the
+ * output limit is deterministic (the same input hits it again) and ours to fix by
+ * splitting the work; any other early stop is the provider's.
+ */
+function incompleteGenerationError(finishReason: string, rawFinishReason: string | undefined, usage: TokenUsage | undefined, context?: ModelCallContext): MuxAiError {
+  if (!context) {
+    return new IncompleteGenerationError(finishReason, rawFinishReason, usage);
+  }
+  const reason = rawFinishReason ?? finishReason;
+  const facts = { ...modelCallFacts(context), finishReason, ...(rawFinishReason && { rawFinishReason }) };
+  const error = finishReason === "length" ?
+      new MuxAiError(`The model reached its output limit before producing a complete response (finish reason: ${reason}).`, {
+        code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_TRUNCATED,
+        type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+        source: MUX_AI_ERROR_SOURCES.INTERNAL,
+        dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
+        facts,
+      }) :
+      new MuxAiError(`The model stopped before producing a complete response (finish reason: ${reason}).`, {
+        code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INCOMPLETE,
+        type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+        source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+        dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
+        facts,
+      });
+  // Kept as fields too, for isIncompleteGenerationError; the serializer carries them.
+  Object.assign(error, { finishReason, ...(rawFinishReason && { rawFinishReason }) });
+  return withUsage(error, usage);
 }
 
 interface GeneratedOutput<T> {
@@ -124,11 +184,24 @@ interface GeneratedOutput<T> {
   usage?: unknown;
 }
 
-export async function withContentPolicyErrorHandling<T>(operation: () => Promise<T>): Promise<T> {
+/**
+ * Normalizes content-policy failures. With a `context`, also classifies the call's
+ * other failures where they happen (see {@link classifyModelCallError}).
+ */
+export async function withContentPolicyErrorHandling<T>(operation: () => Promise<T>, context?: ModelCallContext): Promise<T> {
+  try {
+    return await normalizeContentPolicyErrors(operation, context);
+  } catch (error) {
+    throw (context && classifyModelCallError(error, context)) ?? error;
+  }
+}
+
+/** Content-policy normalization only; provider failures stay raw so a retry loop can judge them. */
+async function normalizeContentPolicyErrors<T>(operation: () => Promise<T>, context?: ModelCallContext): Promise<T> {
   try {
     return await operation();
   } catch (error) {
-    rethrowContentPolicyError(error);
+    rethrowContentPolicyError(error, context);
   }
 }
 
@@ -140,11 +213,12 @@ export async function withContentPolicyErrorHandling<T>(operation: () => Promise
 export async function withContentPolicyAwareRetry<T>(
   operation: () => Promise<T>,
   retryOptions?: RetryOptions,
+  context?: ModelCallContext,
 ): Promise<T> {
   const retriedUsage: TokenUsage[] = [];
   try {
     const response = await withRetry(
-      () => withContentPolicyErrorHandling(operation),
+      () => normalizeContentPolicyErrors(operation, context),
       {
         ...retryOptions,
         onRetry: (error, attempt) => {
@@ -158,7 +232,8 @@ export async function withContentPolicyAwareRetry<T>(
     );
     return includeRetriedUsage(response, retriedUsage);
   } catch (error) {
-    rethrowWithTokenUsage(error, retriedUsage);
+    // Classified only once retries are exhausted: the retry loop judges raw provider errors.
+    rethrowWithTokenUsage((context && classifyModelCallError(error, context)) ?? error, retriedUsage);
   }
 }
 
@@ -197,13 +272,85 @@ function includeRetriedUsage<T>(response: T, retriedUsage: TokenUsage[]): T {
   return Object.create(Object.getPrototypeOf(response), descriptors);
 }
 
-export function rethrowContentPolicyError(error: unknown): never {
+export function rethrowContentPolicyError(error: unknown, context?: ModelCallContext): never {
   const block = extractContentPolicyBlock(error);
   if (!block) {
     throw error;
   }
 
-  throwContentPolicyError(block, getContentPolicyTokenUsage(error));
+  throwContentPolicyError(block, getContentPolicyTokenUsage(error), context);
+}
+
+/** The provider API error behind a failure: itself, a retry's last error, or a (shallow) cause. */
+function findProviderCallError(error: unknown): APICallError | undefined {
+  let current = RetryError.isInstance(error) ? error.lastError : error;
+  for (let depth = 0; depth < 3 && current; depth++) {
+    if (APICallError.isInstance(current)) {
+      return current;
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return undefined;
+}
+
+/**
+ * Classifies a failed model call while the raw error is still in hand; past a step
+ * boundary only its message is left. Returns `undefined` for a failure it can't
+ * classify, which the caller handles as before:
+ *
+ * - Output the AI SDK couldn't parse, or no output: `model_output_invalid` /
+ *   `model_output_missing` (or an incomplete generation when the model stopped early).
+ * - A provider API failure: only for providers with their own classifier, since each
+ *   provider means different things by the same status. Today that's Google.
+ */
+export function classifyModelCallError(error: unknown, context: ModelCallContext): MuxAiError | undefined {
+  if (MuxAiError.is(error)) {
+    return undefined;
+  }
+  const last = RetryError.isInstance(error) ? error.lastError : error;
+  const unusable = classifyUnusableOutput(last, error, context);
+  if (unusable) {
+    return unusable;
+  }
+  const apiError = findProviderCallError(error);
+  if (!apiError) {
+    return undefined;
+  }
+  const message = `${context.call} failed${apiError.statusCode ? ` (HTTP ${apiError.statusCode})` : ""}`;
+  switch (context.provider) {
+    case "google":
+      return withUsage(googleCallError(apiError, message, { call: context.call, facts: modelCallFacts(context), cause: error }), getErrorTokenUsage(error));
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * The AI SDK throws these when the response can't be parsed (`NoObjectGeneratedError`)
+ * or has no output (`NoOutputGeneratedError`).
+ */
+function classifyUnusableOutput(last: unknown, error: unknown, context: ModelCallContext): MuxAiError | undefined {
+  const parse = NoObjectGeneratedError.isInstance(last);
+  if (!parse && !NoOutputGeneratedError.isInstance(last)) {
+    return undefined;
+  }
+  // A parse failure because the model stopped early is an incomplete generation, not invalid output.
+  if (parse && last.finishReason && last.finishReason !== "stop") {
+    return incompleteGenerationError(last.finishReason, undefined, getErrorTokenUsage(error), context);
+  }
+  const init = {
+    type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+    source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+    dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
+    facts: modelCallFacts(context),
+    // As before classification: a raw parse failure was retried by the step runner.
+    transient: true,
+    cause: error,
+  } as const;
+  const classified = parse ?
+      new MuxAiError(`${context.call} returned output that could not be parsed`, { ...init, code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID }) :
+      new MuxAiError(`${context.call} returned no output`, { ...init, code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_MISSING });
+  return withUsage(classified, getErrorTokenUsage(error));
 }
 
 /**
@@ -213,32 +360,63 @@ export function rethrowContentPolicyError(error: unknown): never {
  * `NoOutputGeneratedError`. Content-policy stops become a
  * `content_policy_error`; every other non-`stop` finish (`length`, `error`,
  * `other`, ...) becomes an {@link IncompleteGenerationError} that keeps the
- * finish reason and token usage.
+ * finish reason and token usage. With a `context`, these are classified, and a `stop`
+ * with no output is `model_output_missing`.
  */
-export function getGeneratedOutputWithContentPolicyHandling<T>(response: GeneratedOutput<T>): T {
+export function getGeneratedOutputWithContentPolicyHandling<T>(response: GeneratedOutput<T>, context?: ModelCallContext): T {
   if (response.finishReason === "content-filter") {
     const rawReason = PolicyTokenSchema.safeParse(response.rawFinishReason);
     const reason = rawReason.success && isContentPolicyReason(rawReason.data) ?
       rawReason.data :
       "CONTENT_FILTER";
 
-    throwContentPolicyError({ reason }, getErrorTokenUsage(response));
+    throwContentPolicyError({ reason }, getErrorTokenUsage(response), context);
   }
 
   if (response.finishReason !== "stop") {
     const rawReason = PolicyTokenSchema.safeParse(response.rawFinishReason);
-    throw new IncompleteGenerationError(
+    throw incompleteGenerationError(
       response.finishReason,
       rawReason.success ? rawReason.data : undefined,
       getErrorTokenUsage(response),
+      context,
     );
   }
 
-  return response.output;
+  if (!context) {
+    return response.output;
+  }
+  let output: T;
+  try {
+    output = response.output;
+  } catch (error) {
+    throw classifyUnusableOutput(error, error, context) ?? error;
+  }
+  if (output === undefined || output === null) {
+    throw withUsage(new MuxAiError(`${context.call} returned no output`, {
+      code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_MISSING,
+      type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+      source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+      dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
+      facts: modelCallFacts(context),
+      // As before classification: callers' plain "output missing" errors were retried by the step runner.
+      transient: true,
+    }), getErrorTokenUsage(response));
+  }
+  return output;
 }
 
-function throwContentPolicyError(block: ContentPolicyBlock, usage?: TokenUsage): never {
+function throwContentPolicyError(block: ContentPolicyBlock, usage?: TokenUsage, context?: ModelCallContext): never {
   const category = block.category ? `; category: ${block.category}` : "";
+  if (context) {
+    throw withUsage(new MuxAiError(`The supplied content was blocked by a content policy (reason: ${block.reason}${category}).`, {
+      code: MUX_AI_ERROR_CODES.CONTENT_POLICY_BLOCKED,
+      type: MUX_AI_ERROR_TYPES.CONTENT_POLICY_ERROR,
+      source: MUX_AI_ERROR_SOURCES.ASSET,
+      dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
+      facts: { ...modelCallFacts(context), reason: block.reason, ...(block.category && { category: block.category }) },
+    }), usage);
+  }
   const contentPolicyError = new LegacyMuxAiError(
     `The supplied content was blocked by a content policy (reason: ${block.reason}${category}).`,
     {

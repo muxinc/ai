@@ -72,9 +72,21 @@ export type MuxAiErrorFactValue = string | number | boolean | null | MuxAiErrorF
  * Details of one occurrence, JSON-safe so they survive step boundaries. Internal by
  * default: a consumer chooses what, if anything, to show. Dependency errors always
  * carry `call` (the outside call's snake_case name), plus `status` and `requestId`
- * when there was a response.
+ * when there was a response. A failure blamed on an input the caller passed carries
+ * `inputs`: the input names involved (e.g. `credentials`), so a caller that set that
+ * input itself, rather than passing on its end user's, can re-attribute the failure.
  */
 export type MuxAiErrorFacts = Readonly<Record<string, MuxAiErrorFactValue>>;
+
+/**
+ * Opts a shared helper into raising classified errors. A workflow passes it once it has
+ * moved onto the classified model; without it, the helper fails exactly as it did
+ * before, so workflows that haven't moved see no change. It goes away once every
+ * caller has moved and classified errors become the only behavior.
+ */
+export interface ClassifiedErrorsOption {
+  classifiedErrors?: boolean;
+}
 
 /**
  * What a code implies, in any catalog built on {@link ClassifiedError}: its type,
@@ -107,12 +119,16 @@ export const MUX_AI_ERROR_CODES = {
   INVALID_SCOPE: "invalid_scope",
   /** Existing tracks block writing the output track under the chosen replacement policy. Facts: `reason` (`policy_fail`, `not_generated`, `name_collision`, `primary_audio`), `conflictingTracks` and the target track. */
   TRACK_REPLACEMENT_BLOCKED: "track_replacement_blocked",
+  /** An option's value can't be used. Facts: `parameter` (the caller's option name), `reason` (`too_many`, `empty`, `too_long`, `disallowed_characters`, `not_normalized`) and the values the reason names: `count` and `max`, `index` (0-based entry), `length` and `maxLength`, `characters`. */
+  INVALID_PARAMETER: "invalid_parameter",
   /** A numeric option is outside its allowed range. Facts: `parameter` (the caller's option name), `value`, `min`, `max`, and `integer` when it must be a whole number. */
   PARAMETER_OUT_OF_RANGE: "parameter_out_of_range",
   /** No ready caption track matches the requested track or language. Facts: `trackId` or `languageCode`, and what is available. */
   CAPTION_TRACK_NOT_FOUND: "caption_track_not_found",
   /** The asset has no public or signed playback ID (DRM-only assets included). */
   PLAYBACK_ID_NOT_FOUND: "playback_id_not_found",
+  /** Mux has no asset with the requested ID in this environment. Facts: `assetId`. */
+  ASSET_NOT_FOUND: "asset_not_found",
   /** The transcript has no usable content. */
   TRANSCRIPT_EMPTY: "transcript_empty",
   /** The asset has no valid duration, so work that depends on it can't run. Facts: `assetId`. */
@@ -152,7 +168,9 @@ export const MUX_AI_ERROR_CATALOG = {
   // The caller's input.
   [MUX_AI_ERROR_CODES.INVALID_SCOPE]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
   [MUX_AI_ERROR_CODES.TRACK_REPLACEMENT_BLOCKED]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
+  [MUX_AI_ERROR_CODES.INVALID_PARAMETER]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
   [MUX_AI_ERROR_CODES.PARAMETER_OUT_OF_RANGE]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
+  [MUX_AI_ERROR_CODES.ASSET_NOT_FOUND]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST, dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO },
   // The asset's state.
   [MUX_AI_ERROR_CODES.CAPTION_TRACK_NOT_FOUND]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },
   [MUX_AI_ERROR_CODES.PLAYBACK_ID_NOT_FOUND]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },
