@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.60.0](https://github.com/muxinc/ai/compare/v0.59.0...v0.60.0) (2026-11-11)
+
+
+### Features
+
+* **errors:** classify translate-captions, with opt-in classified errors in shared helpers ([#314](https://github.com/muxinc/ai/issues/314)) ([30dc010](https://github.com/muxinc/ai/commit/30dc0106ead952f21976cdfc528cde24030eed6a))
+
 ## [0.59.0](https://github.com/muxinc/ai/compare/v0.58.0...v0.59.0) (2026-11-09)
 
 
