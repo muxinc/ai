@@ -11,6 +11,7 @@ import type { ModelCallContext } from "../lib/content-policy-error.ts";
 import { httpStatusOf } from "../lib/dependency-error.ts";
 import {
   errorDetailFact,
+  extractErrorDetail,
   internalError,
   MUX_AI_ERROR_CODES,
   MUX_AI_ERROR_SOURCES,
@@ -661,6 +662,22 @@ async function deleteTrackOnMux(
 // Main workflow
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * What we keep about a failed restore of the deleted source track. A classified failure
+ * (a Mux create, classified inside its step) keeps its facts (status, request id, Mux's
+ * error type) and Mux's own text from its cause summary; anything else, its detail.
+ */
+function restoreFailureFacts(error: unknown): MuxAiErrorFacts {
+  if (!MuxAiError.is(error)) {
+    return { restoreError: errorDetailFact(extractErrorDetail(error)) };
+  }
+  const cause = error.causes?.[0]?.message;
+  return {
+    restoreError: errorDetailFact(cause ? `${error.message}: ${cause}` : error.message),
+    restoreFailure: error.facts,
+  };
+}
+
 /** `invalid_parameter` for an option check: public wording names the option and the reason. */
 function invalidOptionError(message: string, facts: MuxAiErrorFacts, inputs: string[]): MuxAiError {
   return new MuxAiError(message, {
@@ -1073,10 +1090,7 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
           } catch (restoreError) {
             // The raw restore error is internal detail: keep it in facts, not the message.
             restoreNote = " Restoring the source track also failed.";
-            restoreFacts = {
-              sourceRestored: false,
-              restoreError: errorDetailFact(restoreError instanceof Error ? restoreError.message : String(restoreError)),
-            };
+            restoreFacts = { sourceRestored: false, ...restoreFailureFacts(restoreError) };
           }
         }
         const facts: MuxAiErrorFacts = {
