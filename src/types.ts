@@ -21,6 +21,8 @@ export interface StoragePresignGetObjectInput {
   bucket: string;
   key: string;
   expiresInSeconds: number;
+  responseContentType?: string;
+  responseContentDisposition?: string;
   accessKeyId?: string;
   secretAccessKey?: string;
 }

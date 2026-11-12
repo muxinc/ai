@@ -129,6 +129,8 @@ export const awsS3Adapter: StorageAdapter = {
       new GetObjectCommand({
         Bucket: input.bucket,
         Key: input.key,
+        ResponseContentType: input.responseContentType,
+        ResponseContentDisposition: input.responseContentDisposition,
       }),
       { expiresIn: input.expiresInSeconds },
     );
@@ -177,6 +179,8 @@ export const cloudflareR2Adapter: StorageAdapter = {
       new GetObjectCommand({
         Bucket: input.bucket,
         Key: input.key,
+        ResponseContentType: input.responseContentType,
+        ResponseContentDisposition: input.responseContentDisposition,
       }),
       { expiresIn: input.expiresInSeconds },
     );
