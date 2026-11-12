@@ -147,8 +147,10 @@ export const MUX_AI_ERROR_CODES = {
   TRACK_WRITE_UNCLASSIFIED: "track_write_unclassified",
   /** Mux answered a track create without a track id. The track may exist, so it isn't step-retried. Facts: `call`, `assetId`. */
   TRACK_ID_MISSING: "track_id_missing",
-  /** The asset snapshot passed in is for a different asset than the one requested. Facts: `assetId`, `snapshotAssetId`. */
+  /** The asset snapshot the service running the SDK passed in is for a different asset than the one requested. Facts: `assetId`, `snapshotAssetId`. */
   ASSET_SNAPSHOT_MISMATCH: "asset_snapshot_mismatch",
+  /** Mux answered an asset fetch with a different asset than the one requested. Facts: `assetId`, `returnedAssetId`. */
+  ASSET_ID_MISMATCH: "asset_id_mismatch",
   /** Translation needed to split a chunk of fewer than two cues: a bug in the SDK's chunking. Facts: `chunkId`, `cueCount`. */
   TRANSLATION_CHUNK_UNSPLITTABLE: "translation_chunk_unsplittable",
   /** The model provider refused the content. Facts: `reason` and `category`. */
@@ -191,13 +193,14 @@ export const MUX_AI_ERROR_CATALOG = {
   // The configuration of the service running the SDK.
   [MUX_AI_ERROR_CODES.SIGNING_CREDENTIALS_MISSING]: { type: MUX_AI_ERROR_TYPES.SERVER_ERROR, source: MUX_AI_ERROR_SOURCES.INTERNAL },
   [MUX_AI_ERROR_CODES.STORAGE_NOT_CONFIGURED]: { type: MUX_AI_ERROR_TYPES.SERVER_ERROR, source: MUX_AI_ERROR_SOURCES.INTERNAL },
+  [MUX_AI_ERROR_CODES.ASSET_SNAPSHOT_MISMATCH]: { type: MUX_AI_ERROR_TYPES.SERVER_ERROR, source: MUX_AI_ERROR_SOURCES.INTERNAL },
   // The SDK's own bug: never expected.
   [MUX_AI_ERROR_CODES.TRACK_WRITE_UNCLASSIFIED]: { type: MUX_AI_ERROR_TYPES.SERVER_ERROR, source: MUX_AI_ERROR_SOURCES.INTERNAL },
   [MUX_AI_ERROR_CODES.TRANSLATION_CHUNK_UNSPLITTABLE]: { type: MUX_AI_ERROR_TYPES.SERVER_ERROR, source: MUX_AI_ERROR_SOURCES.INTERNAL },
-  [MUX_AI_ERROR_CODES.ASSET_SNAPSHOT_MISMATCH]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
   [MUX_AI_ERROR_CODES.CAPTION_TRACK_LANGUAGE_MISSING]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },
   // The track may exist, so a step retry could duplicate it; the job stays retryable.
   [MUX_AI_ERROR_CODES.TRACK_ID_MISSING]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO },
+  [MUX_AI_ERROR_CODES.ASSET_ID_MISMATCH]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO },
   // Model calls.
   [MUX_AI_ERROR_CODES.CONTENT_POLICY_BLOCKED]: { type: MUX_AI_ERROR_TYPES.CONTENT_POLICY_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER },
   // The model-output policies below keep what these failures did before classification

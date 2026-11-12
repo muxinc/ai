@@ -3,7 +3,7 @@ import type { MuxAsset, PlaybackAsset, PlaybackPolicy, WorkflowCredentialsInput,
 import { getMuxClientFromEnv } from "./client-factory.ts";
 import { LegacyMuxAiError } from "./legacy-mux-ai-error.ts";
 import type { ClassifiedErrorsOption } from "./mux-ai-error.ts";
-import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError, wrapError } from "./mux-ai-error.ts";
+import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_DEPENDENCIES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError, wrapError } from "./mux-ai-error.ts";
 import { muxAssetFetchError } from "./mux-video-errors.ts";
 
 /**
@@ -100,11 +100,22 @@ export async function getPlaybackIdForAsset(
     }
   }
   if (asset.id !== assetId) {
-    throw new MuxAiError("Asset snapshot does not match the requested asset ID.", {
-      code: MUX_AI_ERROR_CODES.ASSET_SNAPSHOT_MISMATCH,
-      type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
-      source: MUX_AI_ERROR_SOURCES.REQUEST,
-      facts: { assetId, snapshotAssetId: asset.id, inputs: ["assetId", "assetSnapshot"] },
+    // A snapshot is passed in by the service running the SDK, never by its end users, so a
+    // mismatch is that service's bug. Without one, the asset came from Mux.
+    if (assetSnapshot) {
+      throw new MuxAiError("Asset snapshot does not match the requested asset ID.", {
+        code: MUX_AI_ERROR_CODES.ASSET_SNAPSHOT_MISMATCH,
+        type: MUX_AI_ERROR_TYPES.SERVER_ERROR,
+        source: MUX_AI_ERROR_SOURCES.INTERNAL,
+        facts: { assetId, snapshotAssetId: asset.id },
+      });
+    }
+    throw new MuxAiError("Mux returned a different asset than the one requested.", {
+      code: MUX_AI_ERROR_CODES.ASSET_ID_MISMATCH,
+      type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+      source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+      dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO,
+      facts: { assetId, returnedAssetId: asset.id },
     });
   }
   return toPlaybackAsset(asset, options);

@@ -1,7 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import { getMuxClientFromEnv } from "../../src/lib/client-factory";
 import { getPlaybackIdForAsset, isAudioOnlyAsset, isVideoOnlyAsset } from "../../src/lib/mux-assets";
 import type { MuxAsset } from "../../src/types";
+
+vi.mock("../../src/lib/client-factory", () => ({
+  getMuxClientFromEnv: vi.fn(),
+}));
 
 describe("isAudioOnlyAsset", () => {
   it("should return true for asset with only audio track", () => {
@@ -114,13 +119,30 @@ describe("getPlaybackIdForAsset", () => {
     );
   });
 
-  it("with classified errors, codes a snapshot for a different asset as asset_snapshot_mismatch", async () => {
+  it("with classified errors, codes a snapshot for a different asset as the service's own asset_snapshot_mismatch", async () => {
     const promise = getPlaybackIdForAsset("asset-other", undefined, asset, { classifiedErrors: true });
     await expect(promise).rejects.toMatchObject({
       message: "Asset snapshot does not match the requested asset ID.",
       code: "asset_snapshot_mismatch",
-      facts: { assetId: "asset-other", inputs: ["assetId", "assetSnapshot"] },
+      type: "server_error",
+      source: "internal",
+      facts: { assetId: "asset-other", snapshotAssetId: "asset-123" },
     });
+  });
+
+  it("with classified errors, codes Mux returning a different asset as asset_id_mismatch, not a snapshot mismatch", async () => {
+    const retrieve = vi.fn().mockResolvedValue(asset);
+    vi.mocked(getMuxClientFromEnv).mockResolvedValue({ createClient: async () => ({ video: { assets: { retrieve } } }) } as any);
+
+    const promise = getPlaybackIdForAsset("asset-other", undefined, undefined, { classifiedErrors: true });
+    await expect(promise).rejects.toMatchObject({
+      code: "asset_id_mismatch",
+      type: "processing_error",
+      source: "upstream",
+      dependency: "mux_video",
+      facts: { assetId: "asset-other", returnedAssetId: "asset-123" },
+    });
+    expect(retrieve).toHaveBeenCalledWith("asset-other");
   });
 });
 

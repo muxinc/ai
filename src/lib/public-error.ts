@@ -184,9 +184,6 @@ export const MUX_AI_ERROR_PUBLIC_MAPPINGS = {
     facts: ["trackId"],
     message: facts => `${facts.trackId ? `Track ${text(facts.trackId)}` : "The caption track"} has no language set, so its source language can't be determined.`,
   },
-  [MUX_AI_ERROR_CODES.ASSET_SNAPSHOT_MISMATCH]: {
-    message: "The asset snapshot is for a different asset than the one requested.",
-  },
   [MUX_AI_ERROR_CODES.ASSET_NOT_FOUND]: {
     facts: ["assetId"],
     message: facts => (facts.assetId ? `Asset ${text(facts.assetId)} could not be found.` : "The asset could not be found."),

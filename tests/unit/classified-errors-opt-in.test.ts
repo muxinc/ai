@@ -151,8 +151,10 @@ describe("getPlaybackIdForAsset", () => {
 
   it("classifies a snapshot mismatch and a missing playback ID with the opt-in", async () => {
     await expect(getPlaybackIdForAsset("asset-2", undefined, asset, { classifiedErrors: true })).rejects.toMatchObject({
-      source: "request",
-      facts: { assetId: "asset-2", snapshotAssetId: "asset-1", inputs: ["assetId", "assetSnapshot"] },
+      code: "asset_snapshot_mismatch",
+      type: "server_error",
+      source: "internal",
+      facts: { assetId: "asset-2", snapshotAssetId: "asset-1" },
     });
     await expect(getPlaybackIdForAsset("asset-1", undefined, asset, { classifiedErrors: true })).rejects.toMatchObject({ code: "playback_id_not_found", source: "asset" });
   });
