@@ -14,7 +14,6 @@ import type { ModelCallContext } from "../lib/content-policy-error.ts";
 import { getLanguageCodePair, getLanguageName } from "../lib/language-codes.ts";
 import type { LanguageCodePair, SupportedISO639_1 } from "../lib/language-codes.ts";
 import {
-  internalError,
   MUX_AI_ERROR_CODES,
   MUX_AI_ERROR_DEPENDENCIES,
   MUX_AI_ERROR_SOURCES,
@@ -35,6 +34,7 @@ import {
   trackReplacementBlockedError,
   trackSummaryFacts,
   trackTargetFacts,
+  trackWriteFailure,
   validateTrackPassthrough,
 } from "../lib/mux-tracks.ts";
 import type { ReplaceExistingTracksPolicy, TextTrackSummary, TextTrackTarget } from "../lib/mux-tracks.ts";
@@ -904,7 +904,12 @@ async function translateCueChunkWithAI({
 function splitTranslationChunkAtMidpoint(chunk: TranslationChunkRequest): [TranslationChunkRequest, TranslationChunkRequest] {
   const midpoint = Math.floor(chunk.cueCount / 2);
   if (midpoint <= 0 || midpoint >= chunk.cueCount) {
-    throw internalError("Cannot split a translation chunk with fewer than two cues", { chunkId: chunk.id, cueCount: chunk.cueCount });
+    throw new MuxAiError("Cannot split a translation chunk with fewer than two cues", {
+      code: MUX_AI_ERROR_CODES.TRANSLATION_CHUNK_UNSPLITTABLE,
+      type: MUX_AI_ERROR_TYPES.SERVER_ERROR,
+      source: MUX_AI_ERROR_SOURCES.INTERNAL,
+      facts: { chunkId: chunk.id, cueCount: chunk.cueCount },
+    });
   }
 
   return [
@@ -1292,7 +1297,12 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
   if (!fromLanguageCode) {
     throw new MuxAiError(
       `Track ${trackId} is missing language metadata. Cannot determine source language for translation.`,
-      { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET, facts: { assetId, trackId } },
+      {
+        code: MUX_AI_ERROR_CODES.CAPTION_TRACK_LANGUAGE_MISSING,
+        type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+        source: MUX_AI_ERROR_SOURCES.ASSET,
+        facts: { assetId, trackId },
+      },
     );
   }
 
@@ -1462,7 +1472,7 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
           throw trackReplacementBlockedError(outcome, { message: `${outcome.reason}${deletedNote}`, facts: { ...trackTargetFacts(outputTrack), ...facts } });
         }
         // Classified inside the step (we opted in); add what this workflow knows.
-        const failure = outcome.error ?? internalError(`Track write failed without a classified error: ${outcome.reason}`);
+        const failure = trackWriteFailure(outcome);
         Object.assign(failure, { facts: { ...facts, ...failure.facts } });
         failure.message = `Failed to add translated track to Mux asset: ${failure.message}.${deletedNote}`;
         throw failure;

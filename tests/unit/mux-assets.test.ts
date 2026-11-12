@@ -109,10 +109,18 @@ describe("getPlaybackIdForAsset", () => {
   });
 
   it("rejects a snapshot for a different asset", async () => {
-    const promise = getPlaybackIdForAsset("asset-other", undefined, asset);
-    await expect(promise).rejects.toThrow(
+    await expect(getPlaybackIdForAsset("asset-other", undefined, asset)).rejects.toThrow(
       "Asset snapshot does not match the requested asset ID",
     );
+  });
+
+  it("with classified errors, codes a snapshot for a different asset as asset_snapshot_mismatch", async () => {
+    const promise = getPlaybackIdForAsset("asset-other", undefined, asset, { classifiedErrors: true });
+    await expect(promise).rejects.toMatchObject({
+      message: "Asset snapshot does not match the requested asset ID.",
+      code: "asset_snapshot_mismatch",
+      facts: { assetId: "asset-other", inputs: ["assetId", "assetSnapshot"] },
+    });
   });
 });
 

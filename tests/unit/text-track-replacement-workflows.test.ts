@@ -108,6 +108,16 @@ beforeEach(() => {
 describe("translateCaptions text track replacement", () => {
   const OPTIONS = { provider: "openai" as const };
 
+  it("rejects a source track with no language as caption_track_language_missing", async () => {
+    mockAsset([{ ...SOURCE_TRACK, language_code: undefined }]);
+
+    const error = await captureRejection(translateCaptions("asset-1", "track-en", "es", OPTIONS));
+
+    expect(error).toMatchObject({ code: "caption_track_language_missing", source: "asset", facts: { trackId: "track-en" } });
+    expect(toPublicError(error as MuxAiError).message).toBe("Track track-en has no language set, so its source language can't be determined.");
+    expect(vi.mocked(generateText)).not.toHaveBeenCalled();
+  });
+
   it("rejects before translating when a target-language track exists and the policy is fail", async () => {
     mockAsset([SOURCE_TRACK, ASR_ES_TRACK]);
 

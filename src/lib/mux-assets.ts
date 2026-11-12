@@ -101,6 +101,7 @@ export async function getPlaybackIdForAsset(
   }
   if (asset.id !== assetId) {
     throw new MuxAiError("Asset snapshot does not match the requested asset ID.", {
+      code: MUX_AI_ERROR_CODES.ASSET_SNAPSHOT_MISMATCH,
       type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
       source: MUX_AI_ERROR_SOURCES.REQUEST,
       facts: { assetId, snapshotAssetId: asset.id, inputs: ["assetId", "assetSnapshot"] },

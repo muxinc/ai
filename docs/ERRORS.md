@@ -111,12 +111,14 @@ A remote service reached over the network. Libraries running in-process are neve
 | `invalid_parameter` | `validation_error` | `request` |  | yes | An option's value can't be used. Facts: `parameter` (the caller's option name), `reason` (`too_many`, `empty`, `too_long`, `disallowed_characters`, `not_normalized`, `multiline`, `required_with`, `conflicts_with`, `not_allowed`, `one_of_required`) and the values the reason names: `count` and `max`, `index` (0-based entry), `length` and `maxLength`, `characters`, `with` and `withValue` (the other option), `allowed` and `value`, `parameters` (the options to choose from). |
 | `parameter_out_of_range` | `validation_error` | `request` |  | yes | A numeric option is outside its allowed range. Facts: `parameter` (the caller's option name), `value`, `min`, `max`, and `integer` when it must be a whole number. |
 | `caption_track_not_found` | `validation_error` | `asset` |  | yes | No ready caption track matches the requested track or language. Facts: `trackId` or `languageCode`, and what is available. |
+| `caption_track_language_missing` | `validation_error` | `asset` |  | yes | The caption track has no language, so its source language can't be determined. Facts: `trackId`. |
 | `playback_id_not_found` | `validation_error` | `asset` |  | yes | The asset has no public or signed playback ID (DRM-only assets included). |
 | `asset_not_found` | `validation_error` | `request` | `mux_video` | yes | Mux has no asset with the requested ID in this environment. Facts: `assetId`. |
 | `transcript_empty` | `validation_error` | `asset` |  | yes | The transcript has no usable content. |
 | `asset_duration_unavailable` | `validation_error` | `asset` |  | yes | The asset has no valid duration, so work that depends on it can't run. Facts: `assetId`. |
 | `audio_track_unsupported` | `validation_error` | `asset` |  | yes | Mux won't add an audio track to this asset. Facts: `reason` (`clip`, `live_stream`, `audio_only`). |
 | `static_rendition_unsupported` | `validation_error` | `asset` |  | yes | The asset's existing static rendition can't be used as a source. Facts: `reason` (`unusable`, `too_large`) and the rendition's details. |
+| `asset_snapshot_mismatch` | `validation_error` | `request` |  | yes | The asset snapshot passed in is for a different asset than the one requested. Facts: `assetId`, `snapshotAssetId`. |
 | `content_policy_blocked` | `content_policy_error` | `asset` | `ai_provider` | yes | The model provider refused the content. Facts: `reason` and `category`. |
 | `model_output_missing` | `processing_error` | `upstream` | `ai_provider` | yes | The model returned no output, or a required field was empty. Facts: `call`, `provider`, `model`, and `assetId` when there is one. |
 | `model_output_invalid` | `processing_error` | `upstream` | `ai_provider` | yes | The model's output breaks the expected shape or constraints (counts, allowed values, limits). Facts: `call`, `provider`, `model`, and `assetId` when there is one. |
@@ -125,6 +127,9 @@ A remote service reached over the network. Libraries running in-process are neve
 | `dubbing_failed` | `processing_error` | `upstream` | `ai_provider` | yes | The dubbing provider ran the dub and reported it failed. Facts: `providerError`, the provider's display text, when it gave one. |
 | `signing_credentials_missing` | `server_error` | `internal` |  | no | Signed playback needs signing keys the service running the SDK didn't provide. |
 | `storage_not_configured` | `server_error` | `internal` |  | no | Storage is needed but the service running the SDK didn't configure it. |
+| `track_write_unclassified` | `server_error` | `internal` |  | no | A track write failed, but the opted-in result carried no classified error: a bug in the SDK's track-write path. Facts: `reason`, the raw failure's message. |
+| `track_id_missing` | `processing_error` | `upstream` | `mux_video` | no | Mux answered a track create without a track id. The track may exist, so it isn't step-retried. Facts: `call`, `assetId`. |
+| `translation_chunk_unsplittable` | `server_error` | `internal` |  | no | Translation needed to split a chunk of fewer than two cues: a bug in the SDK's chunking. Facts: `chunkId`, `cueCount`. |
 | `model_output_suppressed` | `processing_error` | `upstream` | `ai_provider` | no | The model's output was withheld by the SDK's output safety filter (a suspected prompt leak). |
 | `model_output_incomplete` | `processing_error` | `upstream` | `ai_provider` | no | The model stopped early for a reason other than the length limit. |
 | `model_output_truncated` | `processing_error` | `internal` | `ai_provider` | no | The model hit the output length limit. |

@@ -144,7 +144,9 @@ describe("toPublicError", () => {
     expect(Object.keys(MUX_AI_ERROR_PUBLIC_MAPPINGS).sort()).toEqual([
       "asset_duration_unavailable",
       "asset_not_found",
+      "asset_snapshot_mismatch",
       "audio_track_unsupported",
+      "caption_track_language_missing",
       "caption_track_not_found",
       "content_policy_blocked",
       "dubbing_failed",

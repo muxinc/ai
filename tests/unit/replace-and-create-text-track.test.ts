@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { MuxAiError } from "../../src/lib/mux-ai-error.ts";
+
 vi.mock("../../src/lib/workflow-credentials", () => ({
   resolveMuxClient: vi.fn(),
 }));
 
 const { resolveMuxClient } = await import("../../src/lib/workflow-credentials");
-const { createTextTrackOnMux, replaceAndCreateTextTrack, replaceAndCreateTrack, replaceSourceTrack } = await import("../../src/lib/mux-tracks");
+const { createTextTrackOnMux, replaceAndCreateTextTrack, replaceAndCreateTrack, replaceSourceTrack, trackWriteFailure } = await import("../../src/lib/mux-tracks");
 
 const ASR_EN = { id: "asr-en", type: "text", text_type: "subtitles", status: "ready", language_code: "en", name: "English CC", text_source: "generated_vod" };
 const UPLOADED_EN = { id: "up-en", type: "text", text_type: "subtitles", status: "ready", language_code: "en", name: "English", text_source: "uploaded" };
@@ -295,8 +297,25 @@ describe("createTextTrackOnMux", () => {
 
     await expect(createTextTrackOnMux("asset-1", "en", "English", "https://s3.example.test/new.vtt")).rejects.toMatchObject({
       message: "Failed to create text track: no track ID returned from Mux",
+      code: "track_id_missing",
       dependency: "mux_video",
       facts: { assetId: "asset-1" },
+    });
+  });
+});
+
+describe("trackWriteFailure", () => {
+  it("throws the classified error the step returned", () => {
+    const error = new MuxAiError("boom", { type: "server_error", source: "internal" });
+
+    expect(trackWriteFailure({ kind: "create_failed", reason: "boom", deleted: [], error })).toBe(error);
+  });
+
+  it("codes a failure that came back unclassified as the SDK's own bug", () => {
+    expect(trackWriteFailure({ kind: "create_failed", reason: "boom", deleted: [] })).toMatchObject({
+      code: "track_write_unclassified",
+      source: "internal",
+      facts: { reason: "boom" },
     });
   });
 });

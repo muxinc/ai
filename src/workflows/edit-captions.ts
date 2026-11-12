@@ -12,7 +12,6 @@ import { httpStatusOf } from "../lib/dependency-error.ts";
 import {
   errorDetailFact,
   extractErrorDetail,
-  internalError,
   MUX_AI_ERROR_CODES,
   MUX_AI_ERROR_SOURCES,
   MUX_AI_ERROR_TYPES,
@@ -35,6 +34,7 @@ import {
   trackReplacementBlockedError,
   trackSummaryFacts,
   trackTargetFacts,
+  trackWriteFailure,
   validateTrackPassthrough,
 } from "../lib/mux-tracks.ts";
 import type { SourceTrackReplacementPolicy, TextTrackSummary, TextTrackTarget } from "../lib/mux-tracks.ts";
@@ -1105,7 +1105,7 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
           throw trackReplacementBlockedError(outcome, { message: `${outcome.reason}${restoreNote}`, facts: { ...trackTargetFacts(outputTrack), ...facts } });
         }
         // Classified inside the step (we opted in); add what this workflow knows.
-        const failure = outcome.error ?? internalError(`Track write failed without a classified error: ${outcome.reason}`);
+        const failure = trackWriteFailure(outcome);
         Object.assign(failure, { facts: { ...facts, ...failure.facts } });
         failure.message = `Failed to add edited track to Mux asset: ${failure.message}.${restoreNote}`;
         throw failure;
