@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { elevenLabsResponseFailure, elevenLabsSdkFailure, isRetryableElevenLabsStatus } from "../../src/lib/elevenlabs-errors";
+import { elevenLabsFailureError, elevenLabsResponseFailure, elevenLabsSdkFailure, isRetryableElevenLabsStatus } from "../../src/lib/elevenlabs-errors";
 
 function jsonResponse(body: unknown, status: number, statusText: string) {
   return new Response(JSON.stringify(body), { status, statusText });
@@ -25,6 +25,7 @@ describe("elevenLabsResponseFailure", () => {
     expect(failure).toEqual({
       httpStatus: 400,
       reason: "unsupported_target_language",
+      requestId: "req-1",
       retryable: false,
       detail: "400 Bad Request: unsupported_target_language: Target language 'ur' is not supported. (param: target_language, request_id: req-1)",
     });
@@ -82,5 +83,56 @@ describe("elevenLabsSdkFailure", () => {
     expect(failure.reason).toBe(reason);
     expect(failure.retryable).toBe(retryable);
     expect(failure.httpStatus).toBeUndefined();
+  });
+});
+
+describe("elevenLabsFailureError", () => {
+  it("classifies by status and keeps the provider detail in facts, not the message", () => {
+    const error = elevenLabsFailureError("Audio dubbing could not be started.", "elevenlabs_create_dubbing_project", {
+      httpStatus: 401,
+      reason: "invalid_api_key",
+      requestId: "req-1",
+      retryable: false,
+      detail: "401 Unauthorized: invalid_api_key: Invalid API key",
+    }, { assetId: "asset-1" });
+
+    expect(error).toMatchObject({
+      message: "Audio dubbing could not be started.",
+      type: "server_error",
+      source: "internal",
+      dependency: "ai_provider",
+      transient: false,
+      retryable: false,
+      facts: {
+        call: "elevenlabs_create_dubbing_project",
+        status: 401,
+        requestId: "req-1",
+        provider: "elevenlabs",
+        providerCode: "invalid_api_key",
+        detail: "401 Unauthorized: invalid_api_key: Invalid API key",
+        assetId: "asset-1",
+      },
+    });
+  });
+
+  it("is never transient, since the workflow already retried, but keeps the failure's retryability", () => {
+    expect(elevenLabsFailureError("x", "elevenlabs_get_dubbing_project", { httpStatus: 503, retryable: true, detail: "503" }))
+      .toMatchObject({ type: "processing_error", source: "upstream", transient: false, retryable: true, name: "FatalError" });
+    expect(elevenLabsFailureError("x", "elevenlabs_get_dubbing_project", { httpStatus: 429, retryable: true, detail: "429" }))
+      .toMatchObject({ type: "capacity_error", source: "upstream", transient: false, retryable: true });
+    expect(elevenLabsFailureError("x", "elevenlabs_create_dubbing_project", { reason: "timeout", retryable: true, detail: "timed out" }))
+      .toMatchObject({ type: "timeout_error", source: "upstream", transient: false, retryable: true });
+    expect(elevenLabsFailureError("x", "elevenlabs_create_dubbing_project", { reason: "unexpected_response", retryable: false, detail: "bad shape" }))
+      .toMatchObject({ source: "upstream", transient: false, retryable: false });
+  });
+
+  it("strips signed URL tokens from the detail", () => {
+    const error = elevenLabsFailureError("x", "elevenlabs_get_dubbed_audio", {
+      reason: "network_error",
+      retryable: true,
+      detail: "Failed to fetch https://storage.example.test/out.flac?X-Signature=SECRET",
+    });
+
+    expect(JSON.stringify(error.facts)).not.toContain("SECRET");
   });
 });

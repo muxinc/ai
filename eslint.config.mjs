@@ -14,6 +14,7 @@ const SRC_RESTRICTED_SYNTAX = [{
 
 const CLASSIFIED_ERROR_MODULES = [
   "src/lib/dependency-error.ts",
+  "src/lib/elevenlabs-errors.ts",
   "src/lib/google-errors.ts",
   "src/lib/mux-ai-error.ts",
   "src/lib/mux-video-errors.ts",
@@ -21,6 +22,7 @@ const CLASSIFIED_ERROR_MODULES = [
   "src/lib/url-signing.ts",
   "src/workflows/edit-captions.ts",
   "src/workflows/engagement-insights.ts",
+  "src/workflows/translate-audio.ts",
   "src/workflows/translate-captions.ts",
 ];
 
