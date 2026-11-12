@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.61.0](https://github.com/muxinc/ai/compare/v0.60.0...v0.61.0) (2026-11-12)
+
+
+### Features
+
+* **errors:** classify edit-captions ([#317](https://github.com/muxinc/ai/issues/317)) ([09906af](https://github.com/muxinc/ai/commit/09906af27e9c5cbe04384547b0c4fe3d57357830))
+
 ## [0.60.0](https://github.com/muxinc/ai/compare/v0.59.0...v0.60.0) (2026-11-11)
 
 
