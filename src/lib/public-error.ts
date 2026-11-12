@@ -61,7 +61,19 @@ function trackTarget(facts: MuxAiErrorFacts): string {
   return parts.length > 0 ? ` for ${parts.join(" or ")}` : "";
 }
 
+/** What happened to a source track deleted before the replacement was blocked, when there was one. */
+function restoredSourceNote(facts: MuxAiErrorFacts): string {
+  if (facts.sourceRestored === true && facts.restoredTrackId) {
+    return ` The source track was restored as ${text(facts.restoredTrackId)}.`;
+  }
+  return facts.sourceRestored === false ? " Restoring the source track also failed." : "";
+}
+
 function blockedTrackMessage(facts: MuxAiErrorFacts): string {
+  return blockedTrackReason(facts) + restoredSourceNote(facts);
+}
+
+function blockedTrackReason(facts: MuxAiErrorFacts): string {
   const tracks = (Array.isArray(facts.conflictingTracks) ? facts.conflictingTracks : []) as unknown as TextTrackSummary[];
   const kind = facts.trackType === "audio" ? "audio" : "text";
   const subject = tracks.length > 1 ? `${tracks.length} ${kind} tracks` : `${kind === "audio" ? "An" : "A"} ${kind} track`;
@@ -98,6 +110,12 @@ function scopeMessage(facts: MuxAiErrorFacts): string {
   }
 }
 
+/** Option names as a list: "a", "a or b", "a, b or c". */
+function names(value: MuxAiErrorFactValue | undefined): string {
+  const items = (Array.isArray(value) ? value : [value]).filter(item => item !== undefined && item !== null).map(text);
+  return items.length > 1 ? `${items.slice(0, -1).join(", ")} or ${items.at(-1)}` : items[0] ?? "another option";
+}
+
 function quotedList(value: MuxAiErrorFactValue | undefined): string {
   return Array.isArray(value) && value.length > 0 ? value.map(item => `'${text(item)}'`).join(" or ") : "certain characters";
 }
@@ -119,6 +137,16 @@ function invalidParameterMessage(facts: MuxAiErrorFacts): string {
       return `${subject} must not contain ${quotedList(facts.characters)}${entry}.`;
     case "not_normalized":
       return `${subject} must not contain invisible characters or characters altered by Unicode NFKC normalization${entry}.`;
+    case "multiline":
+      return `${subject} must be a single line${entry}.`;
+    case "required_with":
+      return `${parameter} is required when ${text(facts.with)} is set${facts.withValue === undefined ? "" : ` to '${text(facts.withValue)}'`}.`;
+    case "conflicts_with":
+      return `${parameter} can't be combined with ${names(facts.with)}.`;
+    case "not_allowed":
+      return `${parameter} must be ${quotedList(facts.allowed)}${facts.value === undefined ? "" : ` (received '${text(facts.value)}')`}.`;
+    case "one_of_required":
+      return `Provide at least one of ${names(facts.parameters)}.`;
     default:
       return `${parameter} has a value that can't be used.`;
   }
@@ -143,7 +171,7 @@ export const MUX_AI_ERROR_PUBLIC_MAPPINGS = {
     message: scopeMessage,
   },
   [MUX_AI_ERROR_CODES.TRACK_REPLACEMENT_BLOCKED]: {
-    facts: ["reason", "trackType", "languageCode", "trackName", "conflictingTracks"],
+    facts: ["reason", "trackType", "languageCode", "trackName", "conflictingTracks", "sourceRestored", "restoredTrackId"],
     message: blockedTrackMessage,
   },
   [MUX_AI_ERROR_CODES.CAPTION_TRACK_NOT_FOUND]: {
@@ -151,6 +179,10 @@ export const MUX_AI_ERROR_PUBLIC_MAPPINGS = {
     message: facts => facts.trackId ?
       `Track ${text(facts.trackId)} was not found or is not ready. Available track IDs: ${list(facts.availableTrackIds)}.` :
       `No ready caption track was found${facts.languageCode ? ` for language ${text(facts.languageCode)}` : ""}. Available languages: ${list(facts.availableLanguages)}.`,
+  },
+  [MUX_AI_ERROR_CODES.CAPTION_TRACK_LANGUAGE_MISSING]: {
+    facts: ["trackId"],
+    message: facts => `${facts.trackId ? `Track ${text(facts.trackId)}` : "The caption track"} has no language set, so its source language can't be determined.`,
   },
   [MUX_AI_ERROR_CODES.ASSET_NOT_FOUND]: {
     facts: ["assetId"],
@@ -164,7 +196,7 @@ export const MUX_AI_ERROR_PUBLIC_MAPPINGS = {
   },
   // Names the caller's own option; a consumer that exposes different names overrides the wording.
   [MUX_AI_ERROR_CODES.INVALID_PARAMETER]: {
-    facts: ["parameter", "reason", "count", "max", "index", "length", "maxLength", "characters"],
+    facts: ["parameter", "reason", "count", "max", "index", "length", "maxLength", "characters", "with", "withValue", "allowed", "value", "parameters"],
     message: invalidParameterMessage,
   },
   [MUX_AI_ERROR_CODES.PARAMETER_OUT_OF_RANGE]: {

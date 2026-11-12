@@ -55,6 +55,8 @@ const { resolveMuxClient, resolveMuxSigningContext } = await import("../../src/l
 const { createLanguageModelFromConfig, resolveLanguageModelConfig } = await import("../../src/lib/providers");
 const { translateCaptions } = await import("../../src/workflows/translate-captions");
 const { editCaptions } = await import("../../src/workflows/edit-captions");
+const { toPublicError } = await import("../../src/lib/public-error");
+type MuxAiError = import("../../src/lib/mux-ai-error").MuxAiError;
 
 const VTT = [
   "WEBVTT",
@@ -105,6 +107,16 @@ beforeEach(() => {
 
 describe("translateCaptions text track replacement", () => {
   const OPTIONS = { provider: "openai" as const };
+
+  it("rejects a source track with no language as caption_track_language_missing", async () => {
+    mockAsset([{ ...SOURCE_TRACK, language_code: undefined }]);
+
+    const error = await captureRejection(translateCaptions("asset-1", "track-en", "es", OPTIONS));
+
+    expect(error).toMatchObject({ code: "caption_track_language_missing", source: "asset", facts: { trackId: "track-en" } });
+    expect(toPublicError(error as MuxAiError).message).toBe("Track track-en has no language set, so its source language can't be determined.");
+    expect(vi.mocked(generateText)).not.toHaveBeenCalled();
+  });
 
   it("rejects before translating when a target-language track exists and the policy is fail", async () => {
     mockAsset([SOURCE_TRACK, ASR_ES_TRACK]);
@@ -248,6 +260,12 @@ describe("editCaptions source track replacement", () => {
   it("rejects fail with a trackName equal to the source name, ignoring case and whitespace", async () => {
     const error = await captureRejection(editCaptions("asset-1", "track-en", { ...OPTIONS, replaceExistingTracks: "fail", trackName: " english " }));
     expect(error.message).toContain("matches the source track's name");
+    // The kept source is the conflicting track, so end users see which track and are asked for another name.
+    expect(toPublicError(error as MuxAiError)).toMatchObject({
+      code: "track_replacement_blocked",
+      message: expect.stringContaining("already has the name ' english '"),
+    });
+    expect(toPublicError(error as MuxAiError).message).toContain("Choose a different track name.");
     expect(vi.mocked(generateText)).not.toHaveBeenCalled();
     expect(vi.mocked(replaceSourceTrack)).not.toHaveBeenCalled();
   });
@@ -297,13 +315,18 @@ describe("editCaptions source track replacement", () => {
       kind: "create_failed",
       reason: "Mux exploded",
       deleted: [{ id: "track-en", name: "English", languageCode: "en" }],
+      error: muxVideoCallError("Mux create_track failed while writing the text track", "create_track", Object.assign(new Error("Mux exploded"), { status: 500 })),
     });
     vi.mocked(createTextTrackOnMux).mockResolvedValue("track-en-restored");
 
     const error = await captureRejection(editCaptions("asset-1", "track-en", OPTIONS));
 
-    expect(error.message).toContain("Mux exploded");
     expect(error.message).toContain("restored as track-en-restored");
+    expect(error).toMatchObject({
+      source: "upstream",
+      dependency: "mux_video",
+      facts: { call: "create_track", status: 500, sourceRestored: true, restoredTrackId: "track-en-restored" },
+    });
     expect(vi.mocked(putObjectWithStorageAdapter)).toHaveBeenLastCalledWith(
       expect.objectContaining({ body: VTT, key: expect.stringContaining("-original-") }),
       undefined,
@@ -333,14 +356,67 @@ describe("editCaptions source track replacement", () => {
 
     expect(error.message).toContain("a track named English appeared");
     expect(error.message).toContain("restored as track-en-restored");
+    expect(error).toMatchObject({
+      code: "track_replacement_blocked",
+      facts: { reason: "name_collision", conflictingTracks: [expect.objectContaining({ id: "late" })] },
+    });
   });
 
-  it("does not attempt a restore when the source was not deleted", async () => {
-    vi.mocked(replaceSourceTrack).mockResolvedValue({ kind: "create_failed", reason: "nope", deleted: [] });
+  it("keeps a failed restore's raw error out of the message", async () => {
+    vi.mocked(replaceSourceTrack).mockResolvedValue({
+      kind: "create_failed",
+      reason: "Mux exploded",
+      deleted: [{ id: "track-en", name: "English", languageCode: "en" }],
+      error: muxVideoCallError("Mux create_track failed while writing the text track", "create_track", new Error("Mux exploded")),
+    });
+    vi.mocked(createTextTrackOnMux).mockRejectedValue(new Error("secret restore detail"));
 
     const error = await captureRejection(editCaptions("asset-1", "track-en", OPTIONS));
 
-    expect(error.message).toContain("nope");
+    expect(error.message).toContain("Restoring the source track also failed.");
+    expect(error.message).not.toContain("secret restore detail");
+    expect(error).toMatchObject({ facts: { sourceRestored: false, restoreError: "secret restore detail" } });
+  });
+
+  it("keeps a classified restore failure's facts and Mux's own text", async () => {
+    vi.mocked(replaceSourceTrack).mockResolvedValue({
+      kind: "create_failed",
+      reason: "Mux exploded",
+      deleted: [{ id: "track-en", name: "English", languageCode: "en" }],
+      error: muxVideoCallError("Mux create_track failed while writing the text track", "create_track", new Error("Mux exploded")),
+    });
+    vi.mocked(createTextTrackOnMux).mockRejectedValue(muxVideoCallError(
+      "Failed to create the text track on Mux",
+      "create_track",
+      Object.assign(new Error("400 track url unreachable"), { status: 400, headers: new Headers({ "x-request-id": "req-restore" }) }),
+      { assetId: "asset-1" },
+    ));
+
+    const error = await captureRejection(editCaptions("asset-1", "track-en", OPTIONS));
+
+    expect(error.message).toContain("Restoring the source track also failed.");
+    expect(error).toMatchObject({
+      facts: {
+        sourceRestored: false,
+        restoreError: expect.stringContaining("track url unreachable"),
+        restoreFailure: { call: "create_track", status: 400, requestId: "req-restore", assetId: "asset-1" },
+      },
+    });
+  });
+
+  it("does not attempt a restore when the source was not deleted", async () => {
+    vi.mocked(replaceSourceTrack).mockResolvedValue({
+      kind: "create_failed",
+      reason: "nope",
+      deleted: [],
+      error: muxVideoCallError("Mux create_track failed while writing the text track", "create_track", Object.assign(new Error("nope"), { status: 400 })),
+    });
+
+    const error = await captureRejection(editCaptions("asset-1", "track-en", OPTIONS));
+
+    expect(error.message).toBe("Failed to add edited track to Mux asset: Mux create_track failed while writing the text track.");
+    expect(error).toMatchObject({ dependency: "mux_video", facts: { call: "create_track", status: 400, assetId: "asset-1", trackId: "track-en" } });
+    expect(vi.mocked(replaceSourceTrack)).toHaveBeenLastCalledWith(expect.objectContaining({ classifiedErrors: true }));
     expect(vi.mocked(createTextTrackOnMux)).not.toHaveBeenCalled();
   });
 });

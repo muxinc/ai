@@ -4,7 +4,7 @@ import { requestIdOf } from "./dependency-error.ts";
 import { isUndeterminedLanguageCode, toISO639_1 } from "./language-codes.ts";
 import { LegacyMuxAiError } from "./legacy-mux-ai-error.ts";
 import type { ClassifiedErrorsOption, MuxAiErrorFacts, MuxAiErrorFactValue } from "./mux-ai-error.ts";
-import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
+import { errorDetailFact, MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
 import { missingTrackIdError, muxVideoCallError, muxVideoError } from "./mux-video-errors.ts";
 import { resolveMuxClient } from "./workflow-credentials.ts";
 
@@ -109,6 +109,20 @@ export interface TrackWriteFailed {
    * error type and a scrubbed cause summary.
    */
   error?: MuxAiError;
+}
+
+/**
+ * The error for a failed track write, as a workflow that opted in to classified errors
+ * throws it: the classified `error` the step returned, or `track_write_unclassified` if
+ * it is missing, which would be a bug in the track-write path.
+ */
+export function trackWriteFailure(outcome: TrackWriteFailed): MuxAiError {
+  return outcome.error ?? new MuxAiError(`Track write failed without a classified error: ${outcome.reason}`, {
+    code: MUX_AI_ERROR_CODES.TRACK_WRITE_UNCLASSIFIED,
+    type: MUX_AI_ERROR_TYPES.SERVER_ERROR,
+    source: MUX_AI_ERROR_SOURCES.INTERNAL,
+    facts: { reason: errorDetailFact(outcome.reason) },
+  });
 }
 
 /** Mux caps track `passthrough` at 255 characters. */
@@ -461,18 +475,24 @@ export async function createTextTrackOnMux(
   "use step";
   const muxClient = await resolveMuxClient(credentials);
   const mux = await muxClient.createClient();
-  const trackResponse = await mux.video.assets.createTrack(assetId, {
-    type: "text",
-    text_type: "subtitles",
-    language_code: languageCode,
-    name: trackName,
-    url: presignedUrl,
-    closed_captions: options.closedCaptions,
-    passthrough: options.passthrough,
-  });
+  let trackResponse: Awaited<ReturnType<typeof mux.video.assets.createTrack>>;
+  try {
+    trackResponse = await mux.video.assets.createTrack(assetId, {
+      type: "text",
+      text_type: "subtitles",
+      language_code: languageCode,
+      name: trackName,
+      url: presignedUrl,
+      closed_captions: options.closedCaptions,
+      passthrough: options.passthrough,
+    });
+  } catch (error) {
+    // Classified here, while the raw error is in hand: past the step boundary only its message is left.
+    throw muxVideoCallError("Failed to create the text track on Mux", "create_track", error, { assetId });
+  }
 
   if (!trackResponse.id) {
-    throw new Error("Failed to create text track: no track ID returned from Mux");
+    throw missingTrackIdError("Failed to create text track: no track ID returned from Mux", { assetId });
   }
 
   return trackResponse.id;

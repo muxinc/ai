@@ -93,6 +93,7 @@ export function muxAssetFetchError(assetId: string, error: unknown): MuxAiError 
  */
 export function missingTrackIdError(message: string, facts?: MuxAiErrorFacts): MuxAiError {
   return new MuxAiError(message, {
+    code: MUX_AI_ERROR_CODES.TRACK_ID_MISSING,
     type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
     source: MUX_AI_ERROR_SOURCES.UPSTREAM,
     dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO,

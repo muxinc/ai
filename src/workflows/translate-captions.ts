@@ -1,26 +1,19 @@
-import {
-  APICallError,
-  generateText,
-  NoObjectGeneratedError,
-  NoOutputGeneratedError,
-  Output,
-  RetryError,
-  TypeValidationError,
-} from "ai";
+import { generateText, Output } from "ai";
 import { z } from "zod";
 
 import env from "../env.ts";
 import {
-  classifyModelCallError,
+  findProviderServiceError,
   getGeneratedOutputWithContentPolicyHandling,
   isIncompleteGenerationError,
+  isUnusableOutputError,
+  modelStepError,
   withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
 import type { ModelCallContext } from "../lib/content-policy-error.ts";
 import { getLanguageCodePair, getLanguageName } from "../lib/language-codes.ts";
 import type { LanguageCodePair, SupportedISO639_1 } from "../lib/language-codes.ts";
 import {
-  internalError,
   MUX_AI_ERROR_CODES,
   MUX_AI_ERROR_DEPENDENCIES,
   MUX_AI_ERROR_SOURCES,
@@ -41,6 +34,7 @@ import {
   trackReplacementBlockedError,
   trackSummaryFacts,
   trackTargetFacts,
+  trackWriteFailure,
   validateTrackPassthrough,
 } from "../lib/mux-tracks.ts";
 import type { ReplaceExistingTracksPolicy, TextTrackSummary, TextTrackTarget } from "../lib/mux-tracks.ts";
@@ -406,36 +400,6 @@ interface TranslationChunkRequest {
 // Re-exported from its original home for backwards compatibility.
 export { aggregateTokenUsage };
 
-/** The provider call failure behind `error`, unwrapping retries and causes. */
-function findProviderServiceError(error: unknown): APICallError | undefined {
-  if (!error) {
-    return undefined;
-  }
-
-  if (RetryError.isInstance(error)) {
-    return findProviderServiceError(error.lastError);
-  }
-
-  if (APICallError.isInstance(error)) {
-    return error;
-  }
-
-  if (error instanceof Error && "cause" in error) {
-    return findProviderServiceError(error.cause);
-  }
-
-  return undefined;
-}
-
-/** Output the AI SDK could not turn into the requested object. */
-function isUnusableOutputError(error: unknown): boolean {
-  return (
-    NoObjectGeneratedError.isInstance(error) ||
-    NoOutputGeneratedError.isInstance(error) ||
-    TypeValidationError.isInstance(error)
-  );
-}
-
 export function shouldSplitChunkTranslationError(error: unknown): boolean {
   if (findProviderServiceError(error)) {
     return false;
@@ -447,56 +411,6 @@ export function shouldSplitChunkTranslationError(error: unknown): boolean {
     // Missing or invalid output, including a wrong cue count.
     (MuxAiError.is(error) && (error.code === MUX_AI_ERROR_CODES.MODEL_OUTPUT_MISSING || error.code === MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID))
   );
-}
-
-/**
- * Classifies a model-call failure inside a translation step. Transient failures
- * stay transient so the step runner retries them, as it did for the raw errors.
- */
-function translationStepError(error: unknown, message: string, facts: MuxAiErrorFacts): MuxAiError {
-  if (MuxAiError.is(error)) {
-    Object.assign(error, { facts: { ...facts, ...error.facts } });
-    return error;
-  }
-
-  const context: ModelCallContext = { call: String(facts.call), provider: String(facts.provider), ...(facts.model !== undefined && { model: String(facts.model) }) };
-  let classified = classifyModelCallError(error, context);
-  if (classified) {
-    Object.assign(classified, { facts: { ...facts, ...classified.facts } });
-    return classified;
-  }
-  if (isUnusableOutputError(error)) {
-    classified = new MuxAiError(message, {
-      code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID,
-      type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
-      source: MUX_AI_ERROR_SOURCES.UPSTREAM,
-      dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
-      facts,
-      // As before: the raw error was retried by the step runner. See the model-output follow-up.
-      transient: true,
-      cause: error,
-    });
-  } else {
-    const providerError = findProviderServiceError(error);
-    classified = providerError ?
-        // A provider without its own classifier: not classified, but kept retryable by the
-        // step runner when the AI SDK judges it retryable (no response, 408, 409, 429, 5xx),
-        // as the raw error was before.
-        new MuxAiError(message, {
-          type: MUX_AI_ERROR_TYPES.SERVER_ERROR,
-          source: MUX_AI_ERROR_SOURCES.INTERNAL,
-          facts,
-          transient: providerError.isRetryable,
-          cause: error,
-        }) :
-        internalError(message, facts, error);
-  }
-
-  const usage = getErrorTokenUsage(error);
-  if (usage) {
-    classified.usage = usage;
-  }
-  return classified;
 }
 
 function resolveTranslationChunkingOptions(
@@ -844,7 +758,7 @@ async function translateVttWithAI({
       },
     ],
   }), undefined, context).catch((error: unknown) => {
-    throw translationStepError(error, "Caption translation model call failed", { ...context });
+    throw modelStepError(error, "Caption translation model call failed", { ...context });
   });
   const output = getGeneratedOutputWithContentPolicyHandling(response, context);
 
@@ -990,7 +904,12 @@ async function translateCueChunkWithAI({
 function splitTranslationChunkAtMidpoint(chunk: TranslationChunkRequest): [TranslationChunkRequest, TranslationChunkRequest] {
   const midpoint = Math.floor(chunk.cueCount / 2);
   if (midpoint <= 0 || midpoint >= chunk.cueCount) {
-    throw internalError("Cannot split a translation chunk with fewer than two cues", { chunkId: chunk.id, cueCount: chunk.cueCount });
+    throw new MuxAiError("Cannot split a translation chunk with fewer than two cues", {
+      code: MUX_AI_ERROR_CODES.TRANSLATION_CHUNK_UNSPLITTABLE,
+      type: MUX_AI_ERROR_TYPES.SERVER_ERROR,
+      source: MUX_AI_ERROR_SOURCES.INTERNAL,
+      facts: { chunkId: chunk.id, cueCount: chunk.cueCount },
+    });
   }
 
   return [
@@ -1101,7 +1020,7 @@ async function translateChunkWithFallback({
     };
   } catch (error) {
     if (!shouldSplitChunkTranslationError(error) || chunk.cueCount <= 1) {
-      throw translationStepError(error, "Failed to translate a caption chunk", chunkFacts);
+      throw modelStepError(error, "Failed to translate a caption chunk", chunkFacts);
     }
 
     const [leftChunk, rightChunk] = splitTranslationChunkAtMidpoint(chunk);
@@ -1378,7 +1297,12 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
   if (!fromLanguageCode) {
     throw new MuxAiError(
       `Track ${trackId} is missing language metadata. Cannot determine source language for translation.`,
-      { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET, facts: { assetId, trackId } },
+      {
+        code: MUX_AI_ERROR_CODES.CAPTION_TRACK_LANGUAGE_MISSING,
+        type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+        source: MUX_AI_ERROR_SOURCES.ASSET,
+        facts: { assetId, trackId },
+      },
     );
   }
 
@@ -1548,7 +1472,7 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
           throw trackReplacementBlockedError(outcome, { message: `${outcome.reason}${deletedNote}`, facts: { ...trackTargetFacts(outputTrack), ...facts } });
         }
         // Classified inside the step (we opted in); add what this workflow knows.
-        const failure = outcome.error ?? internalError(`Track write failed without a classified error: ${outcome.reason}`);
+        const failure = trackWriteFailure(outcome);
         Object.assign(failure, { facts: { ...facts, ...failure.facts } });
         failure.message = `Failed to add translated track to Mux asset: ${failure.message}.${deletedNote}`;
         throw failure;

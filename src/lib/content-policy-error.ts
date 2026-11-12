@@ -1,4 +1,4 @@
-import { APICallError, NoObjectGeneratedError, NoOutputGeneratedError, RetryError } from "ai";
+import { APICallError, NoObjectGeneratedError, NoOutputGeneratedError, RetryError, TypeValidationError } from "ai";
 import { z } from "zod";
 
 import type { TokenUsage } from "../types.ts";
@@ -6,7 +6,7 @@ import type { TokenUsage } from "../types.ts";
 import { googleCallError } from "./google-errors.ts";
 import { LegacyMuxAiError } from "./legacy-mux-ai-error.ts";
 import type { MuxAiErrorFacts } from "./mux-ai-error.ts";
-import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_DEPENDENCIES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
+import { internalError, MUX_AI_ERROR_CODES, MUX_AI_ERROR_DEPENDENCIES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
 import { withRetry } from "./retry.ts";
 import type { RetryOptions } from "./retry.ts";
 import { aggregateTokenUsage, getErrorTokenUsage, rethrowWithTokenUsage } from "./token-usage.ts";
@@ -545,4 +545,86 @@ function findBlockedCategory(
   ratings: Array<z.infer<typeof SafetyRatingSchema>> | null | undefined,
 ): string | undefined {
   return ratings?.find(rating => rating.blocked === true)?.category ?? undefined;
+}
+
+/** The provider call failure behind `error`, unwrapping retries and causes. */
+export function findProviderServiceError(error: unknown): APICallError | undefined {
+  if (!error) {
+    return undefined;
+  }
+
+  if (RetryError.isInstance(error)) {
+    return findProviderServiceError(error.lastError);
+  }
+
+  if (APICallError.isInstance(error)) {
+    return error;
+  }
+
+  if (error instanceof Error && "cause" in error) {
+    return findProviderServiceError(error.cause);
+  }
+
+  return undefined;
+}
+
+/** Output the AI SDK could not turn into the requested object. */
+export function isUnusableOutputError(error: unknown): boolean {
+  return (
+    NoObjectGeneratedError.isInstance(error) ||
+    NoOutputGeneratedError.isInstance(error) ||
+    TypeValidationError.isInstance(error)
+  );
+}
+
+/**
+ * Classifies a model-call failure inside a step, while the raw error is still in hand.
+ * `facts` must include the call's `call` and `provider` (and `model` when known).
+ * Transient failures stay transient so the step runner retries them, as it did for
+ * the raw errors.
+ */
+export function modelStepError(error: unknown, message: string, facts: MuxAiErrorFacts): MuxAiError {
+  if (MuxAiError.is(error)) {
+    Object.assign(error, { facts: { ...facts, ...error.facts } });
+    return error;
+  }
+
+  const context: ModelCallContext = { call: String(facts.call), provider: String(facts.provider), ...(facts.model !== undefined && { model: String(facts.model) }) };
+  let classified = classifyModelCallError(error, context);
+  if (classified) {
+    Object.assign(classified, { facts: { ...facts, ...classified.facts } });
+    return classified;
+  }
+  if (isUnusableOutputError(error)) {
+    classified = new MuxAiError(message, {
+      code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID,
+      type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+      source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+      dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
+      facts,
+      // As before: the raw error was retried by the step runner. See the model-output follow-up.
+      transient: true,
+      cause: error,
+    });
+  } else {
+    const providerError = findProviderServiceError(error);
+    classified = providerError ?
+        // A provider without its own classifier: not classified, but kept retryable by the
+        // step runner when the AI SDK judges it retryable (no response, 408, 409, 429, 5xx),
+        // as the raw error was before.
+        new MuxAiError(message, {
+          type: MUX_AI_ERROR_TYPES.SERVER_ERROR,
+          source: MUX_AI_ERROR_SOURCES.INTERNAL,
+          facts,
+          transient: providerError.isRetryable,
+          cause: error,
+        }) :
+        internalError(message, facts, error);
+  }
+
+  const usage = getErrorTokenUsage(error);
+  if (usage) {
+    classified.usage = usage;
+  }
+  return classified;
 }

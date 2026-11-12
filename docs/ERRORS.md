@@ -107,10 +107,11 @@ A remote service reached over the network. Libraries running in-process are neve
 | Code | Type | Source | Dependency | Public | Condition |
 |---|---|---|---|---|---|
 | `invalid_scope` | `validation_error` | `request` |  | yes | The requested time range is invalid, or has nothing to work with. Facts: `reason` (`invalid_start_time`, `invalid_end_time`, `exceeds_duration`, `empty_range`, `no_video`, `no_transcript`) and the bounds involved. |
-| `track_replacement_blocked` | `validation_error` | `request` |  | yes | Existing tracks block writing the output track under the chosen replacement policy. Facts: `reason` (`policy_fail`, `not_generated`, `name_collision`, `primary_audio`), `conflictingTracks` and the target track. |
-| `invalid_parameter` | `validation_error` | `request` |  | yes | An option's value can't be used. Facts: `parameter` (the caller's option name), `reason` (`too_many`, `empty`, `too_long`, `disallowed_characters`, `not_normalized`) and the values the reason names: `count` and `max`, `index` (0-based entry), `length` and `maxLength`, `characters`. |
+| `track_replacement_blocked` | `validation_error` | `request` |  | yes | Existing tracks block writing the output track under the chosen replacement policy. Facts: `reason` (`policy_fail`, `not_generated`, `name_collision`, `primary_audio`), `conflictingTracks` and the target track, plus `sourceRestored` and `restoredTrackId` when a source track was deleted first. |
+| `invalid_parameter` | `validation_error` | `request` |  | yes | An option's value can't be used. Facts: `parameter` (the caller's option name), `reason` (`too_many`, `empty`, `too_long`, `disallowed_characters`, `not_normalized`, `multiline`, `required_with`, `conflicts_with`, `not_allowed`, `one_of_required`) and the values the reason names: `count` and `max`, `index` (0-based entry), `length` and `maxLength`, `characters`, `with` and `withValue` (the other option), `allowed` and `value`, `parameters` (the options to choose from). |
 | `parameter_out_of_range` | `validation_error` | `request` |  | yes | A numeric option is outside its allowed range. Facts: `parameter` (the caller's option name), `value`, `min`, `max`, and `integer` when it must be a whole number. |
 | `caption_track_not_found` | `validation_error` | `asset` |  | yes | No ready caption track matches the requested track or language. Facts: `trackId` or `languageCode`, and what is available. |
+| `caption_track_language_missing` | `validation_error` | `asset` |  | yes | The caption track has no language, so its source language can't be determined. Facts: `trackId`. |
 | `playback_id_not_found` | `validation_error` | `asset` |  | yes | The asset has no public or signed playback ID (DRM-only assets included). |
 | `asset_not_found` | `validation_error` | `request` | `mux_video` | yes | Mux has no asset with the requested ID in this environment. Facts: `assetId`. |
 | `transcript_empty` | `validation_error` | `asset` |  | yes | The transcript has no usable content. |
@@ -125,6 +126,11 @@ A remote service reached over the network. Libraries running in-process are neve
 | `dubbing_failed` | `processing_error` | `upstream` | `ai_provider` | yes | The dubbing provider ran the dub and reported it failed. Facts: `providerError`, the provider's display text, when it gave one. |
 | `signing_credentials_missing` | `server_error` | `internal` |  | no | Signed playback needs signing keys the service running the SDK didn't provide. |
 | `storage_not_configured` | `server_error` | `internal` |  | no | Storage is needed but the service running the SDK didn't configure it. |
+| `track_write_unclassified` | `server_error` | `internal` |  | no | A track write failed, but the opted-in result carried no classified error: a bug in the SDK's track-write path. Facts: `reason`, the raw failure's message. |
+| `track_id_missing` | `processing_error` | `upstream` | `mux_video` | no | Mux answered a track create without a track id. The track may exist, so it isn't step-retried. Facts: `call`, `assetId`. |
+| `asset_snapshot_mismatch` | `server_error` | `internal` |  | no | The asset snapshot the service running the SDK passed in is for a different asset than the one requested. Facts: `assetId`, `snapshotAssetId`. |
+| `asset_id_mismatch` | `processing_error` | `upstream` | `mux_video` | no | Mux answered an asset fetch with a different asset than the one requested. Facts: `assetId`, `returnedAssetId`. |
+| `translation_chunk_unsplittable` | `server_error` | `internal` |  | no | Translation needed to split a chunk of fewer than two cues: a bug in the SDK's chunking. Facts: `chunkId`, `cueCount`. |
 | `model_output_suppressed` | `processing_error` | `upstream` | `ai_provider` | no | The model's output was withheld by the SDK's output safety filter (a suspected prompt leak). |
 | `model_output_incomplete` | `processing_error` | `upstream` | `ai_provider` | no | The model stopped early for a reason other than the length limit. |
 | `model_output_truncated` | `processing_error` | `internal` | `ai_provider` | no | The model hit the output length limit. |
@@ -189,6 +195,8 @@ Modules move one workflow at a time. A helper several workflows share can't swit
 
 - **Model calls** take a `ModelCallContext` (`call`, `provider`, `model`). With one, content-policy blocks, incomplete or unusable output, and provider API failures are classified where they happen, with those facts. Without one, they fail as before.
 - **Other shared helpers** take `classifiedErrors: true` (`ClassifiedErrorsOption`), e.g. `fetchVttFromMux()` and `replaceAndCreateTextTrack()`. Without it, they fail as before. A helper that reports a failure as a result rather than a throw (e.g. a failed track write) classifies it inside the step and returns it as the result's `error`: a classified error crosses the step boundary intact, where the raw error would keep only its message.
+
+An internal helper whose only callers have already moved (e.g. `createTextTrackOnMux()`, used only by `editCaptions()`) classifies its errors without an opt-in.
 
 A workflow that moves passes the opt-in to every shared helper it calls. Once every caller has, the opt-in becomes the only behavior and goes away with the legacy fields.
 

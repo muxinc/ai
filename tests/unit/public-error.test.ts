@@ -97,6 +97,13 @@ describe("toPublicError", () => {
     expect(view.message).toBe("A text track already exists for language 'en' or name 'English': English [en, uploaded, ready]. Allow existing tracks to be replaced to replace it.");
     expect(view.message).not.toContain("replaceExistingTracks");
     expect(view.facts).not.toHaveProperty("assetId");
+
+    // A source track deleted before the block: say whether it came back.
+    const restored = toPublicError(trackReplacementBlockedError(plan, { facts: { ...trackTargetFacts(target), sourceRestored: true, restoredTrackId: "track-restored" } }));
+    expect(restored.message).toMatch(/ The source track was restored as track-restored\.$/);
+    const notRestored = toPublicError(trackReplacementBlockedError(plan, { facts: { ...trackTargetFacts(target), sourceRestored: false, restoreError: "secret" } }));
+    expect(notRestored.message).toMatch(/ Restoring the source track also failed\.$/);
+    expect(notRestored.facts).not.toHaveProperty("restoreError");
   });
 
   it("words an unusable mp4_support rendition the same way the SDK reports it", () => {
@@ -138,6 +145,7 @@ describe("toPublicError", () => {
       "asset_duration_unavailable",
       "asset_not_found",
       "audio_track_unsupported",
+      "caption_track_language_missing",
       "caption_track_not_found",
       "content_policy_blocked",
       "dubbing_failed",
