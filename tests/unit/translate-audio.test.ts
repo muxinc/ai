@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { toPublicError } from "../../src/lib/public-error.ts";
 import { dubbingLanguage, dubbingProject } from "../helpers/elevenlabs-dubbing.ts";
 
 vi.mock("workflow", () => ({
@@ -662,9 +663,24 @@ describe("translateAudio project API", () => {
     const fetchMock = stubElevenLabsFetch();
     await expect(translateAudio(ASSET_ID, "fr", { ...BASE_OPTIONS, numSpeakers: 2 }))
       .rejects
-      .toMatchObject({ type: "validation_error", message: expect.stringContaining("numSpeakers") });
+      .toMatchObject({ code: "invalid_parameter", type: "validation_error", message: expect.stringContaining("numSpeakers"), facts: { inputs: ["numSpeakers"] } });
     expect(getPlaybackIdForAsset).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { options: { numSpeakers: 2 }, public: "numSpeakers must be '0' (received '2')." },
+    { options: { provider: "openai" }, public: "provider must be 'elevenlabs' (received 'openai')." },
+  ])("words a rejected option for end users ($public)", async ({ options, public: publicMessage }) => {
+    stubElevenLabsFetch();
+    const error = await translateAudio(ASSET_ID, "fr", { ...BASE_OPTIONS, ...options } as never).then(
+      () => {
+        throw new Error("expected a rejection");
+      },
+      (rejection: unknown) => rejection,
+    );
+
+    expect(toPublicError(error as never).message).toBe(publicMessage);
   });
 
   it("does not retry an ambiguous paid create inside the SDK", async () => {

@@ -841,18 +841,20 @@ export async function translateAudio(
 
   if (provider !== "elevenlabs") {
     throw new MuxAiError("Only ElevenLabs provider is currently supported for audio translation.", {
+      code: MUX_AI_ERROR_CODES.INVALID_PARAMETER,
       type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
       source: MUX_AI_ERROR_SOURCES.REQUEST,
-      facts: { parameter: "provider", value: String(provider) },
+      facts: { parameter: "provider", reason: "not_allowed", allowed: ["elevenlabs"], value: String(provider).slice(0, 100), inputs: ["provider"] },
     });
   }
 
   const targetLanguageCode = toISO639_1(toLanguageCode);
   if (numSpeakers !== 0) {
     throw new MuxAiError("The ElevenLabs project API does not support numSpeakers overrides. Omit it or use 0 for auto-detection.", {
+      code: MUX_AI_ERROR_CODES.INVALID_PARAMETER,
       type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
       source: MUX_AI_ERROR_SOURCES.REQUEST,
-      facts: { parameter: "numSpeakers", value: numSpeakers },
+      facts: { parameter: "numSpeakers", reason: "not_allowed", allowed: [0], value: numSpeakers, inputs: ["numSpeakers"] },
     });
   }
 
