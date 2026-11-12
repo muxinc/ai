@@ -177,8 +177,6 @@ export const MUX_AI_ERROR_CODES = {
   AUDIO_TRACK_MISSING: "audio_track_missing",
   /** Writing an audio track would replace the asset's primary audio track, which can't be replaced. Facts: `languageCode`, `conflictingTracks`. */
   PRIMARY_AUDIO_TRACK_CONFLICT: "primary_audio_track_conflict",
-  /** No ready audio-only static rendition was available after waiting for one. Facts: `assetId`. */
-  STATIC_RENDITION_MISSING: "static_rendition_missing",
   /** The asset's static rendition settings changed while waiting for its rendition. A new job uses the new settings. Facts: `assetId`. */
   STATIC_RENDITION_CHANGED: "static_rendition_changed",
   /** Mux didn't finish the static rendition within the polling budget. Facts: `assetId`, `attempts`, `pollIntervalMs`, `lastStatus`. */
@@ -236,7 +234,6 @@ export const MUX_AI_ERROR_CATALOG = {
   [MUX_AI_ERROR_CODES.STATIC_RENDITION_TIMEOUT]: { type: MUX_AI_ERROR_TYPES.TIMEOUT_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO, transient: false },
   [MUX_AI_ERROR_CODES.AUDIO_TRACK_MISSING]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },
   [MUX_AI_ERROR_CODES.PRIMARY_AUDIO_TRACK_CONFLICT]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },
-  [MUX_AI_ERROR_CODES.STATIC_RENDITION_MISSING]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },
   // Retryable although asset-sourced: the asset changed mid-run, and a new job uses the new settings.
   [MUX_AI_ERROR_CODES.STATIC_RENDITION_CHANGED]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET, retryable: true },
 } as const satisfies Record<MuxAiErrorCode, ErrorCatalogEntry<MuxAiErrorType, MuxAiErrorDependency>>;

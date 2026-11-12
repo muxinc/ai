@@ -127,7 +127,6 @@ A remote service reached over the network. Libraries running in-process are neve
 | `dubbing_timeout` | `timeout_error` | `upstream` | `ai_provider` | yes | The dubbing provider didn't finish the dub within the polling budget. Facts: `dubbingId`, `timeoutSeconds`, `lastStatus`. |
 | `audio_track_missing` | `validation_error` | `asset` |  | yes | The asset has no audio track, so there is no audio to work with. Facts: `assetId`. |
 | `primary_audio_track_conflict` | `validation_error` | `asset` |  | yes | Writing an audio track would replace the asset's primary audio track, which can't be replaced. Facts: `languageCode`, `conflictingTracks`. |
-| `static_rendition_missing` | `validation_error` | `asset` |  | yes | No ready audio-only static rendition was available after waiting for one. Facts: `assetId`. |
 | `static_rendition_changed` | `processing_error` | `asset` |  | yes | The asset's static rendition settings changed while waiting for its rendition. A new job uses the new settings. Facts: `assetId`. |
 | `static_rendition_timeout` | `timeout_error` | `upstream` | `mux_video` | yes | Mux didn't finish the static rendition within the polling budget. Facts: `assetId`, `attempts`, `pollIntervalMs`, `lastStatus`. |
 | `signing_credentials_missing` | `server_error` | `internal` |  | no | Signed playback needs signing keys the service running the SDK didn't provide. |

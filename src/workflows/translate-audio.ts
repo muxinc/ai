@@ -970,21 +970,13 @@ export async function translateAudio(
         credentials,
       });
     } else {
+      // The wait returns only once the rendition is ready, and throws otherwise.
       if (!hasReadyAudioStaticRendition(currentAsset)) {
         currentAsset = await waitForAudioStaticRendition({
           assetId,
           initialAsset: currentAsset,
           credentials,
         });
-      }
-
-      const audioRendition = getReadyAudioStaticRendition(currentAsset);
-
-      if (!audioRendition) {
-        throw new MuxAiError(
-          "Unable to obtain an audio-only static rendition for this asset. Please verify static renditions are enabled in Mux.",
-          { code: MUX_AI_ERROR_CODES.STATIC_RENDITION_MISSING, type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET, facts: { assetId } },
-        );
       }
     }
 

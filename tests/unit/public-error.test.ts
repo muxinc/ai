@@ -161,7 +161,6 @@ describe("toPublicError", () => {
       "primary_audio_track_conflict",
       "static_rendition_changed",
       "static_rendition_failed",
-      "static_rendition_missing",
       "static_rendition_timeout",
       "static_rendition_unsupported",
       "track_replacement_blocked",

@@ -251,9 +251,6 @@ export const MUX_AI_ERROR_PUBLIC_MAPPINGS = {
     facts: ["languageCode"],
     message: facts => `The asset's primary audio track${facts.languageCode ? ` is in language '${text(facts.languageCode)}' and` : ""} can't be replaced. Choose a different target language.`,
   },
-  [MUX_AI_ERROR_CODES.STATIC_RENDITION_MISSING]: {
-    message: "The asset has no ready audio-only static rendition. Check that static renditions are enabled for the asset in Mux.",
-  },
   [MUX_AI_ERROR_CODES.STATIC_RENDITION_CHANGED]: {
     message: "The asset's static rendition settings changed while it was being processed. Please try again.",
   },
