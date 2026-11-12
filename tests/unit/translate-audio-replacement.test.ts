@@ -190,6 +190,7 @@ describe("translateAudio on a video-only asset", () => {
     expect(MuxAiError.is(error)).toBe(true);
     expect((error as InstanceType<typeof MuxAiError>).type).toBe("validation_error");
     expect(error.message).toBe("Asset asset-123 has no audio track, so there is no audio to dub.");
+    expect(error).toMatchObject({ code: "audio_track_missing", source: "asset", facts: { assetId: "asset-123" } });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
@@ -250,7 +251,7 @@ describe("translateAudio track replacement", () => {
 
     expect(error.message).toContain("primary audio");
     // No option avoids the asset's own audio in the target language.
-    expect(error).toMatchObject({ source: "asset", facts: { reason: "primary_audio" } });
+    expect(error).toMatchObject({ code: "primary_audio_track_conflict", source: "asset", facts: { reason: "primary_audio" } });
   });
 
   it("creates the dubbed audio track through the replacement step and reports deletions", async () => {

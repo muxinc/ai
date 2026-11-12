@@ -167,6 +167,22 @@ describe("translateAudio static rendition cleanup", () => {
     expect(result.dubbingId).toBe("proj_1");
   });
 
+  it("times out as static_rendition_timeout when the rendition never becomes ready", async () => {
+    mockMuxClient({
+      initialAsset: buildAsset(),
+      polledAsset: buildAsset({ status: "preparing", files: [{ id: CREATED_RENDITION_ID, name: "audio.m4a", status: "preparing" }] }),
+    });
+    const fetchMock = stubElevenLabsFetch();
+
+    await expect(translateAudio(ASSET_ID, "fr", BASE_OPTIONS)).rejects.toMatchObject({
+      code: "static_rendition_timeout",
+      type: "timeout_error",
+      dependency: "mux_video",
+      transient: false,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("treats re-requesting over an errored rendition as created by this run", async () => {
     const { createStaticRendition, deleteStaticRendition } = mockMuxClient({
       initialAsset: buildAsset({
@@ -617,7 +633,7 @@ describe("translateAudio project API", () => {
     stubElevenLabsFetch({ dubbingStatus: "queued" });
     await expect(translateAudio(ASSET_ID, "fr", { ...BASE_OPTIONS, dubbingPollTimeoutSeconds: 1 }))
       .rejects
-      .toMatchObject({ type: "timeout_error" });
+      .toMatchObject({ code: "dubbing_timeout", type: "timeout_error", dependency: "ai_provider", facts: { dubbingId: "proj_1" } });
   });
 
   it.each([

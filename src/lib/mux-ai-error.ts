@@ -171,6 +171,18 @@ export const MUX_AI_ERROR_CODES = {
   DUBBING_LANGUAGE_UNSUPPORTED: "dubbing_language_unsupported",
   /** The dubbing provider ran the dub and reported it failed. Facts: `providerError`, the provider's display text, when it gave one. */
   DUBBING_FAILED: "dubbing_failed",
+  /** The dubbing provider didn't finish the dub within the polling budget. Facts: `dubbingId`, `timeoutSeconds`, `lastStatus`. */
+  DUBBING_TIMEOUT: "dubbing_timeout",
+  /** The asset has no audio track, so there is no audio to work with. Facts: `assetId`. */
+  AUDIO_TRACK_MISSING: "audio_track_missing",
+  /** Writing an audio track would replace the asset's primary audio track, which can't be replaced. Facts: `languageCode`, `conflictingTracks`. */
+  PRIMARY_AUDIO_TRACK_CONFLICT: "primary_audio_track_conflict",
+  /** No ready audio-only static rendition was available after waiting for one. Facts: `assetId`. */
+  STATIC_RENDITION_MISSING: "static_rendition_missing",
+  /** The asset's static rendition settings changed while waiting for its rendition. A new job uses the new settings. Facts: `assetId`. */
+  STATIC_RENDITION_CHANGED: "static_rendition_changed",
+  /** Mux didn't finish the static rendition within the polling budget. Facts: `assetId`, `attempts`, `pollIntervalMs`, `lastStatus`. */
+  STATIC_RENDITION_TIMEOUT: "static_rendition_timeout",
 } as const;
 export type MuxAiErrorCode = typeof MUX_AI_ERROR_CODES[keyof typeof MUX_AI_ERROR_CODES];
 export const MUX_AI_ERROR_CODE_VALUES: readonly MuxAiErrorCode[] = Object.values(MUX_AI_ERROR_CODES);
@@ -219,6 +231,14 @@ export const MUX_AI_ERROR_CATALOG = {
   [MUX_AI_ERROR_CODES.DUBBING_LANGUAGE_UNSUPPORTED]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER },
   // Reported by the dubbing provider: a step retry would find the same failed dub.
   [MUX_AI_ERROR_CODES.DUBBING_FAILED]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER, transient: false },
+  // Polling timeouts: not transient, since the whole polling budget was already spent.
+  [MUX_AI_ERROR_CODES.DUBBING_TIMEOUT]: { type: MUX_AI_ERROR_TYPES.TIMEOUT_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER, transient: false },
+  [MUX_AI_ERROR_CODES.STATIC_RENDITION_TIMEOUT]: { type: MUX_AI_ERROR_TYPES.TIMEOUT_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO, transient: false },
+  [MUX_AI_ERROR_CODES.AUDIO_TRACK_MISSING]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },
+  [MUX_AI_ERROR_CODES.PRIMARY_AUDIO_TRACK_CONFLICT]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },
+  [MUX_AI_ERROR_CODES.STATIC_RENDITION_MISSING]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },
+  // Retryable although asset-sourced: the asset changed mid-run, and a new job uses the new settings.
+  [MUX_AI_ERROR_CODES.STATIC_RENDITION_CHANGED]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET, retryable: true },
 } as const satisfies Record<MuxAiErrorCode, ErrorCatalogEntry<MuxAiErrorType, MuxAiErrorDependency>>;
 
 export interface ModelCallDiagnostics {

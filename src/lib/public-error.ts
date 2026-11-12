@@ -240,6 +240,26 @@ export const MUX_AI_ERROR_PUBLIC_MAPPINGS = {
     facts: ["language", "which"],
     message: facts => `Audio dubbing doesn't support the ${text(facts.which) || "requested"} language "${text(facts.language)}".`,
   },
+  [MUX_AI_ERROR_CODES.DUBBING_TIMEOUT]: {
+    message: "Audio dubbing didn't finish in time. Please try again.",
+  },
+  [MUX_AI_ERROR_CODES.AUDIO_TRACK_MISSING]: {
+    facts: ["assetId"],
+    message: facts => `${facts.assetId ? `Asset ${text(facts.assetId)}` : "The asset"} has no audio track, so there is no audio to work with.`,
+  },
+  [MUX_AI_ERROR_CODES.PRIMARY_AUDIO_TRACK_CONFLICT]: {
+    facts: ["languageCode"],
+    message: facts => `The asset's primary audio track${facts.languageCode ? ` is in language '${text(facts.languageCode)}' and` : ""} can't be replaced. Choose a different target language.`,
+  },
+  [MUX_AI_ERROR_CODES.STATIC_RENDITION_MISSING]: {
+    message: "The asset has no ready audio-only static rendition. Check that static renditions are enabled for the asset in Mux.",
+  },
+  [MUX_AI_ERROR_CODES.STATIC_RENDITION_CHANGED]: {
+    message: "The asset's static rendition settings changed while it was being processed. Please try again.",
+  },
+  [MUX_AI_ERROR_CODES.STATIC_RENDITION_TIMEOUT]: {
+    message: "The asset's static rendition wasn't ready in time. Please try again in a moment.",
+  },
   [MUX_AI_ERROR_CODES.DUBBING_FAILED]: {
     // The dubbing provider documents this text as safe to display.
     facts: ["providerError"],

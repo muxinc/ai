@@ -388,6 +388,7 @@ export function trackReplacementBlockedError(
   };
   if (blocked.code === "primary_audio" && blocked.conflictsOnLanguage) {
     return new MuxAiError(message, {
+      code: MUX_AI_ERROR_CODES.PRIMARY_AUDIO_TRACK_CONFLICT,
       type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
       source: MUX_AI_ERROR_SOURCES.ASSET,
       facts,

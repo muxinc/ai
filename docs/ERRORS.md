@@ -124,6 +124,12 @@ A remote service reached over the network. Libraries running in-process are neve
 | `static_rendition_failed` | `processing_error` | `upstream` | `mux_video` | yes | Mux reported the static rendition a workflow needs as errored. |
 | `dubbing_language_unsupported` | `validation_error` | `request` | `ai_provider` | yes | The dubbing provider doesn't support the requested language. Facts: `language` and `which` (`target` or `source`). |
 | `dubbing_failed` | `processing_error` | `upstream` | `ai_provider` | yes | The dubbing provider ran the dub and reported it failed. Facts: `providerError`, the provider's display text, when it gave one. |
+| `dubbing_timeout` | `timeout_error` | `upstream` | `ai_provider` | yes | The dubbing provider didn't finish the dub within the polling budget. Facts: `dubbingId`, `timeoutSeconds`, `lastStatus`. |
+| `audio_track_missing` | `validation_error` | `asset` |  | yes | The asset has no audio track, so there is no audio to work with. Facts: `assetId`. |
+| `primary_audio_track_conflict` | `validation_error` | `asset` |  | yes | Writing an audio track would replace the asset's primary audio track, which can't be replaced. Facts: `languageCode`, `conflictingTracks`. |
+| `static_rendition_missing` | `validation_error` | `asset` |  | yes | No ready audio-only static rendition was available after waiting for one. Facts: `assetId`. |
+| `static_rendition_changed` | `processing_error` | `asset` |  | yes | The asset's static rendition settings changed while waiting for its rendition. A new job uses the new settings. Facts: `assetId`. |
+| `static_rendition_timeout` | `timeout_error` | `upstream` | `mux_video` | yes | Mux didn't finish the static rendition within the polling budget. Facts: `assetId`, `attempts`, `pollIntervalMs`, `lastStatus`. |
 | `signing_credentials_missing` | `server_error` | `internal` |  | no | Signed playback needs signing keys the service running the SDK didn't provide. |
 | `storage_not_configured` | `server_error` | `internal` |  | no | Storage is needed but the service running the SDK didn't configure it. |
 | `track_write_unclassified` | `server_error` | `internal` |  | no | A track write failed, but the opted-in result carried no classified error: a bug in the SDK's track-write path. Facts: `reason`, the raw failure's message. |

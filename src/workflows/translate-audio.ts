@@ -9,7 +9,6 @@ import type { LanguageCodePair } from "../lib/language-codes.ts";
 import {
   errorDetailFact,
   extractErrorDetail,
-  internalError,
   MUX_AI_ERROR_CODES,
   MUX_AI_ERROR_DEPENDENCIES,
   MUX_AI_ERROR_SOURCES,
@@ -31,6 +30,7 @@ import {
   trackReplacementBlockedError,
   trackSummaryFacts,
   trackTargetFacts,
+  trackWriteFailure,
   validateTrackPassthrough,
 } from "../lib/mux-tracks.ts";
 import type { ReplaceExistingTracksPolicy, TextTrackSummary, TextTrackTarget } from "../lib/mux-tracks.ts";
@@ -359,6 +359,7 @@ async function waitForAudioStaticRendition({
     "Timed out waiting for the static rendition to become ready. Please try again in a moment.",
     {
       // Mux didn't finish the rendition in time; the asset itself is fine.
+      code: MUX_AI_ERROR_CODES.STATIC_RENDITION_TIMEOUT,
       type: MUX_AI_ERROR_TYPES.TIMEOUT_ERROR,
       source: MUX_AI_ERROR_SOURCES.UPSTREAM,
       dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO,
@@ -400,6 +401,7 @@ async function waitForLegacyMp4SupportRendition({
     throw new MuxAiError(
       "The asset's static rendition settings changed while waiting for them. Please try again.",
       {
+        code: MUX_AI_ERROR_CODES.STATIC_RENDITION_CHANGED,
         type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
         source: MUX_AI_ERROR_SOURCES.ASSET,
         facts: { assetId },
@@ -412,6 +414,7 @@ async function waitForLegacyMp4SupportRendition({
     throw new MuxAiError(
       "Timed out waiting for the static rendition to become ready. Please try again in a moment.",
       {
+        code: MUX_AI_ERROR_CODES.STATIC_RENDITION_TIMEOUT,
         type: MUX_AI_ERROR_TYPES.TIMEOUT_ERROR,
         source: MUX_AI_ERROR_SOURCES.UPSTREAM,
         dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO,
@@ -899,6 +902,7 @@ export async function translateAudio(
   // out the full rendition timeout instead of failing.
   if (isVideoOnlyAsset(initialAsset)) {
     throw new MuxAiError(`Asset ${assetId} has no audio track, so there is no audio to dub.`, {
+      code: MUX_AI_ERROR_CODES.AUDIO_TRACK_MISSING,
       type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
       source: MUX_AI_ERROR_SOURCES.ASSET,
       facts: { assetId },
@@ -979,7 +983,7 @@ export async function translateAudio(
       if (!audioRendition) {
         throw new MuxAiError(
           "Unable to obtain an audio-only static rendition for this asset. Please verify static renditions are enabled in Mux.",
-          { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET, facts: { assetId } },
+          { code: MUX_AI_ERROR_CODES.STATIC_RENDITION_MISSING, type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET, facts: { assetId } },
         );
       }
     }
@@ -1102,6 +1106,7 @@ export async function translateAudio(
 
     if (dubbingStatus !== "completed") {
       throw new MuxAiError("Audio translation timed out. Please try again.", {
+        code: MUX_AI_ERROR_CODES.DUBBING_TIMEOUT,
         type: MUX_AI_ERROR_TYPES.TIMEOUT_ERROR,
         source: MUX_AI_ERROR_SOURCES.UPSTREAM,
         dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
@@ -1194,7 +1199,7 @@ export async function translateAudio(
             throw trackReplacementBlockedError(outcome, { message: `${outcome.reason} The dubbed audio is still staged in storage.`, facts });
           }
           // Classified inside the step (we opted in); add what this workflow knows.
-          const failure = outcome.error ?? internalError(`Track write failed without a classified error: ${outcome.reason}`);
+          const failure = trackWriteFailure(outcome);
           Object.assign(failure, { facts: { ...facts, ...failure.facts } });
           failure.message = `Failed to add dubbed audio track to Mux asset: ${failure.message}. The dubbed audio is still staged in storage.`;
           throw failure;
