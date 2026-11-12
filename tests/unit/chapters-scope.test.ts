@@ -30,6 +30,8 @@ vi.mock("../../src/primitives/transcripts", () => ({
 }));
 
 const { generateText } = await import("ai");
+const { MuxAiError } = await import("../../src/lib/mux-ai-error");
+const { SYSTEM_PROMPT_CANARY } = await import("../../src/lib/prompt-fragments");
 const {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -255,9 +257,87 @@ describe("generateChapters scene context", () => {
         { scene_index: 0, start_ms: 0, end_ms: 60_000, title: "Outside scope" },
       ],
     })).rejects.toMatchObject({
-      publicType: "validation_error",
-      publicMessage: "Scene context has no chapter boundaries within the requested scope.",
+      code: "invalid_scope",
+      type: "validation_error",
+      source: "request",
+      message: "Scene context has no chapter boundaries within the requested scope.",
+      facts: { reason: "no_scenes", startTime: 80, endTime: 120, inputs: ["scope", "sceneContext"] },
     });
     expect(generateText).not.toHaveBeenCalled();
+  });
+});
+
+describe("generateChapters classified errors", () => {
+  const modelFacts = { call: "generate_chapters", provider: "openai", model: "test-model", assetId: "asset-123" };
+
+  it("requires the transcript, with classified errors", async () => {
+    await generateChapters("asset-123");
+
+    expect(vi.mocked(fetchTranscriptForAsset).mock.calls[0][2]).toMatchObject({ required: true, classifiedErrors: true });
+    expect(vi.mocked(getPlaybackIdForAsset).mock.calls[0][3]).toEqual({ classifiedErrors: true });
+  });
+
+  it("codes a signed asset without signing keys as signing_credentials_missing", async () => {
+    vi.mocked(getPlaybackIdForAsset).mockResolvedValue({
+      asset: { id: "asset-123", duration: 120, tracks: [] },
+      playbackId: "playback-123",
+      policy: "signed",
+    } as any);
+
+    await expect(generateChapters("asset-123")).rejects.toMatchObject({ code: "signing_credentials_missing", source: "internal" });
+  });
+
+  it("codes a transcript with no timestamped lines as transcript_empty", async () => {
+    vi.mocked(extractTimestampedTranscript).mockReturnValue("");
+
+    await expect(generateChapters("asset-123")).rejects.toMatchObject({
+      code: "transcript_empty",
+      source: "asset",
+      facts: { assetId: "asset-123", trackId: "text-track" },
+    });
+    expect(generateText).not.toHaveBeenCalled();
+  });
+
+  it("codes chapters that all fall outside the scope as model_output_invalid", async () => {
+    vi.mocked(generateText).mockResolvedValue({
+      finishReason: "stop",
+      output: { chapters: [{ startTime: 5, title: "Before the range" }] },
+      text: JSON.stringify({ chapters: [{ startTime: 5, title: "Before the range" }] }),
+      usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+    } as any);
+
+    await expect(generateChapters("asset-123", { scope: { startTime: 60, endTime: 120 } })).rejects.toMatchObject({
+      code: "model_output_invalid",
+      dependency: "ai_provider",
+      facts: { ...modelFacts, returnedChapterCount: 1, scopeStartTime: 60, scopeEndTime: 120 },
+    });
+  });
+
+  it("codes chapters whose titles were all withheld by the safety filter as model_output_suppressed", async () => {
+    const leaked = `Chapter ${SYSTEM_PROMPT_CANARY}`;
+    vi.mocked(generateText).mockResolvedValue({
+      finishReason: "stop",
+      output: { chapters: [{ startTime: 0, title: leaked }] },
+      text: JSON.stringify({ chapters: [{ startTime: 0, title: leaked }] }),
+      usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+    } as any);
+
+    const error = await generateChapters("asset-123").catch(e => e);
+
+    expect(error).toMatchObject({
+      code: "model_output_suppressed",
+      retryable: false,
+      facts: { ...modelFacts, suppressedChapterCount: 1 },
+    });
+    expect(error.message).not.toContain(SYSTEM_PROMPT_CANARY);
+  });
+
+  it("classifies a failed model call, naming the call", async () => {
+    vi.mocked(generateText).mockRejectedValue(new Error("socket hang up"));
+
+    const error = await generateChapters("asset-123").catch(e => e);
+
+    expect(MuxAiError.is(error)).toBe(true);
+    expect(error.facts).toMatchObject({ call: "generate_chapters", provider: "openai", model: "test-model" });
   });
 });
