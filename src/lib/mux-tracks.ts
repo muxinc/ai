@@ -264,20 +264,20 @@ export function planTextTrackReplacement(
     conflictsOnLanguage: tracks.some(track => sameLanguageIds.has(track.id!)),
   });
 
-  if (policy === "fail") {
-    return blocked(
-      "policy_fail",
-      `${countTracks(conflicting, label, "already exists", "already exist")} for language '${target.languageCode}' or name '${target.name}': ${describeTracks(conflicting)}. Set replaceExistingTracks to replace ${itOrThem(conflicting)}.`,
-      conflicting,
-    );
-  }
-
   const primary = conflicting.filter(track => track.type === "audio" && track.primary === true);
   if (primary.length > 0) {
     return blocked(
       "primary_audio",
       `The asset's primary audio track is in the way for language '${target.languageCode}' or name '${target.name}': ${describeTracks(primary)}. Primary audio cannot be replaced; choose a different trackName.`,
       primary,
+    );
+  }
+
+  if (policy === "fail") {
+    return blocked(
+      "policy_fail",
+      `${countTracks(conflicting, label, "already exists", "already exist")} for language '${target.languageCode}' or name '${target.name}': ${describeTracks(conflicting)}. Set replaceExistingTracks to replace ${itOrThem(conflicting)}.`,
+      conflicting,
     );
   }
 
@@ -388,6 +388,7 @@ export function trackReplacementBlockedError(
   };
   if (blocked.code === "primary_audio" && blocked.conflictsOnLanguage) {
     return new MuxAiError(message, {
+      code: MUX_AI_ERROR_CODES.PRIMARY_AUDIO_TRACK_CONFLICT,
       type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
       source: MUX_AI_ERROR_SOURCES.ASSET,
       facts,
