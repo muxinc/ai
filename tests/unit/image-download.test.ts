@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { downloadImageAsBase64 } from "../../src/lib/image-download";
+import { downloadImageAsBase64, downloadImagesAsBase64 } from "../../src/lib/image-download";
 import { MuxAiError } from "../../src/lib/mux-ai-error";
 
 const SIGNED_URL = "https://image.mux.com/playback-123/storyboard.jpg?token=secret-token";
@@ -95,5 +95,30 @@ describe("downloadImageAsBase64", () => {
       retryable: true,
       facts: { call: "fetch_storyboard", reason, ...facts },
     });
+  });
+});
+
+describe("downloadImagesAsBase64", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("passes the opt-in to each download", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    stubFetch(new Response("missing", { status: 404 }));
+
+    const error = await downloadImagesAsBase64([SIGNED_URL], NO_RETRIES, 5, { classifiedErrors: true, call: "fetch_thumbnail" }).catch(e => e);
+
+    expect(error).toMatchObject({ dependency: "mux_video", facts: { call: "fetch_thumbnail", status: 404 } });
+  });
+
+  it("keeps throwing plain errors without the opt-in", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    stubFetch(new Response("missing", { status: 404, statusText: "Not Found" }));
+
+    const error = await downloadImagesAsBase64([SIGNED_URL], NO_RETRIES).catch(e => e);
+
+    expect(MuxAiError.is(error)).toBe(false);
   });
 });

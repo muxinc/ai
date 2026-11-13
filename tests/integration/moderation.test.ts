@@ -181,7 +181,11 @@ describe("moderation Integration Tests", () => {
         getModerationScores(safeAudioOnlyAssetId, {
           provider: "google-vision-api",
         }),
-      ).rejects.toThrow(/Nothing to moderate.*'google-vision-api' is image-only/);
+      ).rejects.toMatchObject({
+        message: expect.stringMatching(/Nothing to moderate.*'google-vision-api' is image-only/),
+        code: "invalid_parameter",
+        facts: expect.objectContaining({ parameter: "provider", reason: "not_allowed", allowed: ["openai"] }),
+      });
     });
   });
 
