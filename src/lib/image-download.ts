@@ -232,19 +232,21 @@ function imageDownloadError(failure: ImageDownloadFailure | undefined, call: str
  * @param urls - Array of image URLs to download
  * @param options - Download configuration options
  * @param maxConcurrent - Maximum concurrent downloads (default: 5)
+ * @param errorOptions - Opts in to classified errors (see {@link ImageDownloadErrorOptions})
  * @returns Promise resolving to array of ImageDownloadResult (in same order as input URLs)
  */
 export async function downloadImagesAsBase64(
   urls: string[],
   options: ImageDownloadOptions = {},
   maxConcurrent: number = 5,
+  errorOptions: ImageDownloadErrorOptions = {},
 ): Promise<ImageDownloadResult[]> {
   "use step";
   const results: ImageDownloadResult[] = [];
 
   for (let i = 0; i < urls.length; i += maxConcurrent) {
     const batch = urls.slice(i, i + maxConcurrent);
-    const batchPromises = batch.map(url => downloadImageAsBase64(url, options));
+    const batchPromises = batch.map(url => downloadImageAsBase64(url, options, errorOptions));
     const batchResults = await Promise.all(batchPromises);
     results.push(...batchResults);
   }

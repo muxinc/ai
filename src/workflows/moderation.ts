@@ -1,9 +1,20 @@
 import { z } from "zod";
 
 import { getApiKeyFromEnv } from "../lib/client-factory.ts";
-import type { ImageDownloadOptions } from "../lib/image-download.ts";
+import { dependencyError, requestIdOf } from "../lib/dependency-error.ts";
+import type { ImageDownloadErrorOptions, ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImagesAsBase64 } from "../lib/image-download.ts";
-import { LegacyMuxAiError } from "../lib/legacy-mux-ai-error.ts";
+import type { MuxAiErrorFacts } from "../lib/mux-ai-error.ts";
+import {
+  assertNever,
+  internalError,
+  isTransientStatus,
+  MUX_AI_ERROR_CODES,
+  MUX_AI_ERROR_DEPENDENCIES,
+  MUX_AI_ERROR_SOURCES,
+  MUX_AI_ERROR_TYPES,
+  MuxAiError,
+} from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -14,12 +25,13 @@ import {
 import { getMuxThumbnailBaseUrl } from "../lib/mux-url.ts";
 import { withRetry } from "../lib/retry.ts";
 import { planSamplingTimestamps } from "../lib/sampling-plan.ts";
-import { signUrl } from "../lib/url-signing.ts";
+import { signingCredentialsMissingError, signUrl } from "../lib/url-signing.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
-import { hasWorkflowScopeBoundaries, resolveWorkflowScope } from "../lib/workflow-scope.ts";
+import type { ResolvedWorkflowScope } from "../lib/workflow-scope.ts";
+import { hasWorkflowScopeBoundaries, invalidScopeError, resolveWorkflowScope } from "../lib/workflow-scope.ts";
 import { getThumbnailUrls } from "../primitives/thumbnails.ts";
 import type { VTTCue } from "../primitives/transcripts.ts";
-import { buildTranscriptUrl, fetchTranscriptDataForUrl, findCaptionTrack, parseVTTCues } from "../primitives/transcripts.ts";
+import { buildTranscriptUrl, fetchTranscriptDataForUrl, findCaptionTrack, getReadyTextTracks, parseVTTCues } from "../primitives/transcripts.ts";
 import type {
   ImageSubmissionMode,
   ScopedMuxAIOptions,
@@ -301,25 +313,62 @@ export const HIVE_VIOLENCE_CATEGORIES = [
   "garm_death_injury_or_military_conflict",
 ];
 
-class OpenAIModerationRequestError extends Error {
-  readonly status?: number;
+/**
+ * Why one moderation call failed, as plain data. A sample that fails is scored as an
+ * error rather than thrown, so this rides on the sample (never on the returned result)
+ * for the error raised when every sample fails.
+ */
+interface ModerationCallFailure {
+  /** The HTTP status the provider rejected the call with. */
+  status?: number;
+  requestId?: string;
+  /** The call timed out before a response arrived. */
+  timedOut?: boolean;
+  /**
+   * `invalid_response`: the provider answered, but not with a usable result.
+   * `provider_error`: the provider answered with an error of its own instead of a result.
+   * Absent with no status: there was no response.
+   */
+  reason?: "invalid_response" | "provider_error";
+  /** The provider's own error code, e.g. OpenAI's `insufficient_quota` or Hive's return code. */
+  providerCode?: string;
+}
+
+/** A failed moderation call, carrying what classifies it. Caught per sample, never thrown out of a sample. */
+class ModerationRequestError extends Error {
+  readonly failure: ModerationCallFailure;
   readonly retriable: boolean;
 
-  constructor(
-    message: string,
-    {
-      status,
-      retriable,
-    }: {
-      status?: number;
-      retriable: boolean;
-    },
-  ) {
+  constructor(message: string, failure: ModerationCallFailure, { retriable = false }: { retriable?: boolean } = {}) {
     super(message);
-    this.name = "OpenAIModerationRequestError";
-    this.status = status;
+    this.name = "ModerationRequestError";
+    this.failure = failure;
     this.retriable = retriable;
   }
+
+  get status(): number | undefined {
+    return this.failure.status;
+  }
+}
+
+/** The failure to record on a sample that errored: unknown for anything but a moderation call's own failure. */
+function sampleFailureOf(error: unknown): ModerationCallFailure | undefined {
+  return error instanceof ModerationRequestError ? error.failure : undefined;
+}
+
+// Tokens only: free text from a provider's body stays out of facts.
+const ProviderCodeSchema = z.string().regex(/^[\w.-]{1,64}$/);
+
+/** A provider's own error code, when it is a token safe to keep as a fact. */
+function providerCodeOf(value: unknown): string | undefined {
+  const parsed = ProviderCodeSchema.safeParse(typeof value === "number" ? String(value) : value);
+  return parsed.success ? parsed.data : undefined;
+}
+
+/** OpenAI's error code (e.g. `insufficient_quota`, which a 429 alone can't tell from a rate limit), or its error type. */
+function openAIErrorCodeOf(json: unknown): string | undefined {
+  const error = (json as { error?: { code?: unknown; type?: unknown } } | null | undefined)?.error;
+  return providerCodeOf(error?.code) ?? providerCodeOf(error?.type);
 }
 
 function isRetriableOpenAIModerationStatus(status: number): boolean {
@@ -334,24 +383,30 @@ function compactBodySnippet(body: string, maxLength: number = 180): string {
   return compact.length > maxLength ? `${compact.slice(0, maxLength)}...` : compact;
 }
 
-function parseOpenAIModerationResponse(
-  bodyText: string,
-  status: number,
-  statusText: string,
-): any {
+/** A rejected call is classified by its status; an accepted one that can't be read is an invalid response. */
+function openAIResponseFailure(res: Response): ModerationCallFailure {
+  return res.ok ?
+      { reason: "invalid_response" } :
+      { status: res.status, requestId: requestIdOf(res.headers) };
+}
+
+function parseOpenAIModerationResponse(bodyText: string, res: Response): any {
+  const { status, statusText } = res;
   if (!bodyText.trim()) {
-    throw new OpenAIModerationRequestError(
+    throw new ModerationRequestError(
       `OpenAI moderation returned an empty response (${status} ${statusText}).`,
-      { status, retriable: isRetriableOpenAIModerationStatus(status) },
+      openAIResponseFailure(res),
+      { retriable: isRetriableOpenAIModerationStatus(status) },
     );
   }
 
   try {
     return JSON.parse(bodyText);
   } catch {
-    throw new OpenAIModerationRequestError(
+    throw new ModerationRequestError(
       `OpenAI moderation returned non-JSON response (${status} ${statusText}): ${compactBodySnippet(bodyText)}`,
-      { status, retriable: true },
+      openAIResponseFailure(res),
+      { retriable: true },
     );
   }
 }
@@ -405,37 +460,37 @@ async function callOpenAIModerationApi({
           }),
         });
       } catch (error) {
-        throw new OpenAIModerationRequestError(
+        throw new ModerationRequestError(
           `OpenAI moderation request failed: ${error instanceof Error ? error.message : String(error)}`,
+          {},
           { retriable: true },
         );
       }
 
       const bodyText = await res.text();
-      const json = parseOpenAIModerationResponse(bodyText, res.status, res.statusText);
+      const json = parseOpenAIModerationResponse(bodyText, res);
 
       if (!res.ok) {
-        throw new OpenAIModerationRequestError(
+        const providerCode = openAIErrorCodeOf(json);
+        throw new ModerationRequestError(
           `OpenAI moderation error: ${res.status} ${res.statusText} - ${JSON.stringify(json)}`,
-          {
-            status: res.status,
-            retriable: isRetriableOpenAIModerationStatus(res.status),
-          },
+          { ...openAIResponseFailure(res), ...(providerCode && { providerCode }) },
+          { retriable: isRetriableOpenAIModerationStatus(res.status) },
         );
       }
 
       const parsed = OpenAIModerationResponseSchema.safeParse(json);
       if (!parsed.success) {
-        throw new OpenAIModerationRequestError(
+        throw new ModerationRequestError(
           `OpenAI moderation returned an unexpected response shape: ${compactBodySnippet(bodyText)}`,
-          { status: res.status, retriable: false },
+          { reason: "invalid_response" },
         );
       }
       const expectedResultCount = Array.isArray(input) ? input.length : 1;
       if (parsed.data.results.length !== expectedResultCount) {
-        throw new OpenAIModerationRequestError(
+        throw new ModerationRequestError(
           `OpenAI moderation returned ${parsed.data.results.length} result(s) for ${expectedResultCount} input(s).`,
-          { status: res.status, retriable: false },
+          { reason: "invalid_response" },
         );
       }
       return parsed.data;
@@ -445,9 +500,32 @@ async function callOpenAIModerationApi({
       baseDelay: OPENAI_MODERATION_BASE_DELAY_MS,
       maxDelay: OPENAI_MODERATION_MAX_DELAY_MS,
       shouldRetry: error =>
-        error instanceof OpenAIModerationRequestError ? error.retriable : true,
+        error instanceof ModerationRequestError ? error.retriable : true,
     },
   );
+}
+
+/** A thumbnail score as the provider steps return it: with why it failed, which is dropped from the result. */
+type ThumbnailSample = ThumbnailModerationScore & { failure?: ModerationCallFailure };
+
+/** A transcript-window score as the provider steps return it: with why it failed, which is dropped from the result. */
+type TranscriptSample = TranscriptModerationScore & { failure?: ModerationCallFailure };
+
+function withoutFailure<T extends { failure?: ModerationCallFailure }>({ failure: _failure, ...score }: T): Omit<T, "failure"> {
+  return score;
+}
+
+function thumbnailErrorSample(entry: { url: string; time?: number }, error: unknown): ThumbnailSample {
+  const failure = sampleFailureOf(error);
+  return {
+    url: entry.url,
+    time: entry.time,
+    sexual: 0,
+    violence: 0,
+    error: true,
+    errorMessage: error instanceof Error ? error.message : String(error),
+    ...(failure && { failure }),
+  };
 }
 
 async function processConcurrently<T>(
@@ -474,7 +552,7 @@ async function moderateImageWithOpenAI(entry: {
   image: string;
   model: string;
   credentials?: WorkflowCredentialsInput;
-}): Promise<ThumbnailModerationScore> {
+}): Promise<ThumbnailSample> {
   "use step";
   try {
     const { results } = await callOpenAIModerationApi({
@@ -500,16 +578,12 @@ async function moderateImageWithOpenAI(entry: {
     };
   } catch (error) {
     console.error("OpenAI moderation failed:", error);
-    return {
-      url: entry.url,
-      time: entry.time,
-      sexual: 0,
-      violence: 0,
-      error: true,
-      errorMessage: error instanceof Error ? error.message : String(error),
-    };
+    return thumbnailErrorSample(entry, error);
   }
 }
+
+/** Thumbnails are Mux images, so a base64 download failure is Mux Video's. */
+const THUMBNAIL_DOWNLOAD_ERRORS: ImageDownloadErrorOptions = { classifiedErrors: true, call: "fetch_thumbnail" };
 
 async function requestOpenAIModeration(
   images: Array<{ url: string; time: number }>,
@@ -518,14 +592,14 @@ async function requestOpenAIModeration(
   submissionMode: "url" | "base64" = "url",
   downloadOptions?: ImageDownloadOptions,
   credentials?: WorkflowCredentialsInput,
-): Promise<ThumbnailModerationScore[]> {
+): Promise<ThumbnailSample[]> {
   "use step";
   const imageUrls = images.map(img => img.url);
   const timeByUrl = new Map(images.map(img => [img.url, img.time]));
 
   const targetUrls =
     submissionMode === "base64" ?
-        (await downloadImagesAsBase64(imageUrls, downloadOptions, maxConcurrent)).map(
+        (await downloadImagesAsBase64(imageUrls, downloadOptions, maxConcurrent, THUMBNAIL_DOWNLOAD_ERRORS)).map(
           img => ({ url: img.url, time: timeByUrl.get(img.url), image: img.base64Data, model, credentials }),
         ) :
         images.map(img => ({ url: img.url, time: img.time, image: img.url, model, credentials }));
@@ -757,7 +831,8 @@ function packWindowsIntoBatches(windows: TranscriptWindow[]): TranscriptWindow[]
 function transcriptErrorScore(
   window: TranscriptWindow,
   error: unknown,
-): TranscriptModerationScore {
+): TranscriptSample {
+  const failure = sampleFailureOf(error);
   return {
     startTime: window.startTime,
     endTime: window.endTime,
@@ -765,6 +840,7 @@ function transcriptErrorScore(
     violence: 0,
     error: true,
     errorMessage: error instanceof Error ? error.message : String(error),
+    ...(failure && { failure }),
   };
 }
 
@@ -782,7 +858,7 @@ function transcriptErrorScore(
  */
 async function moderateTranscriptBatchWithOpenAI(
   batch: TranscriptModerationBatch,
-): Promise<TranscriptModerationScore[]> {
+): Promise<TranscriptSample[]> {
   "use step";
   const { windows, model, credentials } = batch;
   if (windows.length === 0) {
@@ -807,7 +883,7 @@ async function moderateTranscriptBatchWithOpenAI(
     });
   } catch (error) {
     const status =
-      error instanceof OpenAIModerationRequestError ? error.status : undefined;
+      error instanceof ModerationRequestError ? error.status : undefined;
     // 400 typically means the batched input was too large: split and retry.
     if (status === 400 && windows.length > 1) {
       const mid = Math.ceil(windows.length / 2);
@@ -828,7 +904,7 @@ async function requestOpenAITranscriptModeration(
   model: string,
   maxConcurrent: number = 5,
   credentials?: WorkflowCredentialsInput,
-): Promise<TranscriptModerationScore[]> {
+): Promise<TranscriptSample[]> {
   "use step";
   // Build dynamic, overlapping time windows whose size scales with the asset's
   // duration, then moderate them as array-batched requests. Each window maps to
@@ -873,7 +949,7 @@ async function moderateImageWithHive(entry: {
   time?: number;
   source: HiveModerationSource;
   credentials?: WorkflowCredentialsInput;
-}): Promise<ThumbnailModerationScore> {
+}): Promise<ThumbnailSample> {
   "use step";
   const apiKey = await getApiKeyFromEnv("hive", entry.credentials);
   try {
@@ -904,9 +980,9 @@ async function moderateImageWithHive(entry: {
       });
     } catch (err: any) {
       if (err?.name === "AbortError") {
-        throw new Error("Hive request timed out after 15s");
+        throw new ModerationRequestError("Hive request timed out after 15s", { timedOut: true });
       }
-      throw err;
+      throw new ModerationRequestError(err instanceof Error ? err.message : String(err), {});
     } finally {
       clearTimeout(timeout);
     }
@@ -914,14 +990,17 @@ async function moderateImageWithHive(entry: {
     const json: any = await res.json().catch(() => undefined);
 
     if (!res.ok) {
-      throw new Error(
+      throw new ModerationRequestError(
         `Hive moderation error: ${res.status} ${res.statusText} - ${JSON.stringify(json)}`,
+        { status: res.status, requestId: requestIdOf(res.headers) },
       );
     }
 
     if (json?.return_code != null && json.return_code !== 0) {
-      throw new Error(
+      const providerCode = providerCodeOf(json.return_code);
+      throw new ModerationRequestError(
         `Hive API error (return_code ${json.return_code}): ${json.message || "Unknown error"}`,
+        { reason: "provider_error", ...(providerCode && { providerCode }) },
       );
     }
 
@@ -929,8 +1008,9 @@ async function moderateImageWithHive(entry: {
     // Hive returns scores in status[0].response.output[0].classes as array of {class, score}
     const classes = json?.status?.[0]?.response?.output?.[0]?.classes;
     if (!Array.isArray(classes)) {
-      throw new TypeError(
+      throw new ModerationRequestError(
         `Unexpected Hive response structure: ${JSON.stringify(json)}`,
+        { reason: "invalid_response" },
       );
     }
 
@@ -945,14 +1025,7 @@ async function moderateImageWithHive(entry: {
       error: false,
     };
   } catch (error) {
-    return {
-      url: entry.url,
-      time: entry.time,
-      sexual: 0,
-      violence: 0,
-      error: true,
-      errorMessage: error instanceof Error ? error.message : String(error),
-    };
+    return thumbnailErrorSample(entry, error);
   }
 }
 
@@ -962,7 +1035,7 @@ async function requestHiveModeration(
   submissionMode: "url" | "base64" = "url",
   downloadOptions?: ImageDownloadOptions,
   credentials?: WorkflowCredentialsInput,
-): Promise<ThumbnailModerationScore[]> {
+): Promise<ThumbnailSample[]> {
   "use step";
 
   const imageUrls = images.map(img => img.url);
@@ -970,7 +1043,7 @@ async function requestHiveModeration(
 
   const targets: Array<{ url: string; time?: number; source: HiveModerationSource; credentials?: WorkflowCredentialsInput }> =
     submissionMode === "base64" ?
-        (await downloadImagesAsBase64(imageUrls, downloadOptions, maxConcurrent)).map(img => ({
+        (await downloadImagesAsBase64(imageUrls, downloadOptions, maxConcurrent, THUMBNAIL_DOWNLOAD_ERRORS)).map(img => ({
           url: img.url,
           time: timeByUrl.get(img.url),
           source: {
@@ -996,7 +1069,7 @@ async function moderateImageWithGoogleVision(entry: {
   image: string;
   isBase64: boolean;
   credentials?: WorkflowCredentialsInput;
-}): Promise<ThumbnailModerationScore> {
+}): Promise<ThumbnailSample> {
   "use step";
   try {
     const apiKey = await getApiKeyFromEnv("google-vision-api", entry.credentials);
@@ -1029,9 +1102,9 @@ async function moderateImageWithGoogleVision(entry: {
       });
     } catch (err: any) {
       if (err?.name === "AbortError") {
-        throw new Error("Google Vision request timed out after 15s");
+        throw new ModerationRequestError("Google Vision request timed out after 15s", { timedOut: true });
       }
-      throw err;
+      throw new ModerationRequestError(err instanceof Error ? err.message : String(err), {});
     } finally {
       clearTimeout(timeout);
     }
@@ -1039,21 +1112,27 @@ async function moderateImageWithGoogleVision(entry: {
     const json: any = await res.json().catch(() => undefined);
 
     if (!res.ok) {
-      throw new Error(
+      throw new ModerationRequestError(
         `Google Vision moderation error: ${res.status} ${res.statusText} - ${JSON.stringify(json)}`,
+        { status: res.status, requestId: requestIdOf(res.headers) },
       );
     }
 
     const perImage = json?.responses?.[0];
     if (perImage?.error) {
-      throw new Error(
+      const providerCode = providerCodeOf(perImage.error.code);
+      throw new ModerationRequestError(
         `Google Vision per-image error: ${perImage.error.code} ${perImage.error.message || "Unknown error"}`,
+        { reason: "provider_error", ...(providerCode && { providerCode }) },
       );
     }
 
     const annotation = perImage?.safeSearchAnnotation;
     if (!annotation) {
-      throw new Error(`Google Vision response missing safeSearchAnnotation: ${JSON.stringify(json)}`);
+      throw new ModerationRequestError(
+        `Google Vision response missing safeSearchAnnotation: ${JSON.stringify(json)}`,
+        { reason: "invalid_response" },
+      );
     }
 
     const adultLikelihood = typeof annotation.adult === "string" ? annotation.adult : "UNKNOWN";
@@ -1070,14 +1149,7 @@ async function moderateImageWithGoogleVision(entry: {
       error: false,
     };
   } catch (error) {
-    return {
-      url: entry.url,
-      time: entry.time,
-      sexual: 0,
-      violence: 0,
-      error: true,
-      errorMessage: error instanceof Error ? error.message : String(error),
-    };
+    return thumbnailErrorSample(entry, error);
   }
 }
 
@@ -1087,7 +1159,7 @@ async function requestGoogleVisionModeration(
   submissionMode: "url" | "base64" = "url",
   downloadOptions?: ImageDownloadOptions,
   credentials?: WorkflowCredentialsInput,
-): Promise<ThumbnailModerationScore[]> {
+): Promise<ThumbnailSample[]> {
   "use step";
 
   const imageUrls = images.map(img => img.url);
@@ -1095,7 +1167,7 @@ async function requestGoogleVisionModeration(
 
   const targets =
     submissionMode === "base64" ?
-        (await downloadImagesAsBase64(imageUrls, downloadOptions, maxConcurrent)).map(img => ({
+        (await downloadImagesAsBase64(imageUrls, downloadOptions, maxConcurrent, THUMBNAIL_DOWNLOAD_ERRORS)).map(img => ({
           url: img.url,
           time: timeByUrl.get(img.url),
           // Vision REST wants raw base64; downloadImagesAsBase64 returns a data URI.
@@ -1174,7 +1246,7 @@ async function requestThumbnailModeration(
     imageDownloadOptions?: ImageDownloadOptions;
     credentials?: WorkflowCredentialsInput;
   },
-): Promise<ThumbnailModerationScore[]> {
+): Promise<ThumbnailSample[]> {
   const { model, maxConcurrent, imageSubmissionMode, imageDownloadOptions, credentials } = options;
   switch (provider) {
     case "openai":
@@ -1190,11 +1262,147 @@ async function requestThumbnailModeration(
       return requestHiveModeration(thumbnailUrls, maxConcurrent, imageSubmissionMode, imageDownloadOptions, credentials);
     case "google-vision-api":
       return requestGoogleVisionModeration(thumbnailUrls, maxConcurrent, imageSubmissionMode, imageDownloadOptions, credentials);
-    default: {
-      const exhaustiveCheck: never = provider;
-      throw new Error(`Unsupported moderation provider: ${exhaustiveCheck}`);
-    }
+    default:
+      // Unknown providers are rejected before any work starts.
+      return assertNever(provider, "moderation provider");
   }
+}
+
+const MODERATION_PROVIDERS = ["openai", "hive", "google-vision-api"] as const satisfies readonly ModerationProvider[];
+
+/** Why a transcript produced nothing to moderate. */
+type TranscriptEmptyCause = "empty_body" | "no_scoped_cues" | "no_parseable_cues";
+
+/**
+ * The error for a request with neither surface to moderate, by what left it empty.
+ * Thumbnails are skipped only for an audio-only asset or a scope past the video, so:
+ * a scope past the video is the scope's fault; otherwise (audio-only) the transcript
+ * was the only surface, and its skip reason names the cause.
+ */
+function nothingToModerateError(
+  message: string,
+  context: {
+    assetId: string;
+    asset: Parameters<typeof getReadyTextTracks>[0];
+    provider: ModerationProvider;
+    languageCode?: string;
+    thumbnailModeration: ThumbnailModerationStatus;
+    transcriptModeration: TranscriptModerationStatus;
+    transcriptEmptyCause?: TranscriptEmptyCause;
+    captionTrackId?: string;
+    scope?: { startTime?: number; endTime?: number };
+    resolvedScope?: ResolvedWorkflowScope;
+    videoEndTime: number;
+  },
+): MuxAiError {
+  const { assetId, thumbnailModeration, transcriptModeration } = context;
+  const skips: MuxAiErrorFacts = {
+    assetId,
+    ...(thumbnailModeration.skipReason && { thumbnailSkipReason: thumbnailModeration.skipReason }),
+    ...(transcriptModeration.skipReason && { transcriptSkipReason: transcriptModeration.skipReason }),
+  };
+
+  if (thumbnailModeration.skipReason === "no_video_in_scope" && context.resolvedScope) {
+    return invalidScopeError(message, {
+      reason: "no_video",
+      startTime: context.resolvedScope.startTime,
+      endTime: context.resolvedScope.endTime,
+      videoEndTime: context.videoEndTime,
+      ...skips,
+    }, ["scope"]);
+  }
+
+  switch (transcriptModeration.skipReason) {
+    case "unsupported_provider":
+      return new MuxAiError(message, {
+        code: MUX_AI_ERROR_CODES.INVALID_PARAMETER,
+        type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+        source: MUX_AI_ERROR_SOURCES.REQUEST,
+        facts: { parameter: "provider", reason: "not_allowed", allowed: ["openai"], value: context.provider, ...skips, inputs: ["provider"] },
+      });
+    case "disabled":
+      return new MuxAiError(message, {
+        code: MUX_AI_ERROR_CODES.INVALID_PARAMETER,
+        type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+        source: MUX_AI_ERROR_SOURCES.REQUEST,
+        facts: { parameter: "includeTranscript", reason: "not_allowed", allowed: [true], value: false, ...skips, inputs: ["includeTranscript"] },
+      });
+    case "no_ready_text_track": {
+      const availableLanguages = getReadyTextTracks(context.asset)
+        .map(track => track.language_code)
+        .filter((code): code is string => !!code);
+      return new MuxAiError(message, {
+        code: MUX_AI_ERROR_CODES.CAPTION_TRACK_NOT_FOUND,
+        type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+        source: MUX_AI_ERROR_SOURCES.ASSET,
+        facts: { ...(context.languageCode && { languageCode: context.languageCode }), availableLanguages, ...skips },
+      });
+    }
+    case "no_cues":
+      if (context.transcriptEmptyCause === "no_scoped_cues") {
+        return invalidScopeError(message, {
+          reason: "no_transcript",
+          ...(context.captionTrackId && { trackId: context.captionTrackId }),
+          ...(context.scope?.startTime !== undefined && { startTime: context.scope.startTime }),
+          ...(context.scope?.endTime !== undefined && { endTime: context.scope.endTime }),
+          ...skips,
+        }, ["scope"]);
+      }
+      return new MuxAiError(message, {
+        code: MUX_AI_ERROR_CODES.TRANSCRIPT_EMPTY,
+        type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+        source: MUX_AI_ERROR_SOURCES.ASSET,
+        facts: { ...(context.captionTrackId && { trackId: context.captionTrackId }), ...(context.transcriptEmptyCause && { reason: context.transcriptEmptyCause }), ...skips },
+      });
+    case undefined:
+      // Both surfaces are skipped whenever this is raised, so the transcript has a skip reason.
+      return internalError(message, skips);
+    default:
+      return assertNever(transcriptModeration.skipReason, "transcript skip reason");
+  }
+}
+
+/** Whether a retry could get past a sample's failure: no response, or a transient status. Unknown failures can't. */
+function isTransientFailure(failure: ModerationCallFailure | undefined): boolean {
+  return failure !== undefined && failure.reason === undefined && (failure.timedOut === true || isTransientStatus(failure.status));
+}
+
+/**
+ * The error for a run in which every sample failed, classified from the samples' own
+ * failures. One failure stands for them all: the first a retry can't fix if there is
+ * one (so a deterministic failure isn't reported as worth retrying), else the first.
+ */
+function allSamplesFailedError(
+  message: string,
+  failures: Array<{ call: "moderate_thumbnails" | "moderate_transcript"; failure?: ModerationCallFailure }>,
+  facts: MuxAiErrorFacts,
+): MuxAiError {
+  const representative = failures.find(({ failure }) => !isTransientFailure(failure)) ?? failures[0];
+  const { call, failure } = representative;
+  if (!failure) {
+    // Not a failed moderation call (e.g. a missing provider key): the SDK's own failure.
+    return internalError(message, { ...facts, call });
+  }
+  if (failure.reason === "invalid_response") {
+    return new MuxAiError(message, {
+      code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID,
+      type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+      source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+      dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
+      facts: { ...facts, call },
+    });
+  }
+  return dependencyError(message, {
+    dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
+    call,
+    status: failure.status,
+    requestId: failure.requestId,
+    timedOut: failure.timedOut,
+    facts: { ...facts, ...(failure.providerCode && { providerCode: failure.providerCode }) },
+    // An error the provider answered with in place of a result: not transient, since it
+    // isn't an outage, but retryable, since a later attempt may succeed.
+    ...(failure.reason === "provider_error" && { transient: false, retryable: true }),
+  });
 }
 
 /**
@@ -1237,8 +1445,17 @@ export async function getModerationScores(
     scope,
   } = options;
   const credentials = providedCredentials;
+  // Checked up front: an unknown provider would otherwise fail only after the asset fetch.
+  if (!(MODERATION_PROVIDERS as readonly string[]).includes(provider)) {
+    throw new MuxAiError(`Unsupported moderation provider: ${String(provider)}`, {
+      code: MUX_AI_ERROR_CODES.INVALID_PARAMETER,
+      type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+      source: MUX_AI_ERROR_SOURCES.REQUEST,
+      facts: { parameter: "provider", reason: "not_allowed", allowed: [...MODERATION_PROVIDERS], value: String(provider).slice(0, 100), inputs: ["provider"] },
+    });
+  }
   // Fetch asset data and playback ID from Mux via helper
-  const { asset, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials, options.assetSnapshot);
+  const { asset, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials, options.assetSnapshot, { classifiedErrors: true });
   const videoTrackDurationSeconds = getVideoTrackDurationSecondsFromAsset(asset);
   const videoTrackFps = getVideoTrackMaxFrameRateFromAsset(asset);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(asset);
@@ -1254,7 +1471,7 @@ export async function getModerationScores(
     scope :
     undefined;
   const resolvedScope = effectiveScope ?
-      resolveWorkflowScope(effectiveScope, assetDurationSeconds) :
+      resolveWorkflowScope(effectiveScope, assetDurationSeconds, { classifiedErrors: true, assetId }) :
     undefined;
   const isAudioOnly = isAudioOnlyAsset(asset);
   // Scope boundaries are asset-relative, but video thumbnails must stay within
@@ -1270,10 +1487,7 @@ export async function getModerationScores(
   // Resolve signing context for signed playback IDs
   const signingContext = await resolveMuxSigningContext(credentials);
   if (policy === "signed" && !signingContext) {
-    throw new Error(
-      "Signed playback ID requires signing credentials. " +
-      "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
-    );
+    throw signingCredentialsMissingError();
   }
 
   // Resolve what each surface will do BEFORE any provider call, so a request
@@ -1344,6 +1558,7 @@ export async function getModerationScores(
   }
 
   let transcriptModeration: TranscriptModerationStatus = { status: "completed" };
+  let transcriptEmptyCause: TranscriptEmptyCause | undefined;
   let transcriptCues: VTTCue[] = [];
   let shouldRunTranscript = false;
   // Audio-only assets have no other surface, so the transcript always runs for them.
@@ -1371,7 +1586,13 @@ export async function getModerationScores(
     };
   } else {
     if (!captionTrack.id) {
-      throw new LegacyMuxAiError("Transcript track is missing an id.", { type: "validation_error" });
+      throw new MuxAiError("Transcript track is missing an id.", {
+        code: MUX_AI_ERROR_CODES.CAPTION_TRACK_ID_MISSING,
+        type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+        source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+        dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO,
+        facts: { assetId, ...(captionTrack.language_code && { languageCode: captionTrack.language_code }) },
+      });
     }
     // Fetch the raw VTT (cleanTranscript: false) so per-cue timecodes survive
     // for time-window segmentation. An empty transcript is a skip; a failed
@@ -1380,9 +1601,11 @@ export async function getModerationScores(
     const { transcriptText, emptyReason } = await fetchTranscriptDataForUrl(transcriptUrl, {
       cleanTranscript: false,
       scope: effectiveScope,
+      classifiedErrors: true,
     });
 
     if (emptyReason) {
+      transcriptEmptyCause = emptyReason;
       transcriptModeration = {
         status: "skipped",
         skipReason: "no_cues",
@@ -1398,6 +1621,7 @@ export async function getModerationScores(
           [] :
           buildTranscriptWindows(transcriptCues, duration);
       if (windows.length === 0) {
+        transcriptEmptyCause = "no_parseable_cues";
         transcriptModeration = {
           status: "skipped",
           skipReason: "no_cues",
@@ -1413,10 +1637,22 @@ export async function getModerationScores(
     // Never return a result with nothing scored: `exceedsThreshold: false`
     // would read as "clean" to anything automating off it. Both surfaces are
     // skipped here, and every skipMessage already ends with a period.
-    throw new LegacyMuxAiError(
+    throw nothingToModerateError(
       `Nothing to moderate. Thumbnails skipped: ${thumbnailModeration.skipMessage} ` +
       `Transcript skipped: ${transcriptModeration.skipMessage}`,
-      { type: "validation_error" },
+      {
+        assetId,
+        asset,
+        provider,
+        languageCode,
+        thumbnailModeration,
+        transcriptModeration,
+        transcriptEmptyCause,
+        captionTrackId: captionTrack?.id,
+        scope: effectiveScope,
+        resolvedScope,
+        videoEndTime: duration,
+      },
     );
   }
 
@@ -1429,7 +1665,7 @@ export async function getModerationScores(
           imageDownloadOptions,
           credentials,
         }) :
-        Promise.resolve<ThumbnailModerationScore[]>([]),
+        Promise.resolve<ThumbnailSample[]>([]),
     shouldRunTranscript ?
         requestOpenAITranscriptModeration(
           transcriptCues,
@@ -1438,7 +1674,7 @@ export async function getModerationScores(
           maxConcurrent,
           credentials,
         ) :
-        Promise.resolve<TranscriptModerationScore[]>([]),
+        Promise.resolve<TranscriptSample[]>([]),
   ]);
 
   const mode: ModerationResult["mode"] =
@@ -1451,16 +1687,27 @@ export async function getModerationScores(
 
   // Aggregate across both surfaces (thumbnails + transcript) for the all-failed
   // guard and for the max-score / threshold computation.
-  const allScores: Array<{ sexual: number; violence: number; error: boolean; errorMessage?: string; label: string }> = [
-    ...thumbnailScores.map(s => ({ ...s, label: s.url })),
-    ...transcriptScores.map(s => ({ ...s, error: s.error ?? false, label: `transcript window ${s.startTime}-${s.endTime}s` })),
+  // Thumbnails are labeled by time: their URLs may carry a signed token.
+  const allScores: Array<{
+    sexual: number;
+    violence: number;
+    error: boolean;
+    errorMessage?: string;
+    label: string;
+    call: "moderate_thumbnails" | "moderate_transcript";
+    failure?: ModerationCallFailure;
+  }> = [
+    ...thumbnailScores.map(s => ({ ...s, label: s.time === undefined ? "thumbnail" : `thumbnail at ${s.time}s`, call: "moderate_thumbnails" as const })),
+    ...transcriptScores.map(s => ({ ...s, error: s.error ?? false, label: `transcript window ${s.startTime}-${s.endTime}s`, call: "moderate_transcript" as const })),
   ];
   const failed = allScores.filter(s => s.error);
   const successful = allScores.filter(s => !s.error);
   if (successful.length === 0) {
     const details = failed.map(s => `${s.label}: ${s.errorMessage || "Unknown error"}`).join("; ");
-    throw new Error(
+    throw allSamplesFailedError(
       `Moderation failed for all ${allScores.length} sample(s): ${details}`,
+      failed,
+      { provider, ...(model && { model }), assetId, sampleCount: allScores.length },
     );
   }
 
@@ -1522,8 +1769,8 @@ export async function getModerationScores(
     assetId,
     mode,
     isAudioOnly,
-    thumbnailScores,
-    transcriptScores,
+    thumbnailScores: thumbnailScores.map(withoutFailure),
+    transcriptScores: transcriptScores.map(withoutFailure),
     thumbnailModeration,
     transcriptModeration,
     coverage: {

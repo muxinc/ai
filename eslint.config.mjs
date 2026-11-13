@@ -24,6 +24,7 @@ const CLASSIFIED_ERROR_MODULES = [
   "src/workflows/chapters.ts",
   "src/workflows/edit-captions.ts",
   "src/workflows/engagement-insights.ts",
+  "src/workflows/moderation.ts",
   "src/workflows/summarization.ts",
   "src/workflows/translate-audio.ts",
   "src/workflows/translate-captions.ts",
