@@ -250,7 +250,11 @@ describe("signed Playback Integration Tests", () => {
           getSummaryAndTags(signedAssetId, {
             provider: "anthropic",
           }),
-        ).rejects.toThrow("Signed playback ID requires signing credentials");
+        ).rejects.toMatchObject({
+          message: expect.stringContaining("Signed playback ID requires signing credentials"),
+          code: "signing_credentials_missing",
+          source: "internal",
+        });
 
         vi.unstubAllEnvs();
         reloadEnv();
