@@ -4,10 +4,20 @@ import { z } from "zod";
 
 import {
   getGeneratedOutputWithContentPolicyHandling,
+  modelStepError,
   withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
+import type { ModelCallContext } from "../lib/content-policy-error.ts";
 import { getLanguageName } from "../lib/language-codes.ts";
-import { LegacyMuxAiError, legacyWrapError } from "../lib/legacy-mux-ai-error.ts";
+import type { MuxAiErrorFacts } from "../lib/mux-ai-error.ts";
+import {
+  MUX_AI_ERROR_CODES,
+  MUX_AI_ERROR_DEPENDENCIES,
+  MUX_AI_ERROR_SOURCES,
+  MUX_AI_ERROR_TYPES,
+  MuxAiError,
+  wrapError,
+} from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -25,12 +35,12 @@ import {
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
 import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
+import { signingCredentialsMissingError } from "../lib/url-signing.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
-import { hasWorkflowScopeBoundaries, resolveWorkflowScope } from "../lib/workflow-scope.ts";
+import { hasWorkflowScopeBoundaries, invalidScopeError, resolveWorkflowScope } from "../lib/workflow-scope.ts";
 import {
   extractTimestampedTranscript,
   fetchTranscriptForAsset,
-  getReadyTextTracks,
   getReliableLanguageCode,
 } from "../primitives/transcripts.ts";
 import { createChapterGuidance } from "../prompts/chapters.ts";
@@ -177,6 +187,7 @@ async function generateChaptersWithAI({
 
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
 
+  const context: ModelCallContext = { call: "generate_chapters", provider, model: modelId };
   const response = await withContentPolicyAwareRetry(() => generateText({
     model,
     maxRetries: 0,
@@ -188,8 +199,10 @@ async function generateChaptersWithAI({
         content: userPrompt,
       },
     ],
-  }));
-  const output = getGeneratedOutputWithContentPolicyHandling(response);
+  }), undefined, context).catch((error: unknown) => {
+    throw modelStepError(error, "Chapter generation model call failed", { ...context });
+  });
+  const output = getGeneratedOutputWithContentPolicyHandling(response, context);
 
   // Detect schema-smuggling. response.output has already been stripped;
   // re-parse response.text to see what the model actually emitted.
@@ -478,63 +491,60 @@ async function generateChaptersInternal(
     provider: provider as SupportedProvider,
   });
   // Fetch asset and transcript
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials, options.assetSnapshot);
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials, options.assetSnapshot, { classifiedErrors: true });
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
   const effectiveScope = hasWorkflowScopeBoundaries(scope) ? scope : undefined;
   const resolvedScope = effectiveScope ?
-      resolveWorkflowScope(effectiveScope, assetDurationSeconds) :
+      resolveWorkflowScope(effectiveScope, assetDurationSeconds, { classifiedErrors: true, assetId }) :
     undefined;
   const isAudioOnly = isAudioOnlyAsset(assetData);
 
   // Resolve signing context for signed playback IDs
   const signingContext = await resolveMuxSigningContext(credentials);
   if (policy === "signed" && !signingContext) {
-    throw new LegacyMuxAiError(
-      "Signed playback ID requires signing credentials. " +
-      "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
-      { type: "validation_error" },
-    );
+    throw signingCredentialsMissingError();
   }
 
-  const readyTextTracks = getReadyTextTracks(assetData);
+  // Required: a missing track, a failed fetch and an empty transcript each fail with their own
+  // error, where before they all read as a missing caption track.
   const transcriptResult = await fetchTranscriptForAsset(assetData, playbackId, {
     languageCode,
     cleanTranscript: false, // keep timestamps for chapter segmentation
     shouldSign: policy === "signed",
     credentials,
     scope: effectiveScope,
+    required: true,
+    classifiedErrors: true,
   });
+  const transcriptTrack = transcriptResult.track!;
 
-  if (!transcriptResult.track || !transcriptResult.transcriptText) {
-    const availableLanguages = readyTextTracks
-      .map(t => t.language_code)
-      .filter(Boolean)
-      .join(", ");
-    throw new LegacyMuxAiError(
-      `No caption track found${languageCode ? ` for language ${languageCode}` : ""}. Available languages: ${availableLanguages || "none"}.`,
-      { type: "validation_error" },
-    );
-  }
   const timestampedTranscript = extractTimestampedTranscript(transcriptResult.transcriptText);
   if (!timestampedTranscript) {
     const contentLabel = isAudioOnly ? "transcript" : "caption track";
-    throw new LegacyMuxAiError(`No usable content found in ${contentLabel}.`, { type: "validation_error" });
+    throw new MuxAiError(`No usable content found in ${contentLabel}.`, {
+      code: MUX_AI_ERROR_CODES.TRANSCRIPT_EMPTY,
+      type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+      source: MUX_AI_ERROR_SOURCES.ASSET,
+      facts: { assetId, ...(transcriptTrack.id && { trackId: transcriptTrack.id }) },
+    });
   }
 
   // Resolve output language: explicit code takes priority, otherwise auto-detect from transcript track.
   // Low-confidence auto-detected languages and undetermined codes ("und") are filtered out.
   const resolvedLanguageCode = outputLanguageCode && outputLanguageCode !== "auto" ?
     outputLanguageCode :
-      (getReliableLanguageCode(transcriptResult.track) ?? languageCode);
+      (getReliableLanguageCode(transcriptTrack) ?? languageCode);
   const languageName = resolvedLanguageCode ? getLanguageName(resolvedLanguageCode) : undefined;
   const sceneBoundarySeconds = getSceneBoundarySeconds(sceneContext)
     .filter(boundary =>
       resolvedScope ? boundary >= resolvedScope.startTime && boundary < resolvedScope.endTime : true,
     );
   if (sceneContext?.length && sceneBoundarySeconds.length === 0) {
-    throw new LegacyMuxAiError(
+    // Every scene boundary survives without a scope, so only a scope can leave none.
+    throw invalidScopeError(
       "Scene context has no chapter boundaries within the requested scope.",
-      { type: "validation_error" },
+      { reason: "no_scenes", ...(resolvedScope && { startTime: resolvedScope.startTime, endTime: resolvedScope.endTime }) },
+      ["scope", "sceneContext"],
     );
   }
 
@@ -549,32 +559,22 @@ async function generateChaptersInternal(
   });
 
   // Generate chapters using AI SDK
-  let chaptersData: Awaited<ReturnType<typeof generateChaptersWithAI>> | null = null;
-
-  try {
-    const systemPromptOverrides = {
-      ...(isAudioOnly ? AUDIO_ONLY_SYSTEM_PROMPT_OVERRIDES : {}),
-      ...(sceneContext?.length ? SCENE_CONTEXT_SYSTEM_PROMPT_OVERRIDES : {}),
-    };
-    const systemPrompt = chapterSystemPromptBuilder.build(systemPromptOverrides);
-    chaptersData = await generateChaptersWithAI({
-      provider: modelConfig.provider,
-      modelId: modelConfig.modelId,
-      userPrompt,
-      systemPrompt,
-      credentials,
-    });
-  } catch (error) {
-    legacyWrapError(error, `Failed to generate chapters with ${provider}`);
-  }
-
-  if (chaptersData) {
-    collectedUsage.push(chaptersData.usage);
-  }
-
-  if (!chaptersData || !chaptersData.chapters) {
-    throw new LegacyMuxAiError(`Failed to generate chapters for asset ${assetId}.`);
-  }
+  const modelFacts: MuxAiErrorFacts = { call: "generate_chapters", provider: modelConfig.provider, model: modelConfig.modelId, assetId };
+  const systemPromptOverrides = {
+    ...(isAudioOnly ? AUDIO_ONLY_SYSTEM_PROMPT_OVERRIDES : {}),
+    ...(sceneContext?.length ? SCENE_CONTEXT_SYSTEM_PROMPT_OVERRIDES : {}),
+  };
+  const systemPrompt = chapterSystemPromptBuilder.build(systemPromptOverrides);
+  // The step returns only with the model's output parsed against the chapters schema, so
+  // `chapters` is always there; a missing output already failed as model_output_missing.
+  const chaptersData = await generateChaptersWithAI({
+    provider: modelConfig.provider,
+    modelId: modelConfig.modelId,
+    userPrompt,
+    systemPrompt,
+    credentials,
+  }).catch((error: unknown) => wrapError(error, `Failed to generate chapters with ${modelConfig.provider}`, modelFacts));
+  collectedUsage.push(chaptersData.usage);
 
   // Validate and sort chapters
   const { chapters: chaptersPayload, usage } = chaptersData;
@@ -593,7 +593,13 @@ async function generateChaptersInternal(
   );
 
   if (validChapters.length === 0) {
-    throw new LegacyMuxAiError(`Failed to generate valid chapters for asset ${assetId}.`);
+    throw new MuxAiError(`Failed to generate valid chapters for asset ${assetId}.`, {
+      code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID,
+      type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+      source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+      dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
+      facts: { ...modelFacts, returnedChapterCount: chaptersPayload.chapters.length, ...(resolvedScope && { scopeStartTime: resolvedScope.startTime, scopeEndTime: resolvedScope.endTime }) },
+    });
   }
 
   // Scrub chapter titles for signs of a system-prompt leak. Titles are
@@ -645,7 +651,13 @@ async function generateChaptersInternal(
   });
 
   if (scrubbedChapters.length === 0) {
-    throw new LegacyMuxAiError(`Failed to generate valid chapters for asset ${assetId}.`);
+    throw new MuxAiError(`Failed to generate valid chapters for asset ${assetId}: every chapter title was withheld by the output safety filter.`, {
+      code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_SUPPRESSED,
+      type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+      source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+      dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
+      facts: { ...modelFacts, suppressedChapterCount: validChapters.length },
+    });
   }
 
   // Preserve the standalone workflow's existing first-chapter behavior. Scene-aware
@@ -667,7 +679,7 @@ async function generateChaptersInternal(
 
   return {
     assetId,
-    languageCode: languageCode ?? getReliableLanguageCode(transcriptResult.track) ?? "en",
+    languageCode: languageCode ?? getReliableLanguageCode(transcriptTrack) ?? "en",
     chapters: scrubbedChapters,
     usage: usageWithMetadata,
     safety: safety.report(),

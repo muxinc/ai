@@ -115,7 +115,7 @@ export type ErrorCatalogEntry<TType extends string = string, TDependency extends
  * them. Codes name the condition, never the vendor.
  */
 export const MUX_AI_ERROR_CODES = {
-  /** The requested time range is invalid, or has nothing to work with. Facts: `reason` (`invalid_start_time`, `invalid_end_time`, `exceeds_duration`, `empty_range`, `no_video`, `no_transcript`) and the bounds involved. */
+  /** The requested time range is invalid, or has nothing to work with. Facts: `reason` (`invalid_start_time`, `invalid_end_time`, `exceeds_duration`, `empty_range`, `no_video`, `no_transcript`, `no_scenes`) and the bounds involved. */
   INVALID_SCOPE: "invalid_scope",
   /** Existing tracks block writing the output track under the chosen replacement policy. Facts: `reason` (`policy_fail`, `not_generated`, `name_collision`, `primary_audio`), `conflictingTracks` and the target track, plus `sourceRestored` and `restoredTrackId` when a source track was deleted first. */
   TRACK_REPLACEMENT_BLOCKED: "track_replacement_blocked",
@@ -147,6 +147,8 @@ export const MUX_AI_ERROR_CODES = {
   TRACK_WRITE_UNCLASSIFIED: "track_write_unclassified",
   /** Mux answered a track create without a track id. The track may exist, so it isn't step-retried. Facts: `call`, `assetId`. */
   TRACK_ID_MISSING: "track_id_missing",
+  /** The asset's ready caption track has no id, so its transcript can't be fetched. Facts: `assetId`, `languageCode`. */
+  CAPTION_TRACK_ID_MISSING: "caption_track_id_missing",
   /** The asset snapshot the service running the SDK passed in is for a different asset than the one requested. Facts: `assetId`, `snapshotAssetId`. */
   ASSET_SNAPSHOT_MISMATCH: "asset_snapshot_mismatch",
   /** Mux answered an asset fetch with a different asset than the one requested. Facts: `assetId`, `returnedAssetId`. */
@@ -210,6 +212,7 @@ export const MUX_AI_ERROR_CATALOG = {
   [MUX_AI_ERROR_CODES.CAPTION_TRACK_LANGUAGE_MISSING]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },
   // The track may exist, so a step retry could duplicate it; the job stays retryable.
   [MUX_AI_ERROR_CODES.TRACK_ID_MISSING]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO },
+  [MUX_AI_ERROR_CODES.CAPTION_TRACK_ID_MISSING]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO },
   [MUX_AI_ERROR_CODES.ASSET_ID_MISMATCH]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO },
   // Model calls.
   [MUX_AI_ERROR_CODES.CONTENT_POLICY_BLOCKED]: { type: MUX_AI_ERROR_TYPES.CONTENT_POLICY_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER },

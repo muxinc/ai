@@ -105,6 +105,8 @@ function scopeMessage(facts: MuxAiErrorFacts): string {
       return "The requested time range doesn't include any video.";
     case "no_transcript":
       return "The transcript has no content in the requested time range.";
+    case "no_scenes":
+      return "The requested time range doesn't include the start of any scene.";
     default:
       return "The requested time range can't be used for this asset.";
   }

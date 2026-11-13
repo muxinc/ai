@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { toPublicError } from "../../src/lib/public-error";
 import {
   resolveRenderableVideoScope,
   resolveWorkflowScope,
@@ -34,6 +35,48 @@ describe("resolveWorkflowScope", () => {
     [{ startTime: 70, endTime: 60 }, 120, "must be less than"],
   ])("rejects an invalid scope", (scope, duration, message) => {
     expect(() => resolveWorkflowScope(scope, duration)).toThrow(message);
+  });
+
+  it("keeps legacy errors without the opt-in", () => {
+    expect(() => resolveWorkflowScope({ endTime: 121 }, 120)).toThrow(expect.objectContaining({ publicType: "validation_error" }));
+    expect(() => resolveWorkflowScope({ endTime: 121 }, 120)).toThrow(expect.not.objectContaining({ code: expect.anything() }));
+  });
+
+  it.each([
+    [{ startTime: -1 }, { reason: "invalid_start_time", received: -1, inputs: ["scope.startTime"] }],
+    [{ startTime: Number.NaN }, { reason: "invalid_start_time", received: "NaN", inputs: ["scope.startTime"] }],
+    [{ endTime: Number.POSITIVE_INFINITY }, { reason: "invalid_end_time", received: "Infinity", inputs: ["scope.endTime"] }],
+    [{ endTime: 121 }, { reason: "exceeds_duration", endTime: 121, assetDurationSeconds: 120, inputs: ["scope.endTime"] }],
+    [{ startTime: 130 }, { reason: "empty_range", startTime: 130, endTime: 120, inputs: ["scope.startTime"] }],
+    [{ startTime: 70, endTime: 60 }, { reason: "empty_range", startTime: 70, endTime: 60, inputs: ["scope.startTime", "scope.endTime"] }],
+  ])("with classified errors, codes an invalid scope as invalid_scope", (scope, facts) => {
+    expect(() => resolveWorkflowScope(scope, 120, { classifiedErrors: true })).toThrow(expect.objectContaining({
+      code: "invalid_scope",
+      type: "validation_error",
+      source: "request",
+      facts,
+    }));
+  });
+
+  it("with classified errors, words an invalid scope for end users", () => {
+    let error: unknown;
+    try {
+      resolveWorkflowScope({ endTime: 121 }, 120, { classifiedErrors: true });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(toPublicError(error)).toMatchObject({
+      code: "invalid_scope",
+      message: "The requested end time (121s) is after the end of the asset (120s).",
+    });
+  });
+
+  it("with classified errors, codes a missing duration as asset_duration_unavailable", () => {
+    expect(() => resolveWorkflowScope({ startTime: 1 }, undefined, { classifiedErrors: true, assetId: "asset-1" })).toThrow(expect.objectContaining({
+      code: "asset_duration_unavailable",
+      source: "asset",
+      facts: { assetId: "asset-1" },
+    }));
   });
 });
 

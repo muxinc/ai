@@ -1,6 +1,8 @@
 import type { WorkflowScope } from "../types.ts";
 
 import { LegacyMuxAiError } from "./legacy-mux-ai-error.ts";
+import type { ClassifiedErrorsOption, MuxAiErrorFacts } from "./mux-ai-error.ts";
+import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
 
 /** A workflow scope with both asset-relative boundaries resolved. */
 export interface ResolvedWorkflowScope {
@@ -17,6 +19,27 @@ export function hasWorkflowScopeBoundaries(
   return scope?.startTime !== undefined || scope?.endTime !== undefined;
 }
 
+/** Options for {@link resolveWorkflowScope}. */
+export interface ResolveWorkflowScopeOptions extends ClassifiedErrorsOption {
+  /** Named in a classified `asset_duration_unavailable` error. */
+  assetId?: string;
+}
+
+/** `invalid_scope`, blamed on the scope bounds the caller passed. */
+export function invalidScopeError(message: string, facts: MuxAiErrorFacts, inputs: string[]): MuxAiError {
+  return new MuxAiError(message, {
+    code: MUX_AI_ERROR_CODES.INVALID_SCOPE,
+    type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+    source: MUX_AI_ERROR_SOURCES.REQUEST,
+    facts: { ...facts, inputs },
+  });
+}
+
+/** A bound as a JSON-safe fact: NaN and infinities become their names. */
+function boundFact(value: number): number | string {
+  return Number.isFinite(value) ? value : String(value);
+}
+
 /**
  * Validates a caller-provided scope and fills omitted boundaries from the
  * asset duration.
@@ -24,12 +47,22 @@ export function hasWorkflowScopeBoundaries(
 export function resolveWorkflowScope(
   scope: WorkflowScope | undefined,
   assetDurationSeconds: number | undefined,
+  options: ResolveWorkflowScopeOptions = {},
 ): ResolvedWorkflowScope {
+  const classified = options.classifiedErrors === true;
   if (
     assetDurationSeconds === undefined ||
     !Number.isFinite(assetDurationSeconds) ||
     assetDurationSeconds <= 0
   ) {
+    if (classified) {
+      throw new MuxAiError("Asset has no valid duration.", {
+        code: MUX_AI_ERROR_CODES.ASSET_DURATION_UNAVAILABLE,
+        type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+        source: MUX_AI_ERROR_SOURCES.ASSET,
+        facts: { ...(options.assetId && { assetId: options.assetId }) },
+      });
+    }
     throw new LegacyMuxAiError("Asset has no valid duration.", { type: "validation_error" });
   }
 
@@ -37,31 +70,37 @@ export function resolveWorkflowScope(
   const endTime = scope?.endTime ?? assetDurationSeconds;
 
   if (!Number.isFinite(startTime) || startTime < 0) {
-    throw new LegacyMuxAiError(
-      `scope.startTime must be a finite, non-negative number (received ${startTime}).`,
-      { type: "validation_error" },
-    );
+    const message = `scope.startTime must be a finite, non-negative number (received ${startTime}).`;
+    if (classified) {
+      throw invalidScopeError(message, { reason: "invalid_start_time", received: boundFact(startTime) }, ["scope.startTime"]);
+    }
+    throw new LegacyMuxAiError(message, { type: "validation_error" });
   }
 
   if (!Number.isFinite(endTime) || endTime < 0) {
-    throw new LegacyMuxAiError(
-      `scope.endTime must be a finite, non-negative number (received ${endTime}).`,
-      { type: "validation_error" },
-    );
+    const message = `scope.endTime must be a finite, non-negative number (received ${endTime}).`;
+    if (classified) {
+      throw invalidScopeError(message, { reason: "invalid_end_time", received: boundFact(endTime) }, ["scope.endTime"]);
+    }
+    throw new LegacyMuxAiError(message, { type: "validation_error" });
   }
 
   if (endTime > assetDurationSeconds) {
-    throw new LegacyMuxAiError(
-      `scope.endTime (${endTime}) cannot exceed the asset duration (${assetDurationSeconds}).`,
-      { type: "validation_error" },
-    );
+    const message = `scope.endTime (${endTime}) cannot exceed the asset duration (${assetDurationSeconds}).`;
+    if (classified) {
+      throw invalidScopeError(message, { reason: "exceeds_duration", endTime, assetDurationSeconds }, ["scope.endTime"]);
+    }
+    throw new LegacyMuxAiError(message, { type: "validation_error" });
   }
 
   if (startTime >= endTime) {
-    throw new LegacyMuxAiError(
-      `scope.startTime (${startTime}) must be less than scope.endTime (${endTime}).`,
-      { type: "validation_error" },
-    );
+    const message = `scope.startTime (${startTime}) must be less than scope.endTime (${endTime}).`;
+    if (classified) {
+      // An omitted end defaults to the asset's end, so only the bounds the caller set are blamed.
+      const inputs = scope?.endTime === undefined ? ["scope.startTime"] : ["scope.startTime", "scope.endTime"];
+      throw invalidScopeError(message, { reason: "empty_range", startTime, endTime }, inputs);
+    }
+    throw new LegacyMuxAiError(message, { type: "validation_error" });
   }
 
   return { startTime, endTime };

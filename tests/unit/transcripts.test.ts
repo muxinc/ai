@@ -321,6 +321,86 @@ describe("fetchTranscriptForAsset", () => {
   });
 });
 
+describe("fetchTranscriptForAsset with classified errors", () => {
+  const track = { type: "text", id: "track-1", status: "ready", text_type: "subtitles", language_code: "en" };
+  const asset = { id: "asset-1", tracks: [track] } as MuxAsset;
+  const vtt = dedent`
+    WEBVTT
+
+    00:00:00.000 --> 00:00:03.000
+    Hello there.
+  `;
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("codes a missing track as caption_track_not_found, naming the available languages", async () => {
+    const fr = { ...track, id: "track-fr", language_code: "fr" };
+    await expect(fetchTranscriptForAsset({ id: "asset-1", tracks: [fr] } as MuxAsset, "playback-1", {
+      required: true,
+      classifiedErrors: true,
+      languageCode: "de",
+    })).rejects.toMatchObject({
+      code: "caption_track_not_found",
+      source: "asset",
+      facts: { assetId: "asset-1", languageCode: "de", availableLanguages: ["fr"] },
+    });
+  });
+
+  it("codes a track without an id as caption_track_id_missing, a Mux problem", async () => {
+    const { id: _id, ...withoutId } = track;
+    await expect(fetchTranscriptForAsset({ id: "asset-1", tracks: [withoutId] } as unknown as MuxAsset, "playback-1", {
+      required: true,
+      classifiedErrors: true,
+    })).rejects.toMatchObject({
+      code: "caption_track_id_missing",
+      type: "processing_error",
+      source: "upstream",
+      dependency: "mux_video",
+    });
+  });
+
+  it("classifies a failed fetch as a Mux Video failure, keeping the signed URL out of the error", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 503, headers: new Headers({ "x-request-id": "req-1" }) }));
+
+    const error = await fetchTranscriptForAsset(asset, "playback-1", { required: true, classifiedErrors: true }).catch(e => e);
+
+    expect(error).toMatchObject({
+      source: "upstream",
+      dependency: "mux_video",
+      transient: true,
+      facts: { call: "fetch_transcript", status: 503, requestId: "req-1" },
+    });
+    expect(error.message).not.toContain("stream.mux.com");
+  });
+
+  it("codes a transcript with no cues in the scope as invalid_scope (no_transcript)", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, text: vi.fn().mockResolvedValue(vtt) }));
+
+    await expect(fetchTranscriptForAsset(asset, "playback-1", {
+      required: true,
+      classifiedErrors: true,
+      cleanTranscript: false,
+      scope: { startTime: 100, endTime: 110 },
+    })).rejects.toMatchObject({
+      code: "invalid_scope",
+      source: "request",
+      facts: { reason: "no_transcript", trackId: "track-1", startTime: 100, endTime: 110 },
+    });
+  });
+
+  it("codes an empty transcript as transcript_empty", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, text: vi.fn().mockResolvedValue("WEBVTT\n\n") }));
+
+    await expect(fetchTranscriptForAsset(asset, "playback-1", { required: true, classifiedErrors: true })).rejects.toMatchObject({
+      code: "transcript_empty",
+      source: "asset",
+      facts: { assetId: "asset-1", trackId: "track-1" },
+    });
+  });
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // extractTextFromVTT
 // ─────────────────────────────────────────────────────────────────────────────
