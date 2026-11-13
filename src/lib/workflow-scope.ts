@@ -114,12 +114,13 @@ export function resolveRenderableVideoScope(
   scope: WorkflowScope | undefined,
   assetDurationSeconds: number | undefined,
   videoTrackDurationSeconds: number | undefined,
+  options: ResolveWorkflowScopeOptions = {},
 ): ResolvedWorkflowScope | undefined {
   if (!hasWorkflowScopeBoundaries(scope)) {
     return undefined;
   }
 
-  const resolvedScope = resolveWorkflowScope(scope, assetDurationSeconds);
+  const resolvedScope = resolveWorkflowScope(scope, assetDurationSeconds, options);
   let renderableEndTime = resolvedScope.endTime;
   if (
     videoTrackDurationSeconds !== undefined &&
@@ -134,6 +135,14 @@ export function resolveRenderableVideoScope(
   };
 
   if (renderableScope.startTime >= renderableScope.endTime) {
+    if (options.classifiedErrors) {
+      // Only a scope reaches here, and it starts at or after the end of the video track.
+      throw invalidScopeError(
+        "The requested scope does not include any renderable video.",
+        { reason: "no_video", startTime: resolvedScope.startTime, endTime: resolvedScope.endTime, videoEndTime: renderableEndTime },
+        ["scope"],
+      );
+    }
     throw new LegacyMuxAiError("The requested scope does not include any renderable video.", {
       type: "validation_error",
     });

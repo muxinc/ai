@@ -115,11 +115,11 @@ export type ErrorCatalogEntry<TType extends string = string, TDependency extends
  * them. Codes name the condition, never the vendor.
  */
 export const MUX_AI_ERROR_CODES = {
-  /** The requested time range is invalid, or has nothing to work with. Facts: `reason` (`invalid_start_time`, `invalid_end_time`, `exceeds_duration`, `empty_range`, `no_video`, `no_transcript`, `no_scenes`) and the bounds involved. */
+  /** The requested time range is invalid, or has nothing to work with. Facts: `reason` (`invalid_start_time`, `invalid_end_time`, `exceeds_duration`, `empty_range`, `no_video`, `no_transcript`, `no_scenes`) and the bounds involved (`videoEndTime` for `no_video`). */
   INVALID_SCOPE: "invalid_scope",
   /** Existing tracks block writing the output track under the chosen replacement policy. Facts: `reason` (`policy_fail`, `not_generated`, `name_collision`, `primary_audio`), `conflictingTracks` and the target track, plus `sourceRestored` and `restoredTrackId` when a source track was deleted first. */
   TRACK_REPLACEMENT_BLOCKED: "track_replacement_blocked",
-  /** An option's value can't be used. Facts: `parameter` (the caller's option name), `reason` (`too_many`, `empty`, `too_long`, `disallowed_characters`, `not_normalized`, `multiline`, `required_with`, `conflicts_with`, `not_allowed`, `one_of_required`) and the values the reason names: `count` and `max`, `index` (0-based entry), `length` and `maxLength`, `characters`, `with` and `withValue` (the other option), `allowed` and `value`, `parameters` (the options to choose from). */
+  /** An option's value can't be used. Facts: `parameter` (the caller's option name), `reason` (`too_many`, `empty`, `too_long`, `disallowed_characters`, `not_normalized`, `multiline`, `required_with`, `conflicts_with`, `not_allowed`, `one_of_required`, `audio_only`) and the values the reason names: `count` and `max`, `index` (0-based entry), `length` and `maxLength`, `characters`, `with` and `withValue` (the other option), `allowed` and `value`, `parameters` (the options to choose from). */
   INVALID_PARAMETER: "invalid_parameter",
   /** A numeric option is outside its allowed range. Facts: `parameter` (the caller's option name), `value`, `min`, `max`, and `integer` when it must be a whole number. */
   PARAMETER_OUT_OF_RANGE: "parameter_out_of_range",
@@ -147,6 +147,8 @@ export const MUX_AI_ERROR_CODES = {
   TRACK_WRITE_UNCLASSIFIED: "track_write_unclassified",
   /** Mux answered a track create without a track id. The track may exist, so it isn't step-retried. Facts: `call`, `assetId`. */
   TRACK_ID_MISSING: "track_id_missing",
+  /** Mux answered an image download with something other than a non-empty image. Facts: `call`, `reason` (`not_image`, `empty`), `contentType`. */
+  IMAGE_RESPONSE_INVALID: "image_response_invalid",
   /** The asset's ready caption track has no id, so its transcript can't be fetched. Facts: `assetId`, `languageCode`. */
   CAPTION_TRACK_ID_MISSING: "caption_track_id_missing",
   /** The asset snapshot the service running the SDK passed in is for a different asset than the one requested. Facts: `assetId`, `snapshotAssetId`. */
@@ -213,6 +215,9 @@ export const MUX_AI_ERROR_CATALOG = {
   // The track may exist, so a step retry could duplicate it; the job stays retryable.
   [MUX_AI_ERROR_CODES.TRACK_ID_MISSING]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO },
   [MUX_AI_ERROR_CODES.CAPTION_TRACK_ID_MISSING]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO },
+  // Transient (so retryable): the download doesn't retry a reply that isn't a non-empty image
+  // itself, so the step runner does, as it did before classification.
+  [MUX_AI_ERROR_CODES.IMAGE_RESPONSE_INVALID]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO, transient: true, retryable: true },
   [MUX_AI_ERROR_CODES.ASSET_ID_MISMATCH]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO },
   // Model calls.
   [MUX_AI_ERROR_CODES.CONTENT_POLICY_BLOCKED]: { type: MUX_AI_ERROR_TYPES.CONTENT_POLICY_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER },

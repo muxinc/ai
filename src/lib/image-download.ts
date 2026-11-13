@@ -1,5 +1,10 @@
 import pRetry, { AbortError } from "p-retry";
 
+import { requestIdOf } from "./dependency-error.ts";
+import type { ClassifiedErrorsOption } from "./mux-ai-error.ts";
+import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_DEPENDENCIES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
+import { muxVideoError } from "./mux-video-errors.ts";
+
 const BASE64_CHUNK_SIZE = 0x8000;
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -56,6 +61,21 @@ export interface AnthropicFileUploadResult {
   sizeBytes: number;
 }
 
+/**
+ * Opts a download in to classified errors. Every caller downloads a Mux image (a
+ * storyboard or thumbnail), so failures are Mux Video's, named by `call`.
+ */
+export interface ImageDownloadErrorOptions extends ClassifiedErrorsOption {
+  /** The `call` fact on a classified failure (default `fetch_image`). */
+  call?: string;
+}
+
+/** What the last attempt saw, for the classified error once retries run out. */
+type ImageDownloadFailure =
+  | { kind: "status"; status: number; requestId?: string } |
+  { kind: "invalid"; reason: "not_image" | "empty"; contentType?: string } |
+  { kind: "no_response"; timedOut: boolean };
+
 const DEFAULT_OPTIONS: Required<ImageDownloadOptions> = {
   timeout: 10000,
   retries: 3,
@@ -69,20 +89,24 @@ const DEFAULT_OPTIONS: Required<ImageDownloadOptions> = {
  *
  * @param url - The image URL to download
  * @param options - Download configuration options
+ * @param errorOptions - Opts in to classified errors (see {@link ImageDownloadErrorOptions})
  * @returns Promise resolving to ImageDownloadResult with base64 data and metadata
  * @throws Error if download fails after all retries
  */
 export async function downloadImageAsBase64(
   url: string,
   options: ImageDownloadOptions = {},
+  errorOptions: ImageDownloadErrorOptions = {},
 ): Promise<ImageDownloadResult> {
   "use step";
   const opts = { ...DEFAULT_OPTIONS, ...options };
   let attemptCount = 0;
+  let failure: ImageDownloadFailure | undefined;
 
   return pRetry(
     async () => {
       attemptCount++;
+      failure = undefined;
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), opts.timeout);
 
@@ -97,6 +121,7 @@ export async function downloadImageAsBase64(
         clearTimeout(timeoutId);
 
         if (!response.ok) {
+          failure = { kind: "status", status: response.status, requestId: requestIdOf(response.headers) };
           // Don't retry 4xx errors (except 429 rate limiting)
           if (response.status >= 400 && response.status < 500 && response.status !== 429) {
             throw new AbortError(`HTTP ${response.status}: ${response.statusText}`);
@@ -106,6 +131,7 @@ export async function downloadImageAsBase64(
 
         const contentType = response.headers.get("content-type");
         if (!contentType?.startsWith("image/")) {
+          failure = { kind: "invalid", reason: "not_image", ...(contentType && { contentType: contentType.slice(0, 100) }) };
           throw new AbortError(`Invalid content type: ${contentType}. Expected image/*`);
         }
 
@@ -113,6 +139,7 @@ export async function downloadImageAsBase64(
         const buffer = new Uint8Array(arrayBuffer);
 
         if (buffer.length === 0) {
+          failure = { kind: "invalid", reason: "empty" };
           throw new AbortError("Downloaded image is empty");
         }
 
@@ -136,6 +163,7 @@ export async function downloadImageAsBase64(
         }
 
         // For network errors, timeout errors, etc., wrap in retryable error
+        failure ??= { kind: "no_response", timedOut: error instanceof Error && error.name === "AbortError" };
         if (error instanceof Error) {
           if (error.name === "AbortError") {
             throw new Error(`Request timeout after ${opts.timeout}ms`);
@@ -159,6 +187,42 @@ export async function downloadImageAsBase64(
         }
       },
     },
+  ).catch((error: unknown) => {
+    if (!errorOptions.classifiedErrors) {
+      throw error;
+    }
+    throw imageDownloadError(failure, errorOptions.call ?? "fetch_image", error);
+  });
+}
+
+/**
+ * The classified error for a download whose retries ran out. The URL may carry a
+ * signed token, so it stays out of the message and facts.
+ */
+function imageDownloadError(failure: ImageDownloadFailure | undefined, call: string, cause: unknown): MuxAiError {
+  if (failure?.kind === "status") {
+    return muxVideoError(`Failed to download image from Mux (HTTP ${failure.status})`, {
+      call,
+      status: failure.status,
+      requestId: failure.requestId,
+    });
+  }
+  if (failure?.kind === "invalid") {
+    return new MuxAiError(
+      failure.reason === "empty" ? "Mux returned an empty image." : `Mux returned ${failure.contentType ?? "no content type"} instead of an image.`,
+      {
+        code: MUX_AI_ERROR_CODES.IMAGE_RESPONSE_INVALID,
+        type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+        source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+        dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO,
+        facts: { call, reason: failure.reason, ...(failure.contentType && { contentType: failure.contentType }) },
+      },
+    );
+  }
+  // No response (a network failure or the timeout): transient, and a timeout_error when it timed out.
+  return muxVideoError(
+    failure?.timedOut ? "Image download from Mux timed out" : "Failed to download image from Mux",
+    { call, cause, timedOut: failure?.timedOut },
   );
 }
 

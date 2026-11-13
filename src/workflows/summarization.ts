@@ -3,13 +3,23 @@ import { z } from "zod";
 
 import {
   getGeneratedOutputWithContentPolicyHandling,
+  modelStepError,
   withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
+import type { ModelCallContext } from "../lib/content-policy-error.ts";
 import type { ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImageAsBase64 } from "../lib/image-download.ts";
 import { getLanguageName } from "../lib/language-codes.ts";
-import { LegacyMuxAiError, legacyWrapError } from "../lib/legacy-mux-ai-error.ts";
 import { normalizeMarkdownDescription } from "../lib/markdown-normalization.ts";
+import type { MuxAiErrorFacts } from "../lib/mux-ai-error.ts";
+import {
+  MUX_AI_ERROR_CODES,
+  MUX_AI_ERROR_DEPENDENCIES,
+  MUX_AI_ERROR_SOURCES,
+  MUX_AI_ERROR_TYPES,
+  MuxAiError,
+  wrapError,
+} from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -44,6 +54,7 @@ import {
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
 import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
+import { signingCredentialsMissingError } from "../lib/url-signing.ts";
 import {
   resolveMuxSigningContext,
 } from "../lib/workflow-credentials.ts";
@@ -502,6 +513,7 @@ async function analyzeVideo(
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
   const schema = buildSummarySchema(descriptionLength);
 
+  const context: ModelCallContext = { call: "generate_summary", provider, model: modelId };
   const response = await withContentPolicyAwareRetry(() => generateText({
     model,
     maxRetries: 0,
@@ -522,13 +534,12 @@ async function analyzeVideo(
           userPrompt,
       },
     ],
-  }));
+  }), undefined, context).catch((error: unknown) => {
+    throw modelStepError(error, "Summary generation model call failed", { ...context });
+  });
 
-  const output = getGeneratedOutputWithContentPolicyHandling(response);
-
-  if (!output) {
-    throw new Error("Summarization output missing");
-  }
+  // Throws model_output_missing when there is no output.
+  const output = getGeneratedOutputWithContentPolicyHandling(response, context);
 
   const parsed = schema.parse(output);
 
@@ -565,6 +576,7 @@ async function analyzeAudioOnly(
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
   const schema = buildSummarySchema(descriptionLength);
 
+  const context: ModelCallContext = { call: "generate_summary", provider, model: modelId };
   const response = await withContentPolicyAwareRetry(() => generateText({
     model,
     maxRetries: 0,
@@ -580,13 +592,12 @@ async function analyzeAudioOnly(
         content: userPrompt,
       },
     ],
-  }));
+  }), undefined, context).catch((error: unknown) => {
+    throw modelStepError(error, "Summary generation model call failed", { ...context });
+  });
 
-  const output = getGeneratedOutputWithContentPolicyHandling(response);
-
-  if (!output) {
-    throw new Error("Summarization output missing");
-  }
+  // Throws model_output_missing when there is no output.
+  const output = getGeneratedOutputWithContentPolicyHandling(response, context);
 
   const parsed = schema.parse(output);
 
@@ -680,10 +691,12 @@ async function getSummaryAndTagsInternal(
 
   // Validate tone parameter
   if (!VALID_TONES.includes(tone)) {
-    throw new LegacyMuxAiError(
-      `Invalid tone "${tone}". Valid tones are: ${VALID_TONES.join(", ")}.`,
-      { type: "validation_error" },
-    );
+    throw new MuxAiError(`Invalid tone "${tone}". Valid tones are: ${VALID_TONES.join(", ")}.`, {
+      code: MUX_AI_ERROR_CODES.INVALID_PARAMETER,
+      type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+      source: MUX_AI_ERROR_SOURCES.REQUEST,
+      facts: { parameter: "tone", reason: "not_allowed", allowed: [...VALID_TONES], value: String(tone).slice(0, 100), inputs: ["tone"] },
+    });
   }
 
   const modelConfig = resolveLanguageModelConfig({
@@ -694,7 +707,7 @@ async function getSummaryAndTagsInternal(
   const workflowCredentials = credentials;
 
   // Fetch asset data from Mux and grab playback/transcript details
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, workflowCredentials, options?.assetSnapshot);
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, workflowCredentials, options?.assetSnapshot, { classifiedErrors: true });
 
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
   // Detect if asset is audio-only
@@ -707,16 +720,22 @@ async function getSummaryAndTagsInternal(
         effectiveScope,
         assetDurationSeconds,
         getVideoTrackDurationSecondsFromAsset(assetData),
+        { classifiedErrors: true, assetId },
       );
   if (isAudioOnly && effectiveScope) {
-    resolveWorkflowScope(effectiveScope, assetDurationSeconds);
+    resolveWorkflowScope(effectiveScope, assetDurationSeconds, { classifiedErrors: true, assetId });
   }
 
   // Audio-only assets require transcripts since there's no visual content
   if (isAudioOnly && !includeTranscript) {
-    throw new LegacyMuxAiError(
+    throw new MuxAiError(
       "Audio-only assets require a transcript. Set includeTranscript: true and ensure the asset has a ready text track (captions/subtitles).",
-      { type: "validation_error" },
+      {
+        code: MUX_AI_ERROR_CODES.INVALID_PARAMETER,
+        type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+        source: MUX_AI_ERROR_SOURCES.REQUEST,
+        facts: { parameter: "includeTranscript", reason: "audio_only", allowed: [true], value: false, assetId, inputs: ["includeTranscript"] },
+      },
     );
   }
 
@@ -724,11 +743,7 @@ async function getSummaryAndTagsInternal(
   const signingContext = await resolveMuxSigningContext(workflowCredentials);
   const requiresSignedPlaybackAccess = includeTranscript || !isAudioOnly;
   if (policy === "signed" && requiresSignedPlaybackAccess && !signingContext) {
-    throw new LegacyMuxAiError(
-      "Signed playback ID requires signing credentials. " +
-      "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
-      { type: "validation_error" },
-    );
+    throw signingCredentialsMissingError();
   }
 
   const transcriptResult =
@@ -740,6 +755,7 @@ async function getSummaryAndTagsInternal(
           credentials: workflowCredentials,
           required: isAudioOnly,
           scope: effectiveScope,
+          classifiedErrors: true,
         }) :
       undefined;
   const transcriptText = transcriptResult?.transcriptText ?? "";
@@ -765,9 +781,6 @@ async function getSummaryAndTagsInternal(
     sceneContext: hasSceneContext ? sceneContext : undefined,
   });
 
-  let analysisResponse: AnalysisResponse;
-  let imageUrl: string | undefined;
-
   // Choose system prompt and analysis method based on asset type
   let systemPrompt = AUDIO_ONLY_SYSTEM_PROMPT;
   if (!isAudioOnly) {
@@ -779,69 +792,56 @@ async function getSummaryAndTagsInternal(
   // cap is always reasonable even when the caller omits the option.
   const effectiveDescriptionLength = descriptionLength ?? DEFAULT_DESCRIPTION_LENGTH;
 
-  try {
-    if (isAudioOnly) {
-      // Audio-only analysis: skip storyboard, analyze transcript only
-      analysisResponse = await analyzeAudioOnly(
+  // Video analysis always preserves the existing storyboard evidence path; audio-only
+  // analysis skips the storyboard and analyzes the transcript only.
+  let imageUrl: string | undefined;
+  let imageInput: string | undefined;
+  if (!isAudioOnly) {
+    imageUrl = await getStoryboardUrl(
+      playbackId,
+      640,
+      policy === "signed",
+      workflowCredentials,
+      storyboardScope,
+    );
+    imageInput = imageSubmissionMode === "base64" ?
+        (await downloadImageAsBase64(imageUrl, imageDownloadOptions, { classifiedErrors: true, call: "fetch_storyboard" })).base64Data :
+      imageUrl;
+  }
+
+  const modelFacts: MuxAiErrorFacts = { call: "generate_summary", provider: modelConfig.provider, model: modelConfig.modelId, assetId };
+  const analysisResponse = await (isAudioOnly ?
+      analyzeAudioOnly(
         modelConfig.provider,
         modelConfig.modelId,
         userPrompt,
         systemPrompt,
         effectiveDescriptionLength,
         workflowCredentials,
-      );
-    } else {
-      // Video analysis always preserves the existing storyboard evidence path.
-      const storyboardUrl = await getStoryboardUrl(
-        playbackId,
-        640,
-        policy === "signed",
+      ) :
+      analyzeVideo(
+        imageInput,
+        modelConfig.provider,
+        modelConfig.modelId,
+        userPrompt,
+        systemPrompt,
+        effectiveDescriptionLength,
         workflowCredentials,
-        storyboardScope,
-      );
-      imageUrl = storyboardUrl;
-
-      if (imageSubmissionMode === "base64") {
-        const downloadResult = await downloadImageAsBase64(storyboardUrl, imageDownloadOptions);
-        analysisResponse = await analyzeVideo(
-          downloadResult.base64Data,
-          modelConfig.provider,
-          modelConfig.modelId,
-          userPrompt,
-          systemPrompt,
-          effectiveDescriptionLength,
-          workflowCredentials,
-        );
-      } else {
-        analysisResponse = await analyzeVideo(
-          storyboardUrl,
-          modelConfig.provider,
-          modelConfig.modelId,
-          userPrompt,
-          systemPrompt,
-          effectiveDescriptionLength,
-          workflowCredentials,
-        );
-      }
-    }
-  } catch (error: unknown) {
-    const contentType = isAudioOnly ? "audio" : "video";
-    legacyWrapError(error, `Failed to analyze ${contentType} content with ${provider}`);
-  }
+      )).catch((error: unknown) => wrapError(error, `Failed to analyze ${isAudioOnly ? "audio" : "video"} content with ${modelConfig.provider}`, modelFacts));
 
   collectedUsage.push(analysisResponse.usage);
 
-  if (!analysisResponse.result) {
-    const contentType = isAudioOnly ? "audio" : "video";
-    throw new LegacyMuxAiError(`Failed to analyze ${contentType} content for asset ${assetId}.`);
-  }
-
-  if (!analysisResponse.result.title) {
-    throw new LegacyMuxAiError(`Failed to generate title for asset ${assetId}.`);
-  }
-
-  if (!analysisResponse.result.description) {
-    throw new LegacyMuxAiError(`Failed to generate description for asset ${assetId}.`);
+  // The schema accepts empty strings, so an empty title or description is the model's.
+  for (const field of ["title", "description"] as const) {
+    if (!analysisResponse.result[field]) {
+      throw new MuxAiError(`Failed to generate ${field} for asset ${assetId}.`, {
+        code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_MISSING,
+        type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+        source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+        dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
+        facts: { ...modelFacts, field },
+      });
+    }
   }
 
   // Scrub model-generated free-text fields for signs of a system-prompt
