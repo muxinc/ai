@@ -80,6 +80,19 @@ describe("downloadImageAsBase64", () => {
     });
   });
 
+  it("classifies a timed-out download as a transient timeout_error", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    stubFetch(Object.assign(new Error("aborted"), { name: "AbortError" }));
+
+    await expect(downloadImageAsBase64(SIGNED_URL, NO_RETRIES, CLASSIFIED)).rejects.toMatchObject({
+      type: "timeout_error",
+      source: "upstream",
+      dependency: "mux_video",
+      transient: true,
+      facts: { call: "fetch_storyboard" },
+    });
+  });
+
   it.each([
     ["not_image", new Response("<html></html>", { headers: { "content-type": "text/html" } }), { contentType: "text/html" }],
     ["empty", new Response(new Uint8Array(), { headers: { "content-type": "image/jpeg" } }), {}],
@@ -91,7 +104,8 @@ describe("downloadImageAsBase64", () => {
       code: "image_response_invalid",
       source: "upstream",
       dependency: "mux_video",
-      transient: false,
+      // The download stops at the first such reply, so the step runner retries it.
+      transient: true,
       retryable: true,
       facts: { call: "fetch_storyboard", reason, ...facts },
     });

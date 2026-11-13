@@ -151,6 +151,8 @@ function invalidParameterMessage(facts: MuxAiErrorFacts): string {
       return `${parameter} must be ${quotedList(facts.allowed)}${facts.value === undefined ? "" : ` (received '${text(facts.value)}')`}.`;
     case "one_of_required":
       return `Provide at least one of ${names(facts.parameters)}.`;
+    case "audio_only":
+      return `${parameter} must be ${quotedList(facts.allowed)} for an audio-only asset, which is processed from its transcript and needs a ready caption or subtitle track.`;
     default:
       return `${parameter} has a value that can't be used.`;
   }
