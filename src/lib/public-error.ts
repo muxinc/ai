@@ -102,7 +102,9 @@ function scopeMessage(facts: MuxAiErrorFacts): string {
     case "empty_range":
       return `The requested start time (${text(facts.startTime)}s) must be before the end time (${text(facts.endTime)}s).`;
     case "no_video":
-      return "The requested time range doesn't include any video.";
+      return facts.videoEndTime === undefined ?
+        "The requested time range doesn't include any video." :
+        `The requested time range starts at ${text(facts.startTime)}s, at or after the end of the asset's video (${text(facts.videoEndTime)}s).`;
     case "no_transcript":
       return "The transcript has no content in the requested time range.";
     case "no_scenes":
@@ -169,7 +171,7 @@ const AUDIO_TRACK_UNSUPPORTED_MESSAGES: Readonly<Record<string, string>> = {
  */
 export const MUX_AI_ERROR_PUBLIC_MAPPINGS = {
   [MUX_AI_ERROR_CODES.INVALID_SCOPE]: {
-    facts: ["reason", "received", "startTime", "endTime", "assetDurationSeconds"],
+    facts: ["reason", "received", "startTime", "endTime", "assetDurationSeconds", "videoEndTime"],
     message: scopeMessage,
   },
   [MUX_AI_ERROR_CODES.TRACK_REPLACEMENT_BLOCKED]: {
