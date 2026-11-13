@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.62.0](https://github.com/muxinc/ai/compare/v0.61.0...v0.62.0) (2026-11-13)
+
+
+### Features
+
+* **errors:** classify translate-audio and ElevenLabs failures ([#318](https://github.com/muxinc/ai/issues/318)) ([c0fb1b3](https://github.com/muxinc/ai/commit/c0fb1b3f15972da254c32d27e7a4423dd777c051))
+
 ## [0.61.0](https://github.com/muxinc/ai/compare/v0.60.0...v0.61.0) (2026-11-12)
 
 
