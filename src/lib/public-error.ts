@@ -149,6 +149,8 @@ function invalidParameterMessage(facts: MuxAiErrorFacts): string {
       return `${parameter} can't be combined with ${names(facts.with)}.`;
     case "not_allowed":
       return `${parameter} must be ${quotedList(facts.allowed)}${facts.value === undefined ? "" : ` (received '${text(facts.value)}')`}.`;
+    case "not_positive":
+      return `${parameter} must be a positive number${facts.value === undefined ? "" : ` (received ${text(facts.value)})`}.`;
     case "one_of_required":
       return `Provide at least one of ${names(facts.parameters)}.`;
     default:

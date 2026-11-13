@@ -221,19 +221,19 @@ describe("ask Questions Integration Tests", () => {
   it("should throw error for empty questions array", async () => {
     await expect(
       askQuestions(testAssetId, []),
-    ).rejects.toThrow("At least one question must be provided");
+    ).rejects.toMatchObject({ message: expect.stringContaining("At least one question must be provided"), code: "invalid_parameter", source: "request", facts: { parameter: "questions", reason: "empty" } });
   });
 
   it("should throw error for question with empty text", async () => {
     await expect(
       askQuestions(testAssetId, [{ question: "" }]),
-    ).rejects.toThrow("Question at index 0 is invalid");
+    ).rejects.toMatchObject({ message: expect.stringContaining("Question at index 0 is invalid"), code: "invalid_parameter", source: "request", facts: { parameter: "questions[0].question", reason: "empty" } });
   });
 
   it("should throw error for question with whitespace-only text", async () => {
     await expect(
       askQuestions(testAssetId, [{ question: "   " }]),
-    ).rejects.toThrow("Question at index 0 is invalid");
+    ).rejects.toMatchObject({ message: expect.stringContaining("Question at index 0 is invalid"), code: "invalid_parameter", source: "request", facts: { parameter: "questions[0].question", reason: "empty" } });
   });
 
   it("should skip irrelevant questions with reasoning explaining why", async () => {
@@ -384,7 +384,7 @@ describe("ask Questions Integration Tests", () => {
           [{ question: "Describe the video.", freeFormReply: true }],
           { maxFreeFormAnswerLength: 0 },
         ),
-      ).rejects.toThrow("maxFreeFormAnswerLength must be a positive number");
+      ).rejects.toMatchObject({ message: expect.stringContaining("maxFreeFormAnswerLength must be a positive number"), code: "invalid_parameter", source: "request", facts: { parameter: "maxFreeFormAnswerLength", reason: "not_positive" } });
     });
 
     it("should throw error when answerOptions and freeFormReply are both set", async () => {
@@ -396,7 +396,7 @@ describe("ask Questions Integration Tests", () => {
             freeFormReply: true,
           },
         ]),
-      ).rejects.toThrow("mutually exclusive");
+      ).rejects.toMatchObject({ message: expect.stringContaining("mutually exclusive"), code: "invalid_parameter", source: "request", facts: { parameter: "questions[0].answerOptions", reason: "conflicts_with" } });
     });
   });
 
@@ -463,7 +463,7 @@ describe("ask Questions Integration Tests", () => {
           provider,
           includeTranscript: false,
         }),
-      ).rejects.toThrow("Audio-only assets require a transcript");
+      ).rejects.toMatchObject({ message: expect.stringContaining("Audio-only assets require a transcript"), code: "invalid_parameter", source: "request", facts: { parameter: "includeTranscript", reason: "not_allowed" } });
     });
   });
 });

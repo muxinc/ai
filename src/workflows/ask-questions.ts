@@ -4,11 +4,21 @@ import { z } from "zod";
 
 import {
   getGeneratedOutputWithContentPolicyHandling,
+  modelStepError,
   withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
+import type { ModelCallContext } from "../lib/content-policy-error.ts";
 import type { ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImageAsBase64 } from "../lib/image-download.ts";
-import { LegacyMuxAiError, legacyWrapError } from "../lib/legacy-mux-ai-error.ts";
+import type { MuxAiErrorFacts } from "../lib/mux-ai-error.ts";
+import {
+  MUX_AI_ERROR_CODES,
+  MUX_AI_ERROR_DEPENDENCIES,
+  MUX_AI_ERROR_SOURCES,
+  MUX_AI_ERROR_TYPES,
+  MuxAiError,
+  wrapError,
+} from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -35,6 +45,7 @@ import {
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
 import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
+import { signingCredentialsMissingError } from "../lib/url-signing.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
 import {
   hasWorkflowScopeBoundaries,
@@ -519,14 +530,30 @@ function allowedAnswersForQuestion(q: NormalizedQuestion): readonly string[] {
   }
 }
 
+/** A number as a JSON-safe fact: NaN and the infinities become their names. */
+function numberFact(value: number): number | string {
+  return Number.isFinite(value) ? value : String(value);
+}
+
+/** The caller's option can't be used: `invalid_parameter`, blamed on `inputs`. */
+function invalidOptionError(message: string, facts: MuxAiErrorFacts, inputs: string[]): MuxAiError {
+  return new MuxAiError(message, {
+    code: MUX_AI_ERROR_CODES.INVALID_PARAMETER,
+    type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+    source: MUX_AI_ERROR_SOURCES.REQUEST,
+    facts: { ...facts, inputs },
+  });
+}
+
 function normalizeQuestion(q: Question, idx: number): NormalizedQuestion {
   const hasOptions = Array.isArray(q.answerOptions);
   const isFreeForm = q.freeFormReply === true;
 
   if (hasOptions && isFreeForm) {
-    throw new LegacyMuxAiError(
+    throw invalidOptionError(
       `Question at index ${idx} sets both answerOptions and freeFormReply: true. These are mutually exclusive — pick one.`,
-      { type: "validation_error" },
+      { parameter: `questions[${idx}].answerOptions`, reason: "conflicts_with", with: `questions[${idx}].freeFormReply` },
+      ["questions"],
     );
   }
 
@@ -541,9 +568,10 @@ function normalizeQuestion(q: Question, idx: number): NormalizedQuestion {
       ),
     );
     if (!options.length) {
-      throw new LegacyMuxAiError(
+      throw invalidOptionError(
         `Question at index ${idx} has invalid answerOptions: must include at least one non-empty value.`,
-        { type: "validation_error" },
+        { parameter: `questions[${idx}].answerOptions`, reason: "empty" },
+        ["questions"],
       );
     }
     return {
@@ -657,7 +685,7 @@ async function fetchImageAsBase64(
 ): Promise<string> {
   "use step";
 
-  const downloadResult = await downloadImageAsBase64(imageUrl, imageDownloadOptions);
+  const downloadResult = await downloadImageAsBase64(imageUrl, imageDownloadOptions, { classifiedErrors: true, call: "fetch_storyboard" });
   return downloadResult.base64Data;
 }
 
@@ -720,6 +748,7 @@ async function analyzeQuestions({
     maxFreeFormAnswerLength,
   );
 
+  const context: ModelCallContext = { call: "answer_questions", provider, model: modelId };
   const response = await withContentPolicyAwareRetry(() => generateText({
     model,
     maxRetries: 0,
@@ -737,12 +766,11 @@ async function analyzeQuestions({
           userPrompt,
       },
     ],
-  }));
-  const output = getGeneratedOutputWithContentPolicyHandling(response);
-
-  if (!output) {
-    throw new Error("Ask-questions output missing");
-  }
+  }), undefined, context).catch((error: unknown) => {
+    throw modelStepError(error, "Ask-questions model call failed", { ...context });
+  });
+  // Throws model_output_missing when there is no output.
+  const output = getGeneratedOutputWithContentPolicyHandling(response, context);
 
   const parsed = responseSchema.parse(output);
 
@@ -842,13 +870,14 @@ async function askQuestionsInternal(
 ): Promise<AskQuestionsResult> {
   // Validate questions array is non-empty
   if (!questions || questions.length === 0) {
-    throw new LegacyMuxAiError("At least one question must be provided.", { type: "validation_error" });
+    throw invalidOptionError("At least one question must be provided.", { parameter: "questions", reason: "empty" }, ["questions"]);
   }
 
   if (questions.length > ASK_QUESTIONS_MAX_QUESTIONS_PER_CALL) {
-    throw new LegacyMuxAiError(
+    throw invalidOptionError(
       `Too many questions: received ${questions.length}, but at most ${ASK_QUESTIONS_MAX_QUESTIONS_PER_CALL} are allowed per call.`,
-      { type: "validation_error" },
+      { parameter: "questions", reason: "too_many", count: questions.length, max: ASK_QUESTIONS_MAX_QUESTIONS_PER_CALL },
+      ["questions"],
     );
   }
 
@@ -856,15 +885,17 @@ async function askQuestionsInternal(
   // (see ASK_QUESTIONS_MAX_QUESTION_LENGTH for rationale).
   questions.forEach((q, idx) => {
     if (!q.question || typeof q.question !== "string" || !q.question.trim()) {
-      throw new LegacyMuxAiError(
+      throw invalidOptionError(
         `Question at index ${idx} is invalid: must have a non-empty question field.`,
-        { type: "validation_error" },
+        { parameter: `questions[${idx}].question`, reason: "empty" },
+        ["questions"],
       );
     }
     if (q.question.length > ASK_QUESTIONS_MAX_QUESTION_LENGTH) {
-      throw new LegacyMuxAiError(
+      throw invalidOptionError(
         `Question at index ${idx} exceeds the ${ASK_QUESTIONS_MAX_QUESTION_LENGTH}-character limit (received ${q.question.length}).`,
-        { type: "validation_error" },
+        { parameter: `questions[${idx}].question`, reason: "too_long", length: q.question.length, maxLength: ASK_QUESTIONS_MAX_QUESTION_LENGTH },
+        ["questions"],
       );
     }
   });
@@ -877,9 +908,10 @@ async function askQuestionsInternal(
   const maxAnswerOptionLength =
     options?.maxAnswerOptionLength ?? ASK_QUESTIONS_DEFAULT_MAX_ANSWER_OPTION_LENGTH;
   if (!Number.isFinite(maxAnswerOptionLength) || maxAnswerOptionLength <= 0) {
-    throw new LegacyMuxAiError(
+    throw invalidOptionError(
       `maxAnswerOptionLength must be a positive number (received ${maxAnswerOptionLength}).`,
-      { type: "validation_error" },
+      { parameter: "maxAnswerOptionLength", reason: "not_positive", value: numberFact(maxAnswerOptionLength) },
+      ["maxAnswerOptionLength"],
     );
   }
   questions.forEach((q, idx) => {
@@ -889,9 +921,11 @@ async function askQuestionsInternal(
       return;
     for (const opt of q.answerOptions ?? []) {
       if (typeof opt === "string" && opt.length > maxAnswerOptionLength) {
-        throw new LegacyMuxAiError(
+        // Blamed on the limit too: the caller may have set it.
+        throw invalidOptionError(
           `Question at index ${idx} has an answerOption exceeding the ${maxAnswerOptionLength}-character limit (received ${opt.length}). Answer options should be short labels, not sentences.`,
-          { type: "validation_error" },
+          { parameter: `questions[${idx}].answerOptions`, reason: "too_long", length: opt.length, maxLength: maxAnswerOptionLength },
+          ["questions", "maxAnswerOptionLength"],
         );
       }
     }
@@ -901,9 +935,10 @@ async function askQuestionsInternal(
   const maxFreeFormAnswerLength =
     options?.maxFreeFormAnswerLength ?? ASK_QUESTIONS_DEFAULT_MAX_FREE_FORM_ANSWER_LENGTH;
   if (!Number.isFinite(maxFreeFormAnswerLength) || maxFreeFormAnswerLength <= 0) {
-    throw new LegacyMuxAiError(
+    throw invalidOptionError(
       `maxFreeFormAnswerLength must be a positive number (received ${maxFreeFormAnswerLength}).`,
-      { type: "validation_error" },
+      { parameter: "maxFreeFormAnswerLength", reason: "not_positive", value: numberFact(maxFreeFormAnswerLength) },
+      ["maxFreeFormAnswerLength"],
     );
   }
 
@@ -929,7 +964,7 @@ async function askQuestionsInternal(
     provider: provider as SupportedProvider,
   });
   // Fetch asset data and playback ID from Mux
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials, options?.assetSnapshot);
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials, options?.assetSnapshot, { classifiedErrors: true });
 
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
   const isAudioOnly = isAudioOnlyAsset(assetData);
@@ -940,26 +975,24 @@ async function askQuestionsInternal(
         effectiveScope,
         assetDurationSeconds,
         getVideoTrackDurationSecondsFromAsset(assetData),
+        { classifiedErrors: true, assetId },
       );
   if (isAudioOnly && effectiveScope) {
-    resolveWorkflowScope(effectiveScope, assetDurationSeconds);
+    resolveWorkflowScope(effectiveScope, assetDurationSeconds, { classifiedErrors: true, assetId });
   }
 
   if (isAudioOnly && !includeTranscript) {
-    throw new LegacyMuxAiError(
+    throw invalidOptionError(
       "Audio-only assets require a transcript. Set includeTranscript: true and ensure the asset has a ready text track (captions/subtitles).",
-      { type: "validation_error" },
+      { parameter: "includeTranscript", reason: "not_allowed", allowed: [true], value: false, assetId },
+      ["includeTranscript"],
     );
   }
 
   // Resolve signing context for signed playback IDs
   const signingContext = await resolveMuxSigningContext(credentials);
   if (policy === "signed" && !signingContext) {
-    throw new LegacyMuxAiError(
-      "Signed playback ID requires signing credentials. " +
-      "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
-      { type: "validation_error" },
-    );
+    throw signingCredentialsMissingError();
   }
 
   const transcriptResult =
@@ -971,6 +1004,7 @@ async function askQuestionsInternal(
           credentials,
           required: isAudioOnly,
           scope: effectiveScope,
+          classifiedErrors: true,
         }) :
       undefined;
   const transcriptText = transcriptResult?.transcriptText ?? "";
@@ -985,72 +1019,46 @@ async function askQuestionsInternal(
   });
   const systemPrompt = buildSystemPrompt(isAudioOnly, hasFreeForm, maxFreeFormAnswerLength);
 
-  let analysisResponse: AnalysisResponse;
+  // Video analysis sends the storyboard; audio-only analysis uses the transcript only.
   let imageUrl: string | undefined;
-
-  try {
-    if (isAudioOnly) {
-      analysisResponse = await analyzeQuestions({
-        provider: modelConfig.provider,
-        modelId: modelConfig.modelId,
-        userPrompt,
-        systemPrompt,
-        normalizedQuestions,
-        maxFreeFormAnswerLength,
-        credentials,
-      });
-    } else {
-      // Generate storyboard URL (signed if needed)
-      const storyboardUrl = await getStoryboardUrl(
-        playbackId,
-        storyboardWidth,
-        policy === "signed",
-        credentials,
-        storyboardScope,
-      );
-      imageUrl = storyboardUrl;
-
-      if (imageSubmissionMode === "base64") {
-        const base64Data = await fetchImageAsBase64(storyboardUrl, imageDownloadOptions);
-        analysisResponse = await analyzeQuestions({
-          provider: modelConfig.provider,
-          modelId: modelConfig.modelId,
-          userPrompt,
-          systemPrompt,
-          normalizedQuestions,
-          maxFreeFormAnswerLength,
-          imageDataUrl: base64Data,
-          credentials,
-        });
-      } else {
-        analysisResponse = await analyzeQuestions({
-          provider: modelConfig.provider,
-          modelId: modelConfig.modelId,
-          userPrompt,
-          systemPrompt,
-          normalizedQuestions,
-          maxFreeFormAnswerLength,
-          imageDataUrl: storyboardUrl,
-          credentials,
-        });
-      }
-    }
-  } catch (error: unknown) {
-    const contentType = isAudioOnly ? "audio" : "video";
-    legacyWrapError(error, `Failed to analyze ${contentType} questions with ${provider}`);
+  let imageDataUrl: string | undefined;
+  if (!isAudioOnly) {
+    // Generate storyboard URL (signed if needed)
+    imageUrl = await getStoryboardUrl(
+      playbackId,
+      storyboardWidth,
+      policy === "signed",
+      credentials,
+      storyboardScope,
+    );
+    imageDataUrl = imageSubmissionMode === "base64" ?
+        await fetchImageAsBase64(imageUrl, imageDownloadOptions) :
+      imageUrl;
   }
+
+  const modelFacts: MuxAiErrorFacts = { call: "answer_questions", provider: modelConfig.provider, model: modelConfig.modelId, assetId };
+  const analysisResponse = await analyzeQuestions({
+    provider: modelConfig.provider,
+    modelId: modelConfig.modelId,
+    userPrompt,
+    systemPrompt,
+    normalizedQuestions,
+    maxFreeFormAnswerLength,
+    imageDataUrl,
+    credentials,
+  }).catch((error: unknown) => wrapError(error, `Failed to analyze ${isAudioOnly ? "audio" : "video"} questions with ${modelConfig.provider}`, modelFacts));
 
   collectedUsage.push(analysisResponse.usage);
 
-  if (!analysisResponse.result?.answers) {
-    throw new LegacyMuxAiError(`Failed to generate answers for asset ${assetId}.`);
-  }
-
   // Validate we got answers for all questions
   if (analysisResponse.result.answers.length !== questions.length) {
-    throw new LegacyMuxAiError(
-      `Failed to generate answers for all questions for asset ${assetId}.`,
-    );
+    throw new MuxAiError(`Failed to generate answers for all questions for asset ${assetId}.`, {
+      code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID,
+      type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+      source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+      dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
+      facts: { ...modelFacts, questionCount: questions.length, returnedAnswerCount: analysisResponse.result.answers.length },
+    });
   }
 
   // Post-process raw LLM output into the public QuestionAnswer shape.
@@ -1123,9 +1131,14 @@ async function askQuestionsInternal(
     if (!isSkipped && !isFreeForm) {
       const allowed = allowedAnswersForQuestion(question);
       if (!allowed.includes(raw.answer)) {
-        throw new LegacyMuxAiError(
-          `Answer "${raw.answer}" for question ${idx} is not in allowed options: ${allowed.join(", ")}`,
-        );
+        // The answer is model output, so it stays out of the facts.
+        throw new MuxAiError(`Answer "${raw.answer}" for question ${idx} is not in allowed options: ${allowed.join(", ")}`, {
+          code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID,
+          type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+          source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+          dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
+          facts: { ...modelFacts, questionIndex: idx },
+        });
       }
     }
 
