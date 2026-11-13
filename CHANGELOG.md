@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.63.0](https://github.com/muxinc/ai/compare/v0.62.0...v0.63.0) (2026-11-13)
+
+
+### Features
+
+* **errors:** classify generate-chapters ([#321](https://github.com/muxinc/ai/issues/321)) ([990d7c2](https://github.com/muxinc/ai/commit/990d7c246846aa6c5974500fb4c8eedc1bd93c36))
+
 ## [0.62.0](https://github.com/muxinc/ai/compare/v0.61.0...v0.62.0) (2026-11-13)
 
 
