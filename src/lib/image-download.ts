@@ -219,10 +219,10 @@ function imageDownloadError(failure: ImageDownloadFailure | undefined, call: str
       },
     );
   }
-  // No response (a network failure or the timeout): transient.
+  // No response (a network failure or the timeout): transient, and a timeout_error when it timed out.
   return muxVideoError(
     failure?.timedOut ? "Image download from Mux timed out" : "Failed to download image from Mux",
-    { call, cause },
+    { call, cause, timedOut: failure?.timedOut },
   );
 }
 

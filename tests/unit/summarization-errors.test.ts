@@ -40,6 +40,7 @@ vi.mock("../../src/primitives/transcripts", () => ({
 const { generateText } = await import("ai");
 const { downloadImageAsBase64 } = await import("../../src/lib/image-download");
 const { MuxAiError } = await import("../../src/lib/mux-ai-error");
+const { toPublicError } = await import("../../src/lib/public-error");
 const {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -122,11 +123,17 @@ describe("getSummaryAndTags classified errors", () => {
   it("codes an audio-only asset without a transcript as invalid_parameter", async () => {
     vi.mocked(isAudioOnlyAsset).mockReturnValue(true);
 
-    await expect(getSummaryAndTags("asset-123", { includeTranscript: false })).rejects.toMatchObject({
+    const error = await getSummaryAndTags("asset-123", { includeTranscript: false }).catch(e => e);
+
+    expect(error).toMatchObject({
       code: "invalid_parameter",
       source: "request",
-      facts: { parameter: "includeTranscript", reason: "not_allowed", allowed: [true], value: false, inputs: ["includeTranscript"] },
+      facts: { parameter: "includeTranscript", reason: "audio_only", allowed: [true], value: false, inputs: ["includeTranscript"] },
     });
+    // End users keep the old hint: the asset is audio-only and needs a ready caption track.
+    expect(toPublicError(error).message).toBe(
+      "includeTranscript must be 'true' for an audio-only asset, which is processed from its transcript and needs a ready caption or subtitle track.",
+    );
   });
 
   it("codes a signed asset without signing keys as signing_credentials_missing", async () => {

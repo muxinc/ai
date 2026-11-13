@@ -734,7 +734,7 @@ async function getSummaryAndTagsInternal(
         code: MUX_AI_ERROR_CODES.INVALID_PARAMETER,
         type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
         source: MUX_AI_ERROR_SOURCES.REQUEST,
-        facts: { parameter: "includeTranscript", reason: "not_allowed", allowed: [true], value: false, assetId, inputs: ["includeTranscript"] },
+        facts: { parameter: "includeTranscript", reason: "audio_only", allowed: [true], value: false, assetId, inputs: ["includeTranscript"] },
       },
     );
   }
