@@ -219,8 +219,8 @@ export const MUX_AI_ERROR_CATALOG = {
   [MUX_AI_ERROR_CODES.MODEL_OUTPUT_MISSING]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER, transient: false, retryable: false },
   [MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER, transient: false, retryable: false },
   [MUX_AI_ERROR_CODES.MODEL_OUTPUT_SUPPRESSED]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER, transient: false, retryable: false },
-  // Not transient: a step retry would repeat a full generation; the job can be resubmitted.
-  [MUX_AI_ERROR_CODES.MODEL_OUTPUT_INCOMPLETE]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER, transient: false },
+  // Not transient: a step retry would repeat a full generation. Retryable: the job can be resubmitted.
+  [MUX_AI_ERROR_CODES.MODEL_OUTPUT_INCOMPLETE]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER, transient: false, retryable: true },
   [MUX_AI_ERROR_CODES.MODEL_OUTPUT_TRUNCATED]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.INTERNAL, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER },
   // Mux Video.
   // Reported by Mux: a step retry would find the same errored rendition, and resubmitting the same asset errors again.
@@ -228,10 +228,12 @@ export const MUX_AI_ERROR_CATALOG = {
   // Audio dubbing.
   [MUX_AI_ERROR_CODES.DUBBING_LANGUAGE_UNSUPPORTED]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER },
   // Reported by the dubbing provider: a step retry would find the same failed dub.
-  [MUX_AI_ERROR_CODES.DUBBING_FAILED]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER, transient: false },
-  // Polling timeouts: not transient, since the whole polling budget was already spent.
-  [MUX_AI_ERROR_CODES.DUBBING_TIMEOUT]: { type: MUX_AI_ERROR_TYPES.TIMEOUT_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER, transient: false },
-  [MUX_AI_ERROR_CODES.STATIC_RENDITION_TIMEOUT]: { type: MUX_AI_ERROR_TYPES.TIMEOUT_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO, transient: false },
+  // Retryable by default; each failure sets it from the provider's report.
+  [MUX_AI_ERROR_CODES.DUBBING_FAILED]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER, transient: false, retryable: true },
+  // Polling timeouts: not transient, since the whole polling budget was already spent,
+  // but retryable, since a later attempt may finish in time.
+  [MUX_AI_ERROR_CODES.DUBBING_TIMEOUT]: { type: MUX_AI_ERROR_TYPES.TIMEOUT_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER, transient: false, retryable: true },
+  [MUX_AI_ERROR_CODES.STATIC_RENDITION_TIMEOUT]: { type: MUX_AI_ERROR_TYPES.TIMEOUT_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO, transient: false, retryable: true },
   [MUX_AI_ERROR_CODES.AUDIO_TRACK_MISSING]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },
   [MUX_AI_ERROR_CODES.PRIMARY_AUDIO_TRACK_CONFLICT]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },
   // Retryable although asset-sourced: the asset changed mid-run, and a new job uses the new settings.
