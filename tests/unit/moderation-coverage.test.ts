@@ -491,6 +491,8 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
     }).catch(e => e);
 
     expect(MuxAiError.is(error)).toBe(true);
+    expect(error.code).toBe("invalid_scope");
+    expect(error.facts).toMatchObject({ reason: "no_video", startTime: 40, endTime: 50, videoEndTime: 30, transcriptSkipReason: "disabled", inputs: ["scope"] });
     expect(error.message).toBe(
       "Nothing to moderate. Thumbnails skipped: The requested scope does not include any renderable video, so there are no thumbnails to moderate. " +
       "Transcript skipped: Transcript moderation was disabled with includeTranscript: false.",
@@ -605,6 +607,8 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
     }).catch(e => e);
 
     expect(MuxAiError.is(error)).toBe(true);
+    expect(error.code).toBe("invalid_scope");
+    expect(error.facts).toMatchObject({ reason: "no_video", videoEndTime: 30, transcriptSkipReason: "no_ready_text_track" });
     expect(error.message).toBe(
       "Nothing to moderate. Thumbnails skipped: The requested scope does not include any renderable video, so there are no thumbnails to moderate. " +
       "Transcript skipped: No ready caption/subtitle track found for this asset.",
@@ -650,7 +654,9 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
     const error = await getModerationScores("asset-audio", { provider: "openai" }).catch(e => e);
 
     expect(MuxAiError.is(error)).toBe(true);
-    expect(error.publicType).toBe("validation_error");
+    expect(error.code).toBe("caption_track_not_found");
+    expect(error.source).toBe("asset");
+    expect(error.facts).toMatchObject({ assetId: "asset-audio", thumbnailSkipReason: "no_video_track", transcriptSkipReason: "no_ready_text_track" });
     expect(error.message).toBe(
       "Nothing to moderate. Thumbnails skipped: Asset has no video track, so there are no thumbnails to moderate. " +
       "Transcript skipped: No ready caption/subtitle track found for this asset.",
@@ -673,8 +679,8 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
     const error = await getModerationScores("asset-123", { provider: "openai" }).catch(e => e);
 
     expect(MuxAiError.is(error)).toBe(true);
-    expect(error.publicType).toBe("validation_error");
-    expect(error.publicMessage).toBe("Transcript track is missing an id.");
+    expect(error.code).toBe("caption_track_id_missing");
+    expect(error.facts).toMatchObject({ assetId: "asset-123", languageCode: "en" });
   });
 
   it("fails rather than skipping when the caption track exists but the VTT fetch fails", async () => {
@@ -684,10 +690,11 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
 
     const error = await getModerationScores("asset-123", { provider: "openai" }).catch(e => e);
 
-    expect(error).toBeInstanceOf(Error);
+    expect(MuxAiError.is(error)).toBe(true);
     expect(error.message).toContain("Failed to fetch transcript");
-    // A transient fetch failure is not a customer-safe validation error.
-    expect(MuxAiError.is(error)).toBe(false);
+    // A transient Mux failure, not a customer-safe validation error.
+    expect(error).toMatchObject({ type: "processing_error", source: "upstream", dependency: "mux_video", transient: true });
+    expect(error.facts).toMatchObject({ call: "fetch_transcript", status: 500 });
     // Surfaces are resolved before any provider call, so nothing was spent.
     expect(counts.image).toBe(0);
     expect(counts.transcript).toBe(0);
@@ -731,6 +738,8 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
     const error = await getModerationScores("asset-audio", { provider: "google-vision-api" }).catch(e => e);
 
     expect(MuxAiError.is(error)).toBe(true);
+    expect(error.code).toBe("invalid_parameter");
+    expect(error.facts).toMatchObject({ parameter: "provider", reason: "not_allowed", allowed: ["openai"], value: "google-vision-api", inputs: ["provider"] });
     expect(error.message).toBe(
       "Nothing to moderate. Thumbnails skipped: Asset has no video track, so there are no thumbnails to moderate. " +
       "Transcript skipped: Provider 'google-vision-api' is image-only and cannot moderate transcript text; use provider 'openai'.",

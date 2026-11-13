@@ -289,6 +289,24 @@ describe("signed Playback Integration Tests", () => {
         expect(result).toHaveProperty("thumbnailScores");
         expect(Array.isArray(result.thumbnailScores)).toBe(true);
       });
+
+      it("should throw error for signed asset without signing credentials", async () => {
+        vi.stubEnv("MUX_SIGNING_KEY", "");
+        vi.stubEnv("MUX_PRIVATE_KEY", "");
+        reloadEnv();
+
+        await expect(
+          getModerationScores(signedAssetId, {
+            provider: "openai",
+          }),
+        ).rejects.toMatchObject({
+          code: "signing_credentials_missing",
+          source: "internal",
+        });
+
+        vi.unstubAllEnvs();
+        reloadEnv();
+      });
     });
 
     describe("generateChapters", () => {
