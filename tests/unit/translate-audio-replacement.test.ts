@@ -244,10 +244,10 @@ describe("translateAudio track replacement", () => {
     expect(replaceAndCreateTrack).toHaveBeenNthCalledWith(2, expect.objectContaining({ policy: "fail" }));
   });
 
-  it("refuses to replace the primary audio track", async () => {
+  it.each([undefined, "fail", "replace_generated", "replace_all"] as const)("refuses to replace the primary audio track (replaceExistingTracks: %s)", async (replaceExistingTracks) => {
     stubElevenLabsFetch();
 
-    const error = await captureRejection(translateAudio(ASSET_ID, "en", { replaceExistingTracks: "replace_all" }));
+    const error = await captureRejection(translateAudio(ASSET_ID, "en", { replaceExistingTracks }));
 
     expect(error.message).toContain("primary audio");
     // No option avoids the asset's own audio in the target language.

@@ -198,7 +198,7 @@ describe("planTextTrackReplacement", () => {
     });
 
     it("never deletes the primary audio track, under any policy", () => {
-      for (const policy of ["replace_all", "replace_generated"] as const) {
+      for (const policy of ["fail", "replace_all", "replace_generated"] as const) {
         const plan = planTextTrackReplacement(asset([primaryAudio]), { type: "audio", languageCode: "en", name: "Other" }, policy);
         expect(plan.kind).toBe("blocked");
         if (plan.kind === "blocked") {
