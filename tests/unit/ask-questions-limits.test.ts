@@ -82,7 +82,10 @@ describe("askQuestions question-count cap", () => {
     );
 
     await expect(askQuestions("asset-123", tooMany)).rejects.toMatchObject({
-      publicType: "validation_error",
+      code: "invalid_parameter",
+      type: "validation_error",
+      source: "request",
+      facts: { parameter: "questions", reason: "too_many", count: ASK_QUESTIONS_MAX_QUESTIONS_PER_CALL + 1, max: ASK_QUESTIONS_MAX_QUESTIONS_PER_CALL },
       message: expect.stringContaining(
         `at most ${ASK_QUESTIONS_MAX_QUESTIONS_PER_CALL} are allowed per call`,
       ),
