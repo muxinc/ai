@@ -1,5 +1,8 @@
 import env from "../env.ts";
 
+import type { ClassifiedErrorsOption } from "./mux-ai-error.ts";
+import { s3NoResponseError, s3ResponseError } from "./storage-errors.ts";
+
 const AWS4_ALGORITHM = "AWS4-HMAC-SHA256";
 const AWS4_REQUEST_TERMINATOR = "aws4_request";
 const AWS4_SERVICE = "s3";
@@ -23,7 +26,7 @@ interface S3Target {
   key: string;
 }
 
-export interface PutObjectOptions extends S3Target, S3Credentials {
+export interface PutObjectOptions extends S3Target, S3Credentials, ClassifiedErrorsOption {
   body: string | Uint8Array;
   contentType?: string;
 }
@@ -196,6 +199,7 @@ export async function putObjectToS3({
   key,
   body,
   contentType,
+  classifiedErrors,
 }: PutObjectOptions): Promise<void> {
   const resolvedEndpoint = normalizeEndpoint(endpoint);
   const canonicalUri = buildCanonicalUri(resolvedEndpoint, bucket, key);
@@ -231,21 +235,33 @@ export async function putObjectToS3({
   const authorization = `${AWS4_ALGORITHM} Credential=${accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
   const requestUrl = `${resolvedEndpoint.origin}${canonicalUri}`;
 
-  const response = await fetch(requestUrl, {
-    method: "PUT",
-    headers: {
-      "Authorization": authorization,
-      "x-amz-content-sha256": payloadHash,
-      "x-amz-date": amzDate,
-      ...(normalizedContentType ? { "content-type": normalizedContentType } : {}),
-    },
-    body,
-  });
+  let response: Response;
+  try {
+    response = await fetch(requestUrl, {
+      method: "PUT",
+      headers: {
+        "Authorization": authorization,
+        "x-amz-content-sha256": payloadHash,
+        "x-amz-date": amzDate,
+        ...(normalizedContentType ? { "content-type": normalizedContentType } : {}),
+      },
+      body,
+    });
+  } catch (error) {
+    if (!classifiedErrors) {
+      throw error;
+    }
+    throw s3NoResponseError("S3 PUT got no response", "put_object", error);
+  }
 
   if (!response.ok) {
     const errorBody = await response.text().catch(() => "");
     const detail = errorBody ? ` ${errorBody}` : "";
-    throw new Error(`S3 PUT failed (${response.status} ${response.statusText}).${detail}`);
+    const message = `S3 PUT failed (${response.status} ${response.statusText}).${detail}`;
+    if (!classifiedErrors) {
+      throw new Error(message);
+    }
+    throw s3ResponseError(message, "put_object", response, errorBody);
   }
 }
 

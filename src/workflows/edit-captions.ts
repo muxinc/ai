@@ -626,7 +626,7 @@ async function uploadEditedVttToS3({
     key: vttKey,
     body: editedVtt,
     contentType: "text/vtt",
-  }, storageAdapter);
+  }, storageAdapter, { classifiedErrors: true });
 
   return createPresignedGetUrlWithStorageAdapter({
     accessKeyId: s3AccessKeyId,

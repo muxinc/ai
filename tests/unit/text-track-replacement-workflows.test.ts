@@ -330,6 +330,7 @@ describe("editCaptions source track replacement", () => {
     expect(vi.mocked(putObjectWithStorageAdapter)).toHaveBeenLastCalledWith(
       expect.objectContaining({ body: VTT, key: expect.stringContaining("-original-") }),
       undefined,
+      { classifiedErrors: true },
     );
     expect(vi.mocked(createTextTrackOnMux)).toHaveBeenCalledWith(
       "asset-1",

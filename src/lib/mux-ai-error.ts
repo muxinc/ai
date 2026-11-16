@@ -107,7 +107,14 @@ export type ErrorCatalogEntry<TType extends string = string, TDependency extends
   retryable?: boolean;
   /** Overrides the default from {@link defaultTransient} for every error with this code. */
   transient?: boolean;
-} & SourceAndDependency<TDependency>;
+} & (
+  | SourceAndDependency<TDependency> |
+  /**
+   * A condition any remote service can report (e.g. a provider's rate limit): the code
+   * implies the type and source, and the site raising it names the dependency.
+   */
+  { source: MuxAiErrorSource; dependency?: never; siteDependency: true }
+);
 
 /**
  * Codes for conditions precise enough to name. A code implies its type, source and
@@ -185,6 +192,20 @@ export const MUX_AI_ERROR_CODES = {
   STATIC_RENDITION_CHANGED: "static_rendition_changed",
   /** Mux didn't finish the static rendition within the polling budget. Facts: `assetId`, `attempts`, `pollIntervalMs`, `lastStatus`. */
   STATIC_RENDITION_TIMEOUT: "static_rendition_timeout",
+  /**
+   * The provider says the account the service running the SDK uses is out of credits or
+   * quota, or hit a spend or usage limit. Retrying won't help until someone changes the
+   * account. The site names the dependency. Facts: `call`, `status`, `providerCode`.
+   */
+  PROVIDER_QUOTA_EXHAUSTED: "provider_quota_exhausted",
+  /** The provider rejected the key the service running the SDK uses, or the key lacks permission for this model or feature. The site names the dependency. Facts: `call`, `status`, `providerCode`. */
+  PROVIDER_CREDENTIALS_REJECTED: "provider_credentials_rejected",
+  /** The provider says requests are over its rate or concurrency limit. The site names the dependency. Facts: `call`, `status`, `providerCode`. */
+  PROVIDER_RATE_LIMITED: "provider_rate_limited",
+  /** The provider says it's overloaded or down for maintenance. The site names the dependency. Facts: `call`, `status`, `providerCode`. */
+  PROVIDER_UNAVAILABLE: "provider_unavailable",
+  /** The provider can't process the asset's audio. The site names the dependency. Facts: `call`, `status`, `providerCode`, `reason` (`corrupt`, `unsupported_format`, `too_long`, `too_short`). */
+  AUDIO_UNPROCESSABLE: "audio_unprocessable",
 } as const;
 export type MuxAiErrorCode = typeof MUX_AI_ERROR_CODES[keyof typeof MUX_AI_ERROR_CODES];
 export const MUX_AI_ERROR_CODE_VALUES: readonly MuxAiErrorCode[] = Object.values(MUX_AI_ERROR_CODES);
@@ -246,6 +267,16 @@ export const MUX_AI_ERROR_CATALOG = {
   [MUX_AI_ERROR_CODES.PRIMARY_AUDIO_TRACK_CONFLICT]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },
   // Retryable although asset-sourced: the asset changed mid-run, and a new job uses the new settings.
   [MUX_AI_ERROR_CODES.STATIC_RENDITION_CHANGED]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET, retryable: true },
+  // Conditions a remote service reports in its own terms (see the per-dependency modules,
+  // e.g. elevenlabs-errors.ts), so the code holds whichever dependency the site names.
+  // A provider's key and quota are the configuration of the service running the SDK, like
+  // its signing keys and storage: `internal`. (`account` is the caller's Mux account.)
+  // Neither step-retried nor resubmittable: the provider says retrying won't restore access.
+  [MUX_AI_ERROR_CODES.PROVIDER_QUOTA_EXHAUSTED]: { type: MUX_AI_ERROR_TYPES.SERVER_ERROR, source: MUX_AI_ERROR_SOURCES.INTERNAL, siteDependency: true, transient: false, retryable: false },
+  [MUX_AI_ERROR_CODES.PROVIDER_CREDENTIALS_REJECTED]: { type: MUX_AI_ERROR_TYPES.SERVER_ERROR, source: MUX_AI_ERROR_SOURCES.INTERNAL, siteDependency: true },
+  [MUX_AI_ERROR_CODES.PROVIDER_RATE_LIMITED]: { type: MUX_AI_ERROR_TYPES.CAPACITY_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, siteDependency: true, transient: true, retryable: true },
+  [MUX_AI_ERROR_CODES.PROVIDER_UNAVAILABLE]: { type: MUX_AI_ERROR_TYPES.CAPACITY_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, siteDependency: true, transient: true, retryable: true },
+  [MUX_AI_ERROR_CODES.AUDIO_UNPROCESSABLE]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET, siteDependency: true },
 } as const satisfies Record<MuxAiErrorCode, ErrorCatalogEntry<MuxAiErrorType, MuxAiErrorDependency>>;
 
 export interface ModelCallDiagnostics {
@@ -300,15 +331,50 @@ export interface ErrorCauseSummary {
 /**
  * The classification a coded site states: the code, and the type, source and dependency
  * its catalog entry implies. Each code accepts only its own, so a site reads on its own
- * and can't contradict the catalog.
+ * and can't contradict the catalog. A `siteDependency` code requires the site to name
+ * the dependency.
  */
-export type CodedClassification<TCatalog extends Readonly<Record<string, ErrorCatalogEntry>>> = {
+export type CodedClassification<TCatalog extends Readonly<Record<string, ErrorCatalogEntry>>, TDependency extends string = string> = {
   [C in keyof TCatalog & string]: {
     code: C;
     type: TCatalog[C]["type"];
     source: TCatalog[C]["source"];
-  } & (TCatalog[C] extends { dependency: infer D extends string } ? { dependency: D } : { dependency?: never });
+  } & (
+    TCatalog[C] extends { dependency: infer D extends string } ? { dependency: D } :
+      TCatalog[C] extends { siteDependency: true } ? { dependency: TDependency } :
+          { dependency?: never }
+  );
 }[keyof TCatalog & string];
+
+/**
+ * Generic codes for a remote call's failure, from its HTTP status (or the lack of one):
+ * the fallback rung, used when no per-dependency rule recognizes the response. Unlike
+ * catalog codes they imply nothing: the type and source come from the status rules
+ * (`classifyDependencyFailure`), and the error names its dependency. A count of these
+ * codes shows which dependencies' responses still need per-dependency rules.
+ */
+export const MUX_AI_DEPENDENCY_STATUS_CODES = {
+  /** No response arrived, and the call didn't time out (e.g. a connection failure). */
+  NO_RESPONSE: "dependency_no_response",
+  /** The call timed out, or the dependency answered 408. */
+  TIMEOUT: "dependency_timeout",
+  /** The dependency answered 429. */
+  RATE_LIMITED: "dependency_rate_limited",
+  /** The dependency answered 425. */
+  TOO_EARLY: "dependency_too_early",
+  /** The dependency answered with a 5xx status. */
+  SERVER_ERROR: "dependency_server_error",
+  /** The dependency answered 401 or 403. */
+  AUTH_REJECTED: "dependency_auth_rejected",
+  /** The dependency answered 404. */
+  NOT_FOUND: "dependency_not_found",
+  /** The dependency answered with another 4xx status. */
+  REQUEST_REJECTED: "dependency_request_rejected",
+  /** The dependency answered with any other status, e.g. a success that reported a failure. */
+  OTHER_STATUS: "dependency_other_status",
+} as const;
+export type MuxAiDependencyStatusCode = typeof MUX_AI_DEPENDENCY_STATUS_CODES[keyof typeof MUX_AI_DEPENDENCY_STATUS_CODES];
+export const MUX_AI_DEPENDENCY_STATUS_CODE_VALUES: readonly MuxAiDependencyStatusCode[] = Object.values(MUX_AI_DEPENDENCY_STATUS_CODES);
 
 /**
  * How a site classifies an error: always a type and source (with the dependency for an
@@ -317,7 +383,7 @@ export type CodedClassification<TCatalog extends Readonly<Record<string, ErrorCa
  * catalog entry implies.
  */
 export type ClassifiedErrorInit<TType extends string, TCode extends string, TDependency extends string, TCatalog extends Readonly<Record<string, ErrorCatalogEntry>> = never> = (
-  ([TCatalog] extends [never] ? ({ code: TCode; type: TType } & SourceAndDependency<TDependency>) : CodedClassification<TCatalog>) |
+  ([TCatalog] extends [never] ? ({ code: TCode; type: TType } & SourceAndDependency<TDependency>) : CodedClassification<TCatalog, TDependency>) |
   ({ code?: never; type: TType } & SourceAndDependency<TDependency>)
 ) & {
   facts?: MuxAiErrorFacts;
@@ -338,7 +404,15 @@ export type ClassifiedErrorInit<TType extends string, TCode extends string, TDep
   cause?: unknown;
 };
 
-export type MuxAiErrorInit = ClassifiedErrorInit<MuxAiErrorType, MuxAiErrorCode, MuxAiErrorDependency, typeof MUX_AI_ERROR_CATALOG>;
+/**
+ * How a site classifies a `MuxAiError`: a catalog code with what it implies, no code, or a
+ * dependency status code with the type and source the status rules gave (see
+ * {@link MUX_AI_DEPENDENCY_STATUS_CODES}).
+ */
+export type MuxAiErrorInit =
+  | ClassifiedErrorInit<MuxAiErrorType, MuxAiErrorCode, MuxAiErrorDependency, typeof MUX_AI_ERROR_CATALOG> |
+  (Omit<ClassifiedErrorInit<MuxAiErrorType, MuxAiErrorCode, MuxAiErrorDependency>, "code" | "type" | "source" | "dependency"> &
+    { code: MuxAiDependencyStatusCode; type: MuxAiErrorType } & SourceAndDependency<MuxAiErrorDependency>);
 
 /**
  * A classified error's fields as JSON-safe data, for a subclass's Workflow serializer
@@ -361,7 +435,7 @@ export interface SerializedClassification<TType extends string = string, TCode e
  * What crosses a Workflow step boundary. A run replays the events it already wrote,
  * so `v` is bumped on a shape change and earlier versions stay readable.
  */
-export interface SerializedMuxAiError extends SerializedClassification<MuxAiErrorType, MuxAiErrorCode, MuxAiErrorDependency> {
+export interface SerializedMuxAiError extends SerializedClassification<MuxAiErrorType, MuxAiErrorCode | MuxAiDependencyStatusCode, MuxAiErrorDependency> {
   v: 2;
   usage?: TokenUsage;
   finishReason?: string;
@@ -536,7 +610,7 @@ export function restoreClassification<T extends ClassifiedError>(error: T, recor
  * Fields, not subclasses, carry the classification: a custom Workflow codec keeps
  * them across step boundaries, and every subclass revives as `MuxAiError`.
  */
-export class MuxAiError extends ClassifiedError<MuxAiErrorType, MuxAiErrorCode, MuxAiErrorDependency> {
+export class MuxAiError extends ClassifiedError<MuxAiErrorType, MuxAiErrorCode | MuxAiDependencyStatusCode, MuxAiErrorDependency> {
   /** Structural brand for duck-type identification across copies of the SDK. */
   readonly __mux_ai_error = true;
 
@@ -544,7 +618,8 @@ export class MuxAiError extends ClassifiedError<MuxAiErrorType, MuxAiErrorCode, 
   declare diagnostics?: ModelCallDiagnostics;
 
   constructor(message: string, init: MuxAiErrorInit) {
-    super(message, init, MUX_AI_ERROR_CATALOG);
+    // A status code has no catalog entry, so the constructor keeps the site's type and source.
+    super(message, init as ClassifiedErrorInit<MuxAiErrorType, MuxAiErrorCode | MuxAiDependencyStatusCode, MuxAiErrorDependency>, MUX_AI_ERROR_CATALOG);
   }
 
   static is(value: unknown): value is MuxAiError {

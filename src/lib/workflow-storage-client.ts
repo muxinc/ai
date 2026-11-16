@@ -5,12 +5,15 @@ import type {
   StoragePutObjectInput,
 } from "../types.ts";
 
+import type { ClassifiedErrorsOption } from "./mux-ai-error.ts";
 import {
   createPresignedGetUrl,
   putObjectToS3,
 } from "./s3-sigv4.ts";
+import { storageNotConfiguredError } from "./storage-adapter.ts";
 
-export interface WorkflowStorageClientOptions {
+/** With `classifiedErrors`, uploads fail with classified `storage` errors (see `storage-errors.ts`). */
+export interface WorkflowStorageClientOptions extends ClassifiedErrorsOption {
   accessKeyId?: string;
   secretAccessKey?: string;
 }
@@ -24,10 +27,12 @@ export interface WorkflowStorageClientOptions {
 export class WorkflowStorageClient {
   private readonly accessKeyId?: string;
   private readonly secretAccessKey?: string;
+  private readonly classifiedErrors?: boolean;
 
   constructor(options: WorkflowStorageClientOptions = {}) {
     this.accessKeyId = options.accessKeyId;
     this.secretAccessKey = options.secretAccessKey;
+    this.classifiedErrors = options.classifiedErrors;
   }
 
   private resolveCredentials(input: {
@@ -38,6 +43,9 @@ export class WorkflowStorageClient {
     const secretAccessKey = input.secretAccessKey ?? this.secretAccessKey;
 
     if (!accessKeyId || !secretAccessKey) {
+      if (this.classifiedErrors) {
+        throw storageNotConfiguredError(["S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"]);
+      }
       throw new Error(
         "Storage credentials are required. " +
         "Provide accessKeyId/secretAccessKey in WorkflowStorageClient options " +
@@ -59,6 +67,7 @@ export class WorkflowStorageClient {
       key: input.key,
       body: input.body,
       contentType: input.contentType,
+      classifiedErrors: this.classifiedErrors,
     });
   }
 
@@ -79,6 +88,7 @@ export class WorkflowStorageClient {
     return {
       accessKeyId: instance.accessKeyId,
       secretAccessKey: instance.secretAccessKey,
+      ...(instance.classifiedErrors && { classifiedErrors: true }),
     };
   }
 

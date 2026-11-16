@@ -4,11 +4,12 @@ import { version } from "../package.json";
 export {
   classifyDependencyFailure,
   dependencyError,
+  dependencyFailureCode,
   httpStatusOf,
   isTransientStatus,
   requestIdOf,
 } from "./lib/dependency-error.ts";
-export type { DependencyErrorInit } from "./lib/dependency-error.ts";
+export type { DependencyErrorInit, RecognizedDependencyErrorInit } from "./lib/dependency-error.ts";
 
 // Language code utilities
 export {
@@ -33,6 +34,8 @@ export {
   ClassifiedError,
   errorDetailFact,
   internalError,
+  MUX_AI_DEPENDENCY_STATUS_CODE_VALUES,
+  MUX_AI_DEPENDENCY_STATUS_CODES,
   MUX_AI_ERROR_CATALOG,
   MUX_AI_ERROR_CODE_VALUES,
   MUX_AI_ERROR_CODES,
@@ -52,6 +55,7 @@ export type {
   CodedClassification,
   ErrorCatalogEntry,
   ErrorCauseSummary,
+  MuxAiDependencyStatusCode,
   MuxAiErrorCode,
   MuxAiErrorDependency,
   MuxAiErrorFacts,

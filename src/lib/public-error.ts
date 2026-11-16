@@ -270,6 +270,18 @@ export const MUX_AI_ERROR_PUBLIC_MAPPINGS = {
     facts: ["providerError"],
     message: (facts, { retryable }) => `Audio dubbing failed${facts.providerError ? `: ${text(facts.providerError)}` : "."}${retryable ? TRY_AGAIN : ""}`,
   },
+  [MUX_AI_ERROR_CODES.AUDIO_UNPROCESSABLE]: {
+    facts: ["reason"],
+    message: (facts) => {
+      const why = {
+        corrupt: "it may be corrupt",
+        unsupported_format: "its format isn't supported",
+        too_long: "it's too long",
+        too_short: "it's too short",
+      }[text(facts.reason)];
+      return `The asset's audio couldn't be processed${why ? `: ${why}` : ""}.`;
+    },
+  },
 } as const satisfies Partial<Record<MuxAiErrorCode, PublicErrorMapping>>;
 
 /** The SDK's wording for a failure without a public code: by source, then by type. */

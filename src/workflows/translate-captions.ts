@@ -1182,7 +1182,7 @@ async function uploadVttToS3({
     key: vttKey,
     body: translatedVtt,
     contentType: "text/vtt",
-  }, storageAdapter);
+  }, storageAdapter, { classifiedErrors: true });
 
   return createPresignedGetUrlWithStorageAdapter({
     accessKeyId: s3AccessKeyId,

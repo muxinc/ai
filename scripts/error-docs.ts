@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
 import {
+  MUX_AI_DEPENDENCY_STATUS_CODES,
   MUX_AI_ERROR_CATALOG,
   MUX_AI_ERROR_CODES,
   MUX_AI_ERROR_DEPENDENCIES,
@@ -93,13 +94,30 @@ const TABLES: GeneratedTable[] = [
         ...Object.entries(MUX_AI_ERROR_CODES)
           .sort(([, a], [, b]) => Number(b in MUX_AI_ERROR_PUBLIC_MAPPINGS) - Number(a in MUX_AI_ERROR_PUBLIC_MAPPINGS))
           .map(([key, value]) => {
-            const entry: { type: string; source: string; dependency?: string } = MUX_AI_ERROR_CATALOG[value];
+            const entry: { type: string; source: string; dependency?: string; siteDependency?: true } = MUX_AI_ERROR_CATALOG[value];
             if (!comments[key]) {
               throw new Error(`MUX_AI_ERROR_CODES.${key} has no TSDoc comment describing its condition.`);
             }
             const isPublic = value in MUX_AI_ERROR_PUBLIC_MAPPINGS ? "yes" : "no";
-            return `| ${code(value)} | ${code(entry.type)} | ${code(entry.source)} | ${code(entry.dependency)} | ${isPublic} | ${cell(comments[key])} |`;
+            const dependency = entry.siteDependency ? "named by the site" : code(entry.dependency);
+            return `| ${code(value)} | ${code(entry.type)} | ${code(entry.source)} | ${dependency} | ${isPublic} | ${cell(comments[key])} |`;
           }),
+      ];
+    },
+  },
+  {
+    name: "dependency status codes",
+    render: (source) => {
+      const comments = keyComments(source, "MUX_AI_DEPENDENCY_STATUS_CODES");
+      return [
+        "| Code | Observed |",
+        "|---|---|",
+        ...Object.entries(MUX_AI_DEPENDENCY_STATUS_CODES).map(([key, value]) => {
+          if (!comments[key]) {
+            throw new Error(`MUX_AI_DEPENDENCY_STATUS_CODES.${key} has no TSDoc comment describing it.`);
+          }
+          return `| ${code(value)} | ${cell(comments[key])} |`;
+        }),
       ];
     },
   },

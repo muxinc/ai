@@ -25,6 +25,7 @@ describe("elevenLabsResponseFailure", () => {
     expect(failure).toEqual({
       httpStatus: 400,
       reason: "unsupported_target_language",
+      providerCodes: ["invalid_parameters", "unsupported_target_language"],
       requestId: "req-1",
       retryable: false,
       detail: "400 Bad Request: unsupported_target_language: Target language 'ur' is not supported. (param: target_language, request_id: req-1)",
@@ -65,6 +66,7 @@ describe("elevenLabsSdkFailure", () => {
     expect(elevenLabsSdkFailure(error)).toEqual({
       httpStatus: 401,
       reason: "invalid_api_key",
+      providerCodes: ["invalid_api_key"],
       retryable: false,
       detail: "401 Unauthorized: invalid_api_key: Invalid API key",
     });
@@ -87,7 +89,7 @@ describe("elevenLabsSdkFailure", () => {
 });
 
 describe("elevenLabsFailureError", () => {
-  it("classifies by status and keeps the provider detail in facts, not the message", () => {
+  it("recognizes ElevenLabs' own code and keeps the provider detail in facts, not the message", () => {
     const error = elevenLabsFailureError("Audio dubbing could not be started.", "elevenlabs_create_dubbing_project", {
       httpStatus: 401,
       reason: "invalid_api_key",
@@ -98,6 +100,8 @@ describe("elevenLabsFailureError", () => {
 
     expect(error).toMatchObject({
       message: "Audio dubbing could not be started.",
+      // The service's own ElevenLabs key.
+      code: "provider_credentials_rejected",
       type: "server_error",
       source: "internal",
       dependency: "ai_provider",
@@ -134,5 +138,48 @@ describe("elevenLabsFailureError", () => {
     });
 
     expect(JSON.stringify(error.facts)).not.toContain("SECRET");
+  });
+});
+
+describe("elevenLabs per-dependency rules", () => {
+  async function classified(body: unknown, status: number) {
+    const failure = await elevenLabsResponseFailure(jsonResponse(body, status, ""));
+    return { failure, error: elevenLabsFailureError("ElevenLabs call failed", "transcribe_audio", failure) };
+  }
+
+  it.each([
+    [{ detail: { code: "insufficient_credits", message: "Not enough credits." } }, 402],
+    [{ detail: { status: "quota_exceeded", message: "Quota exceeded." } }, 401],
+    [{ detail: { status: "quota_exceeded", message: "Quota exceeded." } }, 429],
+  ])("tells a spent quota from a bad key or a rate limit (%#)", async (body, status) => {
+    const { failure, error } = await classified(body, status);
+
+    expect(failure.retryable).toBe(false);
+    expect(error).toMatchObject({ code: "provider_quota_exhausted", type: "server_error", source: "internal", transient: false, retryable: false, facts: { status } });
+  });
+
+  it.each([
+    [{ detail: { code: "rate_limit_exceeded" } }, "provider_rate_limited"],
+    [{ detail: { code: "concurrent_limit_exceeded" } }, "provider_rate_limited"],
+    [{ detail: { status: "too_many_concurrent_requests" } }, "provider_rate_limited"],
+    [{ detail: { code: "system_busy" } }, "provider_unavailable"],
+  ])("tells ElevenLabs' 429s apart (%#)", async (body, code) => {
+    const { failure, error } = await classified(body, 429);
+
+    // Already retried by the workflow: not step-retried again, but a new job may succeed.
+    expect(error).toMatchObject({ code, source: "upstream", transient: false, retryable: true });
+    expect(failure.retryable).toBe(true);
+  });
+
+  it("calls invalid audio the asset's", async () => {
+    const { error } = await classified({ detail: { code: "audio_too_long", message: "Too long." } }, 400);
+
+    expect(error).toMatchObject({ code: "audio_unprocessable", source: "asset", retryable: false, facts: { reason: "too_long", providerCode: "audio_too_long" } });
+  });
+
+  it("falls back to the status for a code without a rule, keeping ElevenLabs' own code", async () => {
+    const { error } = await classified({ detail: { code: "something_new" } }, 400);
+
+    expect(error).toMatchObject({ code: "dependency_request_rejected", source: "internal", facts: { providerCode: "something_new" } });
   });
 });

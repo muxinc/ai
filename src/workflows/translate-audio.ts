@@ -711,7 +711,7 @@ async function downloadAndUploadDubbedAudio({
     key: audioKey,
     body: dubbedAudio,
     contentType: Object.keys(formats).find(type => formats[type] === extension)!,
-  }, storageAdapter);
+  }, storageAdapter, { classifiedErrors: true });
 
   const presignedUrl = await createPresignedGetUrlWithStorageAdapter({
     accessKeyId: s3AccessKeyId,
@@ -783,7 +783,7 @@ async function downloadAndUploadDubTranscript({
       key: vttKey,
       body: transcriptVtt,
       contentType: "text/vtt",
-    }, storageAdapter);
+    }, storageAdapter, { classifiedErrors: true });
 
     const presignedUrl = await createPresignedGetUrlWithStorageAdapter({
       accessKeyId: s3AccessKeyId,
