@@ -37,10 +37,13 @@ export interface DependencyErrorInit {
  */
 export interface RecognizedDependencyErrorInit extends DependencyErrorInit {
   /**
-   * Sets the type and source, and its own retry policy wins over the status rules.
-   * Without one, the error gets the status's fallback code (see {@link dependencyFailureCode}).
+   * A catalog code sets the type and source, and its own retry policy wins over the
+   * status rules. A fallback code names what was observed when the status can't, e.g.
+   * `dependency_other_status` for a response that answered but reported a failure;
+   * the status rules still classify it. Without one, the error gets the status's
+   * fallback code (see {@link dependencyFailureCode}).
    */
-  code?: MuxAiErrorCode;
+  code?: MuxAiErrorCode | MuxAiDependencyStatusCode;
 }
 
 export { isTransientStatus };
@@ -139,8 +142,8 @@ export function dependencyFailureCode({ status, timedOut }: Pick<DependencyError
  */
 export function dependencyError(message: string, init: RecognizedDependencyErrorInit): MuxAiError {
   const { source, transient, retryable, ...classification } = classifyDependencyFailure(init);
-  if (init.code) {
-    const entry: ErrorCatalogEntry<MuxAiErrorType, MuxAiErrorDependency> = MUX_AI_ERROR_CATALOG[init.code];
+  if (init.code && init.code in MUX_AI_ERROR_CATALOG) {
+    const entry: ErrorCatalogEntry<MuxAiErrorType, MuxAiErrorDependency> = MUX_AI_ERROR_CATALOG[init.code as MuxAiErrorCode];
     return new MuxAiError(message, {
       code: init.code,
       type: entry.type,
@@ -158,7 +161,7 @@ export function dependencyError(message: string, init: RecognizedDependencyError
   return new MuxAiError(message, {
     ...classification,
     ...where,
-    code: dependencyFailureCode(init),
+    code: (init.code as MuxAiDependencyStatusCode | undefined) ?? dependencyFailureCode(init),
     transient,
     ...(retryable !== undefined && { retryable }),
     cause: init.cause,

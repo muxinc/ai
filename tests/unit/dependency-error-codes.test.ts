@@ -52,6 +52,13 @@ describe("dependencyError", () => {
     expect(error).toMatchObject({ code: "provider_rate_limited", type: "capacity_error", source: "upstream", transient: false, retryable: true });
   });
 
+  it("takes a fallback code from the site when the status can't say what happened", () => {
+    // The provider answered, but with an error of its own instead of a result.
+    const error = dependencyError("Provider error", { dependency: "ai_provider", call: "moderate", code: "dependency_other_status", transient: false, retryable: true });
+
+    expect(error).toMatchObject({ code: "dependency_other_status", type: "processing_error", source: "upstream", transient: false, retryable: true });
+  });
+
   it.each([
     dependencyError("Upload failed", { dependency: "storage", call: "put_object", status: 503 }),
     dependencyError("Out of credits", { dependency: "ai_provider", call: "transcribe", status: 402, code: MUX_AI_ERROR_CODES.PROVIDER_QUOTA_EXHAUSTED }),
