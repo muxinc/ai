@@ -118,7 +118,7 @@ A remote service reached over the network. Libraries running in-process are neve
 | `asset_duration_unavailable` | `validation_error` | `asset` |  | yes | The asset has no valid duration, so work that depends on it can't run. Facts: `assetId`. |
 | `audio_track_unsupported` | `validation_error` | `asset` |  | yes | Mux won't add an audio track to this asset. Facts: `reason` (`clip`, `live_stream`, `audio_only`). |
 | `static_rendition_unsupported` | `validation_error` | `asset` |  | yes | The asset's existing static rendition can't be used as a source. Facts: `reason` (`unusable`, `too_large`) and the rendition's details. |
-| `content_policy_blocked` | `content_policy_error` | `asset` | `ai_provider` | yes | The model provider refused the content. Facts: `reason` and `category`. |
+| `content_policy_blocked` | `content_policy_error` | `asset` | `ai_provider` | yes | The model provider refused the content. Facts: `reason` and `category`. `reason` `PROMPT_FLAGGED` is OpenAI's intermittent up-front prompt flag: step-retried, unlike every other reason. |
 | `model_output_missing` | `processing_error` | `upstream` | `ai_provider` | yes | The model returned no output, or a required field was empty. Facts: `call`, `provider`, `model`, and `assetId` when there is one. |
 | `model_output_invalid` | `processing_error` | `upstream` | `ai_provider` | yes | The model's output breaks the expected shape or constraints (counts, allowed values, limits). Facts: `call`, `provider`, `model`, and `assetId` when there is one. |
 | `static_rendition_failed` | `processing_error` | `upstream` | `mux_video` | yes | Mux reported the static rendition a workflow needs as errored. |

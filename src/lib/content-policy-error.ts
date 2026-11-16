@@ -69,6 +69,15 @@ const OpenAIPolicyErrorSchema = z.object({
   error: z.object({ code: z.enum(["content_policy_violation", "content_filter"]) }),
 });
 
+/**
+ * OpenAI's up-front prompt check: HTTP 400 "Invalid prompt: your prompt was flagged as
+ * potentially violating our usage policy". It is INTERMITTENT: OpenAI flags some prompts on
+ * one attempt and accepts the identical request on the next. Matched on the message, since
+ * that is all we have seen of the reply.
+ */
+const OPENAI_PROMPT_FLAG = /invalid prompt:.*flagged as potentially violating/i;
+const OPENAI_PROMPT_FLAGGED = "PROMPT_FLAGGED";
+
 const CONTENT_POLICY_REASONS = new Set([
   "BLOCKLIST",
   "ESCALATION",
@@ -273,12 +282,32 @@ function includeRetriedUsage<T>(response: T, retriedUsage: TokenUsage[]): T {
 }
 
 export function rethrowContentPolicyError(error: unknown, context?: ModelCallContext): never {
+  // Classified callers only: without a context the raw flag is rethrown and step-retried, as before.
+  if (context?.provider === "openai" && isOpenAIPromptFlag(error)) {
+    throwContentPolicyError({ reason: OPENAI_PROMPT_FLAGGED }, getContentPolicyTokenUsage(error), context, { intermittent: true, cause: error });
+  }
+
   const block = extractContentPolicyBlock(error);
   if (!block) {
     throw error;
   }
 
   throwContentPolicyError(block, getContentPolicyTokenUsage(error), context);
+}
+
+/** Whether a failed OpenAI call is its intermittent prompt flag (see {@link OPENAI_PROMPT_FLAG}). */
+function isOpenAIPromptFlag(error: unknown): boolean {
+  const apiError = findProviderCallError(error);
+  if (apiError?.statusCode !== 400) {
+    return false;
+  }
+  let bodyMessage: unknown;
+  try {
+    bodyMessage = (JSON.parse(apiError.responseBody ?? "") as { error?: { message?: unknown } }).error?.message;
+  } catch {
+    // No JSON body: the error's own message is checked below.
+  }
+  return [apiError.message, bodyMessage].some(message => typeof message === "string" && OPENAI_PROMPT_FLAG.test(message));
 }
 
 /** The provider API error behind a failure: itself, a retry's last error, or a (shallow) cause. */
@@ -406,7 +435,7 @@ export function getGeneratedOutputWithContentPolicyHandling<T>(response: Generat
   return output;
 }
 
-function throwContentPolicyError(block: ContentPolicyBlock, usage?: TokenUsage, context?: ModelCallContext): never {
+function throwContentPolicyError(block: ContentPolicyBlock, usage?: TokenUsage, context?: ModelCallContext, options?: { intermittent?: boolean; cause?: unknown }): never {
   const category = block.category ? `; category: ${block.category}` : "";
   if (context) {
     throw withUsage(new MuxAiError(`The supplied content was blocked by a content policy (reason: ${block.reason}${category}).`, {
@@ -415,6 +444,12 @@ function throwContentPolicyError(block: ContentPolicyBlock, usage?: TokenUsage, 
       source: MUX_AI_ERROR_SOURCES.ASSET,
       dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
       facts: { ...modelCallFacts(context), reason: block.reason, ...(block.category && { category: block.category }) },
+      // An intermittent block (OpenAI's prompt flag) usually passes on a later, identical attempt,
+      // so the step runner retries it, as it did before classification; once those retries are
+      // spent it fails as a content-policy block. Every other block is final.
+      ...(options?.intermittent && { transient: true, retryable: true }),
+      // Kept so the provider's status and message survive in the error's `causes`.
+      ...(options?.cause !== undefined && { cause: options.cause }),
     }), usage);
   }
   const contentPolicyError = new LegacyMuxAiError(
