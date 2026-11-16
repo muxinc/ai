@@ -155,7 +155,7 @@ export const MUX_AI_ERROR_CODES = {
   ASSET_ID_MISMATCH: "asset_id_mismatch",
   /** Translation needed to split a chunk of fewer than two cues: a bug in the SDK's chunking. Facts: `chunkId`, `cueCount`. */
   TRANSLATION_CHUNK_UNSPLITTABLE: "translation_chunk_unsplittable",
-  /** The model provider refused the content. Facts: `reason` and `category`. */
+  /** The model provider refused the content. Facts: `reason` and `category`. `reason` `PROMPT_FLAGGED` is OpenAI's intermittent up-front prompt flag: step-retried, unlike every other reason. */
   CONTENT_POLICY_BLOCKED: "content_policy_blocked",
   /** The model returned no output, or a required field was empty. Facts: `call`, `provider`, `model`, and `assetId` when there is one. */
   MODEL_OUTPUT_MISSING: "model_output_missing",

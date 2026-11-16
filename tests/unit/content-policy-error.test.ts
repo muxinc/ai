@@ -522,3 +522,56 @@ describe("modelStepError", () => {
     expect(classified.facts).toMatchObject({ reason: "x", call: "detect_profanity", provider: "openai" });
   });
 });
+
+describe("openAI's intermittent prompt flag", () => {
+  const context = { call: "translate_vtt_chunk", provider: "openai", model: "gpt-test" };
+  const flagMessage = "Invalid prompt: your prompt was flagged as potentially violating our usage policy. Please try again with a different prompt.";
+
+  function openAIError(statusCode: number, message: string) {
+    return new APICallError({
+      message,
+      url: "https://api.openai.com/v1/responses",
+      requestBodyValues: {},
+      statusCode,
+      responseBody: JSON.stringify({ error: { message, type: "invalid_request_error", code: "invalid_prompt" } }),
+    });
+  }
+
+  function thrownBy(fn: () => unknown): unknown {
+    try {
+      fn();
+    } catch (error) {
+      return error;
+    }
+    return undefined;
+  }
+
+  it("is a content-policy block that the step runner retries", () => {
+    expect(thrownBy(() => rethrowContentPolicyError(openAIError(400, flagMessage), context))).toMatchObject({
+      code: "content_policy_blocked",
+      type: "content_policy_error",
+      transient: true,
+      retryable: true,
+      facts: { ...context, reason: "PROMPT_FLAGGED" },
+      causes: [{ name: "AI_APICallError", status: 400, message: expect.stringContaining("flagged as potentially violating") }],
+    });
+  });
+
+  it("is never retried inside the call, so each step attempt sends one request", async () => {
+    let calls = 0;
+    await expect(withContentPolicyAwareRetry(async () => {
+      calls++;
+      throw openAIError(400, flagMessage);
+    }, { baseDelay: 0 }, context)).rejects.toMatchObject({ code: "content_policy_blocked", transient: true });
+    expect(calls).toBe(1);
+  });
+
+  it("leaves every other failure as it was", () => {
+    // Unclassified callers get the raw error back, as before.
+    expect(APICallError.isInstance(thrownBy(() => rethrowContentPolicyError(openAIError(400, flagMessage))))).toBe(true);
+    // Another provider, another OpenAI 400 and another status are not the flag.
+    expect(APICallError.isInstance(thrownBy(() => rethrowContentPolicyError(openAIError(400, flagMessage), { ...context, provider: "anthropic" })))).toBe(true);
+    expect(APICallError.isInstance(thrownBy(() => rethrowContentPolicyError(openAIError(400, "Invalid prompt: too long"), context)))).toBe(true);
+    expect(APICallError.isInstance(thrownBy(() => rethrowContentPolicyError(openAIError(500, flagMessage), context)))).toBe(true);
+  });
+});
