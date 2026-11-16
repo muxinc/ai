@@ -22,9 +22,10 @@ describe("summarization Integration Tests", () => {
   it("should throw a useful error if tone is not valid", async () => {
     const provider = providers[0];
 
-    await expect(
-      getSummaryAndTags(testAssetId, { provider, tone: "blah" as ToneType }),
-    ).rejects.toThrow("Invalid tone \"blah\". Valid tones are: neutral, playful, professional");
+    const error = await getSummaryAndTags(testAssetId, { provider, tone: "blah" as ToneType }).catch(e => e);
+
+    expect(error.message).toContain("Invalid tone \"blah\". Valid tones are: neutral, playful, professional");
+    expect(error).toMatchObject({ code: "invalid_parameter", type: "validation_error", source: "request", facts: { parameter: "tone", reason: "not_allowed" } });
   });
 
   describe("audio-only assets", () => {
@@ -64,12 +65,13 @@ describe("summarization Integration Tests", () => {
     it("should throw error if includeTranscript is false for audio-only", async () => {
       const provider = providers[0];
 
-      await expect(
-        getSummaryAndTags(audioOnlyAssetId, {
-          provider,
-          includeTranscript: false,
-        }),
-      ).rejects.toThrow("Audio-only assets require a transcript");
+      const error = await getSummaryAndTags(audioOnlyAssetId, {
+        provider,
+        includeTranscript: false,
+      }).catch(e => e);
+
+      expect(error.message).toContain("Audio-only assets require a transcript");
+      expect(error).toMatchObject({ code: "invalid_parameter", type: "validation_error", source: "request", facts: { parameter: "includeTranscript" } });
     });
 
     it("should work with different tones for audio-only", async () => {

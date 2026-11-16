@@ -72,6 +72,10 @@ describe("toPublicError", () => {
       .toBe("The requested end time (90s) is after the end of the asset (60s).");
     expect(view(MUX_AI_ERROR_CODES.INVALID_SCOPE, { reason: "no_transcript", startTime: 10 }))
       .toBe("The transcript has no content in the requested time range.");
+    expect(view(MUX_AI_ERROR_CODES.INVALID_SCOPE, { reason: "no_video", startTime: 100, endTime: 120, videoEndTime: 90 }))
+      .toBe("The requested time range starts at 100s, at or after the end of the asset's video (90s).");
+    expect(view(MUX_AI_ERROR_CODES.INVALID_SCOPE, { reason: "no_video" }))
+      .toBe("The requested time range doesn't include any video.");
     expect(view(MUX_AI_ERROR_CODES.CAPTION_TRACK_NOT_FOUND, { languageCode: "fr", availableLanguages: ["en", "es"] }))
       .toBe("No ready caption track was found for language fr. Available languages: en, es.");
     expect(view(MUX_AI_ERROR_CODES.CAPTION_TRACK_NOT_FOUND, { trackId: "trk_1", availableTrackIds: [] }))

@@ -108,6 +108,30 @@ describe("resolveRenderableVideoScope", () => {
       resolveRenderableVideoScope({ startTime: 0, endTime: 10 }, 120, 0),
     ).toThrow("does not include any renderable video");
   });
+
+  it("with classified errors, codes a scope with no renderable video as invalid_scope (no_video)", () => {
+    let error: unknown;
+    try {
+      resolveRenderableVideoScope({ startTime: 100, endTime: 120 }, 120, 90, { classifiedErrors: true, assetId: "asset-1" });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toMatchObject({
+      code: "invalid_scope",
+      source: "request",
+      facts: { reason: "no_video", startTime: 100, endTime: 120, videoEndTime: 90, inputs: ["scope"] },
+    });
+    expect(toPublicError(error)).toMatchObject({
+      message: "The requested time range starts at 100s, at or after the end of the asset's video (90s).",
+    });
+  });
+
+  it("with classified errors, passes the opt-in on to the scope check", () => {
+    expect(() => resolveRenderableVideoScope({ endTime: 121 }, 120, 90, { classifiedErrors: true })).toThrow(expect.objectContaining({
+      code: "invalid_scope",
+      facts: expect.objectContaining({ reason: "exceeds_duration" }),
+    }));
+  });
 });
 
 describe("timeRangesOverlap", () => {
