@@ -132,18 +132,19 @@ describe("translateCaptions error-path token usage", () => {
       translateCaptions("asset-123", "track-1", "es", TRANSLATION_OPTIONS),
     );
 
-    // No OpenAI classifier yet: the chunk's failure is internal, with the call's facts.
+    // OpenAI's 400 with no code a rule names: a request we built, with the call's facts.
     expect(error).toMatchObject({
+      code: "dependency_request_rejected",
       source: "internal",
-      facts: { call: "translate_vtt_chunk", provider: "openai", model: "gpt-test", chunkId: expect.any(String) },
+      dependency: "ai_provider",
+      facts: { call: "translate_vtt_chunk", provider: "openai", model: "gpt-test", chunkId: expect.any(String), status: 400 },
     });
-    expect((error as { dependency?: string }).dependency).toBeUndefined();
     // One chunk of two completed before the failure, so exactly one chunk's
     // usage must ride on the error.
     expect((error as { usage?: TokenUsage }).usage).toEqual(CHUNK_USAGE);
   });
 
-  it("keeps a retryable failure from a provider without a classifier retryable by the step runner", async () => {
+  it("keeps an OpenAI 5xx retryable by the step runner", async () => {
     vi.useFakeTimers();
     try {
       vi.mocked(generateText).mockImplementation((async () => {
@@ -160,9 +161,8 @@ describe("translateCaptions error-path token usage", () => {
       await vi.runAllTimersAsync();
       const error = await pending;
 
-      // Not classified (no OpenAI classifier), but not fatal: as before, the step is retried.
-      expect(error).toMatchObject({ source: "internal", type: "server_error", transient: true, name: "Error" });
-      expect((error as { dependency?: string }).dependency).toBeUndefined();
+      // As before classification, the step is retried.
+      expect(error).toMatchObject({ code: "dependency_server_error", source: "upstream", dependency: "ai_provider", transient: true, name: "Error" });
     } finally {
       vi.useRealTimers();
     }

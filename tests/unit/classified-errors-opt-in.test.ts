@@ -26,6 +26,7 @@ function providerError(statusCode: number) {
 
 const google = { call: "translate_vtt", provider: "google", model: "gemini-test" };
 const openai = { call: "translate_vtt", provider: "openai", model: "gpt-test" };
+const anthropic = { call: "translate_vtt", provider: "anthropic", model: "claude-test" };
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -76,7 +77,13 @@ describe("model calls", () => {
     const raw = providerError(503);
 
     await expect(withContentPolicyErrorHandling(() => Promise.reject(raw))).rejects.toBe(raw);
-    await expect(withContentPolicyErrorHandling(() => Promise.reject(raw), openai)).rejects.toBe(raw);
+    await expect(withContentPolicyErrorHandling(() => Promise.reject(raw), anthropic)).rejects.toBe(raw);
+    await expect(withContentPolicyErrorHandling(() => Promise.reject(raw), openai)).rejects.toMatchObject({
+      code: "dependency_server_error",
+      source: "upstream",
+      transient: true,
+      facts: { provider: "openai", status: 503 },
+    });
     await expect(withContentPolicyErrorHandling(() => Promise.reject(raw), google)).rejects.toMatchObject({
       source: "upstream",
       dependency: "ai_provider",
