@@ -206,6 +206,8 @@ export const MUX_AI_ERROR_CODES = {
   PROVIDER_UNAVAILABLE: "provider_unavailable",
   /** The provider can't process the asset's audio. The site names the dependency. Facts: `call`, `status`, `providerCode`, `reason` (`corrupt`, `unsupported_format`, `too_long`, `too_short`). */
   AUDIO_UNPROCESSABLE: "audio_unprocessable",
+  /** The provider says it can't process an image taken from the asset (invalid or unreadable). The site names the dependency. Facts: `call`, `providerCode`. */
+  IMAGE_UNPROCESSABLE: "image_unprocessable",
   /** Mux rejected the caller's access token (401), or the token lacks permission for this call (403), e.g. Mux Data access. Facts: `call`, `status`, `inputs` (`credentials`). */
   ACCOUNT_CREDENTIALS_REJECTED: "account_credentials_rejected",
   /** Mux answered 404 for something belonging to the asset (a track, a rendition, an image, its engagement data): gone, or not ready yet. A missing asset itself is `asset_not_found`. Facts: `call`, `status`. */
@@ -305,6 +307,7 @@ export const MUX_AI_ERROR_CATALOG = {
   [MUX_AI_ERROR_CODES.PROVIDER_RATE_LIMITED]: { type: MUX_AI_ERROR_TYPES.CAPACITY_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, siteDependency: true, transient: true, retryable: true },
   [MUX_AI_ERROR_CODES.PROVIDER_UNAVAILABLE]: { type: MUX_AI_ERROR_TYPES.CAPACITY_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, siteDependency: true, transient: true, retryable: true },
   [MUX_AI_ERROR_CODES.AUDIO_UNPROCESSABLE]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET, siteDependency: true },
+  [MUX_AI_ERROR_CODES.IMAGE_UNPROCESSABLE]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET, siteDependency: true },
   // Mux's own responses, where the call says whose they are (see mux-video-errors.ts).
   // The access token is the caller's: only its permissions decide what Mux allows.
   [MUX_AI_ERROR_CODES.ACCOUNT_CREDENTIALS_REJECTED]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ACCOUNT, siteDependency: true },

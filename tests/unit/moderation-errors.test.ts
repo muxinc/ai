@@ -260,8 +260,49 @@ describe("getModerationScores classified errors: every sample failed", () => {
 
     const error = await moderationError("asset-123", { provider: "hive" });
 
-    expect(error).toMatchObject({ type: "processing_error", source: "upstream", dependency: "ai_provider", transient: false, retryable: true });
+    // It answered, so not "no response": the fallback code for a success that reported a failure.
+    expect(error).toMatchObject({ code: "dependency_response_failed", type: "processing_error", source: "upstream", dependency: "ai_provider", transient: false, retryable: true });
     expect(error.facts).toMatchObject({ providerCode: "4" });
+  });
+
+  describe("per-provider rules", () => {
+    it("tells OpenAI's spent quota from a rate limit, and doesn't retry it", async () => {
+      mockFetch.mockImplementation(async () => jsonResponse(429, { error: { type: "insufficient_quota", code: "credit_balance_exhausted" } }));
+      const quota = await moderationError("asset-123", { provider: "openai", includeTranscript: false });
+      const quotaCalls = mockFetch.mock.calls.length;
+      mockFetch.mockReset();
+      mockFetch.mockImplementation(async () => jsonResponse(400, { error: { code: "invalid_value" } }));
+      await moderationError("asset-123", { provider: "openai", includeTranscript: false });
+
+      expect(quota).toMatchObject({ code: "provider_quota_exhausted", type: "server_error", source: "internal", transient: false, retryable: false, facts: { status: 429, providerCode: "credit_balance_exhausted" } });
+      // As few attempts as a request that's never retried.
+      expect(quotaCalls).toBe(mockFetch.mock.calls.length);
+    });
+
+    it.each([
+      [405, "provider_quota_exhausted", { source: "internal", retryable: false }],
+      [403, "provider_credentials_rejected", { source: "internal" }],
+      [429, "provider_rate_limited", { source: "upstream", retryable: true }],
+    ])("reads Hive's %s", async (status, code, expected) => {
+      mockFetch.mockImplementation(async () => jsonResponse(status, {}));
+
+      expect(await moderationError("asset-123", { provider: "hive" })).toMatchObject({ code, ...expected, facts: { status } });
+    });
+
+    it.each([
+      [3, { code: "image_unprocessable", type: "validation_error", source: "asset", retryable: false }],
+      // UNAVAILABLE: the one code Google says to retry, with backoff.
+      [14, { code: "provider_unavailable", source: "upstream", transient: true, retryable: true }],
+      // RESOURCE_EXHAUSTED: Google says don't retry; it can't be told apart from a spent quota.
+      [8, { code: "dependency_response_failed", transient: false, retryable: false }],
+    ])("reads Google Vision's per-image code %s", async (rpcCode, expected) => {
+      mockFetch.mockImplementation(async () => jsonResponse(200, { responses: [{ error: { code: rpcCode, message: "provider-private" } }] }));
+
+      const error = await moderationError("asset-123", { provider: "google-vision-api" });
+
+      expect(error).toMatchObject({ ...expected, facts: { providerCode: String(rpcCode) } });
+      expect(JSON.stringify(error.facts)).not.toContain("provider-private");
+    });
   });
 
   it("reports a failure a retry can't fix over a transient one", async () => {

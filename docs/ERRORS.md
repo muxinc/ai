@@ -130,6 +130,7 @@ A remote service reached over the network. Libraries running in-process are neve
 | `static_rendition_changed` | `processing_error` | `asset` |  | yes | The asset's static rendition settings changed while waiting for its rendition. A new job uses the new settings. Facts: `assetId`. |
 | `static_rendition_timeout` | `timeout_error` | `upstream` | `mux_video` | yes | Mux didn't finish the static rendition within the polling budget. Facts: `assetId`, `attempts`, `pollIntervalMs`, `lastStatus`. |
 | `audio_unprocessable` | `validation_error` | `asset` | named by the site | yes | The provider can't process the asset's audio. The site names the dependency. Facts: `call`, `status`, `providerCode`, `reason` (`corrupt`, `unsupported_format`, `too_long`, `too_short`). |
+| `image_unprocessable` | `validation_error` | `asset` | named by the site | yes | The provider says it can't process an image taken from the asset (invalid or unreadable). The site names the dependency. Facts: `call`, `providerCode`. |
 | `signing_credentials_missing` | `server_error` | `internal` |  | no | Signed playback needs signing keys the service running the SDK didn't provide. |
 | `storage_not_configured` | `server_error` | `internal` |  | no | Storage is needed but the service running the SDK didn't configure it. |
 | `track_write_unclassified` | `server_error` | `internal` |  | no | A track write failed, but the opted-in result carried no classified error: a bug in the SDK's track-write path. Facts: `reason`, the raw failure's message. |

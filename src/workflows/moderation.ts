@@ -4,7 +4,7 @@ import { getApiKeyFromEnv } from "../lib/client-factory.ts";
 import { dependencyError, requestIdOf } from "../lib/dependency-error.ts";
 import type { ImageDownloadErrorOptions, ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImagesAsBase64 } from "../lib/image-download.ts";
-import type { MuxAiErrorFacts } from "../lib/mux-ai-error.ts";
+import type { MuxAiErrorFacts, MuxAiSiteDependencyCode } from "../lib/mux-ai-error.ts";
 import {
   assertNever,
   internalError,
@@ -332,6 +332,8 @@ interface ModerationCallFailure {
   reason?: "invalid_response" | "provider_error";
   /** The provider's own error code, e.g. OpenAI's `insufficient_quota` or Hive's return code. */
   providerCode?: string;
+  /** Which provider answered, so its own rules can read its status and code. */
+  provider?: ModerationProvider;
 }
 
 /** A failed moderation call, carrying what classifies it. Caught per sample, never thrown out of a sample. */
@@ -387,7 +389,7 @@ function compactBodySnippet(body: string, maxLength: number = 180): string {
 function openAIResponseFailure(res: Response): ModerationCallFailure {
   return res.ok ?
       { reason: "invalid_response" } :
-      { status: res.status, requestId: requestIdOf(res.headers) };
+      { status: res.status, requestId: requestIdOf(res.headers), provider: "openai" };
 }
 
 function parseOpenAIModerationResponse(bodyText: string, res: Response): any {
@@ -472,10 +474,12 @@ async function callOpenAIModerationApi({
 
       if (!res.ok) {
         const providerCode = openAIErrorCodeOf(json);
+        const failure: ModerationCallFailure = { ...openAIResponseFailure(res), ...(providerCode && { providerCode }) };
         throw new ModerationRequestError(
           `OpenAI moderation error: ${res.status} ${res.statusText} - ${JSON.stringify(json)}`,
-          { ...openAIResponseFailure(res), ...(providerCode && { providerCode }) },
-          { retriable: isRetriableOpenAIModerationStatus(res.status) },
+          failure,
+          // A spent quota is a 429 too, but retrying won't restore access.
+          { retriable: isRetriableOpenAIModerationStatus(res.status) && moderationFailureRule(failure)?.code !== MUX_AI_ERROR_CODES.PROVIDER_QUOTA_EXHAUSTED },
         );
       }
 
@@ -992,7 +996,7 @@ async function moderateImageWithHive(entry: {
     if (!res.ok) {
       throw new ModerationRequestError(
         `Hive moderation error: ${res.status} ${res.statusText} - ${JSON.stringify(json)}`,
-        { status: res.status, requestId: requestIdOf(res.headers) },
+        { status: res.status, requestId: requestIdOf(res.headers), provider: "hive" },
       );
     }
 
@@ -1000,7 +1004,7 @@ async function moderateImageWithHive(entry: {
       const providerCode = providerCodeOf(json.return_code);
       throw new ModerationRequestError(
         `Hive API error (return_code ${json.return_code}): ${json.message || "Unknown error"}`,
-        { reason: "provider_error", ...(providerCode && { providerCode }) },
+        { reason: "provider_error", provider: "hive", ...(providerCode && { providerCode }) },
       );
     }
 
@@ -1114,7 +1118,7 @@ async function moderateImageWithGoogleVision(entry: {
     if (!res.ok) {
       throw new ModerationRequestError(
         `Google Vision moderation error: ${res.status} ${res.statusText} - ${JSON.stringify(json)}`,
-        { status: res.status, requestId: requestIdOf(res.headers) },
+        { status: res.status, requestId: requestIdOf(res.headers), provider: "google-vision-api" },
       );
     }
 
@@ -1123,7 +1127,7 @@ async function moderateImageWithGoogleVision(entry: {
       const providerCode = providerCodeOf(perImage.error.code);
       throw new ModerationRequestError(
         `Google Vision per-image error: ${perImage.error.code} ${perImage.error.message || "Unknown error"}`,
-        { reason: "provider_error", ...(providerCode && { providerCode }) },
+        { reason: "provider_error", provider: "google-vision-api", ...(providerCode && { providerCode }) },
       );
     }
 
@@ -1362,6 +1366,60 @@ function nothingToModerateError(
   }
 }
 
+// OpenAI: https://developers.openai.com/api/docs/guides/error-codes (branch on `error.code`:
+// a billing error's type "can still be `insufficient_quota`") and its rate-limits guide.
+const OPENAI_QUOTA_CODES = new Set(["credit_balance_exhausted", "organization_spend_limit_exceeded", "project_spend_limit_exceeded", "organization_usage_limit_exceeded", "insufficient_quota"]);
+const OPENAI_RATE_LIMIT_CODES = new Set(["slow_down", "rate_limit_exceeded"]);
+const OPENAI_UNAVAILABLE_CODES = new Set(["server_is_overloaded", "service_unavailable_error"]);
+// Google Vision's per-image errors are google.rpc codes (https://github.com/googleapis/googleapis/blob/master/google/rpc/code.proto).
+const GOOGLE_RPC_INVALID_ARGUMENT = "3";
+const GOOGLE_RPC_RESOURCE_EXHAUSTED = "8";
+const GOOGLE_RPC_UNAVAILABLE = "14";
+
+/**
+ * What a provider's own response says about a failed moderation call, where its status
+ * alone doesn't: a code, and whether a new attempt may succeed. Undefined when no rule
+ * matches, so the status's fallback code applies.
+ */
+function moderationFailureRule(failure: ModerationCallFailure): { code?: MuxAiSiteDependencyCode; retryable?: boolean } | undefined {
+  const { provider, status, providerCode } = failure;
+  switch (provider) {
+    case "openai":
+      if (providerCode && OPENAI_QUOTA_CODES.has(providerCode)) {
+        return { code: MUX_AI_ERROR_CODES.PROVIDER_QUOTA_EXHAUSTED };
+      }
+      if (providerCode && OPENAI_RATE_LIMIT_CODES.has(providerCode)) {
+        return { code: MUX_AI_ERROR_CODES.PROVIDER_RATE_LIMITED };
+      }
+      return providerCode && OPENAI_UNAVAILABLE_CODES.has(providerCode) ? { code: MUX_AI_ERROR_CODES.PROVIDER_UNAVAILABLE } : undefined;
+    // https://docs.thehive.ai/reference/error-codes
+    case "hive":
+      if (status === 405) {
+        return { code: MUX_AI_ERROR_CODES.PROVIDER_QUOTA_EXHAUSTED };
+      }
+      if (status === 403) {
+        return { code: MUX_AI_ERROR_CODES.PROVIDER_CREDENTIALS_REJECTED };
+      }
+      return status === 429 ? { code: MUX_AI_ERROR_CODES.PROVIDER_RATE_LIMITED } : undefined;
+    // https://google.aip.dev/194 for retrying.
+    case "google-vision-api":
+      if (failure.reason !== "provider_error") {
+        return undefined;
+      }
+      // Per image, not per request, so it's that image that can't be used.
+      if (providerCode === GOOGLE_RPC_INVALID_ARGUMENT) {
+        return { code: MUX_AI_ERROR_CODES.IMAGE_UNPROCESSABLE };
+      }
+      if (providerCode === GOOGLE_RPC_UNAVAILABLE) {
+        return { code: MUX_AI_ERROR_CODES.PROVIDER_UNAVAILABLE };
+      }
+      // A rate limit or a spent quota, which Google can't tell apart here: "generally don't retry".
+      return providerCode === GOOGLE_RPC_RESOURCE_EXHAUSTED ? { retryable: false } : undefined;
+    default:
+      return undefined;
+  }
+}
+
 /** Whether a retry could get past a sample's failure: no response, or a transient status. Unknown failures can't. */
 function isTransientFailure(failure: ModerationCallFailure | undefined): boolean {
   return failure !== undefined && failure.reason === undefined && (failure.timedOut === true || isTransientStatus(failure.status));
@@ -1392,6 +1450,12 @@ function allSamplesFailedError(
       facts: { ...facts, call },
     });
   }
+  const rule = moderationFailureRule(failure);
+  // The provider answered, with an error of its own instead of a result. The code's policy:
+  // not transient, since it isn't an outage, but retryable, since a later attempt may succeed.
+  const unrecognizedProviderError = !rule?.code && failure.reason === "provider_error" ?
+      { code: MUX_AI_ERROR_CODES.DEPENDENCY_RESPONSE_FAILED } :
+      {};
   return dependencyError(message, {
     dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
     call,
@@ -1399,9 +1463,9 @@ function allSamplesFailedError(
     requestId: failure.requestId,
     timedOut: failure.timedOut,
     facts: { ...facts, ...(failure.providerCode && { providerCode: failure.providerCode }) },
-    // An error the provider answered with in place of a result: not transient, since it
-    // isn't an outage, but retryable, since a later attempt may succeed.
-    ...(failure.reason === "provider_error" && { transient: false, retryable: true }),
+    ...(rule?.code && { code: rule.code }),
+    ...unrecognizedProviderError,
+    ...(rule?.retryable !== undefined && { retryable: rule.retryable }),
   });
 }
 
