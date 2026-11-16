@@ -54,6 +54,15 @@ describe("dependencyError", () => {
     }
   });
 
+  it("blames the caller's credentials for account_credentials_rejected unless the site names other inputs", () => {
+    // e.g. a Mux Data engagement call, which uses the caller's access token.
+    expect(dependencyError("x", { dependency: "mux_data", call: "get_heatmap", status: 403, authSource: "account" }))
+      .toMatchObject({ code: "account_credentials_rejected", facts: { inputs: ["credentials"] } });
+    expect(dependencyError("x", { dependency: "mux_video", call: "get_asset", status: 401, authSource: "account", authInputs: ["muxTokenId"] }).facts.inputs)
+      .toEqual(["muxTokenId"]);
+    expect(dependencyError("x", { dependency: "mux_data", call: "get_heatmap", status: 500, authSource: "account" }).facts).not.toHaveProperty("inputs");
+  });
+
   it("lets classifyDependencyFailure take any source, for consumers' own catalogs", () => {
     expect(classifyDependencyFailure({ call: "c", status: 404, notFoundSource: "request" })).toMatchObject({ type: "validation_error", source: "request" });
   });

@@ -20,7 +20,8 @@ export interface DependencyErrorInit {
   /**
    * Source for a 401/403. Defaults to `internal` (our own credentials). `account` when
    * the call used the caller's Mux credentials: `dependencyError` codes it
-   * `account_credentials_rejected`. Only sources with a code, as for `notFoundSource`.
+   * `account_credentials_rejected`, blamed on `credentials` unless `authInputs` names
+   * others. Only sources with a code, as for `notFoundSource`.
    */
   authSource?: typeof MUX_AI_ERROR_SOURCES.INTERNAL | typeof MUX_AI_ERROR_SOURCES.ACCOUNT;
   /** The caller's inputs a 401/403 is blamed on (e.g. `credentials`), recorded as the `inputs` fact. */
@@ -175,7 +176,9 @@ function attributedFailureCode({ status, timedOut, notFoundSource, authSource }:
  * step runner; everything else is fatal.
  */
 export function dependencyError(message: string, init: RecognizedDependencyErrorInit): MuxAiError {
-  const { facts, transient } = classifyDependencyFailure(init);
+  const { facts, transient } = classifyDependencyFailure(
+    init.authSource === MUX_AI_ERROR_SOURCES.ACCOUNT && !init.authInputs?.length ? { ...init, authInputs: ["credentials"] } : init,
+  );
   const code = init.code ?? attributedFailureCode(init) ?? dependencyFailureCode(init);
   const entry: ErrorCatalogEntry<MuxAiErrorType, MuxAiErrorDependency> = MUX_AI_ERROR_CATALOG[code];
   // A call that isn't idempotent may have taken effect after a timeout, no response or a 5xx.
