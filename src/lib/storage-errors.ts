@@ -34,9 +34,10 @@ export function s3ErrorDetails(body: string): { s3Code?: string; requestId?: str
  * S3's error code decides where it names a condition (see `S3_ERROR_CODES`), and the
  * status otherwise. `RequestTimeout` is a 400 S3 sends when the upload stalled, so it's
  * a timeout (transient), not a request we built wrong. Facts: `call`, `status`,
- * `requestId`, `s3Code`.
+ * `requestId`, `s3Code`. S3's free text belongs in `cause`, never in `message`: the
+ * cause summary is scrubbed of URL tokens, the message isn't.
  */
-export function s3ResponseError(message: string, call: string, response: { status: number; headers: unknown }, body: string, facts?: MuxAiErrorFacts): MuxAiError {
+export function s3ResponseError(message: string, call: string, response: { status: number; headers: unknown }, body: string, facts?: MuxAiErrorFacts, cause?: unknown): MuxAiError {
   const { s3Code, requestId } = s3ErrorDetails(body);
   const code = s3Code ? S3_ERROR_CODES[s3Code] : undefined;
   return dependencyError(message, {
@@ -47,6 +48,7 @@ export function s3ResponseError(message: string, call: string, response: { statu
     timedOut: s3Code === "RequestTimeout",
     facts: { ...(s3Code && { s3Code }), ...facts },
     ...(code && { code }),
+    cause,
   });
 }
 

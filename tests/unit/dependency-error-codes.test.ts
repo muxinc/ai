@@ -59,6 +59,21 @@ describe("dependencyError", () => {
     expect(error).toMatchObject({ code: "provider_rate_limited", type: "capacity_error", source: "upstream", transient: false, retryable: true });
   });
 
+  it.each([
+    [503, MUX_AI_ERROR_CODES.PROVIDER_UNAVAILABLE],
+    [503, MUX_AI_ERROR_CODES.PROVIDER_RATE_LIMITED],
+  ])("doesn't step-retry a non-idempotent call that may have taken effect (%i, %s)", (status, code) => {
+    const error = dependencyError("Create failed", { dependency: "ai_provider", call: "create_project", status, code, idempotent: false });
+
+    expect(error).toMatchObject({ code, transient: false, retryable: true });
+  });
+
+  it("still step-retries a non-idempotent call the dependency didn't process (429)", () => {
+    const error = dependencyError("Rate limited", { dependency: "ai_provider", call: "create_project", status: 429, code: MUX_AI_ERROR_CODES.PROVIDER_RATE_LIMITED, idempotent: false });
+
+    expect(error).toMatchObject({ transient: true });
+  });
+
   it("takes a fallback code from the site when the status can't say what happened", () => {
     // The provider answered, but with an error of its own instead of a result.
     const error = dependencyError("Provider error", { dependency: "ai_provider", call: "moderate", code: "dependency_other_status", transient: false, retryable: true });

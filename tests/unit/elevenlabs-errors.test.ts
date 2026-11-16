@@ -130,6 +130,16 @@ describe("elevenLabsFailureError", () => {
       .toMatchObject({ source: "upstream", transient: false, retryable: false });
   });
 
+  it.each([
+    [{ reason: "network_error", retryable: true }, "dependency_no_response"],
+    [{ reason: "timeout", retryable: true }, "dependency_timeout"],
+    [{ reason: "unexpected_response", retryable: false }, "dependency_other_status"],
+    [{ reason: "output_missing", retryable: false }, "dependency_other_status"],
+    [{ httpStatus: 400, retryable: false }, "dependency_request_rejected"],
+  ])("calls only a network error unanswered (%o)", (failure, code) => {
+    expect(elevenLabsFailureError("x", "elevenlabs_get_dubbing_project", { ...failure, detail: "d" })).toMatchObject({ code });
+  });
+
   it("strips signed URL tokens from the detail", () => {
     const error = elevenLabsFailureError("x", "elevenlabs_get_dubbed_audio", {
       reason: "network_error",

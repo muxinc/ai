@@ -261,7 +261,9 @@ export async function putObjectToS3({
     if (!classifiedErrors) {
       throw new Error(message);
     }
-    throw s3ResponseError(message, "put_object", response, errorBody);
+    // S3's body can carry signed URLs, so it stays out of the message and reaches the
+    // record only through the scrubbed cause summary.
+    throw s3ResponseError(`S3 PUT failed (${response.status} ${response.statusText}).`, "put_object", response, errorBody, undefined, new Error(message));
   }
 }
 
