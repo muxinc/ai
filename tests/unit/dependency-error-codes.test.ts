@@ -54,6 +54,10 @@ describe("dependencyError", () => {
     }
   });
 
+  it("lets classifyDependencyFailure take any source, for consumers' own catalogs", () => {
+    expect(classifyDependencyFailure({ call: "c", status: 404, notFoundSource: "request" })).toMatchObject({ type: "validation_error", source: "request" });
+  });
+
   it("matches the status rules' classification for each status's fallback code", () => {
     for (const status of [undefined, 200, 400, 401, 404, 408, 425, 429, 500]) {
       const { type, source } = classifyDependencyFailure({ call: "c", status });
@@ -127,6 +131,13 @@ describe("provider codes' public views", () => {
     expect(view).not.toHaveProperty("code");
     expect(view).toMatchObject({ type: "server_error", retryable: false });
     expect(JSON.stringify(view)).not.toMatch(/elevenlabs/i);
+  });
+
+  it("words only the reasons it knows, never an object's own properties", () => {
+    for (const reason of ["constructor", "toString", "__proto__"]) {
+      const view = toPublicError(dependencyError("Bad audio", { dependency: "ai_provider", call: "transcribe", status: 400, code: MUX_AI_ERROR_CODES.AUDIO_UNPROCESSABLE, facts: { reason } }));
+      expect(view.message, reason).toBe("The asset's audio couldn't be processed.");
+    }
   });
 
   it.each([

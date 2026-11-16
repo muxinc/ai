@@ -1,6 +1,6 @@
 import { dependencyError, isTransientStatus, requestIdOf } from "./dependency-error.ts";
 import { errorDetailFact, MUX_AI_ERROR_CODES, MUX_AI_ERROR_DEPENDENCIES } from "./mux-ai-error.ts";
-import type { MuxAiError, MuxAiErrorCode, MuxAiErrorFacts } from "./mux-ai-error.ts";
+import type { MuxAiError, MuxAiErrorFacts, MuxAiSiteDependencyCode } from "./mux-ai-error.ts";
 
 const MAX_ERROR_BODY_CHARS = 500;
 
@@ -49,7 +49,7 @@ type AudioReason = "corrupt" | "unsupported_format" | "too_long" | "too_short";
  * different conditions, and quota can arrive as a 401 or 402. Legacy names are kept
  * alongside current ones. Codes not listed keep the status's fallback code.
  */
-const ELEVENLABS_ERROR_CODES: Readonly<Record<string, { code: MuxAiErrorCode; reason?: AudioReason }>> = {
+const ELEVENLABS_ERROR_CODES: Readonly<Record<string, { code: MuxAiSiteDependencyCode; reason?: AudioReason }>> = {
   insufficient_credits: { code: MUX_AI_ERROR_CODES.PROVIDER_QUOTA_EXHAUSTED },
   quota_exceeded: { code: MUX_AI_ERROR_CODES.PROVIDER_QUOTA_EXHAUSTED },
   payment_required: { code: MUX_AI_ERROR_CODES.PROVIDER_QUOTA_EXHAUSTED },
@@ -75,7 +75,7 @@ const ELEVENLABS_ERROR_CODES: Readonly<Record<string, { code: MuxAiErrorCode; re
 };
 
 /** The rule matching any of a failure's provider codes, if one does. */
-export function elevenLabsErrorRule(failure: Pick<ElevenLabsFailure, "reason" | "providerCodes">): { code: MuxAiErrorCode; reason?: AudioReason } | undefined {
+export function elevenLabsErrorRule(failure: Pick<ElevenLabsFailure, "reason" | "providerCodes">): { code: MuxAiSiteDependencyCode; reason?: AudioReason } | undefined {
   const values = failure.providerCodes ?? (failure.reason ? [failure.reason] : []);
   return values.map(value => ELEVENLABS_ERROR_CODES[value]).find(rule => rule !== undefined);
 }

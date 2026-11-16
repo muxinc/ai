@@ -49,8 +49,8 @@ export function muxVideoError(message: string, init: MuxVideoErrorInit): MuxAiEr
  * `account_credentials_rejected`: the call carries only the caller's access token, whose
  * permissions decide what Mux allows
  * (https://www.mux.com/docs/core/make-api-requests). A 404 is `asset_resource_not_found`:
- * the asset's track or rendition is gone or not ready (a missing asset is
- * `muxAssetFetchError`'s).
+ * the asset's track or rendition is gone or not ready. A 404 on `get_asset` is
+ * `asset_not_found` instead: the asset itself is gone (see `muxVideoCallError`).
  */
 function muxVideoApiError(message: string, init: MuxVideoErrorInit): MuxAiError {
   return dependencyError(message, {
@@ -79,6 +79,9 @@ export function muxVideoCallError(message: string, call: string, error: unknown,
     }
     return error;
   }
+  if (call === "get_asset" && httpStatusOf(error) === 404) {
+    return assetNotFoundError(error, facts);
+  }
   return muxVideoApiError(message, {
     call,
     status: httpStatusOf(error),
@@ -90,20 +93,23 @@ export function muxVideoCallError(message: string, call: string, error: unknown,
 
 /**
  * A failed asset fetch: a 404 is `asset_not_found`, blamed on the caller's `assetId`;
- * anything else is classified by status like any Mux Video call.
+ * anything else is classified like any Mux Video API call.
  */
 export function muxAssetFetchError(assetId: string, error: unknown): MuxAiError {
-  if (!MuxAiError.is(error) && httpStatusOf(error) === 404) {
-    return new MuxAiError(`Mux asset ${assetId} not found`, {
-      code: MUX_AI_ERROR_CODES.ASSET_NOT_FOUND,
-      type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
-      source: MUX_AI_ERROR_SOURCES.REQUEST,
-      dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO,
-      facts: { call: "get_asset", status: 404, assetId, inputs: ["assetId"], ...muxVideoErrorFacts(error) },
-      cause: error,
-    });
-  }
   return muxVideoCallError("Failed to fetch the asset from Mux", "get_asset", error, { assetId });
+}
+
+/** Mux answered 404 to an asset fetch: the asset itself is gone, blamed on the caller's `assetId`. */
+function assetNotFoundError(error: unknown, facts?: MuxAiErrorFacts): MuxAiError {
+  const requestId = requestIdOf((error as { headers?: unknown } | null)?.headers);
+  return new MuxAiError(typeof facts?.assetId === "string" ? `Mux asset ${facts.assetId} not found` : "Mux asset not found", {
+    code: MUX_AI_ERROR_CODES.ASSET_NOT_FOUND,
+    type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+    source: MUX_AI_ERROR_SOURCES.REQUEST,
+    dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO,
+    facts: { call: "get_asset", status: 404, ...(requestId && { requestId }), ...facts, inputs: ["assetId"], ...muxVideoErrorFacts(error) },
+    cause: error,
+  });
 }
 
 /**

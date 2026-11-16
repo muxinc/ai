@@ -1,5 +1,5 @@
 import { dependencyError, requestIdOf } from "./dependency-error.ts";
-import type { MuxAiError, MuxAiErrorCode, MuxAiErrorFacts } from "./mux-ai-error.ts";
+import type { MuxAiError, MuxAiErrorFacts, MuxAiSiteDependencyCode } from "./mux-ai-error.ts";
 import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_DEPENDENCIES } from "./mux-ai-error.ts";
 
 // Tokens only: S3's free-text <Message> stays in the scrubbed cause summary, not in facts.
@@ -13,7 +13,7 @@ const S3_TOKEN = /^[\w.-]{1,64}$/;
  * That includes credential codes (`AccessDenied`, `InvalidAccessKeyId`, …): the storage
  * keys come from the service's configuration, so the status rules' `internal` is right.
  */
-const S3_ERROR_CODES: Readonly<Record<string, MuxAiErrorCode>> = {
+const S3_ERROR_CODES: Readonly<Record<string, MuxAiSiteDependencyCode>> = {
   // 503: S3 is scaling to a new request rate; AWS retries it as throttling.
   SlowDown: MUX_AI_ERROR_CODES.PROVIDER_RATE_LIMITED,
 };

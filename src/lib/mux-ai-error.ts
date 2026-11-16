@@ -311,7 +311,7 @@ export const MUX_AI_ERROR_CATALOG = {
   [MUX_AI_ERROR_CODES.ASSET_RESOURCE_NOT_FOUND]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET, siteDependency: true },
   // Media requests carry no access token. Mux denies them for an expired signed token or a
   // playback restriction; the SDK signs fresh tokens, so it's the account's keys or restrictions.
-  [MUX_AI_ERROR_CODES.PLAYBACK_ACCESS_DENIED]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ACCOUNT, dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO },
+  [MUX_AI_ERROR_CODES.PLAYBACK_ACCESS_DENIED]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ACCOUNT, siteDependency: true },
   // Fallback codes: each implies the classification the status rules give it
   // (`classifyDependencyFailure` with its default sources). A site that knows more raises
   // a more specific code instead. Transient ones are step-retried unless the call isn't
@@ -417,6 +417,14 @@ export const MUX_AI_DEPENDENCY_STATUS_CODES = {
   RESPONSE_FAILED: MUX_AI_ERROR_CODES.DEPENDENCY_RESPONSE_FAILED,
 } as const;
 export type MuxAiDependencyStatusCode = typeof MUX_AI_DEPENDENCY_STATUS_CODES[keyof typeof MUX_AI_DEPENDENCY_STATUS_CODES];
+
+/**
+ * The codes whose site names the dependency (`siteDependency` catalog entries): the ones
+ * a remote call's failure can take, e.g. from a per-dependency rule.
+ */
+export type MuxAiSiteDependencyCode = {
+  [C in MuxAiErrorCode]: typeof MUX_AI_ERROR_CATALOG[C] extends { siteDependency: true } ? C : never;
+}[MuxAiErrorCode];
 export const MUX_AI_DEPENDENCY_STATUS_CODE_VALUES: readonly MuxAiDependencyStatusCode[] = Object.values(MUX_AI_DEPENDENCY_STATUS_CODES);
 
 /**

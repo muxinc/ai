@@ -9,7 +9,7 @@ export {
   isTransientStatus,
   requestIdOf,
 } from "./lib/dependency-error.ts";
-export type { DependencyErrorInit, RecognizedDependencyErrorInit } from "./lib/dependency-error.ts";
+export type { DependencyErrorInit, DependencyFailureInit, RecognizedDependencyErrorInit } from "./lib/dependency-error.ts";
 // Per-dependency rules, for consumers that call these dependencies themselves.
 export {
   elevenLabsErrorRule,
@@ -71,6 +71,7 @@ export type {
   MuxAiErrorInit,
   MuxAiErrorSource,
   MuxAiErrorType,
+  MuxAiSiteDependencyCode,
   SerializedClassification,
   SourceAndDependency,
 } from "./lib/mux-ai-error.ts";

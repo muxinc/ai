@@ -1,4 +1,4 @@
-import type { ErrorCatalogEntry, MuxAiDependencyStatusCode, MuxAiErrorCode, MuxAiErrorDependency, MuxAiErrorFacts, MuxAiErrorInit, MuxAiErrorSource, MuxAiErrorType } from "./mux-ai-error.ts";
+import type { ErrorCatalogEntry, MuxAiDependencyStatusCode, MuxAiErrorDependency, MuxAiErrorFacts, MuxAiErrorInit, MuxAiErrorSource, MuxAiErrorType, MuxAiSiteDependencyCode } from "./mux-ai-error.ts";
 import { isTransientStatus, MUX_AI_DEPENDENCY_STATUS_CODES, MUX_AI_ERROR_CATALOG, MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
 
 export interface DependencyErrorInit {
@@ -13,13 +13,14 @@ export interface DependencyErrorInit {
   /**
    * Source for a 404. Defaults to `internal` (we built the request). `asset` when the
    * call was for something belonging to the asset: `dependencyError` codes it
-   * `asset_resource_not_found`.
+   * `asset_resource_not_found`. Only sources with a code; `classifyDependencyFailure`
+   * takes any (see {@link DependencyFailureInit}).
    */
   notFoundSource?: typeof MUX_AI_ERROR_SOURCES.INTERNAL | typeof MUX_AI_ERROR_SOURCES.ASSET;
   /**
    * Source for a 401/403. Defaults to `internal` (our own credentials). `account` when
    * the call used the caller's Mux credentials: `dependencyError` codes it
-   * `account_credentials_rejected`.
+   * `account_credentials_rejected`. Only sources with a code, as for `notFoundSource`.
    */
   authSource?: typeof MUX_AI_ERROR_SOURCES.INTERNAL | typeof MUX_AI_ERROR_SOURCES.ACCOUNT;
   /** The caller's inputs a 401/403 is blamed on (e.g. `credentials`), recorded as the `inputs` fact. */
@@ -46,13 +47,23 @@ export interface DependencyErrorInit {
 export interface RecognizedDependencyErrorInit extends DependencyErrorInit {
   /**
    * The code sets the type and source, and its own retry policy wins over the status
-   * rules. A fallback code a status can't express is passed the same way, e.g.
-   * `dependency_response_failed` for a dependency that answered with an error of its
+   * rules. Only codes whose site names the dependency, so the error can't contradict the
+   * catalog's dependency. A fallback code a status can't express is passed the same way,
+   * e.g. `dependency_response_failed` for a dependency that answered with an error of its
    * own. Without one, the error gets the status's fallback code (see
    * {@link dependencyFailureCode}).
    */
-  code?: MuxAiErrorCode;
+  code?: MuxAiSiteDependencyCode;
 }
+
+/**
+ * What {@link classifyDependencyFailure} reads: {@link DependencyErrorInit}'s fields, with
+ * any source for a 404 or 401/403, for consumers classifying failures on their own catalogs.
+ */
+export type DependencyFailureInit = Pick<DependencyErrorInit, "call" | "status" | "requestId" | "facts" | "authInputs" | "timedOut" | "idempotent" | "transient" | "retryable"> & {
+  notFoundSource?: MuxAiErrorSource;
+  authSource?: MuxAiErrorSource;
+};
 
 export { isTransientStatus };
 
@@ -64,7 +75,7 @@ export { isTransientStatus };
  * by {@link dependencyError} and by consumers building their own errors on the same
  * model, so remote failures are classified the same way everywhere.
  */
-export function classifyDependencyFailure(init: Pick<DependencyErrorInit, "call" | "status" | "requestId" | "facts" | "notFoundSource" | "authSource" | "authInputs" | "timedOut" | "idempotent" | "transient" | "retryable">): {
+export function classifyDependencyFailure(init: DependencyFailureInit): {
   type: MuxAiErrorType;
   source: MuxAiErrorSource;
   facts: MuxAiErrorFacts;
@@ -143,7 +154,7 @@ export function dependencyFailureCode({ status, timedOut }: Pick<DependencyError
 }
 
 /** The code for a 404 or 401/403 whose source the site chose (see `notFoundSource`, `authSource`). */
-function attributedFailureCode({ status, timedOut, notFoundSource, authSource }: DependencyErrorInit): MuxAiErrorCode | undefined {
+function attributedFailureCode({ status, timedOut, notFoundSource, authSource }: DependencyErrorInit): MuxAiSiteDependencyCode | undefined {
   if (timedOut) {
     return undefined;
   }
