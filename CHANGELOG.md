@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.63.1](https://github.com/muxinc/ai/compare/v0.63.0...v0.63.1) (2026-11-16)
+
+
+### Bug Fixes
+
+* **errors:** step-retry OpenAI's intermittent prompt flag ([#327](https://github.com/muxinc/ai/issues/327)) ([0f9f6af](https://github.com/muxinc/ai/commit/0f9f6afd56d2af4618597c060d31d371a8ef61da))
+
 ## [0.63.0](https://github.com/muxinc/ai/compare/v0.62.0...v0.63.0) (2026-11-13)
 
 
