@@ -15,7 +15,6 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
 import {
-  MUX_AI_DEPENDENCY_STATUS_CODES,
   MUX_AI_ERROR_CATALOG,
   MUX_AI_ERROR_CODES,
   MUX_AI_ERROR_DEPENDENCIES,
@@ -102,22 +101,6 @@ const TABLES: GeneratedTable[] = [
             const dependency = entry.siteDependency ? "named by the site" : code(entry.dependency);
             return `| ${code(value)} | ${code(entry.type)} | ${code(entry.source)} | ${dependency} | ${isPublic} | ${cell(comments[key])} |`;
           }),
-      ];
-    },
-  },
-  {
-    name: "dependency status codes",
-    render: (source) => {
-      const comments = keyComments(source, "MUX_AI_DEPENDENCY_STATUS_CODES");
-      return [
-        "| Code | Observed |",
-        "|---|---|",
-        ...Object.entries(MUX_AI_DEPENDENCY_STATUS_CODES).map(([key, value]) => {
-          if (!comments[key]) {
-            throw new Error(`MUX_AI_DEPENDENCY_STATUS_CODES.${key} has no TSDoc comment describing it.`);
-          }
-          return `| ${code(value)} | ${cell(comments[key])} |`;
-        }),
       ];
     },
   },

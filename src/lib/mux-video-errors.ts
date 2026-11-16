@@ -25,15 +25,34 @@ export function muxVideoErrorFacts(error: unknown): MuxAiErrorFacts {
   return parsed.success ? { muxErrorType: parsed.data.error.error.type } : {};
 }
 
+type MuxVideoErrorInit = Omit<DependencyErrorInit, "dependency" | "notFoundSource" | "authSource" | "authInputs">;
+
 /**
- * Classifies a failed Mux Video call (see `dependencyError`): a 401/403 is the caller's
- * Mux `account` (its `credentials`), and a 404 means the asset or track is gone or not
- * ready (`asset`).
+ * Classifies a failed fetch of the asset's media from Mux's stream or image delivery
+ * (a transcript, a caption file, an image; see `dependencyError`). A 404 is
+ * `asset_resource_not_found`: the track, rendition or image is gone or not ready. A
+ * 401/403 is `playback_access_denied`: these requests carry no access token, so it's the
+ * playback's signed token or restrictions, per Mux's secure playback guide
+ * (https://www.mux.com/docs/guides/secure-video-playback).
  */
-export function muxVideoError(
-  message: string,
-  init: Omit<DependencyErrorInit, "dependency" | "notFoundSource" | "authSource" | "authInputs">,
-): MuxAiError {
+export function muxVideoError(message: string, init: MuxVideoErrorInit): MuxAiError {
+  return dependencyError(message, {
+    ...init,
+    dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO,
+    notFoundSource: MUX_AI_ERROR_SOURCES.ASSET,
+    ...(!init.timedOut && (init.status === 401 || init.status === 403) && { code: MUX_AI_ERROR_CODES.PLAYBACK_ACCESS_DENIED }),
+  });
+}
+
+/**
+ * Classifies a failed Mux Video API call (see `dependencyError`). A 401/403 is
+ * `account_credentials_rejected`: the call carries only the caller's access token, whose
+ * permissions decide what Mux allows
+ * (https://www.mux.com/docs/core/make-api-requests). A 404 is `asset_resource_not_found`:
+ * the asset's track or rendition is gone or not ready (a missing asset is
+ * `muxAssetFetchError`'s).
+ */
+function muxVideoApiError(message: string, init: MuxVideoErrorInit): MuxAiError {
   return dependencyError(message, {
     ...init,
     dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO,
@@ -46,7 +65,7 @@ export function muxVideoError(
 }
 
 /**
- * `muxVideoError` for an error thrown by a Mux SDK call, classified while the error is
+ * Classifies an error thrown by a Mux SDK call (a Mux Video API call), classified while the error is
  * still in hand: its status, request id and Mux's error type become facts, and the error
  * itself the cause (summarized, scrubbed, across step boundaries). An already classified
  * error passes through with `facts` merged in. Only wrap the Mux call itself: a status-less
@@ -60,7 +79,7 @@ export function muxVideoCallError(message: string, call: string, error: unknown,
     }
     return error;
   }
-  return muxVideoError(message, {
+  return muxVideoApiError(message, {
     call,
     status: httpStatusOf(error),
     requestId: requestIdOf((error as { headers?: unknown } | null)?.headers),

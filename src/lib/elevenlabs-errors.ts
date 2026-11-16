@@ -1,5 +1,5 @@
 import { dependencyError, isTransientStatus, requestIdOf } from "./dependency-error.ts";
-import { errorDetailFact, MUX_AI_DEPENDENCY_STATUS_CODES, MUX_AI_ERROR_CODES, MUX_AI_ERROR_DEPENDENCIES } from "./mux-ai-error.ts";
+import { errorDetailFact, MUX_AI_ERROR_CODES, MUX_AI_ERROR_DEPENDENCIES } from "./mux-ai-error.ts";
 import type { MuxAiError, MuxAiErrorCode, MuxAiErrorFacts } from "./mux-ai-error.ts";
 
 const MAX_ERROR_BODY_CHARS = 500;
@@ -102,10 +102,10 @@ export function elevenLabsFailureError(message: string, call: string, failure: E
       ...facts,
     },
     // Without a rule or a status, only a network error went unanswered (a timeout is
-    // `timedOut`); anything else got a response it couldn't use.
+    // `timedOut`); anything else got a response with an error or nothing usable.
     ...(rule ?
         { code: rule.code } :
-      failure.httpStatus === undefined && failure.reason !== "network_error" && failure.reason !== "timeout" && { code: MUX_AI_DEPENDENCY_STATUS_CODES.OTHER_STATUS }),
+      failure.httpStatus === undefined && failure.reason !== "network_error" && failure.reason !== "timeout" && { code: MUX_AI_ERROR_CODES.DEPENDENCY_RESPONSE_FAILED }),
     transient: false,
     // Quota stays spent whatever the status, so a new job can't succeed either.
     retryable: rule?.code === MUX_AI_ERROR_CODES.PROVIDER_QUOTA_EXHAUSTED ? false : failure.retryable,

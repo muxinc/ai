@@ -133,8 +133,8 @@ describe("elevenLabsFailureError", () => {
   it.each([
     [{ reason: "network_error", retryable: true }, "dependency_no_response"],
     [{ reason: "timeout", retryable: true }, "dependency_timeout"],
-    [{ reason: "unexpected_response", retryable: false }, "dependency_other_status"],
-    [{ reason: "output_missing", retryable: false }, "dependency_other_status"],
+    [{ reason: "unexpected_response", retryable: false }, "dependency_response_failed"],
+    [{ reason: "output_missing", retryable: false }, "dependency_response_failed"],
     [{ httpStatus: 400, retryable: false }, "dependency_request_rejected"],
   ])("calls only a network error unanswered (%o)", (failure, code) => {
     expect(elevenLabsFailureError("x", "elevenlabs_get_dubbing_project", { ...failure, detail: "d" })).toMatchObject({ code });

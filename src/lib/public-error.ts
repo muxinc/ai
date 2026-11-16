@@ -1,5 +1,5 @@
 import { isLegacyMuxAiError } from "./legacy-mux-ai-error.ts";
-import type { ClassifiedError, MuxAiDependencyStatusCode, MuxAiErrorCode, MuxAiErrorFacts, MuxAiErrorFactValue, MuxAiErrorType } from "./mux-ai-error.ts";
+import type { ClassifiedError, MuxAiErrorCode, MuxAiErrorFacts, MuxAiErrorFactValue, MuxAiErrorType } from "./mux-ai-error.ts";
 import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES } from "./mux-ai-error.ts";
 import { legacyMp4SupportTooLargeMessage, legacyMp4SupportUnusableMessage } from "./mux-static-renditions.ts";
 import type { TextTrackSummary } from "./mux-tracks.ts";
@@ -348,9 +348,7 @@ export function createPublicErrorView<TType extends string, TCode extends string
 }
 
 /** The end-user view of a `MuxAiError`, with the SDK's public mappings and generic wording. */
-// Takes fallback codes too, since every `MuxAiError` may carry one. They have no public
-// mapping, so they render generically and never appear as the view's `code`.
-export const toPublicError = createPublicErrorView<MuxAiErrorType, MuxAiErrorCode | MuxAiDependencyStatusCode>({
+export const toPublicError: (error: ClassifiedError<MuxAiErrorType, MuxAiErrorCode>) => MuxAiPublicError = createPublicErrorView<MuxAiErrorType, MuxAiErrorCode>({
   mappings: MUX_AI_ERROR_PUBLIC_MAPPINGS,
   genericMessage: genericPublicMessage,
-}) as (error: ClassifiedError<MuxAiErrorType, MuxAiErrorCode | MuxAiDependencyStatusCode>) => MuxAiPublicError;
+});

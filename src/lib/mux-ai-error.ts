@@ -206,6 +206,34 @@ export const MUX_AI_ERROR_CODES = {
   PROVIDER_UNAVAILABLE: "provider_unavailable",
   /** The provider can't process the asset's audio. The site names the dependency. Facts: `call`, `status`, `providerCode`, `reason` (`corrupt`, `unsupported_format`, `too_long`, `too_short`). */
   AUDIO_UNPROCESSABLE: "audio_unprocessable",
+  /** Mux rejected the caller's access token (401), or the token lacks permission for this call (403), e.g. Mux Data access. Facts: `call`, `status`, `inputs` (`credentials`). */
+  ACCOUNT_CREDENTIALS_REJECTED: "account_credentials_rejected",
+  /** Mux answered 404 for something belonging to the asset (a track, a rendition, an image, its engagement data): gone, or not ready yet. A missing asset itself is `asset_not_found`. Facts: `call`, `status`. */
+  ASSET_RESOURCE_NOT_FOUND: "asset_resource_not_found",
+  /** Mux denied delivery of the asset's media (a transcript, a caption file, an image), e.g. a signing key or playback restriction in the Mux account rejected the request. Facts: `call`, `status`. */
+  PLAYBACK_ACCESS_DENIED: "playback_access_denied",
+  // Fallback codes (see MUX_AI_DEPENDENCY_STATUS_CODES): what a remote call's failure looked
+  // like, when no per-dependency rule recognized it. The site names the dependency.
+  /** No response arrived, and the call didn't time out (e.g. a connection failure). Facts: `call`. */
+  DEPENDENCY_NO_RESPONSE: "dependency_no_response",
+  /** The call timed out, or the dependency answered 408. Facts: `call`, `status`. */
+  DEPENDENCY_TIMEOUT: "dependency_timeout",
+  /** The dependency answered 429. Facts: `call`, `status`. */
+  DEPENDENCY_RATE_LIMITED: "dependency_rate_limited",
+  /** The dependency answered 425. Facts: `call`, `status`. */
+  DEPENDENCY_TOO_EARLY: "dependency_too_early",
+  /** The dependency answered with a 5xx status. Facts: `call`, `status`. */
+  DEPENDENCY_SERVER_ERROR: "dependency_server_error",
+  /** The dependency answered 401 or 403 to a request made with the service's own credentials. Facts: `call`, `status`. */
+  DEPENDENCY_AUTH_REJECTED: "dependency_auth_rejected",
+  /** The dependency answered 404 to a request the SDK built. Facts: `call`, `status`. */
+  DEPENDENCY_NOT_FOUND: "dependency_not_found",
+  /** The dependency answered with another 4xx status. Facts: `call`, `status`. */
+  DEPENDENCY_REQUEST_REJECTED: "dependency_request_rejected",
+  /** The dependency answered with a status that isn't an error (1xx-3xx) where a result was expected. Facts: `call`, `status`. */
+  DEPENDENCY_OTHER_STATUS: "dependency_other_status",
+  /** The dependency answered without a failing status, but with an error of its own or a response that can't be used. Facts: `call`, `providerCode` when it gave one. */
+  DEPENDENCY_RESPONSE_FAILED: "dependency_response_failed",
 } as const;
 export type MuxAiErrorCode = typeof MUX_AI_ERROR_CODES[keyof typeof MUX_AI_ERROR_CODES];
 export const MUX_AI_ERROR_CODE_VALUES: readonly MuxAiErrorCode[] = Object.values(MUX_AI_ERROR_CODES);
@@ -277,6 +305,28 @@ export const MUX_AI_ERROR_CATALOG = {
   [MUX_AI_ERROR_CODES.PROVIDER_RATE_LIMITED]: { type: MUX_AI_ERROR_TYPES.CAPACITY_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, siteDependency: true, transient: true, retryable: true },
   [MUX_AI_ERROR_CODES.PROVIDER_UNAVAILABLE]: { type: MUX_AI_ERROR_TYPES.CAPACITY_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, siteDependency: true, transient: true, retryable: true },
   [MUX_AI_ERROR_CODES.AUDIO_UNPROCESSABLE]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET, siteDependency: true },
+  // Mux's own responses, where the call says whose they are (see mux-video-errors.ts).
+  // The access token is the caller's: only its permissions decide what Mux allows.
+  [MUX_AI_ERROR_CODES.ACCOUNT_CREDENTIALS_REJECTED]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ACCOUNT, siteDependency: true },
+  [MUX_AI_ERROR_CODES.ASSET_RESOURCE_NOT_FOUND]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET, siteDependency: true },
+  // Media requests carry no access token. Mux denies them for an expired signed token or a
+  // playback restriction; the SDK signs fresh tokens, so it's the account's keys or restrictions.
+  [MUX_AI_ERROR_CODES.PLAYBACK_ACCESS_DENIED]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ACCOUNT, dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO },
+  // Fallback codes: each implies the classification the status rules give it
+  // (`classifyDependencyFailure` with its default sources). A site that knows more raises
+  // a more specific code instead. Transient ones are step-retried unless the call isn't
+  // idempotent (see `dependencyError`).
+  [MUX_AI_ERROR_CODES.DEPENDENCY_NO_RESPONSE]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, siteDependency: true, transient: true, retryable: true },
+  [MUX_AI_ERROR_CODES.DEPENDENCY_TIMEOUT]: { type: MUX_AI_ERROR_TYPES.TIMEOUT_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, siteDependency: true, transient: true, retryable: true },
+  [MUX_AI_ERROR_CODES.DEPENDENCY_RATE_LIMITED]: { type: MUX_AI_ERROR_TYPES.CAPACITY_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, siteDependency: true, transient: true, retryable: true },
+  [MUX_AI_ERROR_CODES.DEPENDENCY_TOO_EARLY]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, siteDependency: true, transient: true, retryable: true },
+  [MUX_AI_ERROR_CODES.DEPENDENCY_SERVER_ERROR]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, siteDependency: true, transient: true, retryable: true },
+  [MUX_AI_ERROR_CODES.DEPENDENCY_AUTH_REJECTED]: { type: MUX_AI_ERROR_TYPES.SERVER_ERROR, source: MUX_AI_ERROR_SOURCES.INTERNAL, siteDependency: true },
+  [MUX_AI_ERROR_CODES.DEPENDENCY_NOT_FOUND]: { type: MUX_AI_ERROR_TYPES.SERVER_ERROR, source: MUX_AI_ERROR_SOURCES.INTERNAL, siteDependency: true },
+  [MUX_AI_ERROR_CODES.DEPENDENCY_REQUEST_REJECTED]: { type: MUX_AI_ERROR_TYPES.SERVER_ERROR, source: MUX_AI_ERROR_SOURCES.INTERNAL, siteDependency: true },
+  [MUX_AI_ERROR_CODES.DEPENDENCY_OTHER_STATUS]: { type: MUX_AI_ERROR_TYPES.SERVER_ERROR, source: MUX_AI_ERROR_SOURCES.INTERNAL, siteDependency: true },
+  // Not step-retried: the dependency answered, and would answer the same way. Resubmittable.
+  [MUX_AI_ERROR_CODES.DEPENDENCY_RESPONSE_FAILED]: { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, siteDependency: true, transient: false, retryable: true },
 } as const satisfies Record<MuxAiErrorCode, ErrorCatalogEntry<MuxAiErrorType, MuxAiErrorDependency>>;
 
 export interface ModelCallDiagnostics {
@@ -347,31 +397,24 @@ export type CodedClassification<TCatalog extends Readonly<Record<string, ErrorCa
 }[keyof TCatalog & string];
 
 /**
- * Generic codes for a remote call's failure, from its HTTP status (or the lack of one):
- * the fallback rung, used when no per-dependency rule recognizes the response. Unlike
- * catalog codes they imply nothing: the type and source come from the status rules
- * (`classifyDependencyFailure`), and the error names its dependency. A count of these
- * codes shows which dependencies' responses still need per-dependency rules.
+ * The fallback codes for a remote call's failure: the bottom rung, used when no
+ * per-dependency rule recognizes the response. Catalog codes like any other, so each
+ * implies one type and source, and the site names the dependency. All but
+ * `RESPONSE_FAILED` follow from the HTTP status (or its absence; see
+ * `dependencyFailureCode`). A count of these codes shows which dependencies' responses
+ * still need per-dependency rules.
  */
 export const MUX_AI_DEPENDENCY_STATUS_CODES = {
-  /** No response arrived, and the call didn't time out (e.g. a connection failure). */
-  NO_RESPONSE: "dependency_no_response",
-  /** The call timed out, or the dependency answered 408. */
-  TIMEOUT: "dependency_timeout",
-  /** The dependency answered 429. */
-  RATE_LIMITED: "dependency_rate_limited",
-  /** The dependency answered 425. */
-  TOO_EARLY: "dependency_too_early",
-  /** The dependency answered with a 5xx status. */
-  SERVER_ERROR: "dependency_server_error",
-  /** The dependency answered 401 or 403. */
-  AUTH_REJECTED: "dependency_auth_rejected",
-  /** The dependency answered 404. */
-  NOT_FOUND: "dependency_not_found",
-  /** The dependency answered with another 4xx status. */
-  REQUEST_REJECTED: "dependency_request_rejected",
-  /** The dependency answered with any other status, e.g. a success that reported a failure. */
-  OTHER_STATUS: "dependency_other_status",
+  NO_RESPONSE: MUX_AI_ERROR_CODES.DEPENDENCY_NO_RESPONSE,
+  TIMEOUT: MUX_AI_ERROR_CODES.DEPENDENCY_TIMEOUT,
+  RATE_LIMITED: MUX_AI_ERROR_CODES.DEPENDENCY_RATE_LIMITED,
+  TOO_EARLY: MUX_AI_ERROR_CODES.DEPENDENCY_TOO_EARLY,
+  SERVER_ERROR: MUX_AI_ERROR_CODES.DEPENDENCY_SERVER_ERROR,
+  AUTH_REJECTED: MUX_AI_ERROR_CODES.DEPENDENCY_AUTH_REJECTED,
+  NOT_FOUND: MUX_AI_ERROR_CODES.DEPENDENCY_NOT_FOUND,
+  REQUEST_REJECTED: MUX_AI_ERROR_CODES.DEPENDENCY_REQUEST_REJECTED,
+  OTHER_STATUS: MUX_AI_ERROR_CODES.DEPENDENCY_OTHER_STATUS,
+  RESPONSE_FAILED: MUX_AI_ERROR_CODES.DEPENDENCY_RESPONSE_FAILED,
 } as const;
 export type MuxAiDependencyStatusCode = typeof MUX_AI_DEPENDENCY_STATUS_CODES[keyof typeof MUX_AI_DEPENDENCY_STATUS_CODES];
 export const MUX_AI_DEPENDENCY_STATUS_CODE_VALUES: readonly MuxAiDependencyStatusCode[] = Object.values(MUX_AI_DEPENDENCY_STATUS_CODES);
@@ -404,15 +447,8 @@ export type ClassifiedErrorInit<TType extends string, TCode extends string, TDep
   cause?: unknown;
 };
 
-/**
- * How a site classifies a `MuxAiError`: a catalog code with what it implies, no code, or a
- * dependency status code with the type and source the status rules gave (see
- * {@link MUX_AI_DEPENDENCY_STATUS_CODES}).
- */
-export type MuxAiErrorInit =
-  | ClassifiedErrorInit<MuxAiErrorType, MuxAiErrorCode, MuxAiErrorDependency, typeof MUX_AI_ERROR_CATALOG> |
-  (Omit<ClassifiedErrorInit<MuxAiErrorType, MuxAiErrorCode, MuxAiErrorDependency>, "code" | "type" | "source" | "dependency"> &
-    { code: MuxAiDependencyStatusCode; type: MuxAiErrorType } & SourceAndDependency<MuxAiErrorDependency>);
+/** How a site classifies a `MuxAiError`: a catalog code with what it implies, or no code. */
+export type MuxAiErrorInit = ClassifiedErrorInit<MuxAiErrorType, MuxAiErrorCode, MuxAiErrorDependency, typeof MUX_AI_ERROR_CATALOG>;
 
 /**
  * A classified error's fields as JSON-safe data, for a subclass's Workflow serializer
@@ -610,7 +646,7 @@ export function restoreClassification<T extends ClassifiedError>(error: T, recor
  * Fields, not subclasses, carry the classification: a custom Workflow codec keeps
  * them across step boundaries, and every subclass revives as `MuxAiError`.
  */
-export class MuxAiError extends ClassifiedError<MuxAiErrorType, MuxAiErrorCode | MuxAiDependencyStatusCode, MuxAiErrorDependency> {
+export class MuxAiError extends ClassifiedError<MuxAiErrorType, MuxAiErrorCode, MuxAiErrorDependency> {
   /** Structural brand for duck-type identification across copies of the SDK. */
   readonly __mux_ai_error = true;
 
@@ -618,8 +654,7 @@ export class MuxAiError extends ClassifiedError<MuxAiErrorType, MuxAiErrorCode |
   declare diagnostics?: ModelCallDiagnostics;
 
   constructor(message: string, init: MuxAiErrorInit) {
-    // A status code has no catalog entry, so the constructor keeps the site's type and source.
-    super(message, init as ClassifiedErrorInit<MuxAiErrorType, MuxAiErrorCode | MuxAiDependencyStatusCode, MuxAiErrorDependency>, MUX_AI_ERROR_CATALOG);
+    super(message, init, MUX_AI_ERROR_CATALOG);
   }
 
   static is(value: unknown): value is MuxAiError {

@@ -146,28 +146,25 @@ A remote service reached over the network. Libraries running in-process are neve
 | `provider_credentials_rejected` | `server_error` | `internal` | named by the site | no | The provider rejected the key the service running the SDK uses, or the key lacks permission for this model or feature. The site names the dependency. Facts: `call`, `status`, `providerCode`. |
 | `provider_rate_limited` | `capacity_error` | `upstream` | named by the site | no | The provider says requests are over its rate or concurrency limit. The site names the dependency. Facts: `call`, `status`, `providerCode`. |
 | `provider_unavailable` | `capacity_error` | `upstream` | named by the site | no | The provider says it's overloaded or down for maintenance. The site names the dependency. Facts: `call`, `status`, `providerCode`. |
+| `account_credentials_rejected` | `validation_error` | `account` | named by the site | no | Mux rejected the caller's access token (401), or the token lacks permission for this call (403), e.g. Mux Data access. Facts: `call`, `status`, `inputs` (`credentials`). |
+| `asset_resource_not_found` | `validation_error` | `asset` | named by the site | no | Mux answered 404 for something belonging to the asset (a track, a rendition, an image, its engagement data): gone, or not ready yet. A missing asset itself is `asset_not_found`. Facts: `call`, `status`. |
+| `playback_access_denied` | `validation_error` | `account` | `mux_video` | no | Mux denied delivery of the asset's media (a transcript, a caption file, an image), e.g. a signing key or playback restriction in the Mux account rejected the request. Facts: `call`, `status`. |
+| `dependency_no_response` | `processing_error` | `upstream` | named by the site | no | No response arrived, and the call didn't time out (e.g. a connection failure). Facts: `call`. |
+| `dependency_timeout` | `timeout_error` | `upstream` | named by the site | no | The call timed out, or the dependency answered 408. Facts: `call`, `status`. |
+| `dependency_rate_limited` | `capacity_error` | `upstream` | named by the site | no | The dependency answered 429. Facts: `call`, `status`. |
+| `dependency_too_early` | `processing_error` | `upstream` | named by the site | no | The dependency answered 425. Facts: `call`, `status`. |
+| `dependency_server_error` | `processing_error` | `upstream` | named by the site | no | The dependency answered with a 5xx status. Facts: `call`, `status`. |
+| `dependency_auth_rejected` | `server_error` | `internal` | named by the site | no | The dependency answered 401 or 403 to a request made with the service's own credentials. Facts: `call`, `status`. |
+| `dependency_not_found` | `server_error` | `internal` | named by the site | no | The dependency answered 404 to a request the SDK built. Facts: `call`, `status`. |
+| `dependency_request_rejected` | `server_error` | `internal` | named by the site | no | The dependency answered with another 4xx status. Facts: `call`, `status`. |
+| `dependency_other_status` | `server_error` | `internal` | named by the site | no | The dependency answered with a status that isn't an error (1xx-3xx) where a result was expected. Facts: `call`, `status`. |
+| `dependency_response_failed` | `processing_error` | `upstream` | named by the site | no | The dependency answered without a failing status, but with an error of its own or a response that can't be used. Facts: `call`, `providerCode` when it gave one. |
 
 <!-- END GENERATED: error codes -->
 
-### Dependency status codes
+### Dependency failure codes
 
-A failed remote call climbs as far as the information allows. A per-dependency rule that recognizes the response (a provider's own error code, say) gives it a catalog code. One that no rule recognizes gets a generic code for what was observed: its HTTP status, a timeout, or no response. These fallback codes imply nothing: the type and source come from the status rules (see [Raising errors](#raising-errors)), and the error names its dependency. They name what happened, never a cause, since a status means different things to different dependencies. A count of them shows which dependencies' responses still need rules.
-
-<!-- BEGIN GENERATED: dependency status codes. Don't edit by hand: run `npm run docs:errors`. -->
-
-| Code | Observed |
-|---|---|
-| `dependency_no_response` | No response arrived, and the call didn't time out (e.g. a connection failure). |
-| `dependency_timeout` | The call timed out, or the dependency answered 408. |
-| `dependency_rate_limited` | The dependency answered 429. |
-| `dependency_too_early` | The dependency answered 425. |
-| `dependency_server_error` | The dependency answered with a 5xx status. |
-| `dependency_auth_rejected` | The dependency answered 401 or 403. |
-| `dependency_not_found` | The dependency answered 404. |
-| `dependency_request_rejected` | The dependency answered with another 4xx status. |
-| `dependency_other_status` | The dependency answered with any other status, e.g. a success that reported a failure. |
-
-<!-- END GENERATED: dependency status codes -->
+A failed remote call climbs as far as the information allows. A per-dependency rule that recognizes the response (a provider's own error code, say) gives it a specific code. So does a call site that knows whose the failure is: a Mux 404 on an asset's track is `asset_resource_not_found`, and a Mux 401 on an API call is `account_credentials_rejected`. A response nothing recognizes gets a fallback code for what was observed (the `dependency_*` codes above): its HTTP status, a timeout, no response, or an answer with an error of its own (`dependency_response_failed`). They name what happened, never a cause, since a status means different things to different dependencies. Like every code, each implies one type and source: the classification the status rules give it. A count of them shows which dependencies' responses still need rules.
 
 A failure without a code still has a type and source; that's normal for conditions not yet worth naming. A module that hasn't moved onto the model yet raises its conditions as [legacy errors](#legacy-errors) rather than with these codes.
 
@@ -289,7 +286,7 @@ const toPublic = createPublicErrorView<string, string>({
 
 Helpers:
 
-- **Remote calls:** classify where the call is made, while the status is still in hand. `dependencyError()` (in `dependency-error.ts`) turns a status into a source and retry policy: no response, 408, 425, 429 and 5xx are `upstream` and transient; 401/403 and 404 take the source the caller chooses (`authSource`, `notFoundSource`); other 4xx are `internal`, a request we built. It records `call`, `status` and `requestId`, and takes `idempotent: false` for calls that may have taken effect (a create), so a no-response or 5xx failure isn't step-retried. Without a `code` it gives the error the status's [fallback code](#dependency-status-codes) (`dependencyFailureCode()`); a per-dependency rule that recognized the response passes its catalog `code`, whose type, source and retry policy then win over the status rules (the site's own `transient`/`retryable` still win over both). `dependencyErrorFrom()` does the same for an error thrown by an SDK client, reading its status.
+- **Remote calls:** classify where the call is made, while the status is still in hand. `dependencyError()` (in `dependency-error.ts`) gives every failure a code, and the code sets the type and source. A per-dependency rule that recognized the response passes its `code`. Otherwise a 404 or 401/403 the caller attributed gets that source's code (`notFoundSource: "asset"` is `asset_resource_not_found`, `authSource: "account"` is `account_credentials_rejected`), and anything else the status's [fallback code](#dependency-failure-codes) (`dependencyFailureCode()`): no response, 408, 425, 429 and 5xx are `upstream` and transient; other statuses are `internal`, a request we built. The code's retry policy wins over the status rules, and the site's own `transient`/`retryable` win over both. It records `call`, `status` and `requestId`, and takes `idempotent: false` for calls that may have taken effect (a create), so a timeout, no-response or 5xx failure isn't step-retried, whatever the code. `dependencyErrorFrom()` does the same for an error thrown by an SDK client, reading its status.
 - **Provider API failures:** each provider means different things by the same status (a 429 can be a short rate limit or a spent quota), so each gets its own classifier, keyed by the `ModelCallContext`'s provider: `google-errors.ts` for Google, like `elevenlabs-errors.ts` for ElevenLabs. Mux Video calls go through `mux-video-errors.ts`, which also keeps Mux's error type (`muxErrorType`). Keep what a dependency says as validated tokens in facts; its free text reaches the scrubbed `causes` through the error's message, never facts. A provider without one keeps its raw error until a workflow that uses it moves.
 - **This code's own failures:** `internalError()` and `assertNever()`.
 - **Passing errors up:** `wrapError()` passes a classified error through, merging facts, and turns anything unclassified into an `internal` failure.

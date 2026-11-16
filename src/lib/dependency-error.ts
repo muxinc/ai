@@ -1,5 +1,5 @@
-import type { ErrorCatalogEntry, MuxAiDependencyStatusCode, MuxAiErrorCode, MuxAiErrorDependency, MuxAiErrorFacts, MuxAiErrorInit, MuxAiErrorSource, MuxAiErrorType, SourceAndDependency } from "./mux-ai-error.ts";
-import { isTransientStatus, MUX_AI_DEPENDENCY_STATUS_CODES, MUX_AI_ERROR_CATALOG, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
+import type { ErrorCatalogEntry, MuxAiDependencyStatusCode, MuxAiErrorCode, MuxAiErrorDependency, MuxAiErrorFacts, MuxAiErrorInit, MuxAiErrorSource, MuxAiErrorType } from "./mux-ai-error.ts";
+import { isTransientStatus, MUX_AI_DEPENDENCY_STATUS_CODES, MUX_AI_ERROR_CATALOG, MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
 
 export interface DependencyErrorInit {
   dependency: MuxAiErrorDependency;
@@ -10,10 +10,18 @@ export interface DependencyErrorInit {
   requestId?: string;
   facts?: MuxAiErrorFacts;
   cause?: unknown;
-  /** Source for a 404. Defaults to `internal` (we built the request). */
-  notFoundSource?: MuxAiErrorSource;
-  /** Source for a 401/403. Defaults to `internal` (our own credentials). */
-  authSource?: MuxAiErrorSource;
+  /**
+   * Source for a 404. Defaults to `internal` (we built the request). `asset` when the
+   * call was for something belonging to the asset: `dependencyError` codes it
+   * `asset_resource_not_found`.
+   */
+  notFoundSource?: typeof MUX_AI_ERROR_SOURCES.INTERNAL | typeof MUX_AI_ERROR_SOURCES.ASSET;
+  /**
+   * Source for a 401/403. Defaults to `internal` (our own credentials). `account` when
+   * the call used the caller's Mux credentials: `dependencyError` codes it
+   * `account_credentials_rejected`.
+   */
+  authSource?: typeof MUX_AI_ERROR_SOURCES.INTERNAL | typeof MUX_AI_ERROR_SOURCES.ACCOUNT;
   /** The caller's inputs a 401/403 is blamed on (e.g. `credentials`), recorded as the `inputs` fact. */
   authInputs?: readonly string[];
   /** The call timed out before a response arrived. */
@@ -37,13 +45,13 @@ export interface DependencyErrorInit {
  */
 export interface RecognizedDependencyErrorInit extends DependencyErrorInit {
   /**
-   * A catalog code sets the type and source, and its own retry policy wins over the
-   * status rules. A fallback code names what was observed when the status can't, e.g.
-   * `dependency_other_status` for a response that answered but reported a failure;
-   * the status rules still classify it. Without one, the error gets the status's
-   * fallback code (see {@link dependencyFailureCode}).
+   * The code sets the type and source, and its own retry policy wins over the status
+   * rules. A fallback code a status can't express is passed the same way, e.g.
+   * `dependency_response_failed` for a dependency that answered with an error of its
+   * own. Without one, the error gets the status's fallback code (see
+   * {@link dependencyFailureCode}).
    */
-  code?: MuxAiErrorCode | MuxAiDependencyStatusCode;
+  code?: MuxAiErrorCode;
 }
 
 export { isTransientStatus };
@@ -134,43 +142,51 @@ export function dependencyFailureCode({ status, timedOut }: Pick<DependencyError
   return status >= 400 && status < 500 ? MUX_AI_DEPENDENCY_STATUS_CODES.REQUEST_REJECTED : MUX_AI_DEPENDENCY_STATUS_CODES.OTHER_STATUS;
 }
 
+/** The code for a 404 or 401/403 whose source the site chose (see `notFoundSource`, `authSource`). */
+function attributedFailureCode({ status, timedOut, notFoundSource, authSource }: DependencyErrorInit): MuxAiErrorCode | undefined {
+  if (timedOut) {
+    return undefined;
+  }
+  if (status === 404 && notFoundSource === MUX_AI_ERROR_SOURCES.ASSET) {
+    return MUX_AI_ERROR_CODES.ASSET_RESOURCE_NOT_FOUND;
+  }
+  if ((status === 401 || status === 403) && authSource === MUX_AI_ERROR_SOURCES.ACCOUNT) {
+    return MUX_AI_ERROR_CODES.ACCOUNT_CREDENTIALS_REJECTED;
+  }
+  return undefined;
+}
+
 /**
- * Classifies a failed call to a remote service. With a `code` from a per-dependency
- * rule, the code sets the type and source; otherwise the HTTP status does (see
- * {@link classifyDependencyFailure}) and the error gets the status's fallback code.
- * Transient failures are retried by the Workflow step runner; everything else is fatal.
+ * Classifies a failed call to a remote service. Every failure gets a code, and the code
+ * sets the type and source: the site's `code` from a per-dependency rule; else the code
+ * for a source the site chose for a 404 or 401/403; else the status's fallback code
+ * (see {@link dependencyFailureCode}). Transient failures are retried by the Workflow
+ * step runner; everything else is fatal.
  */
 export function dependencyError(message: string, init: RecognizedDependencyErrorInit): MuxAiError {
-  const { source, transient, retryable, ...classification } = classifyDependencyFailure(init);
-  if (init.code && init.code in MUX_AI_ERROR_CATALOG) {
-    const entry: ErrorCatalogEntry<MuxAiErrorType, MuxAiErrorDependency> = MUX_AI_ERROR_CATALOG[init.code as MuxAiErrorCode];
-    return new MuxAiError(message, {
-      code: init.code,
-      type: entry.type,
-      source: entry.source,
-      dependency: init.dependency,
-      facts: classification.facts,
-      // The site's override wins, then a non-idempotent call that may have taken effect
-      // (a timeout or 5xx), then the code's policy, then the status rules. A recognized
-      // code means the dependency answered, so a missing status isn't "no response" here.
-      transient: init.transient ??
-        (init.idempotent === false && (init.timedOut || (init.status !== undefined && init.status >= 500)) ? false : undefined) ??
-        entry.transient ??
-        (init.status === undefined && !init.timedOut ? false : transient),
-      ...((init.retryable ?? entry.retryable) !== undefined && { retryable: init.retryable ?? entry.retryable }),
-      cause: init.cause,
-    } as MuxAiErrorInit);
-  }
-  // Every source is fine here: the dependency is always named.
-  const where: SourceAndDependency<MuxAiErrorDependency> = { source, dependency: init.dependency };
+  const { facts, transient } = classifyDependencyFailure(init);
+  const code = init.code ?? attributedFailureCode(init) ?? dependencyFailureCode(init);
+  const entry: ErrorCatalogEntry<MuxAiErrorType, MuxAiErrorDependency> = MUX_AI_ERROR_CATALOG[code];
+  // A call that isn't idempotent may have taken effect after a timeout, no response or a 5xx.
+  const mayHaveTakenEffect = init.timedOut === true ||
+    (init.status === undefined ? code === MUX_AI_ERROR_CODES.DEPENDENCY_NO_RESPONSE : init.status >= 500);
+  const retryable = init.retryable ?? entry.retryable;
   return new MuxAiError(message, {
-    ...classification,
-    ...where,
-    code: (init.code as MuxAiDependencyStatusCode | undefined) ?? dependencyFailureCode(init),
-    transient,
+    code,
+    type: entry.type,
+    source: entry.source,
+    dependency: init.dependency,
+    facts,
+    // The site's override wins, then a non-idempotent call that may have taken effect,
+    // then the code's policy, then the status rules. A code other than no response or a
+    // timeout means the dependency answered, so a missing status isn't "no response" here.
+    transient: init.transient ??
+      (init.idempotent === false && mayHaveTakenEffect ? false : undefined) ??
+      entry.transient ??
+      (init.status === undefined && !init.timedOut ? false : transient),
     ...(retryable !== undefined && { retryable }),
     cause: init.cause,
-  });
+  } as MuxAiErrorInit);
 }
 
 /** Reads the HTTP status off an SDK error (`status` or `statusCode`), if it has one. */

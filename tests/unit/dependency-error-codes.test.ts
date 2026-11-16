@@ -1,7 +1,7 @@
 import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 import { describe, expect, it } from "vitest";
 
-import { dependencyError, dependencyFailureCode } from "../../src/lib/dependency-error";
+import { classifyDependencyFailure, dependencyError, dependencyFailureCode } from "../../src/lib/dependency-error";
 import { MUX_AI_ERROR_CODES, MuxAiError } from "../../src/lib/mux-ai-error";
 import type { SerializedMuxAiError } from "../../src/lib/mux-ai-error";
 import { toPublicError } from "../../src/lib/public-error";
@@ -33,10 +33,32 @@ describe("dependencyError", () => {
     expect(error).toMatchObject({ code: "dependency_server_error", type: "processing_error", source: "upstream", dependency: "storage", transient: true, retryable: true, facts: { call: "put_object", status: 503 } });
   });
 
-  it("keeps the caller's source for a fallback code", () => {
-    const error = dependencyError("Gone", { dependency: "mux_video", call: "get_track", status: 404, notFoundSource: "asset" });
+  it.each([
+    [{ status: 404, notFoundSource: "asset" }, "asset_resource_not_found", "validation_error", "asset"],
+    [{ status: 403, authSource: "account" }, "account_credentials_rejected", "validation_error", "account"],
+    [{ status: 404 }, "dependency_not_found", "server_error", "internal"],
+    [{ status: 401 }, "dependency_auth_rejected", "server_error", "internal"],
+  ] as const)("codes the source a site chose for a 404 or 401/403 (%o)", (init, code, type, source) => {
+    expect(dependencyError("x", { dependency: "mux_video", call: "get_track", ...init })).toMatchObject({ code, type, source });
+  });
 
-    expect(error).toMatchObject({ code: "dependency_not_found", type: "validation_error", source: "asset" });
+  it("gives each code one type and source, whatever the site passes", () => {
+    const inits = [undefined, 200, 302, 400, 401, 403, 404, 408, 409, 425, 429, 500, 503].flatMap(status =>
+      [{}, { notFoundSource: "asset" }, { authSource: "account" }, { idempotent: false }, { timedOut: true }].map(extra => ({ status, ...extra })));
+    const seen = new Map<string, string>();
+    for (const init of inits) {
+      const error = dependencyError("x", { dependency: "storage", call: "c", ...init } as Parameters<typeof dependencyError>[1]);
+      const classification = `${error.type}/${error.source}`;
+      expect(seen.get(error.code!) ?? classification, `${error.code} for ${JSON.stringify(init)}`).toBe(classification);
+      seen.set(error.code!, classification);
+    }
+  });
+
+  it("matches the status rules' classification for each status's fallback code", () => {
+    for (const status of [undefined, 200, 400, 401, 404, 408, 425, 429, 500]) {
+      const { type, source } = classifyDependencyFailure({ call: "c", status });
+      expect(dependencyError("x", { dependency: "storage", call: "c", status }), String(status)).toMatchObject({ type, source });
+    }
   });
 
   it("lets a recognized code's policy win over the status: a quota 429 isn't retried", () => {
@@ -76,9 +98,9 @@ describe("dependencyError", () => {
 
   it("takes a fallback code from the site when the status can't say what happened", () => {
     // The provider answered, but with an error of its own instead of a result.
-    const error = dependencyError("Provider error", { dependency: "ai_provider", call: "moderate", code: "dependency_other_status", transient: false, retryable: true });
+    const error = dependencyError("Provider error", { dependency: "ai_provider", call: "moderate", code: MUX_AI_ERROR_CODES.DEPENDENCY_RESPONSE_FAILED });
 
-    expect(error).toMatchObject({ code: "dependency_other_status", type: "processing_error", source: "upstream", transient: false, retryable: true });
+    expect(error).toMatchObject({ code: "dependency_response_failed", type: "processing_error", source: "upstream", transient: false, retryable: true });
   });
 
   it.each([

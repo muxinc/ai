@@ -113,7 +113,9 @@ describe("fetchVttFromMux", () => {
     const denied = await fetchVttFromMux("https://stream.mux.test/t.vtt?token=secret", { classifiedErrors: true }).catch((caught: unknown) => caught);
 
     expect(outage).toMatchObject({ source: "upstream", dependency: "mux_video", transient: true, facts: { call: "fetch_vtt", status: 503 } });
-    expect(denied).toMatchObject({ source: "account", facts: { call: "fetch_vtt", status: 403, inputs: ["credentials"] } });
+    // A media request carries no access token: the denial is the playback's, not the token's.
+    expect(denied).toMatchObject({ code: "playback_access_denied", type: "validation_error", source: "account", facts: { call: "fetch_vtt", status: 403 } });
+    expect((denied as MuxAiError).facts).not.toHaveProperty("inputs");
     expect(JSON.stringify([outage, denied].map(error => [(error as Error).message, (error as MuxAiError).facts]))).not.toContain("secret");
   });
 });
