@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.65.0](https://github.com/muxinc/ai/compare/v0.64.0...v0.65.0) (2026-11-16)
+
+
+### Features
+
+* **errors:** classify ask-questions ([#324](https://github.com/muxinc/ai/issues/324)) ([cd5f473](https://github.com/muxinc/ai/commit/cd5f4730a5ac6060ff0c3d35c357ac958f93b693))
+
 ## [0.64.0](https://github.com/muxinc/ai/compare/v0.63.1...v0.64.0) (2026-11-16)
 
 
