@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.64.0](https://github.com/muxinc/ai/compare/v0.63.1...v0.64.0) (2026-11-16)
+
+
+### Features
+
+* **errors:** classify summarize ([#323](https://github.com/muxinc/ai/issues/323)) ([42cac15](https://github.com/muxinc/ai/commit/42cac1573d7ffda9bd77d19ca6cea2d8d0c93fa9))
+
 ## [0.63.1](https://github.com/muxinc/ai/compare/v0.63.0...v0.63.1) (2026-11-16)
 
 
