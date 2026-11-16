@@ -45,6 +45,13 @@ describe("dependencyError", () => {
     expect(error).toMatchObject({ code: "provider_quota_exhausted", type: "server_error", source: "internal", dependency: "ai_provider", transient: false, retryable: false, name: "FatalError", facts: { status: 429 } });
   });
 
+  it("doesn't read a recognized code without a status as no response", () => {
+    // e.g. a per-item error inside a successful response.
+    const error = dependencyError("Bad image", { dependency: "ai_provider", call: "moderate", code: MUX_AI_ERROR_CODES.AUDIO_UNPROCESSABLE });
+
+    expect(error).toMatchObject({ code: "audio_unprocessable", source: "asset", transient: false, retryable: false });
+  });
+
   it("lets the site's override win over a recognized code's policy", () => {
     // e.g. a provider call the workflow already retried itself.
     const error = dependencyError("Rate limited", { dependency: "ai_provider", call: "dub", status: 429, code: MUX_AI_ERROR_CODES.PROVIDER_RATE_LIMITED, transient: false });

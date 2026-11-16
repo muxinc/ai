@@ -150,8 +150,9 @@ export function dependencyError(message: string, init: RecognizedDependencyError
       source: entry.source,
       dependency: init.dependency,
       facts: classification.facts,
-      // The site's override wins, then the code's policy, then the status rules.
-      transient: init.transient ?? entry.transient ?? transient,
+      // The site's override wins, then the code's policy, then the status rules. A recognized
+      // code means the dependency answered, so a missing status isn't "no response" here.
+      transient: init.transient ?? entry.transient ?? (init.status === undefined && !init.timedOut ? false : transient),
       ...((init.retryable ?? entry.retryable) !== undefined && { retryable: init.retryable ?? entry.retryable }),
       cause: init.cause,
     } as MuxAiErrorInit);
