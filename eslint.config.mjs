@@ -25,6 +25,7 @@ const CLASSIFIED_ERROR_MODULES = [
   "src/lib/storage-errors.ts",
   "src/lib/url-signing.ts",
   "src/workflows/ask-questions.ts",
+  "src/workflows/burned-in-captions.ts",
   "src/workflows/chapters.ts",
   "src/workflows/edit-captions.ts",
   "src/workflows/engagement-insights.ts",

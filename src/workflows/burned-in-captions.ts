@@ -4,10 +4,14 @@ import { z } from "zod";
 
 import {
   getGeneratedOutputWithContentPolicyHandling,
+  modelStepError,
   withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
+import type { ModelCallContext } from "../lib/content-policy-error.ts";
 import type { ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImageAsBase64 } from "../lib/image-download.ts";
+import type { MuxAiErrorFacts } from "../lib/mux-ai-error.ts";
+import { wrapError } from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -263,7 +267,7 @@ async function fetchImageAsBase64(
 ): Promise<string> {
   "use step";
 
-  const downloadResult = await downloadImageAsBase64(imageUrl, imageDownloadOptions);
+  const downloadResult = await downloadImageAsBase64(imageUrl, imageDownloadOptions, { classifiedErrors: true, call: "fetch_storyboard" });
   return downloadResult.base64Data;
 }
 
@@ -286,6 +290,7 @@ async function analyzeStoryboard({
 
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
 
+  const context: ModelCallContext = { call: "detect_burned_in_captions", provider, model: modelId };
   const response = await withContentPolicyAwareRetry(() => generateText({
     model,
     maxRetries: 0,
@@ -301,8 +306,11 @@ async function analyzeStoryboard({
         ],
       },
     ],
-  }));
-  const output = getGeneratedOutputWithContentPolicyHandling(response);
+  }), undefined, context).catch((error: unknown) => {
+    throw modelStepError(error, "Burned-in captions model call failed", { ...context });
+  });
+  // Throws model_output_missing when there is no output.
+  const output = getGeneratedOutputWithContentPolicyHandling(response, context);
 
   // Detect schema-smuggling attempts. `response.output` has already
   // been through zod.strip(), so any extras the model emitted are gone
@@ -370,12 +378,13 @@ async function hasBurnedInCaptionsInternal(
     model,
     provider: provider as SupportedProvider,
   });
-  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials, options.assetSnapshot);
+  const { asset: assetData, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials, options.assetSnapshot, { classifiedErrors: true });
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(assetData);
   const storyboardScope = resolveRenderableVideoScope(
     scope,
     assetDurationSeconds,
     getVideoTrackDurationSecondsFromAsset(assetData),
+    { classifiedErrors: true, assetId },
   );
 
   const imageUrl = await getStoryboardUrl(
@@ -386,34 +395,23 @@ async function hasBurnedInCaptionsInternal(
     storyboardScope,
   );
 
-  let analysisResponse: AnalysisResponse;
+  // The storyboard is fetched outside the model call's error handling, so only the
+  // model step's errors carry the model facts.
+  const imageDataUrl = imageSubmissionMode === "base64" ?
+      await fetchImageAsBase64(imageUrl, imageDownloadOptions) :
+    imageUrl;
 
-  if (imageSubmissionMode === "base64") {
-    const base64Data = await fetchImageAsBase64(imageUrl, imageDownloadOptions);
-    analysisResponse = await analyzeStoryboard({
-      imageDataUrl: base64Data,
-      provider: modelConfig.provider,
-      modelId: modelConfig.modelId,
-      userPrompt,
-      systemPrompt: SYSTEM_PROMPT,
-      credentials,
-    });
-  } else {
-    analysisResponse = await analyzeStoryboard({
-      imageDataUrl: imageUrl,
-      provider: modelConfig.provider,
-      modelId: modelConfig.modelId,
-      userPrompt,
-      systemPrompt: SYSTEM_PROMPT,
-      credentials,
-    });
-  }
+  const modelFacts: MuxAiErrorFacts = { call: "detect_burned_in_captions", provider: modelConfig.provider, model: modelConfig.modelId, assetId };
+  const analysisResponse = await analyzeStoryboard({
+    imageDataUrl,
+    provider: modelConfig.provider,
+    modelId: modelConfig.modelId,
+    userPrompt,
+    systemPrompt: SYSTEM_PROMPT,
+    credentials,
+  }).catch((error: unknown) => wrapError(error, `Failed to analyze storyboard with ${modelConfig.provider}`, modelFacts));
 
   collectedUsage.push(analysisResponse.usage);
-
-  if (!analysisResponse.result) {
-    throw new Error("No analysis result received from AI provider");
-  }
 
   // Aggregate any schema-smuggling signals from the step into the
   // workflow's safety report. A model emitting an unexpected key is
