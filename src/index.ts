@@ -10,6 +10,14 @@ export {
   requestIdOf,
 } from "./lib/dependency-error.ts";
 export type { DependencyErrorInit, RecognizedDependencyErrorInit } from "./lib/dependency-error.ts";
+// Per-dependency rules, for consumers that call these dependencies themselves.
+export {
+  elevenLabsErrorRule,
+  elevenLabsFailureError,
+  elevenLabsResponseFailure,
+  elevenLabsSdkFailure,
+} from "./lib/elevenlabs-errors.ts";
+export type { ElevenLabsFailure } from "./lib/elevenlabs-errors.ts";
 
 // Language code utilities
 export {
