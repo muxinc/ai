@@ -4,7 +4,7 @@ import { getApiKeyFromEnv } from "../lib/client-factory.ts";
 import { dependencyError, requestIdOf } from "../lib/dependency-error.ts";
 import type { ImageDownloadErrorOptions, ImageDownloadOptions } from "../lib/image-download.ts";
 import { downloadImagesAsBase64 } from "../lib/image-download.ts";
-import type { MuxAiErrorFacts, MuxAiSiteDependencyCode } from "../lib/mux-ai-error.ts";
+import type { MuxAiErrorFacts, MuxAiErrorInit, MuxAiSiteDependencyCode } from "../lib/mux-ai-error.ts";
 import {
   assertNever,
   internalError,
@@ -234,7 +234,6 @@ const DEFAULT_THRESHOLDS = {
 };
 
 const DEFAULT_PROVIDER = "openai";
-const OPENAI_MODERATION_RETRIABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
 const OPENAI_MODERATION_MAX_RETRIES = 2;
 const OPENAI_MODERATION_BASE_DELAY_MS = 750;
 const OPENAI_MODERATION_MAX_DELAY_MS = 3000;
@@ -312,49 +311,57 @@ export const HIVE_VIOLENCE_CATEGORIES = [
   "garm_death_injury_or_military_conflict",
 ];
 
+/** Which surface a moderation call scored: the `call` fact on its errors. */
+type ModerationCall = "moderate_thumbnails" | "moderate_transcript";
+
 /**
- * Why one moderation call failed, as plain data. A sample that fails is scored as an
- * error rather than thrown, so this rides on the sample (never on the returned result)
- * for the error raised when every sample fails.
+ * A failed moderation call, classified where it failed: by the provider's own rules (see
+ * {@link moderationFailureRule}), else by its status. `answered`: the provider replied with
+ * an error of its own instead of a result. A sample that fails keeps this error (never on
+ * the returned result) for the error raised when every sample fails.
  */
-interface ModerationCallFailure {
-  /** The HTTP status the provider rejected the call with. */
-  status?: number;
-  requestId?: string;
-  /** The call timed out before a response arrived. */
-  timedOut?: boolean;
-  /**
-   * `invalid_response`: the provider answered, but not with a usable result.
-   * `provider_error`: the provider answered with an error of its own instead of a result.
-   * Absent with no status: there was no response.
-   */
-  reason?: "invalid_response" | "provider_error";
-  /** The provider's own error code, e.g. OpenAI's `insufficient_quota` or Hive's return code. */
-  providerCode?: string;
-  /** Which provider answered, so its own rules can read its status and code. */
-  provider?: ModerationProvider;
+function moderationCallError(
+  message: string,
+  call: ModerationCall,
+  init: { provider: ModerationProvider; status?: number; requestId?: string; timedOut?: boolean; providerCode?: string; answered?: boolean },
+): MuxAiError {
+  const rule = moderationFailureRule(init);
+  // An answered error no rule names: not transient, since it isn't an outage, but
+  // retryable, since a later attempt may succeed (the code's policy).
+  const unrecognizedAnsweredError = !rule?.code && init.answered ?
+      { code: MUX_AI_ERROR_CODES.DEPENDENCY_RESPONSE_FAILED } :
+      {};
+  return dependencyError(message, {
+    dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
+    call,
+    status: init.status,
+    requestId: init.requestId,
+    timedOut: init.timedOut,
+    facts: { provider: init.provider, ...(init.providerCode && { providerCode: init.providerCode }) },
+    ...(rule?.code && { code: rule.code }),
+    ...unrecognizedAnsweredError,
+    ...(rule?.retryable !== undefined && { retryable: rule.retryable }),
+  });
 }
 
-/** A failed moderation call, carrying what classifies it. Caught per sample, never thrown out of a sample. */
-class ModerationRequestError extends Error {
-  readonly failure: ModerationCallFailure;
-  readonly retriable: boolean;
-
-  constructor(message: string, failure: ModerationCallFailure, { retriable = false }: { retriable?: boolean } = {}) {
-    super(message);
-    this.name = "ModerationRequestError";
-    this.failure = failure;
-    this.retriable = retriable;
-  }
-
-  get status(): number | undefined {
-    return this.failure.status;
-  }
+/**
+ * The provider answered, but not with a usable result. `transient` keeps a retry inside the
+ * call's own retry loop where it had one before (OpenAI's non-JSON body).
+ */
+function unusableResponseError(message: string, call: ModerationCall, provider: ModerationProvider, { transient = false }: { transient?: boolean } = {}): MuxAiError {
+  return new MuxAiError(message, {
+    code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID,
+    type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+    source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+    dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
+    facts: { call, provider },
+    transient,
+  });
 }
 
-/** The failure to record on a sample that errored: unknown for anything but a moderation call's own failure. */
-function sampleFailureOf(error: unknown): ModerationCallFailure | undefined {
-  return error instanceof ModerationRequestError ? error.failure : undefined;
+/** A sample's error: a moderation call's classified error, else nothing (classified once every sample has failed). */
+function sampleFailureOf(error: unknown): MuxAiError | undefined {
+  return MuxAiError.is(error) ? error : undefined;
 }
 
 // Tokens only: free text from a provider's body stays out of facts.
@@ -372,10 +379,6 @@ function openAIErrorCodeOf(json: unknown): string | undefined {
   return providerCodeOf(error?.code) ?? providerCodeOf(error?.type);
 }
 
-function isRetriableOpenAIModerationStatus(status: number): boolean {
-  return OPENAI_MODERATION_RETRIABLE_STATUS_CODES.has(status);
-}
-
 function compactBodySnippet(body: string, maxLength: number = 180): string {
   const compact = body.replace(/\s+/g, " ").trim();
   if (!compact) {
@@ -384,30 +387,32 @@ function compactBodySnippet(body: string, maxLength: number = 180): string {
   return compact.length > maxLength ? `${compact.slice(0, maxLength)}...` : compact;
 }
 
-/** A rejected call is classified by its status; an accepted one that can't be read is an invalid response. */
-function openAIResponseFailure(res: Response): ModerationCallFailure {
+/**
+ * An OpenAI call that returned a body this workflow can't read: by its status when OpenAI
+ * rejected the call, else an unusable response.
+ */
+function unreadableOpenAIResponseError(message: string, res: Response, call: ModerationCall, { transient }: { transient: boolean }): MuxAiError {
   return res.ok ?
-      { reason: "invalid_response" } :
-      { status: res.status, requestId: requestIdOf(res.headers), provider: "openai" };
+      unusableResponseError(message, call, "openai", { transient }) :
+      moderationCallError(message, call, { provider: "openai", status: res.status, requestId: requestIdOf(res.headers) });
 }
 
-function parseOpenAIModerationResponse(bodyText: string, res: Response): any {
+function parseOpenAIModerationResponse(bodyText: string, res: Response, call: ModerationCall): any {
   const { status, statusText } = res;
   if (!bodyText.trim()) {
-    throw new ModerationRequestError(
-      `OpenAI moderation returned an empty response (${status} ${statusText}).`,
-      openAIResponseFailure(res),
-      { retriable: isRetriableOpenAIModerationStatus(status) },
-    );
+    throw unreadableOpenAIResponseError(`OpenAI moderation returned an empty response (${status} ${statusText}).`, res, call, { transient: false });
   }
 
   try {
     return JSON.parse(bodyText);
   } catch {
-    throw new ModerationRequestError(
+    // An accepted call's unreadable body was retried before, so it still is. A rejected
+    // call is retried only when its status says so: a 4xx with a non-JSON body no longer is.
+    throw unreadableOpenAIResponseError(
       `OpenAI moderation returned non-JSON response (${status} ${statusText}): ${compactBodySnippet(bodyText)}`,
-      openAIResponseFailure(res),
-      { retriable: true },
+      res,
+      call,
+      { transient: true },
     );
   }
 }
@@ -433,7 +438,9 @@ async function callOpenAIModerationApi({
   model,
   input,
   credentials,
+  call,
 }: {
+  call: ModerationCall;
   model: string;
   input:
     | string |
@@ -461,40 +468,34 @@ async function callOpenAIModerationApi({
           }),
         });
       } catch (error) {
-        throw new ModerationRequestError(
+        // No response: transient, so retried below.
+        throw moderationCallError(
           `OpenAI moderation request failed: ${error instanceof Error ? error.message : String(error)}`,
-          {},
-          { retriable: true },
+          call,
+          { provider: "openai" },
         );
       }
 
       const bodyText = await res.text();
-      const json = parseOpenAIModerationResponse(bodyText, res);
+      const json = parseOpenAIModerationResponse(bodyText, res, call);
 
       if (!res.ok) {
         const providerCode = openAIErrorCodeOf(json);
-        const failure: ModerationCallFailure = { ...openAIResponseFailure(res), ...(providerCode && { providerCode }) };
-        throw new ModerationRequestError(
+        // A spent quota is a 429 too, but its rule makes it not transient, so it isn't retried.
+        throw moderationCallError(
           `OpenAI moderation error: ${res.status} ${res.statusText} - ${JSON.stringify(json)}`,
-          failure,
-          // A spent quota is a 429 too, but retrying won't restore access.
-          { retriable: isRetriableOpenAIModerationStatus(res.status) && moderationFailureRule(failure)?.code !== MUX_AI_ERROR_CODES.PROVIDER_QUOTA_EXHAUSTED },
+          call,
+          { provider: "openai", status: res.status, requestId: requestIdOf(res.headers), ...(providerCode && { providerCode }) },
         );
       }
 
       const parsed = OpenAIModerationResponseSchema.safeParse(json);
       if (!parsed.success) {
-        throw new ModerationRequestError(
-          `OpenAI moderation returned an unexpected response shape: ${compactBodySnippet(bodyText)}`,
-          { reason: "invalid_response" },
-        );
+        throw unusableResponseError(`OpenAI moderation returned an unexpected response shape: ${compactBodySnippet(bodyText)}`, call, "openai");
       }
       const expectedResultCount = Array.isArray(input) ? input.length : 1;
       if (parsed.data.results.length !== expectedResultCount) {
-        throw new ModerationRequestError(
-          `OpenAI moderation returned ${parsed.data.results.length} result(s) for ${expectedResultCount} input(s).`,
-          { reason: "invalid_response" },
-        );
+        throw unusableResponseError(`OpenAI moderation returned ${parsed.data.results.length} result(s) for ${expectedResultCount} input(s).`, call, "openai");
       }
       return parsed.data;
     },
@@ -502,19 +503,20 @@ async function callOpenAIModerationApi({
       maxRetries: OPENAI_MODERATION_MAX_RETRIES,
       baseDelay: OPENAI_MODERATION_BASE_DELAY_MS,
       maxDelay: OPENAI_MODERATION_MAX_DELAY_MS,
-      shouldRetry: error =>
-        error instanceof ModerationRequestError ? error.retriable : true,
+      // The classification decides: no response, 408/429/5xx and an accepted call's
+      // unreadable body are transient; a spent quota and other rejections aren't.
+      shouldRetry: error => (MuxAiError.is(error) ? error.transient : true),
     },
   );
 }
 
-/** A thumbnail score as the provider steps return it: with why it failed, which is dropped from the result. */
-type ThumbnailSample = ThumbnailModerationScore & { failure?: ModerationCallFailure };
+/** A thumbnail score as the provider steps return it: with its classified error, which is dropped from the result. */
+type ThumbnailSample = ThumbnailModerationScore & { failure?: MuxAiError };
 
-/** A transcript-window score as the provider steps return it: with why it failed, which is dropped from the result. */
-type TranscriptSample = TranscriptModerationScore & { failure?: ModerationCallFailure };
+/** A transcript-window score as the provider steps return it: with its classified error, which is dropped from the result. */
+type TranscriptSample = TranscriptModerationScore & { failure?: MuxAiError };
 
-function withoutFailure<T extends { failure?: ModerationCallFailure }>({ failure: _failure, ...score }: T): Omit<T, "failure"> {
+function withoutFailure<T extends { failure?: MuxAiError }>({ failure: _failure, ...score }: T): Omit<T, "failure"> {
   return score;
 }
 
@@ -559,6 +561,7 @@ async function moderateImageWithOpenAI(entry: {
   "use step";
   try {
     const { results } = await callOpenAIModerationApi({
+      call: "moderate_thumbnails",
       model: entry.model,
       input: [
         {
@@ -870,6 +873,7 @@ async function moderateTranscriptBatchWithOpenAI(
 
   try {
     const { results } = await callOpenAIModerationApi({
+      call: "moderate_transcript",
       model,
       input: windows.map(window => window.text),
       credentials,
@@ -885,8 +889,7 @@ async function moderateTranscriptBatchWithOpenAI(
       };
     });
   } catch (error) {
-    const status =
-      error instanceof ModerationRequestError ? error.status : undefined;
+    const status = MuxAiError.is(error) ? error.facts.status : undefined;
     // 400 typically means the batched input was too large: split and retry.
     if (status === 400 && windows.length > 1) {
       const mid = Math.ceil(windows.length / 2);
@@ -983,9 +986,9 @@ async function moderateImageWithHive(entry: {
       });
     } catch (err: any) {
       if (err?.name === "AbortError") {
-        throw new ModerationRequestError("Hive request timed out after 15s", { timedOut: true });
+        throw moderationCallError("Hive request timed out after 15s", "moderate_thumbnails", { provider: "hive", timedOut: true });
       }
-      throw new ModerationRequestError(err instanceof Error ? err.message : String(err), {});
+      throw moderationCallError(err instanceof Error ? err.message : String(err), "moderate_thumbnails", { provider: "hive" });
     } finally {
       clearTimeout(timeout);
     }
@@ -993,17 +996,19 @@ async function moderateImageWithHive(entry: {
     const json: any = await res.json().catch(() => undefined);
 
     if (!res.ok) {
-      throw new ModerationRequestError(
+      throw moderationCallError(
         `Hive moderation error: ${res.status} ${res.statusText} - ${JSON.stringify(json)}`,
-        { status: res.status, requestId: requestIdOf(res.headers), provider: "hive" },
+        "moderate_thumbnails",
+        { provider: "hive", status: res.status, requestId: requestIdOf(res.headers) },
       );
     }
 
     if (json?.return_code != null && json.return_code !== 0) {
       const providerCode = providerCodeOf(json.return_code);
-      throw new ModerationRequestError(
+      throw moderationCallError(
         `Hive API error (return_code ${json.return_code}): ${json.message || "Unknown error"}`,
-        { reason: "provider_error", provider: "hive", ...(providerCode && { providerCode }) },
+        "moderate_thumbnails",
+        { provider: "hive", answered: true, ...(providerCode && { providerCode }) },
       );
     }
 
@@ -1011,10 +1016,7 @@ async function moderateImageWithHive(entry: {
     // Hive returns scores in status[0].response.output[0].classes as array of {class, score}
     const classes = json?.status?.[0]?.response?.output?.[0]?.classes;
     if (!Array.isArray(classes)) {
-      throw new ModerationRequestError(
-        `Unexpected Hive response structure: ${JSON.stringify(json)}`,
-        { reason: "invalid_response" },
-      );
+      throw unusableResponseError(`Unexpected Hive response structure: ${JSON.stringify(json)}`, "moderate_thumbnails", "hive");
     }
 
     const sexual = getHiveCategoryScores(classes, HIVE_SEXUAL_CATEGORIES);
@@ -1105,9 +1107,9 @@ async function moderateImageWithGoogleVision(entry: {
       });
     } catch (err: any) {
       if (err?.name === "AbortError") {
-        throw new ModerationRequestError("Google Vision request timed out after 15s", { timedOut: true });
+        throw moderationCallError("Google Vision request timed out after 15s", "moderate_thumbnails", { provider: "google-vision-api", timedOut: true });
       }
-      throw new ModerationRequestError(err instanceof Error ? err.message : String(err), {});
+      throw moderationCallError(err instanceof Error ? err.message : String(err), "moderate_thumbnails", { provider: "google-vision-api" });
     } finally {
       clearTimeout(timeout);
     }
@@ -1115,27 +1117,26 @@ async function moderateImageWithGoogleVision(entry: {
     const json: any = await res.json().catch(() => undefined);
 
     if (!res.ok) {
-      throw new ModerationRequestError(
+      throw moderationCallError(
         `Google Vision moderation error: ${res.status} ${res.statusText} - ${JSON.stringify(json)}`,
-        { status: res.status, requestId: requestIdOf(res.headers), provider: "google-vision-api" },
+        "moderate_thumbnails",
+        { provider: "google-vision-api", status: res.status, requestId: requestIdOf(res.headers) },
       );
     }
 
     const perImage = json?.responses?.[0];
     if (perImage?.error) {
       const providerCode = providerCodeOf(perImage.error.code);
-      throw new ModerationRequestError(
+      throw moderationCallError(
         `Google Vision per-image error: ${perImage.error.code} ${perImage.error.message || "Unknown error"}`,
-        { reason: "provider_error", provider: "google-vision-api", ...(providerCode && { providerCode }) },
+        "moderate_thumbnails",
+        { provider: "google-vision-api", answered: true, ...(providerCode && { providerCode }) },
       );
     }
 
     const annotation = perImage?.safeSearchAnnotation;
     if (!annotation) {
-      throw new ModerationRequestError(
-        `Google Vision response missing safeSearchAnnotation: ${JSON.stringify(json)}`,
-        { reason: "invalid_response" },
-      );
+      throw unusableResponseError(`Google Vision response missing safeSearchAnnotation: ${JSON.stringify(json)}`, "moderate_thumbnails", "google-vision-api");
     }
 
     const adultLikelihood = typeof annotation.adult === "string" ? annotation.adult : "UNKNOWN";
@@ -1380,7 +1381,7 @@ const GOOGLE_RPC_UNAVAILABLE = "14";
  * alone doesn't: a code, and whether a new attempt may succeed. Undefined when no rule
  * matches, so the status's fallback code applies.
  */
-function moderationFailureRule(failure: ModerationCallFailure): { code?: MuxAiSiteDependencyCode; retryable?: boolean } | undefined {
+function moderationFailureRule(failure: { provider: ModerationProvider; status?: number; providerCode?: string; answered?: boolean }): { code?: MuxAiSiteDependencyCode; retryable?: boolean } | undefined {
   const { provider, status, providerCode } = failure;
   switch (provider) {
     case "openai":
@@ -1402,7 +1403,7 @@ function moderationFailureRule(failure: ModerationCallFailure): { code?: MuxAiSi
       return status === 429 ? { code: MUX_AI_ERROR_CODES.PROVIDER_RATE_LIMITED } : undefined;
     // https://google.aip.dev/194 for retrying.
     case "google-vision-api":
-      if (failure.reason !== "provider_error") {
+      if (!failure.answered) {
         return undefined;
       }
       // Per image, not per request, so it's that image that can't be used.
@@ -1420,59 +1421,33 @@ function moderationFailureRule(failure: ModerationCallFailure): { code?: MuxAiSi
 }
 
 /**
- * The error for a run in which every sample failed, classified from the samples' own
- * failures. One failure stands for them all: the first a retry can't fix if there is
- * one (so a deterministic failure, such as a spent quota, isn't reported as worth
- * retrying), else the first. Each failure is classified first, so the choice follows the
- * same rules as the error itself.
+ * The error for a run in which every sample failed, from the samples' own classified
+ * errors. One stands for them all: the first a retry can't fix if there is one (so a
+ * deterministic failure, such as a spent quota, isn't reported as worth retrying), else
+ * the first. It keeps that error's classification and adds the run's facts.
  */
 function allSamplesFailedError(
   message: string,
-  failures: Array<{ call: "moderate_thumbnails" | "moderate_transcript"; failure?: ModerationCallFailure }>,
+  failures: Array<{ call: ModerationCall; failure?: MuxAiError }>,
   facts: MuxAiErrorFacts,
 ): MuxAiError {
-  const errors = failures.map(sample => sampleFailureError(message, sample, facts));
+  // A sample without one failed outside the moderation call (e.g. a missing provider key): the SDK's own failure.
+  const errors = failures.map(({ call, failure }) => failure ?? internalError(message, { ...facts, call }));
   // Unreachable without errors: the caller only gets here with at least one failed sample.
-  return errors.find(error => !error.transient) ?? errors[0] ?? internalError(message, facts);
-}
-
-/** One failed sample's error, classified by its provider's rules, else by its status. */
-function sampleFailureError(
-  message: string,
-  sample: { call: "moderate_thumbnails" | "moderate_transcript"; failure?: ModerationCallFailure },
-  facts: MuxAiErrorFacts,
-): MuxAiError {
-  const { call, failure } = sample;
-  if (!failure) {
-    // Not a failed moderation call (e.g. a missing provider key): the SDK's own failure.
-    return internalError(message, { ...facts, call });
+  const representative = errors.find(error => !error.transient) ?? errors[0];
+  if (!representative) {
+    return internalError(message, facts);
   }
-  if (failure.reason === "invalid_response") {
-    return new MuxAiError(message, {
-      code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID,
-      type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
-      source: MUX_AI_ERROR_SOURCES.UPSTREAM,
-      dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
-      facts: { ...facts, call },
-    });
-  }
-  const rule = moderationFailureRule(failure);
-  // The provider answered, with an error of its own instead of a result. The code's policy:
-  // not transient, since it isn't an outage, but retryable, since a later attempt may succeed.
-  const unrecognizedProviderError = !rule?.code && failure.reason === "provider_error" ?
-      { code: MUX_AI_ERROR_CODES.DEPENDENCY_RESPONSE_FAILED } :
-      {};
-  return dependencyError(message, {
-    dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
-    call,
-    status: failure.status,
-    requestId: failure.requestId,
-    timedOut: failure.timedOut,
-    facts: { ...facts, ...(failure.providerCode && { providerCode: failure.providerCode }) },
-    ...(rule?.code && { code: rule.code }),
-    ...unrecognizedProviderError,
-    ...(rule?.retryable !== undefined && { retryable: rule.retryable }),
-  });
+  return new MuxAiError(message, {
+    ...(representative.code && { code: representative.code }),
+    type: representative.type,
+    source: representative.source,
+    ...(representative.dependency && { dependency: representative.dependency }),
+    facts: { ...facts, ...representative.facts },
+    transient: representative.transient,
+    retryable: representative.retryable,
+    cause: representative,
+  } as MuxAiErrorInit);
 }
 
 /**
@@ -1782,7 +1757,7 @@ export async function getModerationScores(
     errorMessage?: string;
     label: string;
     call: "moderate_thumbnails" | "moderate_transcript";
-    failure?: ModerationCallFailure;
+    failure?: MuxAiError;
   }> = [
     ...thumbnailScores.map(s => ({ ...s, label: s.time === undefined ? "thumbnail" : `thumbnail at ${s.time}s`, call: "moderate_thumbnails" as const })),
     ...transcriptScores.map(s => ({ ...s, error: s.error ?? false, label: `transcript window ${s.startTime}-${s.endTime}s`, call: "moderate_transcript" as const })),

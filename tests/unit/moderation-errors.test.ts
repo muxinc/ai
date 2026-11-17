@@ -353,6 +353,38 @@ describe("getModerationScores classified errors: every sample failed", () => {
     expect(error).toMatchObject({ code: "provider_quota_exhausted", transient: false, retryable: false, facts: { status: 429, providerCode: "insufficient_quota" } });
   });
 
+  describe("retries inside the OpenAI call follow the classification", () => {
+    it("doesn't retry a rejected call whose body isn't JSON", async () => {
+      mockFetch.mockImplementation(async () => new Response("<html>Bad Request</html>", { status: 400 }));
+
+      const error = await moderationError("asset-123", { provider: "openai", includeTranscript: false });
+
+      expect(error).toMatchObject({ code: "dependency_request_rejected", transient: false, facts: { call: "moderate_thumbnails", status: 400, provider: "openai" } });
+      // One attempt per thumbnail: no retries.
+      expect(mockFetch).toHaveBeenCalledTimes(THUMBNAIL_URLS.length);
+    });
+
+    it("still retries an accepted call whose body isn't JSON, then codes it model_output_invalid", async () => {
+      mockFetch.mockImplementation(async () => new Response("not json", { status: 200 }));
+
+      const error = await moderationError("asset-123", { provider: "openai", includeTranscript: false });
+
+      expect(error).toMatchObject({ code: "model_output_invalid", facts: { call: "moderate_thumbnails", provider: "openai" } });
+      // Three attempts per thumbnail: the first and two retries.
+      expect(mockFetch).toHaveBeenCalledTimes(THUMBNAIL_URLS.length * 3);
+    }, 15_000);
+  });
+
+  it("keeps the representative call's error as the cause, with the run's facts", async () => {
+    mockFetch.mockResolvedValue(jsonResponse(405, {}));
+
+    const error = await moderationError("asset-123", { provider: "hive" });
+
+    expect(error).toMatchObject({ code: "provider_quota_exhausted", facts: { call: "moderate_thumbnails", provider: "hive", assetId: "asset-123", sampleCount: THUMBNAIL_URLS.length, status: 405 } });
+    expect(error.message).toMatch(/^Moderation failed for all 2 sample\(s\)/);
+    expect((error as unknown as { cause?: unknown }).cause).toMatchObject({ code: "provider_quota_exhausted" });
+  });
+
   it("raises an internal error when a sample failed outside the moderation call", async () => {
     vi.mocked(getApiKeyFromEnv).mockRejectedValue(new Error("GOOGLE_VISION_API_KEY is not set"));
 
