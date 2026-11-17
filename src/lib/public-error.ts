@@ -161,6 +161,10 @@ function invalidParameterMessage(facts: MuxAiErrorFacts): string {
       return `Provide at least one of ${names(facts.parameters)}.`;
     case "audio_only":
       return `${parameter} must be ${quotedList(facts.allowed)} for an audio-only asset, which is processed from its transcript and needs a ready caption or subtitle track.`;
+    case "invalid_format":
+      return `${subject} must be ${text(facts.format) || "in the expected format"}${entry}.`;
+    case "duplicate":
+      return `${parameter} has the key '${text(facts.value)}' more than once; each key must be unique.`;
     default:
       return `${parameter} has a value that can't be used.`;
   }
@@ -217,7 +221,7 @@ export const MUX_AI_ERROR_PUBLIC_MAPPINGS = {
   },
   // Names the caller's own option; a consumer that exposes different names overrides the wording.
   [MUX_AI_ERROR_CODES.INVALID_PARAMETER]: {
-    facts: ["parameter", "reason", "count", "max", "index", "length", "maxLength", "characters", "with", "withValue", "allowed", "value", "parameters"],
+    facts: ["parameter", "reason", "count", "max", "index", "length", "maxLength", "characters", "with", "withValue", "allowed", "value", "parameters", "format"],
     message: invalidParameterMessage,
   },
   [MUX_AI_ERROR_CODES.PARAMETER_OUT_OF_RANGE]: {

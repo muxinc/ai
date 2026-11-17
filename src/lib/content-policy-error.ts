@@ -161,7 +161,7 @@ export function isIncompleteGenerationError(error: unknown): error is Incomplete
  * output limit is deterministic (the same input hits it again) and ours to fix by
  * splitting the work; any other early stop is the provider's.
  */
-function incompleteGenerationError(finishReason: string, rawFinishReason: string | undefined, usage: TokenUsage | undefined, context?: ModelCallContext): MuxAiError {
+export function incompleteGenerationError(finishReason: string, rawFinishReason: string | undefined, usage: TokenUsage | undefined, context?: ModelCallContext): MuxAiError {
   if (!context) {
     return new IncompleteGenerationError(finishReason, rawFinishReason, usage);
   }

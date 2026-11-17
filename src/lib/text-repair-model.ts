@@ -2,7 +2,8 @@ import { generateText, jsonSchema, NoObjectGeneratedError, Output } from "ai";
 
 import type { TokenUsage } from "../types.ts";
 
-import { getGeneratedOutputWithContentPolicyHandling, IncompleteGenerationError, withContentPolicyErrorHandling } from "./content-policy-error.ts";
+import { getGeneratedOutputWithContentPolicyHandling, IncompleteGenerationError, incompleteGenerationError, withContentPolicyErrorHandling } from "./content-policy-error.ts";
+import type { ModelCallContext } from "./content-policy-error.ts";
 import { recordModelCallFailure } from "./model-call-diagnostics.ts";
 import { CANARY_TRIPWIRE, NON_DISCLOSURE_CONSTRAINT, promptDedent } from "./prompt-fragments.ts";
 import { getTextRepairProviderOptions } from "./text-repair-capabilities.ts";
@@ -20,6 +21,11 @@ export interface TextRepairModelOptions {
   maxOutputTokens?: number;
   /** Timeout for each call, in milliseconds (default: 30,000). */
   timeoutMs?: number;
+  /**
+   * Which model call this repair belongs to. Passing one opts its failures into classified
+   * errors (see `ModelCallContext`); without one, they fail as before classification.
+   */
+  context?: ModelCallContext;
 }
 
 /**
@@ -62,9 +68,9 @@ export function createTextRepairGenerator(options: TextRepairModelOptions) {
         onStepFinish: (step) => {
           usage = getErrorTokenUsage(step);
         },
-      }));
+      }), options.context);
       usage = getErrorTokenUsage(response);
-      const output = getGeneratedOutputWithContentPolicyHandling(response);
+      const output = getGeneratedOutputWithContentPolicyHandling(response, options.context);
       // The helper already throws for non-stop finishes. Keep the missing-output
       // guard for custom/model implementations that return no object on stop.
       if (!output) {
@@ -75,7 +81,9 @@ export function createTextRepairGenerator(options: TextRepairModelOptions) {
       // Output.object can throw before generateText returns on a non-empty,
       // non-stop response. Preserve that finish metadata too.
       const cause = NoObjectGeneratedError.isInstance(error) && error.finishReason && error.finishReason !== "stop" ?
-          new IncompleteGenerationError(error.finishReason, undefined, getErrorTokenUsage(error)) :
+          (options.context ?
+              incompleteGenerationError(error.finishReason, undefined, getErrorTokenUsage(error), options.context) :
+              new IncompleteGenerationError(error.finishReason, undefined, getErrorTokenUsage(error))) :
         error;
       recordModelCallFailure(cause, {
         phase: "length_repair",
