@@ -411,7 +411,7 @@ describe("generateText", () => {
     mock.mockResolvedValueOnce(modelResponse({ p_0: "z".repeat(281) }, 10));
     await expect(generateText("asset-123", { artifacts: [{ key: "x_post", channel: "x" }] })).rejects.toMatchObject({
       code: "model_output_invalid",
-      facts: { call: "generate_artifact", reason: "over_length" },
+      facts: { call: "generate_artifact", assetId: "asset-123", reason: "over_length", limitUnit: "characters", limit: 280, actual: 320 },
       transient: false,
       retryable: true,
       usage: { totalTokens: 130 },
@@ -452,7 +452,7 @@ describe("generateText", () => {
   it("retains repair usage on incomplete output and stops the repair loop", async () => {
     queueGenerations(["x".repeat(281)]);
     vi.mocked(generateTextWithModel).mockResolvedValueOnce({ ...modelResponse({ p_0: "Fits." }, 15), finishReason: "length" });
-    await expect(generateText("asset-123", { artifacts: [{ key: "x_post", channel: "x" }] })).rejects.toMatchObject({ code: "model_output_truncated", retryable: false, finishReason: "length", facts: { call: "generate_artifact" }, usage: { totalTokens: 125 } });
+    await expect(generateText("asset-123", { artifacts: [{ key: "x_post", channel: "x" }] })).rejects.toMatchObject({ code: "model_output_truncated", retryable: false, finishReason: "length", facts: { call: "generate_artifact", assetId: "asset-123" }, usage: { totalTokens: 125 } });
     expect(generateTextWithModel).toHaveBeenCalledTimes(3);
   });
 

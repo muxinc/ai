@@ -238,11 +238,18 @@ function outOfRangeError(message: string, facts: MuxAiErrorFacts, inputs: string
   });
 }
 
+/** Caller values the public wording may echo: short tokens only, never free text a JS caller could pass. */
+const ECHOABLE_VALUE = /^[\w.-]{1,40}$/;
+
+function echoableValue(value: unknown): { value: string } | Record<string, never> {
+  return typeof value === "string" && ECHOABLE_VALUE.test(value) ? { value } : {};
+}
+
 function assertOneOf<T extends string>(value: string, allowed: readonly T[], label: string, parameter: string, input: string): void {
   if (!allowed.includes(value as T)) {
     throw invalidOptionError(
       `Invalid ${label} "${value}". Valid values are: ${allowed.join(", ")}.`,
-      { parameter, reason: "not_allowed", allowed: [...allowed], value },
+      { parameter, reason: "not_allowed", allowed: [...allowed], ...echoableValue(value) },
       [input],
     );
   }
@@ -307,7 +314,7 @@ function assertArtifact(artifact: GenerateTextArtifact, index: number): void {
   if (!Number.isInteger(value) || value < bounds.min || value > bounds.max) {
     throw outOfRangeError(
       `Artifact "${artifact.key}" maxLength.value must be an integer between ${bounds.min} and ${bounds.max} (received ${value}).`,
-      { parameter: `${parameter}.maxLength.value`, value: Number.isFinite(value) ? value : String(value), min: bounds.min, max: bounds.max, integer: true },
+      { parameter: `${parameter}.maxLength.value`, ...(typeof value === "number" ? { value: Number.isFinite(value) ? value : String(value) } : echoableValue(value)), min: bounds.min, max: bounds.max, integer: true },
       ["artifacts"],
     );
   }
@@ -828,7 +835,7 @@ function invalidModelOutputError(context: ModelCallContext, cause: unknown): Mux
  * classification, unless the provider says retrying won't help. The failed call's usage is
  * already counted by the caller, so the error carries none of its own.
  */
-function lengthRepairError(cause: unknown, context: ModelCallContext): MuxAiError {
+function lengthRepairError(cause: unknown, context: ModelCallContext, draft: { limit: GenerateTextLengthLimit; actual: number }): MuxAiError {
   const facts: MuxAiErrorFacts = { call: context.call, provider: context.provider, ...(context.model && { model: context.model }) };
   if (cause === undefined) {
     // No call failed: the repairs ran out without bringing the draft under its limit.
@@ -837,7 +844,8 @@ function lengthRepairError(cause: unknown, context: ModelCallContext): MuxAiErro
       type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
       source: MUX_AI_ERROR_SOURCES.UPSTREAM,
       dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
-      facts: { ...facts, reason: "over_length" },
+      // The draft's own length: a failed repair returns no content to measure.
+      facts: { ...facts, reason: "over_length", limitUnit: draft.limit.unit, limit: draft.limit.value, actual: draft.actual },
       transient: false,
       retryable: true,
     });
@@ -1032,7 +1040,7 @@ async function generateArtifactWithModel(args: {
     usages.push(...repaired.attempts.flatMap(item => item.call.usage ? [item.call.usage] : []));
     if (repaired.status !== "valid") {
       // The failed call is already in usages, so the error is rebuilt without its own.
-      rethrowWithTokenUsage(lengthRepairError(repaired.attempts.at(-1)?.call.errorCause, context), usages);
+      rethrowWithTokenUsage(lengthRepairError(repaired.attempts.at(-1)?.call.errorCause, context, violation), usages);
     }
     return { content: repaired.content, usages, unexpectedKeys };
   });
@@ -1071,6 +1079,7 @@ async function generateArtifactsInBatches(
   collectedUsage: TokenUsage[],
   provider: string,
   model: string,
+  assetId: string,
 ): Promise<ArtifactStepResult[]> {
   const results: ArtifactStepResult[] = [];
   for (let start = 0; start < requests.length; start += GENERATE_TEXT_MAX_CONCURRENT_GENERATIONS) {
@@ -1092,7 +1101,7 @@ async function generateArtifactsInBatches(
           collectedUsage.push(usage);
         }
       }
-      wrapError(failures[0], `Failed to generate text with ${provider}`, { call: "generate_artifact", provider, model });
+      wrapError(failures[0], `Failed to generate text with ${provider}`, { call: "generate_artifact", provider, model, assetId });
     }
   }
   return results;
@@ -1236,7 +1245,7 @@ async function generateTextInternal(
     limits,
     protectedTerms: brandTerms,
     credentials,
-  })), collectedUsage, provider, modelConfig.modelId);
+  })), collectedUsage, provider, modelConfig.modelId, assetId);
 
   const groupedVariants: GeneratedTextVariant[] = variants.map((variant, variantIndex) => ({
     key: variant.key,

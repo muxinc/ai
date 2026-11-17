@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
 import {
+  classifyModelCallError,
   extractContentPolicyBlock,
   getGeneratedOutputWithContentPolicyHandling,
   IncompleteGenerationError,
@@ -573,5 +574,25 @@ describe("openAI's intermittent prompt flag", () => {
     expect(APICallError.isInstance(thrownBy(() => rethrowContentPolicyError(openAIError(400, flagMessage), { ...context, provider: "anthropic" })))).toBe(true);
     expect(APICallError.isInstance(thrownBy(() => rethrowContentPolicyError(openAIError(400, "Invalid prompt: too long"), context)))).toBe(true);
     expect(APICallError.isInstance(thrownBy(() => rethrowContentPolicyError(openAIError(500, flagMessage), context)))).toBe(true);
+  });
+});
+
+describe("classifyModelCallError timeouts", () => {
+  it("codes our own abortSignal deadline as the provider timing out, step-retried as before", () => {
+    const timeout = new DOMException("The operation was aborted due to timeout", "TimeoutError");
+
+    expect(classifyModelCallError(timeout, { call: "repair_length", provider: "openai", model: "gpt-test" })).toMatchObject({
+      code: "dependency_timeout",
+      type: "timeout_error",
+      source: "upstream",
+      dependency: "ai_provider",
+      transient: true,
+      retryable: true,
+      facts: { call: "repair_length", provider: "openai", model: "gpt-test" },
+    });
+  });
+
+  it("leaves a caller's own abort unclassified", () => {
+    expect(classifyModelCallError(new DOMException("aborted", "AbortError"), { call: "c", provider: "openai" })).toBeUndefined();
   });
 });
