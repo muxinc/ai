@@ -223,3 +223,15 @@ describe("createPublicErrorView", () => {
     });
   });
 });
+
+describe("model output wording", () => {
+  it.each([
+    ["model_output_invalid", "The AI model's output for asset a1 couldn't be used."],
+    ["model_output_missing", "The AI model returned no usable output for asset a1."],
+  ] as const)("adds the retry hint to %s only when a new generation may succeed", (code, base) => {
+    const error = (retryable: boolean) => new MuxAiError("x", { code, type: "processing_error", source: "upstream", dependency: "ai_provider", facts: { assetId: "a1" }, retryable });
+
+    expect(toPublicError(error(true)).message).toBe(`${base} Please try again.`);
+    expect(toPublicError(error(false)).message).toBe(base);
+  });
+});

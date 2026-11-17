@@ -625,6 +625,22 @@ describe("modelCallError", () => {
     expect(modelCallError(quota, context)).toMatchObject({ code: "provider_quota_exhausted", transient: false, retryable: false, facts: { ...context, status: 429 } });
   });
 
+  it("codes a provider without rules of its own by status, not uncoded", () => {
+    const outage = new APICallError({
+      message: "overloaded",
+      url: "https://api.anthropic.com/v1/messages",
+      requestBodyValues: {},
+      statusCode: 529,
+      responseHeaders: { "request-id": "req_a" },
+      isRetryable: true,
+    });
+    const rejected = new APICallError({ message: "bad", url: "https://api.anthropic.com/v1/messages", requestBodyValues: {}, statusCode: 400, isRetryable: false });
+    const anthropic = { call: "synthesis", provider: "anthropic", model: "claude-test" };
+
+    expect(modelCallError(outage, anthropic)).toMatchObject({ code: "dependency_server_error", source: "upstream", dependency: "ai_provider", transient: true, facts: { ...anthropic, status: 529 } });
+    expect(modelCallError(rejected, anthropic)).toMatchObject({ code: "dependency_request_rejected", source: "internal", transient: false });
+  });
+
   it("codes anything else as internal, with a default message", () => {
     const error = modelCallError(new Error("socket hang up"), context);
 

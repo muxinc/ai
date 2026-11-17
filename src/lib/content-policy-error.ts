@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import type { TokenUsage } from "../types.ts";
 
-import { dependencyError } from "./dependency-error.ts";
+import { dependencyError, requestIdOf } from "./dependency-error.ts";
 import { googleCallError } from "./google-errors.ts";
 import { LegacyMuxAiError } from "./legacy-mux-ai-error.ts";
 import type { MuxAiErrorFacts } from "./mux-ai-error.ts";
@@ -691,7 +691,7 @@ export function modelStepError(error: unknown, message: string, facts: MuxAiErro
  * - output that's missing or doesn't match its schema is `model_output_missing` /
  *   `model_output_invalid`
  * - a provider failure is coded by that provider's rules (e.g. a spent quota vs. a rate
- *   limit), else by its status
+ *   limit), else by its HTTP status (a provider without rules of its own included)
  * - anything else is an `internal` failure.
  *
  * The result always carries the call's `call`, `provider` and `model` facts, and its token
@@ -708,6 +708,21 @@ export function modelCallError(error: unknown, context: ModelCallContext, messag
     rethrowContentPolicyError(error, context);
   } catch (thrown) {
     normalized = thrown;
+  }
+  if (!MuxAiError.is(normalized) && !classifyModelCallError(normalized, context)) {
+    // A provider without its own rules: code its API failure by status, as `dependencyError`
+    // does for any dependency, instead of leaving it uncoded.
+    const apiError = findProviderCallError(normalized);
+    if (apiError) {
+      return withUsage(dependencyError(`${message}${apiError.statusCode ? ` (HTTP ${apiError.statusCode})` : ""}`, {
+        dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
+        call: context.call,
+        status: apiError.statusCode,
+        requestId: requestIdOf(apiError.responseHeaders),
+        facts: modelCallFacts(context),
+        cause: normalized,
+      }), getErrorTokenUsage(normalized));
+    }
   }
   return modelStepError(normalized, message, modelCallFacts(context));
 }
