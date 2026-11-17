@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.66.0](https://github.com/muxinc/ai/compare/v0.65.0...v0.66.0) (2026-11-17)
+
+
+### Features
+
+* **errors:** code every dependency failure, per dependency first ([#330](https://github.com/muxinc/ai/issues/330)) ([31f36dd](https://github.com/muxinc/ai/commit/31f36dde4db095cbffd677a1eecabb94331b5940))
+
 ## [0.65.0](https://github.com/muxinc/ai/compare/v0.64.0...v0.65.0) (2026-11-16)
 
 
