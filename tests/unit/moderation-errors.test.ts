@@ -102,6 +102,31 @@ afterEach(() => {
 });
 
 describe("getModerationScores classified errors: request and setup", () => {
+  it.each([0, -1, Number.NaN])("rejects a maxSamples of %s before fetching the asset", async (maxSamples) => {
+    const error = await moderationError("asset-123", { provider: "hive", maxSamples });
+
+    expect(error).toMatchObject({ code: "invalid_parameter", source: "request", facts: { parameter: "maxSamples", reason: "not_positive", inputs: ["maxSamples"] } });
+    expect(getPlaybackIdForAsset).not.toHaveBeenCalled();
+  });
+
+  it("rounds a fractional maxSamples down to at least one thumbnail", async () => {
+    mockFetch.mockImplementation(async () => jsonResponse(200, hiveScores()));
+
+    const result = await getModerationScores("asset-123", { provider: "hive", maxSamples: 0.5 });
+
+    expect(result.thumbnailModeration.status).toBe("completed");
+    expect(result.thumbnailScores).toHaveLength(1);
+  });
+
+  it("skips thumbnails, rather than failing without a code, when sampling leaves none in scope", async () => {
+    vi.mocked(getThumbnailUrls).mockResolvedValue([]);
+
+    const error = await moderationError("asset-123", { provider: "hive", scope: { startTime: 10, endTime: 11 } });
+
+    expect(error).toMatchObject({ code: "invalid_scope", source: "request", facts: { reason: "no_video" } });
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it("rejects an unknown provider before fetching the asset", async () => {
     const error = await moderationError("asset-123", { provider: "rekognition" as any });
 
@@ -314,6 +339,18 @@ describe("getModerationScores classified errors: every sample failed", () => {
 
     expect(error).toMatchObject({ type: "server_error", source: "internal", transient: false });
     expect(error.facts).toMatchObject({ status: 400 });
+  });
+
+  it("reports OpenAI's spent quota over an outage on another sample, since a retry can't fix it", async () => {
+    // The spent quota is a 429, a status that alone would read as worth retrying.
+    mockFetch.mockImplementation(async (_url: unknown, init?: { body?: unknown }) =>
+      String(init?.body).includes(THUMBNAIL_URLS[0].url) ?
+          jsonResponse(503, { error: { type: "server_error", code: null } }) :
+          jsonResponse(429, { error: { type: "insufficient_quota", code: "insufficient_quota" } }));
+
+    const error = await moderationError("asset-123", { provider: "openai", includeTranscript: false });
+
+    expect(error).toMatchObject({ code: "provider_quota_exhausted", transient: false, retryable: false, facts: { status: 429, providerCode: "insufficient_quota" } });
   });
 
   it("raises an internal error when a sample failed outside the moderation call", async () => {

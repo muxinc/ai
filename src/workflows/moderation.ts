@@ -8,7 +8,6 @@ import type { MuxAiErrorFacts, MuxAiSiteDependencyCode } from "../lib/mux-ai-err
 import {
   assertNever,
   internalError,
-  isTransientStatus,
   MUX_AI_ERROR_CODES,
   MUX_AI_ERROR_DEPENDENCIES,
   MUX_AI_ERROR_SOURCES,
@@ -215,7 +214,7 @@ export interface ModerationOptions extends ScopedMuxAIOptions {
   thumbnailInterval?: number;
   /** Width of storyboard thumbnails in pixels (defaults to 640). */
   thumbnailWidth?: number;
-  /** Maximum number of thumbnails to sample (defaults to unlimited). Acts as a cap: if `thumbnailInterval` produces fewer samples than this limit the interval is respected; otherwise samples are evenly distributed with first and last frames pinned. */
+  /** Maximum number of thumbnails to sample (defaults to unlimited). Acts as a cap: if `thumbnailInterval` produces fewer samples than this limit the interval is respected; otherwise samples are evenly distributed with first and last frames pinned. Must be positive; a fraction is rounded down, to at least 1. */
   maxSamples?: number;
   /** Max concurrent moderation requests (defaults to 5). */
   maxConcurrent?: number;
@@ -1420,23 +1419,30 @@ function moderationFailureRule(failure: ModerationCallFailure): { code?: MuxAiSi
   }
 }
 
-/** Whether a retry could get past a sample's failure: no response, or a transient status. Unknown failures can't. */
-function isTransientFailure(failure: ModerationCallFailure | undefined): boolean {
-  return failure !== undefined && failure.reason === undefined && (failure.timedOut === true || isTransientStatus(failure.status));
-}
-
 /**
  * The error for a run in which every sample failed, classified from the samples' own
  * failures. One failure stands for them all: the first a retry can't fix if there is
- * one (so a deterministic failure isn't reported as worth retrying), else the first.
+ * one (so a deterministic failure, such as a spent quota, isn't reported as worth
+ * retrying), else the first. Each failure is classified first, so the choice follows the
+ * same rules as the error itself.
  */
 function allSamplesFailedError(
   message: string,
   failures: Array<{ call: "moderate_thumbnails" | "moderate_transcript"; failure?: ModerationCallFailure }>,
   facts: MuxAiErrorFacts,
 ): MuxAiError {
-  const representative = failures.find(({ failure }) => !isTransientFailure(failure)) ?? failures[0];
-  const { call, failure } = representative;
+  const errors = failures.map(sample => sampleFailureError(message, sample, facts));
+  // Unreachable without errors: the caller only gets here with at least one failed sample.
+  return errors.find(error => !error.transient) ?? errors[0] ?? internalError(message, facts);
+}
+
+/** One failed sample's error, classified by its provider's rules, else by its status. */
+function sampleFailureError(
+  message: string,
+  sample: { call: "moderate_thumbnails" | "moderate_transcript"; failure?: ModerationCallFailure },
+  facts: MuxAiErrorFacts,
+): MuxAiError {
+  const { call, failure } = sample;
   if (!failure) {
     // Not a failed moderation call (e.g. a missing provider key): the SDK's own failure.
     return internalError(message, { ...facts, call });
@@ -1518,6 +1524,14 @@ export async function getModerationScores(
       facts: { parameter: "provider", reason: "not_allowed", allowed: [...MODERATION_PROVIDERS], value: String(provider).slice(0, 100), inputs: ["provider"] },
     });
   }
+  if (maxSamples !== undefined && !(maxSamples > 0)) {
+    throw new MuxAiError(`maxSamples must be a positive number (received ${String(maxSamples)}).`, {
+      code: MUX_AI_ERROR_CODES.INVALID_PARAMETER,
+      type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+      source: MUX_AI_ERROR_SOURCES.REQUEST,
+      facts: { parameter: "maxSamples", reason: "not_positive", ...(typeof maxSamples === "number" && Number.isFinite(maxSamples) && { value: maxSamples }), inputs: ["maxSamples"] },
+    });
+  }
   // Fetch asset data and playback ID from Mux via helper
   const { asset, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials, options.assetSnapshot, { classifiedErrors: true });
   const videoTrackDurationSeconds = getVideoTrackDurationSecondsFromAsset(asset);
@@ -1594,7 +1608,7 @@ export async function getModerationScores(
             filterTimestampsWithinExclusiveScope(
               planSamplingTimestamps({
                 duration_sec: duration,
-                max_candidates: maxSamples,
+                max_candidates: Math.max(1, Math.floor(maxSamples)),
                 trim_start_sec: renderableScope?.startTime ??
                   (duration > 2 ? Math.min(5, Math.max(1, duration / 6)) : 0),
                 trim_end_sec: renderableScope ?
@@ -1618,7 +1632,16 @@ export async function getModerationScores(
             credentials,
             scope: renderableScope,
           });
-    shouldRunThumbnails = true;
+    if (thumbnailUrls.length > 0) {
+      shouldRunThumbnails = true;
+    } else {
+      // Every sampled timestamp fell outside the scope's renderable range.
+      thumbnailModeration = {
+        status: "skipped",
+        skipReason: "no_video_in_scope",
+        skipMessage: "The requested scope does not include any renderable video, so there are no thumbnails to moderate.",
+      };
+    }
   }
 
   let transcriptModeration: TranscriptModerationStatus = { status: "completed" };
