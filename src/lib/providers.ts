@@ -61,7 +61,7 @@ export interface ResolvedModel<P extends SupportedProvider = SupportedProvider> 
 export const DEFAULT_LANGUAGE_MODELS: { [K in EvalSupportedProvider]: ModelIdByProvider[K] } = {
   // GPT-5.6 models default to medium reasoning when no effort is specified.
   openai: "gpt-5.6-luna",
-  anthropic: "claude-sonnet-4-5",
+  anthropic: "claude-sonnet-5-5",
   google: "gemini-3-flash-preview",
 };
 
@@ -147,7 +147,7 @@ export function getDefaultEmbeddingModel<P extends SupportedEmbeddingProvider = 
  */
 export const LANGUAGE_MODELS: { [K in EvalSupportedProvider]: ModelIdByProvider[K][] } = {
   openai: ["gpt-5.6-luna", "gpt-5.1", "gpt-5-mini"],
-  anthropic: ["claude-sonnet-4-5"],
+  anthropic: ["claude-sonnet-5-5", "claude-sonnet-4-5"],
   google: ["gemini-3-flash-preview", "gemini-3.1-flash-lite", "gemini-2.5-flash"],
 };
 
@@ -183,6 +183,24 @@ export const LANGUAGE_MODEL_DEPRECATIONS: LanguageModelDeprecation[] = [
     deprecatedOn: "2026-08-01",
     sunsetOn: "2026-10-01",
     reason: "GPT-5.6 Luna with its default medium reasoning effort is the new OpenAI default.",
+  },
+  {
+    provider: "openai",
+    modelId: "gpt-5-mini",
+    replacementModelId: "gpt-5.6-luna",
+    phase: "warn",
+    deprecatedOn: "2026-06-11",
+    sunsetOn: "2026-12-11",
+    reason: "OpenAI shuts down gpt-5-mini on 2026-12-11.",
+  },
+  {
+    provider: "anthropic",
+    modelId: "claude-sonnet-4-5",
+    replacementModelId: "claude-sonnet-5-5",
+    phase: "warn",
+    deprecatedOn: "2026-09-30",
+    sunsetOn: "2026-11-30",
+    reason: "Anthropic retires Claude Sonnet 4.5 on 2026-11-30.",
   },
   {
     provider: "google",
@@ -483,6 +501,12 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
 
   // Anthropic models
   // Reference: https://www.anthropic.com/pricing
+  "claude-sonnet-5-5": {
+    inputPerMillion: 2.00,
+    outputPerMillion: 10.00,
+    cachedInputPerMillion: 0.10,
+    pricingUrl: "https://www.anthropic.com/pricing",
+  },
   "claude-sonnet-4-5": {
     inputPerMillion: 3.00,
     outputPerMillion: 15.00,

@@ -525,7 +525,7 @@ async function analyzeWithOpenAISDK(assetId: string) {
   const storyboardUrl = await getStoryboardUrl(playbackId);
 
   const response = await openai.chat.completions.create({
-    model: "gpt-5-mini",
+    model: "gpt-5.6-luna",
     messages: [
       {
         role: "user",
