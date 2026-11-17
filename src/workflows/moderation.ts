@@ -451,7 +451,17 @@ async function callOpenAIModerationApi({
         );
       }
 
-      const bodyText = await res.text();
+      let bodyText: string;
+      try {
+        bodyText = await res.text();
+      } catch (error) {
+        // The connection dropped before the body arrived: no complete response, so like no
+        // response at all it's transient and retried below.
+        throw openAIFetchError(
+          `OpenAI moderation response could not be read: ${error instanceof Error ? error.message : String(error)}`,
+          { call, requestId: requestIdOf(res.headers), facts: { provider: "openai" }, cause: error },
+        );
+      }
       const json = parseOpenAIModerationResponse(bodyText, res, call);
 
       if (!res.ok) {
@@ -1488,12 +1498,18 @@ export async function getModerationScores(
   let thumbnailModeration: ThumbnailModerationStatus = { status: "completed" };
   let thumbnailUrls: Array<{ url: string; time: number }> = [];
   let shouldRunThumbnails = false;
+  let thumbnailsUnsampled = false;
   if (isAudioOnly) {
     thumbnailModeration = {
       status: "skipped",
       skipReason: "no_video_track",
       skipMessage: "Asset has no video track, so there are no thumbnails to moderate.",
     };
+  } else if (duration <= 0) {
+    // Without a duration, sampling picks no timestamps, and there's no skip reason that
+    // says so: the transcript still runs, and thumbnails stay `completed` with no scores,
+    // as before. With nothing else to moderate, the run fails as the asset's missing duration.
+    thumbnailsUnsampled = true;
   } else if (renderableScope && renderableScope.startTime >= renderableScope.endTime) {
     // The scope sits entirely in trailing non-video media (asset duration
     // exceeds the video track). Nothing to sample, but caption cues can still
@@ -1631,6 +1647,15 @@ export async function getModerationScores(
         shouldRunTranscript = true;
       }
     }
+  }
+
+  if (thumbnailsUnsampled && !shouldRunTranscript) {
+    throw new MuxAiError(`Nothing to moderate: asset ${assetId} has no valid duration to sample thumbnails from, and the transcript was skipped: ${transcriptModeration.skipMessage}`, {
+      code: MUX_AI_ERROR_CODES.ASSET_DURATION_UNAVAILABLE,
+      type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+      source: MUX_AI_ERROR_SOURCES.ASSET,
+      facts: { assetId, ...(transcriptModeration.skipReason && { transcriptSkipReason: transcriptModeration.skipReason }) },
+    });
   }
 
   if (!shouldRunThumbnails && !shouldRunTranscript) {

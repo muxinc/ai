@@ -167,6 +167,31 @@ describe("getModerationScores classified errors: request and setup", () => {
     expect(error.facts).toMatchObject({ assetId: "asset-123" });
   });
 
+  it("raises asset_duration_unavailable, not a transcript reason, for a video asset with no duration and nothing else to moderate", async () => {
+    vi.mocked(getVideoTrackDurationSecondsFromAsset).mockReturnValue(undefined);
+    vi.mocked(getAssetDurationSecondsFromAsset).mockReturnValue(undefined);
+
+    const error = await moderationError("asset-123", { provider: "openai", includeTranscript: false, maxSamples: 3 });
+
+    expect(error).toMatchObject({ code: "asset_duration_unavailable", source: "asset", facts: { assetId: "asset-123", transcriptSkipReason: "disabled" } });
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("still moderates the transcript of a video asset with no duration", async () => {
+    vi.mocked(getVideoTrackDurationSecondsFromAsset).mockReturnValue(undefined);
+    vi.mocked(getAssetDurationSecondsFromAsset).mockReturnValue(undefined);
+    vi.mocked(getPlaybackIdForAsset).mockResolvedValue(asset({ withTextTrack: true }));
+    mockFetch.mockImplementation(async url =>
+      String(url).endsWith(".vtt") ?
+          vttResponse(VTT_BODY) :
+          jsonResponse(200, { results: [{ category_scores: { sexual: 0.1, violence: 0.1 } }] }));
+
+    const result = await getModerationScores("asset-123", { provider: "openai" });
+
+    expect(result.thumbnailScores).toHaveLength(0);
+    expect(result.transcriptScores.length).toBeGreaterThan(0);
+  });
+
   it("raises a Mux Video error, without the signed URL, when a base64 thumbnail download fails", async () => {
     mockFetch.mockResolvedValue({ ok: false, status: 404, statusText: "Not Found", headers: new Headers() } as any);
 
@@ -382,6 +407,22 @@ describe("getModerationScores classified errors: every sample failed", () => {
   });
 
   describe("retries inside the OpenAI call follow the classification", () => {
+    it("retries a response whose body dropped, and codes it as no response", async () => {
+      mockFetch.mockImplementation(async () => ({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        headers: new Headers({ "x-request-id": "req_123" }),
+        text: vi.fn().mockRejectedValue(new TypeError("terminated")),
+      }));
+
+      const error = await moderationError("asset-123", { provider: "openai", includeTranscript: false });
+
+      expect(error).toMatchObject({ code: "dependency_no_response", transient: true, retryable: true, facts: { call: "moderate_thumbnails", provider: "openai", requestId: "req_123" } });
+      // Three attempts per thumbnail: the first and two retries.
+      expect(mockFetch).toHaveBeenCalledTimes(THUMBNAIL_URLS.length * 3);
+    }, 15_000);
+
     it("doesn't retry a rejected call whose body isn't JSON", async () => {
       mockFetch.mockImplementation(async () => new Response("<html>Bad Request</html>", { status: 400 }));
 
