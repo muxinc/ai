@@ -4,6 +4,7 @@ import type {
   StoragePutObjectInput,
 } from "../types.ts";
 
+import type { ClassifiedErrorsOption } from "./mux-ai-error.ts";
 import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
 import { createPresignedGetUrl, putObjectToS3 } from "./s3-sigv4.ts";
 
@@ -28,8 +29,12 @@ export function storageNotConfiguredError(missing: string[]): MuxAiError {
 function requireCredentials(
   accessKeyId: string | undefined,
   secretAccessKey: string | undefined,
+  { classifiedErrors }: ClassifiedErrorsOption = {},
 ): { accessKeyId: string; secretAccessKey: string } {
   if (!accessKeyId || !secretAccessKey) {
+    if (classifiedErrors) {
+      throw storageNotConfiguredError(["S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"]);
+    }
     throw new Error(
       "S3 credentials are required for default storage operations. " +
       "Provide S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY or pass options.storageAdapter.",
@@ -39,16 +44,22 @@ function requireCredentials(
   return { accessKeyId, secretAccessKey };
 }
 
+/**
+ * Uploads through the caller's storage adapter, or to S3. With `classifiedErrors`, an S3
+ * failure is a classified `storage` error (see `storage-errors.ts`); a custom adapter's
+ * errors are its own and pass through unchanged.
+ */
 export async function putObjectWithStorageAdapter(
   input: StoragePutObjectInput,
   adapter?: StorageAdapter,
+  options: ClassifiedErrorsOption = {},
 ): Promise<void> {
   if (adapter) {
     await adapter.putObject(input);
     return;
   }
 
-  const credentials = requireCredentials(input.accessKeyId, input.secretAccessKey);
+  const credentials = requireCredentials(input.accessKeyId, input.secretAccessKey, options);
   await putObjectToS3({
     accessKeyId: credentials.accessKeyId,
     secretAccessKey: credentials.secretAccessKey,
@@ -58,6 +69,7 @@ export async function putObjectWithStorageAdapter(
     key: input.key,
     body: input.body,
     contentType: input.contentType,
+    classifiedErrors: options.classifiedErrors,
   });
 }
 

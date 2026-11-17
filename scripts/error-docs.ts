@@ -93,12 +93,13 @@ const TABLES: GeneratedTable[] = [
         ...Object.entries(MUX_AI_ERROR_CODES)
           .sort(([, a], [, b]) => Number(b in MUX_AI_ERROR_PUBLIC_MAPPINGS) - Number(a in MUX_AI_ERROR_PUBLIC_MAPPINGS))
           .map(([key, value]) => {
-            const entry: { type: string; source: string; dependency?: string } = MUX_AI_ERROR_CATALOG[value];
+            const entry: { type: string; source: string; dependency?: string; siteDependency?: true } = MUX_AI_ERROR_CATALOG[value];
             if (!comments[key]) {
               throw new Error(`MUX_AI_ERROR_CODES.${key} has no TSDoc comment describing its condition.`);
             }
             const isPublic = value in MUX_AI_ERROR_PUBLIC_MAPPINGS ? "yes" : "no";
-            return `| ${code(value)} | ${code(entry.type)} | ${code(entry.source)} | ${code(entry.dependency)} | ${isPublic} | ${cell(comments[key])} |`;
+            const dependency = entry.siteDependency ? "named by the site" : code(entry.dependency);
+            return `| ${code(value)} | ${code(entry.type)} | ${code(entry.source)} | ${dependency} | ${isPublic} | ${cell(comments[key])} |`;
           }),
       ];
     },

@@ -83,9 +83,9 @@ describe("muxAiError", () => {
     }
   });
 
-  it("names the dependency of every upstream code", () => {
+  it("names the dependency of every upstream code, or has the site name it", () => {
     const missing = Object.entries(MUX_AI_ERROR_CATALOG)
-      .filter(([, entry]: [string, { source: string; dependency?: string }]) => entry.source === "upstream" && !entry.dependency)
+      .filter(([, entry]: [string, { source: string; dependency?: string; siteDependency?: true }]) => entry.source === "upstream" && !entry.dependency && !entry.siteDependency)
       .map(([code]) => code);
 
     expect(missing).toEqual([]);

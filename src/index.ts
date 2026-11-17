@@ -4,11 +4,20 @@ import { version } from "../package.json";
 export {
   classifyDependencyFailure,
   dependencyError,
+  dependencyFailureCode,
   httpStatusOf,
   isTransientStatus,
   requestIdOf,
 } from "./lib/dependency-error.ts";
-export type { DependencyErrorInit } from "./lib/dependency-error.ts";
+export type { DependencyErrorInit, DependencyFailureInit, RecognizedDependencyErrorInit } from "./lib/dependency-error.ts";
+// Per-dependency rules, for consumers that call these dependencies themselves.
+export {
+  elevenLabsErrorRule,
+  elevenLabsFailureError,
+  elevenLabsResponseFailure,
+  elevenLabsSdkFailure,
+} from "./lib/elevenlabs-errors.ts";
+export type { ElevenLabsFailure } from "./lib/elevenlabs-errors.ts";
 
 // Language code utilities
 export {
@@ -33,6 +42,8 @@ export {
   ClassifiedError,
   errorDetailFact,
   internalError,
+  MUX_AI_DEPENDENCY_STATUS_CODE_VALUES,
+  MUX_AI_DEPENDENCY_STATUS_CODES,
   MUX_AI_ERROR_CATALOG,
   MUX_AI_ERROR_CODE_VALUES,
   MUX_AI_ERROR_CODES,
@@ -52,6 +63,7 @@ export type {
   CodedClassification,
   ErrorCatalogEntry,
   ErrorCauseSummary,
+  MuxAiDependencyStatusCode,
   MuxAiErrorCode,
   MuxAiErrorDependency,
   MuxAiErrorFacts,
@@ -59,6 +71,7 @@ export type {
   MuxAiErrorInit,
   MuxAiErrorSource,
   MuxAiErrorType,
+  MuxAiSiteDependencyCode,
   SerializedClassification,
   SourceAndDependency,
 } from "./lib/mux-ai-error.ts";

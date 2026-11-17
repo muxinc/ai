@@ -1,6 +1,6 @@
 import { dependencyError, isTransientStatus, requestIdOf } from "./dependency-error.ts";
-import { errorDetailFact, MUX_AI_ERROR_DEPENDENCIES } from "./mux-ai-error.ts";
-import type { MuxAiError, MuxAiErrorFacts } from "./mux-ai-error.ts";
+import { errorDetailFact, MUX_AI_ERROR_CODES, MUX_AI_ERROR_DEPENDENCIES } from "./mux-ai-error.ts";
+import type { MuxAiError, MuxAiErrorFacts, MuxAiSiteDependencyCode } from "./mux-ai-error.ts";
 
 const MAX_ERROR_BODY_CHARS = 500;
 
@@ -21,6 +21,12 @@ export interface ElevenLabsFailure {
    * usable response.
    */
   reason?: string;
+  /**
+   * Every machine-readable value the error body carried: its `code` and its legacy
+   * `status` field (ElevenLabs is moving from `status` to `code`, and may send both).
+   * The rules in `ELEVENLABS_ERROR_CODES` match any of them.
+   */
+  providerCodes?: string[];
   /** ElevenLabs' request ID, when the response carried one. */
   requestId?: string;
   /** Whether repeating the same call could succeed. */
@@ -34,6 +40,46 @@ export function isRetryableElevenLabsStatus(status: number): boolean {
   return isTransientStatus(status);
 }
 
+type AudioReason = "corrupt" | "unsupported_format" | "too_long" | "too_short";
+
+/**
+ * ElevenLabs error codes that name a condition its status alone doesn't, from its error
+ * reference (https://elevenlabs.io/docs/developers/resources/errors) and its 429 guide
+ * (https://elevenlabs.io/docs/help-center/technical/api-error-code-429). A 429 is three
+ * different conditions, and quota can arrive as a 401 or 402. Legacy names are kept
+ * alongside current ones. Codes not listed keep the status's fallback code.
+ */
+const ELEVENLABS_ERROR_CODES: Readonly<Record<string, { code: MuxAiSiteDependencyCode; reason?: AudioReason }>> = {
+  insufficient_credits: { code: MUX_AI_ERROR_CODES.PROVIDER_QUOTA_EXHAUSTED },
+  quota_exceeded: { code: MUX_AI_ERROR_CODES.PROVIDER_QUOTA_EXHAUSTED },
+  payment_required: { code: MUX_AI_ERROR_CODES.PROVIDER_QUOTA_EXHAUSTED },
+  invalid_api_key: { code: MUX_AI_ERROR_CODES.PROVIDER_CREDENTIALS_REJECTED },
+  missing_api_key: { code: MUX_AI_ERROR_CODES.PROVIDER_CREDENTIALS_REJECTED },
+  invalid_authorization_header: { code: MUX_AI_ERROR_CODES.PROVIDER_CREDENTIALS_REJECTED },
+  insufficient_permissions: { code: MUX_AI_ERROR_CODES.PROVIDER_CREDENTIALS_REJECTED },
+  feature_not_available: { code: MUX_AI_ERROR_CODES.PROVIDER_CREDENTIALS_REJECTED },
+  subscription_required: { code: MUX_AI_ERROR_CODES.PROVIDER_CREDENTIALS_REJECTED },
+  model_access_denied: { code: MUX_AI_ERROR_CODES.PROVIDER_CREDENTIALS_REJECTED },
+  workspace_access_denied: { code: MUX_AI_ERROR_CODES.PROVIDER_CREDENTIALS_REJECTED },
+  rate_limit_exceeded: { code: MUX_AI_ERROR_CODES.PROVIDER_RATE_LIMITED },
+  concurrent_limit_exceeded: { code: MUX_AI_ERROR_CODES.PROVIDER_RATE_LIMITED },
+  too_many_concurrent_requests: { code: MUX_AI_ERROR_CODES.PROVIDER_RATE_LIMITED },
+  system_busy: { code: MUX_AI_ERROR_CODES.PROVIDER_UNAVAILABLE },
+  service_unavailable: { code: MUX_AI_ERROR_CODES.PROVIDER_UNAVAILABLE },
+  maintenance: { code: MUX_AI_ERROR_CODES.PROVIDER_UNAVAILABLE },
+  invalid_audio: { code: MUX_AI_ERROR_CODES.AUDIO_UNPROCESSABLE, reason: "corrupt" },
+  invalid_audio_format: { code: MUX_AI_ERROR_CODES.AUDIO_UNPROCESSABLE, reason: "unsupported_format" },
+  invalid_file_type: { code: MUX_AI_ERROR_CODES.AUDIO_UNPROCESSABLE, reason: "unsupported_format" },
+  audio_too_long: { code: MUX_AI_ERROR_CODES.AUDIO_UNPROCESSABLE, reason: "too_long" },
+  audio_too_short: { code: MUX_AI_ERROR_CODES.AUDIO_UNPROCESSABLE, reason: "too_short" },
+};
+
+/** The rule matching any of a failure's provider codes, if one does. */
+export function elevenLabsErrorRule(failure: Pick<ElevenLabsFailure, "reason" | "providerCodes">): { code: MuxAiSiteDependencyCode; reason?: AudioReason } | undefined {
+  const values = failure.providerCodes ?? (failure.reason ? [failure.reason] : []);
+  return values.map(value => ELEVENLABS_ERROR_CODES[value]).find(rule => rule !== undefined);
+}
+
 /**
  * The classified error for a failed ElevenLabs call, raised once the workflow has
  * finished retrying it. The provider's detail goes in facts. Not transient: the
@@ -41,6 +87,7 @@ export function isRetryableElevenLabsStatus(status: number): boolean {
  * `failure.retryable` says whether a new job may succeed.
  */
 export function elevenLabsFailureError(message: string, call: string, failure: ElevenLabsFailure, facts?: MuxAiErrorFacts): MuxAiError {
+  const rule = elevenLabsErrorRule(failure);
   return dependencyError(message, {
     dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
     call,
@@ -51,10 +98,17 @@ export function elevenLabsFailureError(message: string, call: string, failure: E
       provider: "elevenlabs",
       ...(failure.reason && { providerCode: failure.reason }),
       ...(failure.detail && { detail: errorDetailFact(failure.detail) }),
+      ...(rule?.reason && { reason: rule.reason }),
       ...facts,
     },
+    // Without a rule or a status, only a network error went unanswered (a timeout is
+    // `timedOut`); anything else got a response with an error or nothing usable.
+    ...(rule ?
+        { code: rule.code } :
+      failure.httpStatus === undefined && failure.reason !== "network_error" && failure.reason !== "timeout" && { code: MUX_AI_ERROR_CODES.DEPENDENCY_RESPONSE_FAILED }),
     transient: false,
-    retryable: failure.retryable,
+    // Quota stays spent whatever the status, so a new job can't succeed either.
+    retryable: rule?.code === MUX_AI_ERROR_CODES.PROVIDER_QUOTA_EXHAUSTED ? false : failure.retryable,
   });
 }
 
@@ -89,18 +143,21 @@ export function elevenLabsSdkFailure(error: unknown): ElevenLabsFailure {
 
 function httpFailure(status: number, statusText: string | undefined, body: string, headers: unknown): ElevenLabsFailure {
   const statusLine = [status, statusText].filter(Boolean).join(" ");
-  const { reason, detail, requestId } = parseElevenLabsErrorBody(body);
+  const { reason, providerCodes, detail, requestId } = parseElevenLabsErrorBody(body);
   const responseRequestId = requestId ?? requestIdOf(headers);
+  const quota = elevenLabsErrorRule({ reason, providerCodes })?.code === MUX_AI_ERROR_CODES.PROVIDER_QUOTA_EXHAUSTED;
   return {
     httpStatus: status,
     reason,
+    ...(providerCodes && { providerCodes }),
     ...(responseRequestId && { requestId: responseRequestId }),
-    retryable: isRetryableElevenLabsStatus(status),
+    // A spent quota isn't restored by retrying, even when it arrives as a 429.
+    retryable: !quota && isRetryableElevenLabsStatus(status),
     detail: detail ? `${statusLine}: ${detail}` : statusLine,
   };
 }
 
-function parseElevenLabsErrorBody(body: string): { reason?: string; detail: string; requestId?: string } {
+function parseElevenLabsErrorBody(body: string): { reason?: string; providerCodes?: string[]; detail: string; requestId?: string } {
   const trimmed = body.trim();
   if (!trimmed) {
     return { detail: "" };
@@ -126,12 +183,14 @@ function parseElevenLabsErrorBody(body: string): { reason?: string; detail: stri
   }
   if (detail && typeof detail === "object") {
     const { status, code, message, param, request_id: requestId } = detail as Record<string, unknown>;
+    const providerCodes = [code, status].filter((value): value is string => typeof value === "string" && value !== "");
     const reasonCode = [status, code].find((value): value is string => typeof value === "string" && value !== "");
     const reasonText = [reasonCode, message].filter(Boolean).join(": ");
     const context = [param && `param: ${param}`, requestId && `request_id: ${requestId}`].filter(Boolean).join(", ");
     if (reasonText) {
       return {
         reason: reasonCode,
+        ...(providerCodes.length > 0 && { providerCodes }),
         detail: context ? `${reasonText} (${context})` : reasonText,
         ...(typeof requestId === "string" && requestId && { requestId }),
       };

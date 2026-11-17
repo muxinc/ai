@@ -19,6 +19,7 @@ const CLASSIFIED_ERROR_MODULES = [
   "src/lib/mux-ai-error.ts",
   "src/lib/mux-video-errors.ts",
   "src/lib/public-error.ts",
+  "src/lib/storage-errors.ts",
   "src/lib/url-signing.ts",
   "src/workflows/ask-questions.ts",
   "src/workflows/chapters.ts",

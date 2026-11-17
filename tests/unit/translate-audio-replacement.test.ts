@@ -451,12 +451,12 @@ describe("project output storage", () => {
       key: expect.stringMatching(/\.flac$/),
       contentType: "audio/flac",
       body: new Uint8Array([1, 2, 3]),
-    }), undefined);
+    }), undefined, { classifiedErrors: true });
     expect(putObjectWithStorageAdapter).toHaveBeenCalledWith(expect.objectContaining({
       key: expect.stringMatching(/\.vtt$/),
       contentType: "text/vtt",
       body: "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nHola\n",
-    }), undefined);
+    }), undefined, { classifiedErrors: true });
     for (const [input, init] of fetchMock.mock.calls.filter(([input]) => String(input).startsWith("https://storage.example.test"))) {
       expect(init).toBeUndefined();
       expect(String(input)).toMatch(/output\.(flac|vtt)$/);

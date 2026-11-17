@@ -52,6 +52,12 @@ function text(value: MuxAiErrorFactValue | undefined): string {
   return value === undefined || value === null ? "" : String(value);
 }
 
+/** A fact's wording from a table, by the table's own keys only (never `constructor` and the like). */
+function wording(table: Readonly<Record<string, string>>, value: MuxAiErrorFactValue | undefined): string | undefined {
+  const key = text(value);
+  return Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined;
+}
+
 function list(value: MuxAiErrorFactValue | undefined): string {
   return Array.isArray(value) && value.length > 0 ? value.map(text).join(", ") : "none";
 }
@@ -160,6 +166,13 @@ function invalidParameterMessage(facts: MuxAiErrorFacts): string {
   }
 }
 
+const AUDIO_UNPROCESSABLE_REASONS: Readonly<Record<string, string>> = {
+  corrupt: "it may be corrupt",
+  unsupported_format: "its format isn't supported",
+  too_long: "it's too long",
+  too_short: "it's too short",
+};
+
 const AUDIO_TRACK_UNSUPPORTED_MESSAGES: Readonly<Record<string, string>> = {
   clip: "Mux doesn't support adding audio tracks to clipped assets. Dub the source asset instead, or use the dubbed audio file without adding it to Mux.",
   live_stream: "Mux doesn't support adding audio tracks to live stream assets. Use the dubbed audio file without adding it to Mux instead.",
@@ -226,7 +239,7 @@ export const MUX_AI_ERROR_PUBLIC_MAPPINGS = {
   },
   [MUX_AI_ERROR_CODES.AUDIO_TRACK_UNSUPPORTED]: {
     facts: ["reason"],
-    message: facts => AUDIO_TRACK_UNSUPPORTED_MESSAGES[text(facts.reason)] ?? "Mux doesn't support adding audio tracks to this asset.",
+    message: facts => wording(AUDIO_TRACK_UNSUPPORTED_MESSAGES, facts.reason) ?? "Mux doesn't support adding audio tracks to this asset.",
   },
   [MUX_AI_ERROR_CODES.STATIC_RENDITION_UNSUPPORTED]: {
     facts: ["reason", "mp4Support", "renditionStatus", "renditionName", "sizeBytes", "maxBytes"],
@@ -269,6 +282,13 @@ export const MUX_AI_ERROR_PUBLIC_MAPPINGS = {
     // The dubbing provider documents this text as safe to display.
     facts: ["providerError"],
     message: (facts, { retryable }) => `Audio dubbing failed${facts.providerError ? `: ${text(facts.providerError)}` : "."}${retryable ? TRY_AGAIN : ""}`,
+  },
+  [MUX_AI_ERROR_CODES.AUDIO_UNPROCESSABLE]: {
+    facts: ["reason"],
+    message: (facts) => {
+      const why = wording(AUDIO_UNPROCESSABLE_REASONS, facts.reason);
+      return `The asset's audio couldn't be processed${why ? `: ${why}` : ""}.`;
+    },
   },
 } as const satisfies Partial<Record<MuxAiErrorCode, PublicErrorMapping>>;
 

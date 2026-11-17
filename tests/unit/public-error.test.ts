@@ -152,6 +152,7 @@ describe("toPublicError", () => {
       "asset_not_found",
       "audio_track_missing",
       "audio_track_unsupported",
+      "audio_unprocessable",
       "caption_track_language_missing",
       "caption_track_not_found",
       "content_policy_blocked",

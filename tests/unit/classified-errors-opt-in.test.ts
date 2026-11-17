@@ -12,7 +12,7 @@ import { dependencyError } from "../../src/lib/dependency-error.ts";
 import { MuxAiError } from "../../src/lib/mux-ai-error.ts";
 import { getPlaybackIdForAsset } from "../../src/lib/mux-assets.ts";
 import { fetchVttFromMux, validateTrackPassthrough } from "../../src/lib/mux-tracks.ts";
-import { muxAssetFetchError, muxVideoErrorFacts } from "../../src/lib/mux-video-errors.ts";
+import { muxAssetFetchError, muxVideoCallError, muxVideoErrorFacts } from "../../src/lib/mux-video-errors.ts";
 import { toPublicError } from "../../src/lib/public-error.ts";
 import { storageNotConfiguredError } from "../../src/lib/storage-adapter.ts";
 import type { MuxAsset } from "../../src/types.ts";
@@ -113,7 +113,9 @@ describe("fetchVttFromMux", () => {
     const denied = await fetchVttFromMux("https://stream.mux.test/t.vtt?token=secret", { classifiedErrors: true }).catch((caught: unknown) => caught);
 
     expect(outage).toMatchObject({ source: "upstream", dependency: "mux_video", transient: true, facts: { call: "fetch_vtt", status: 503 } });
-    expect(denied).toMatchObject({ source: "account", facts: { call: "fetch_vtt", status: 403, inputs: ["credentials"] } });
+    // A media request carries no access token: the denial is the playback's, not the token's.
+    expect(denied).toMatchObject({ code: "playback_access_denied", type: "validation_error", source: "account", facts: { call: "fetch_vtt", status: 403 } });
+    expect((denied as MuxAiError).facts).not.toHaveProperty("inputs");
     expect(JSON.stringify([outage, denied].map(error => [(error as Error).message, (error as MuxAiError).facts]))).not.toContain("secret");
   });
 });
@@ -166,6 +168,18 @@ describe("muxAssetFetchError", () => {
 
     expect(error).toMatchObject({ code: "asset_not_found", source: "request", facts: { assetId: "asset-9", inputs: ["assetId"], muxErrorType: "not_found" } });
     expect(toPublicError(error)).toMatchObject({ code: "asset_not_found", message: "Asset asset-9 could not be found." });
+  });
+
+  it("makes any get_asset 404 asset_not_found, e.g. an asset deleted mid-run", () => {
+    const error = muxVideoCallError("Failed to fetch the asset from Mux", "get_asset", APIError.generate(404, { error: { type: "not_found", messages: ["Asset not found"] } }, undefined, new Headers({ "x-request-id": "req-4" })), { assetId: "asset-9" });
+
+    expect(error).toMatchObject({ code: "asset_not_found", source: "request", dependency: "mux_video", facts: { call: "get_asset", status: 404, requestId: "req-4", assetId: "asset-9", inputs: ["assetId"] } });
+  });
+
+  it("makes a 404 on another Mux API call asset_resource_not_found", () => {
+    const error = muxVideoCallError("Failed to delete the track", "delete_track", APIError.generate(404, { error: { type: "not_found", messages: ["gone"] } }, undefined, new Headers()));
+
+    expect(error).toMatchObject({ code: "asset_resource_not_found", source: "asset" });
   });
 
   it("reads Mux's error type off a real Mux SDK error", () => {
