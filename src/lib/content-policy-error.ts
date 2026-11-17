@@ -682,3 +682,32 @@ export function modelStepError(error: unknown, message: string, facts: MuxAiErro
   }
   return classified;
 }
+
+/**
+ * Classifies a failed model call made outside the SDK's workflows, such as your own AI SDK
+ * `generateText` call, by the rules the workflows use:
+ * - a content-policy block is `content_policy_blocked` (OpenAI's intermittent prompt flag is
+ *   step-retried)
+ * - output that's missing or doesn't match its schema is `model_output_missing` /
+ *   `model_output_invalid`
+ * - a provider failure is coded by that provider's rules (e.g. a spent quota vs. a rate
+ *   limit), else by its status
+ * - anything else is an `internal` failure.
+ *
+ * The result always carries the call's `call`, `provider` and `model` facts, and its token
+ * usage when the error had any. Its `transient` says whether a Workflow step should retry the
+ * call; callers that handle retries themselves can ignore it.
+ *
+ * @param error - What the model call threw.
+ * @param context - The call's name and the provider and model it used.
+ * @param message - The error's internal message (defaults to `<call> failed`).
+ */
+export function modelCallError(error: unknown, context: ModelCallContext, message = `${context.call} failed`): MuxAiError {
+  let normalized = error;
+  try {
+    rethrowContentPolicyError(error, context);
+  } catch (thrown) {
+    normalized = thrown;
+  }
+  return modelStepError(normalized, message, modelCallFacts(context));
+}

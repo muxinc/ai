@@ -1,6 +1,9 @@
 import { version } from "../package.json";
 
 // Errors (see docs/ERRORS.md)
+// Model calls made outside the SDK's workflows, classified by the workflows' rules.
+export { modelCallError } from "./lib/content-policy-error.ts";
+export type { ModelCallContext } from "./lib/content-policy-error.ts";
 export {
   classifyDependencyFailure,
   dependencyError,
