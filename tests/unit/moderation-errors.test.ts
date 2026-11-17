@@ -315,7 +315,8 @@ describe("getModerationScores classified errors: every sample failed", () => {
     });
 
     it.each([
-      [3, { code: "image_unprocessable", type: "validation_error", source: "asset", retryable: false }],
+      // Sent as a URL (the default), so code 3 may be Vision's own fetch failing: not blamed on the image.
+      [3, { code: "dependency_response_failed", source: "upstream", retryable: true }],
       // UNAVAILABLE: the one code Google says to retry, with backoff.
       [14, { code: "provider_unavailable", source: "upstream", transient: true, retryable: true }],
       // RESOURCE_EXHAUSTED: Google says don't retry; it can't be told apart from a spent quota.
@@ -353,6 +354,33 @@ describe("getModerationScores classified errors: every sample failed", () => {
     expect(error).toMatchObject({ code: "provider_quota_exhausted", transient: false, retryable: false, facts: { status: 429, providerCode: "insufficient_quota" } });
   });
 
+  it("reports an outage over a failure of one sample", async () => {
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse(200, { return_code: 1 }))
+      .mockResolvedValueOnce(jsonResponse(503, {}));
+
+    const error = await moderationError("asset-123", { provider: "hive" });
+
+    expect(error).toMatchObject({ code: "dependency_server_error", transient: true, retryable: true, facts: { status: 503 } });
+  });
+
+  it("reports a failure of one sample when every sample failed that way", async () => {
+    mockFetch.mockResolvedValue(jsonResponse(200, { return_code: 1 }));
+
+    const error = await moderationError("asset-123", { provider: "hive" });
+
+    expect(error).toMatchObject({ code: "dependency_response_failed", transient: false, retryable: true });
+  });
+
+  it("classifies a missing Hive key with the other failed samples", async () => {
+    vi.mocked(getApiKeyFromEnv).mockRejectedValue(new Error("HIVE_API_KEY is not set"));
+
+    const error = await moderationError("asset-123", { provider: "hive" });
+
+    expect(error).toMatchObject({ type: "server_error", source: "internal", facts: { call: "moderate_thumbnails", provider: "hive" } });
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   describe("retries inside the OpenAI call follow the classification", () => {
     it("doesn't retry a rejected call whose body isn't JSON", async () => {
       mockFetch.mockImplementation(async () => new Response("<html>Bad Request</html>", { status: 400 }));
@@ -369,7 +397,8 @@ describe("getModerationScores classified errors: every sample failed", () => {
 
       const error = await moderationError("asset-123", { provider: "openai", includeTranscript: false });
 
-      expect(error).toMatchObject({ code: "model_output_invalid", facts: { call: "moderate_thumbnails", provider: "openai" } });
+      // The retries inside the call don't make the reported error transient.
+      expect(error).toMatchObject({ code: "model_output_invalid", transient: false, retryable: false, facts: { call: "moderate_thumbnails", provider: "openai" } });
       // Three attempts per thumbnail: the first and two retries.
       expect(mockFetch).toHaveBeenCalledTimes(THUMBNAIL_URLS.length * 3);
     }, 15_000);

@@ -13,11 +13,17 @@ const GOOGLE_RPC_UNAVAILABLE = "14";
  * What a per-image `error` in a Vision response says: a code, and whether a new attempt may
  * succeed. `undefined` when no rule matches, so `dependency_response_failed` applies.
  */
-export function googleVisionImageErrorRule(rpcCode: string | undefined): { code?: MuxAiSiteDependencyCode; retryable?: boolean } | undefined {
+export function googleVisionImageErrorRule(
+  rpcCode: string | undefined,
+  { inline }: { inline: boolean },
+): { code?: MuxAiSiteDependencyCode; retryable?: boolean } | undefined {
   switch (rpcCode) {
-    // Per image, not per request, so it's that image that can't be used.
+    // Per image, not per request. With the image sent inline, it's that image that can't be
+    // used. With a URL, Vision fetches the image itself and reports a failed fetch with the
+    // same code ("The URL does not appear to be accessible by us"), which says nothing about
+    // the image, so it stays `dependency_response_failed`.
     case GOOGLE_RPC_INVALID_ARGUMENT:
-      return { code: MUX_AI_ERROR_CODES.IMAGE_UNPROCESSABLE };
+      return inline ? { code: MUX_AI_ERROR_CODES.IMAGE_UNPROCESSABLE } : undefined;
     case GOOGLE_RPC_UNAVAILABLE:
       return { code: MUX_AI_ERROR_CODES.PROVIDER_UNAVAILABLE };
     // A rate limit or a spent quota, which Google can't tell apart here: "generally don't retry".
@@ -32,15 +38,16 @@ export function googleVisionImageErrorRule(rpcCode: string | undefined): { code?
  * Classifies a failed Google Vision call (see `dependencyError`). A rejected request or no
  * response is coded by its status. `answered`: Vision answered 200 with a per-image `error`,
  * read from its `rpcCode` by {@link googleVisionImageErrorRule}, else
- * `dependency_response_failed`. Facts: `call`, `provider`, `status`, `requestId`, and
+ * `dependency_response_failed`; `inline` says whether the image was sent as content rather
+ * than a URL Vision fetched. Facts: `call`, `provider`, `status`, `requestId`, and
  * `providerCode` (the rpc code, when it's a token).
  */
 export function googleVisionCallError(
   message: string,
-  init: { call: string; status?: number; requestId?: string; timedOut?: boolean; answered?: boolean; rpcCode?: string; facts?: MuxAiErrorFacts; cause?: unknown },
+  init: { call: string; status?: number; requestId?: string; timedOut?: boolean; answered?: boolean; rpcCode?: string; inline?: boolean; facts?: MuxAiErrorFacts; cause?: unknown },
 ): MuxAiError {
   const answered = init.answered === true;
-  const rule = answered ? googleVisionImageErrorRule(init.rpcCode) : undefined;
+  const rule = answered ? googleVisionImageErrorRule(init.rpcCode, { inline: init.inline === true }) : undefined;
   return dependencyError(message, {
     dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
     call: init.call,

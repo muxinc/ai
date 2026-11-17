@@ -317,20 +317,24 @@ export const HIVE_VIOLENCE_CATEGORIES = [
 /** Which surface a moderation call scored: the `call` fact on its errors. */
 type ModerationCall = "moderate_thumbnails" | "moderate_transcript";
 
-/**
- * The provider answered, but not with a usable result. `transient` keeps a retry inside the
- * call's own retry loop where it had one before (OpenAI's non-JSON body).
- */
-function unusableResponseError(message: string, call: ModerationCall, provider: ModerationProvider, { transient = false }: { transient?: boolean } = {}): MuxAiError {
+/** The provider answered, but not with a usable result. */
+function unusableResponseError(message: string, call: ModerationCall, provider: ModerationProvider): MuxAiError {
   return new MuxAiError(message, {
     code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID,
     type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
     source: MUX_AI_ERROR_SOURCES.UPSTREAM,
     dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
     facts: { call, provider },
-    transient,
   });
 }
+
+/**
+ * Errors OpenAI's call retries within its own loop although their classification isn't
+ * transient (an accepted call's unreadable body, retried before this model). Kept apart
+ * from `transient` so the error reported once those retries are spent keeps its catalog
+ * policy.
+ */
+const RETRIED_WITHIN_CALL = new WeakSet<MuxAiError>();
 
 /** A sample's error: a moderation call's classified error, else nothing (classified once every sample has failed). */
 function sampleFailureOf(error: unknown): MuxAiError | undefined {
@@ -358,16 +362,21 @@ function compactBodySnippet(body: string, maxLength: number = 180): string {
  * An OpenAI call that returned a body this workflow can't read: by its status when OpenAI
  * rejected the call, else an unusable response.
  */
-function unreadableOpenAIResponseError(message: string, res: Response, call: ModerationCall, { transient }: { transient: boolean }): MuxAiError {
-  return res.ok ?
-      unusableResponseError(message, call, "openai", { transient }) :
-      openAIFetchError(message, { call, status: res.status, requestId: requestIdOf(res.headers), facts: { provider: "openai" } });
+function unreadableOpenAIResponseError(message: string, res: Response, call: ModerationCall, { retryWithinCall }: { retryWithinCall: boolean }): MuxAiError {
+  if (!res.ok) {
+    return openAIFetchError(message, { call, status: res.status, requestId: requestIdOf(res.headers), facts: { provider: "openai" } });
+  }
+  const error = unusableResponseError(message, call, "openai");
+  if (retryWithinCall) {
+    RETRIED_WITHIN_CALL.add(error);
+  }
+  return error;
 }
 
 function parseOpenAIModerationResponse(bodyText: string, res: Response, call: ModerationCall): any {
   const { status, statusText } = res;
   if (!bodyText.trim()) {
-    throw unreadableOpenAIResponseError(`OpenAI moderation returned an empty response (${status} ${statusText}).`, res, call, { transient: false });
+    throw unreadableOpenAIResponseError(`OpenAI moderation returned an empty response (${status} ${statusText}).`, res, call, { retryWithinCall: false });
   }
 
   try {
@@ -379,7 +388,7 @@ function parseOpenAIModerationResponse(bodyText: string, res: Response, call: Mo
       `OpenAI moderation returned non-JSON response (${status} ${statusText}): ${compactBodySnippet(bodyText)}`,
       res,
       call,
-      { transient: true },
+      { retryWithinCall: true },
     );
   }
 }
@@ -469,7 +478,7 @@ async function callOpenAIModerationApi({
       maxDelay: OPENAI_MODERATION_MAX_DELAY_MS,
       // The classification decides: no response, 408/429/5xx and an accepted call's
       // unreadable body are transient; a spent quota and other rejections aren't.
-      shouldRetry: error => (MuxAiError.is(error) ? error.transient : true),
+      shouldRetry: error => (MuxAiError.is(error) ? error.transient || RETRIED_WITHIN_CALL.has(error) : true),
     },
   );
 }
@@ -921,8 +930,9 @@ async function moderateImageWithHive(entry: {
   credentials?: WorkflowCredentialsInput;
 }): Promise<ThumbnailSample> {
   "use step";
-  const apiKey = await getApiKeyFromEnv("hive", entry.credentials);
   try {
+    // Inside the try, as for the other providers: a missing key fails the sample, and is classified with the others.
+    const apiKey = await getApiKeyFromEnv("hive", entry.credentials);
     const formData = new FormData();
 
     if (entry.source.kind === "url") {
@@ -1088,7 +1098,7 @@ async function moderateImageWithGoogleVision(entry: {
     if (perImage?.error) {
       throw googleVisionCallError(
         `Google Vision per-image error: ${perImage.error.code} ${perImage.error.message || "Unknown error"}`,
-        { call: "moderate_thumbnails", answered: true, rpcCode: providerCodeOf(perImage.error.code) },
+        { call: "moderate_thumbnails", answered: true, rpcCode: providerCodeOf(perImage.error.code), inline: entry.isBase64 },
       );
     }
 
@@ -1325,10 +1335,29 @@ function nothingToModerateError(
 }
 
 /**
+ * Codes that describe one sample (one image the provider couldn't use, one answer that
+ * couldn't be read) rather than the call as a whole: another sample may well succeed.
+ */
+const SAMPLE_SPECIFIC_CODES: ReadonlySet<string> = new Set([
+  MUX_AI_ERROR_CODES.IMAGE_UNPROCESSABLE,
+  MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID,
+  MUX_AI_ERROR_CODES.DEPENDENCY_RESPONSE_FAILED,
+]);
+
+function isSampleSpecific(error: MuxAiError): boolean {
+  return error.source === MUX_AI_ERROR_SOURCES.ASSET || (error.code !== undefined && SAMPLE_SPECIFIC_CODES.has(error.code));
+}
+
+/**
  * The error for a run in which every sample failed, from the samples' own classified
- * errors. One stands for them all: the first a retry can't fix if there is one (so a
- * deterministic failure, such as a spent quota, isn't reported as worth retrying), else
- * the first. It keeps that error's classification and adds the run's facts.
+ * errors. One stands for them all, in this order:
+ * 1. a failure of the call as a whole that a retry can't fix (a spent quota, rejected
+ *    credentials, a missing key), so it isn't reported as worth retrying;
+ * 2. a failure of the call as a whole that a retry may fix (an outage, a timeout), so one
+ *    bad frame doesn't make a passing outage look like the asset's fault;
+ * 3. a failure of one sample, only when every sample failed that way: the first a retry
+ *    can't fix, else the first.
+ * It keeps that error's classification and adds the run's facts.
  */
 function allSamplesFailedError(
   message: string,
@@ -1338,7 +1367,12 @@ function allSamplesFailedError(
   // A sample without one failed outside the moderation call (e.g. a missing provider key): the SDK's own failure.
   const errors = failures.map(({ call, failure }) => failure ?? internalError(message, { ...facts, call }));
   // Unreachable without errors: the caller only gets here with at least one failed sample.
-  const representative = errors.find(error => !error.transient) ?? errors[0];
+  const callWide = errors.filter(error => !isSampleSpecific(error));
+  const representative =
+    callWide.find(error => !error.transient) ??
+    callWide[0] ??
+    errors.find(error => !error.transient) ??
+    errors[0];
   if (!representative) {
     return internalError(message, facts);
   }
