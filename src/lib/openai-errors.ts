@@ -86,3 +86,28 @@ export function openAICallError(
     cause: init.cause ?? apiError,
   });
 }
+
+/**
+ * Classifies a failed OpenAI call made with `fetch` rather than the AI SDK: no `status`
+ * means no response; a rejection is read like {@link openAICallError}, from its status and
+ * the body's `error.code` (else `error.type`). Facts: `call`, `status`, `requestId`, and
+ * `providerCode` when the body had one.
+ */
+export function openAIFetchError(
+  message: string,
+  init: { call: string; status?: number; requestId?: string; body?: string; timedOut?: boolean; facts?: MuxAiErrorFacts; cause?: unknown },
+): MuxAiError {
+  const body = parseOpenAIErrorBody(init.body);
+  const providerCode = body.code ?? body.type;
+  const code = init.status === undefined ? undefined : openAIErrorRule(init.status, body);
+  return dependencyError(message, {
+    dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
+    call: init.call,
+    status: init.status,
+    requestId: init.requestId,
+    timedOut: init.timedOut,
+    facts: { ...init.facts, ...(providerCode && { providerCode }) },
+    ...(code && { code }),
+    cause: init.cause,
+  });
+}

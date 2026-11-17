@@ -2,7 +2,7 @@ import { APICallError } from "ai";
 import { describe, expect, it } from "vitest";
 
 import { modelStepError } from "../../src/lib/content-policy-error";
-import { openAICallError, parseOpenAIErrorBody } from "../../src/lib/openai-errors";
+import { openAICallError, openAIFetchError, parseOpenAIErrorBody } from "../../src/lib/openai-errors";
 
 // Bodies shaped as OpenAI's error codes guide shows them: { error: { message, type, param, code } }.
 function openAIError(statusCode: number | undefined, error?: { code?: string | null; type?: string }) {
@@ -100,5 +100,16 @@ describe("openAI model calls", () => {
       name: "FatalError",
       facts: { ...facts, status: 429, providerCode: "insufficient_quota" },
     });
+  });
+});
+
+describe("openAIFetchError", () => {
+  it("reads OpenAI's code from a fetch response's body, like an AI SDK error", () => {
+    expect(openAIFetchError("x", { call: "c", status: 429, body: JSON.stringify({ error: { code: "insufficient_quota" } }) })).toMatchObject({ code: "provider_quota_exhausted", transient: false, facts: { status: 429, providerCode: "insufficient_quota" } });
+    expect(openAIFetchError("x", { call: "c", status: 429, body: "not json" })).toMatchObject({ code: "dependency_rate_limited", transient: true });
+  });
+
+  it("codes no response as transient", () => {
+    expect(openAIFetchError("x", { call: "c" })).toMatchObject({ code: "dependency_no_response", transient: true });
   });
 });
