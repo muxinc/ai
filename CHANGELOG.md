@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.67.0](https://github.com/muxinc/ai/compare/v0.66.0...v0.67.0) (2026-11-18)
+
+
+### Features
+
+* **errors:** classify burned-in-captions ([#331](https://github.com/muxinc/ai/issues/331)) ([60e94ba](https://github.com/muxinc/ai/commit/60e94ba8be0c95474790221ec15e140b05ffafed))
+* **errors:** classify moderate ([#326](https://github.com/muxinc/ai/issues/326)) ([f118ef6](https://github.com/muxinc/ai/commit/f118ef6447586b11214c177779819e4ac8f2dac7))
+
 ## [0.66.0](https://github.com/muxinc/ai/compare/v0.65.0...v0.66.0) (2026-11-17)
 
 
