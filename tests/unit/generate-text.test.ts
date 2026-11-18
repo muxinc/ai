@@ -411,12 +411,39 @@ describe("generateText", () => {
     mock.mockResolvedValueOnce(modelResponse({ p_0: "z".repeat(281) }, 10));
     await expect(generateText("asset-123", { artifacts: [{ key: "x_post", channel: "x" }] })).rejects.toMatchObject({
       code: "model_output_invalid",
-      facts: { call: "generate_artifact", assetId: "asset-123", reason: "over_length", limitUnit: "characters", limit: 280, actual: 320 },
+      facts: {
+        call: "generate_artifact",
+        assetId: "asset-123",
+        reason: "over_length",
+        limitUnit: "characters",
+        limit: 280,
+        actual: 320,
+        repairOutcome: "exhausted",
+        repairAttempts: [
+          { limitUnit: "characters", limit: 280, actual: 290 },
+          { limitUnit: "characters", limit: 280, actual: 281 },
+        ],
+      },
       transient: false,
       retryable: true,
       usage: { totalTokens: 130 },
     });
     expect(generateTextWithModel).toHaveBeenCalledTimes(4);
+  });
+
+  it("records why each rejected repair was not applied", async () => {
+    queueGenerations(["x".repeat(320)]);
+    const mock = vi.mocked(generateTextWithModel);
+    mock.mockResolvedValueOnce(modelResponse({ p_0: "Split\n\nparagraph." }, 10));
+    mock.mockResolvedValueOnce(modelResponse({ p_0: "" }, 10));
+    await expect(generateText("asset-123", { artifacts: [{ key: "x_post", channel: "x" }] })).rejects.toMatchObject({
+      code: "model_output_invalid",
+      facts: {
+        reason: "over_length",
+        repairOutcome: "exhausted",
+        repairAttempts: [{ rejection: "split_paragraph" }, { rejection: "empty_replacement" }],
+      },
+    });
   });
 
   it("keeps unexpected repair exceptions internal and retains initial and failed-call usage", async () => {

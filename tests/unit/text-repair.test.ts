@@ -13,7 +13,7 @@ describe("bounded text repair", () => {
 
   it("does not accept an empty draft merely because its length fits", async () => {
     const generate = vi.fn();
-    expect((await runTextRepairLoop({ content: "  ", limits: [{ unit: "characters", value: 100 }], generate })).status).toBe("failed");
+    expect(await runTextRepairLoop({ content: "  ", limits: [{ unit: "characters", value: 100 }], generate })).toMatchObject({ status: "failed", outcome: "empty_draft" });
     expect(generate).not.toHaveBeenCalled();
   });
 
@@ -77,10 +77,17 @@ describe("bounded text repair", () => {
   it("rejects unexpected IDs, stale plans, blank text and escaped or new paragraphs", () => {
     const content = "Long content ".repeat(30);
     const plan = planTextRepair(content, [{ unit: "characters", value: 280 }])!;
-    for (const replacements of [{}, { p_0: "short", other: "extra" }, { p_0: "" }, { p_0: "x\\ny" }, { p_0: "x\n\ny" }]) {
-      expect(applyTextRepair(content, plan, replacements).accepted).toBe(false);
+    for (const [replacements, code] of [
+      [null, "invalid_object"],
+      [{}, "span_ids"],
+      [{ p_0: "short", other: "extra" }, "span_ids"],
+      [{ p_0: "" }, "empty_replacement"],
+      [{ p_0: "x\\ny" }, "literal_escapes"],
+      [{ p_0: "x\n\ny" }, "split_paragraph"],
+    ] as const) {
+      expect(applyTextRepair(content, plan, replacements)).toMatchObject({ accepted: false, code });
     }
-    expect(applyTextRepair("Changed.", plan, { p_0: "Short." }).accepted).toBe(false);
+    expect(applyTextRepair("Changed.", plan, { p_0: "Short." })).toMatchObject({ accepted: false, code: "stale_plan" });
   });
 
   it("preserves Markdown and existing literal escapes in repaired paragraphs", () => {
@@ -96,15 +103,20 @@ describe("bounded text repair", () => {
     const content = `Mux.\n\nMux ${"long ".repeat(30)}`;
     const plan = planTextRepair(content, [{ unit: "characters", value: 150 }], ["Mux", "absent"])!;
     expect(plan.protectedTerms).toEqual(["Mux"]);
-    expect(applyTextRepair(content, plan, { [plan.spans[0].id]: "Short." }).accepted).toBe(false);
+    expect(applyTextRepair(content, plan, { [plan.spans[0].id]: "Short." })).toMatchObject({ accepted: false, code: "protected_term" });
   });
 
   it("validates both limits before returning an assembled output", async () => {
     const generate = vi.fn(async () => ({ replacements: { p_0: "state-of-the-art video workflow" }, elapsedMs: 1 }));
     const result = await runTextRepairLoop({ content: "long ".repeat(30), limits: [{ unit: "words", value: 5 }, { unit: "characters", value: 100 }], generate });
-    expect(result.status).toBe("failed");
+    expect(result).toMatchObject({ status: "failed", outcome: "exhausted" });
     expect(generate).toHaveBeenCalledTimes(2);
     expect(result).not.toHaveProperty("content");
+    // Each applied repair records the limit it still missed.
+    expect(result.attempts.map(attempt => attempt.overLimit)).toEqual([
+      { limit: { unit: "words", value: 5 }, actual: 6 },
+      { limit: { unit: "words", value: 5 }, actual: 6 },
+    ]);
   });
 
   it.each([
@@ -133,7 +145,7 @@ describe("bounded text repair", () => {
   it("stops after provider errors and retains reported failed-call usage", async () => {
     const generate = vi.fn(async () => ({ error: "refusal", usage: { tokens: 12 }, elapsedMs: 1 }));
     const result = await runTextRepairLoop({ content: "x".repeat(200), limits: [{ unit: "characters", value: 100 }], generate });
-    expect(result.status).toBe("failed");
+    expect(result).toMatchObject({ status: "failed", outcome: "call_failed" });
     expect(generate).toHaveBeenCalledTimes(1);
     expect(result.attempts[0].call.usage).toEqual({ tokens: 12 });
   });
@@ -142,7 +154,7 @@ describe("bounded text repair", () => {
     const generate = vi.fn();
     await expect(runTextRepairLoop({ content: "x", limits: [{ unit: "characters", value: 1 }], generate, maxAttempts: 3 })).rejects.toThrow("one or two");
     const result = await runTextRepairLoop({ content: "long\n\ntext", limits: [{ unit: "characters", value: 1 }], generate });
-    expect(result.status).toBe("failed");
+    expect(result).toMatchObject({ status: "failed", outcome: "no_plan" });
     expect(generate).not.toHaveBeenCalled();
   });
 });

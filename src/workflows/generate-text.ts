@@ -46,6 +46,7 @@ import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../li
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
 import { findGenerateTextLengthViolation } from "../lib/text-length.ts";
 import { repairText } from "../lib/text-repair-model.ts";
+import type { RepairResult } from "../lib/text-repair.ts";
 import { aggregateTokenUsage, getErrorTokenUsage, rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import { signingCredentialsMissingError } from "../lib/url-signing.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
@@ -835,7 +836,12 @@ function invalidModelOutputError(context: ModelCallContext, cause: unknown): Mux
  * classification, unless the provider says retrying won't help. The failed call's usage is
  * already counted by the caller, so the error carries none of its own.
  */
-function lengthRepairError(cause: unknown, context: ModelCallContext, draft: { limit: GenerateTextLengthLimit; actual: number }): MuxAiError {
+function lengthRepairError(
+  repaired: Extract<RepairResult<TokenUsage>, { status: "failed" }>,
+  context: ModelCallContext,
+  draft: { limit: GenerateTextLengthLimit; actual: number },
+): MuxAiError {
+  const cause = repaired.attempts.at(-1)?.call.errorCause;
   const facts: MuxAiErrorFacts = { call: context.call, provider: context.provider, ...(context.model && { model: context.model }) };
   if (cause === undefined) {
     // No call failed: the repairs ran out without bringing the draft under its limit.
@@ -844,8 +850,21 @@ function lengthRepairError(cause: unknown, context: ModelCallContext, draft: { l
       type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
       source: MUX_AI_ERROR_SOURCES.UPSTREAM,
       dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
-      // The draft's own length: a failed repair returns no content to measure.
-      facts: { ...facts, reason: "over_length", limitUnit: draft.limit.unit, limit: draft.limit.value, actual: draft.actual },
+      // The draft's own length, then why the repair stopped (no feasible plan, or its calls
+      // used up) and what each call produced: rejected replacements, or text still over a limit.
+      facts: {
+        ...facts,
+        reason: "over_length",
+        limitUnit: draft.limit.unit,
+        limit: draft.limit.value,
+        actual: draft.actual,
+        ...(repaired.outcome && { repairOutcome: repaired.outcome }),
+        repairAttempts: repaired.attempts.map((attempt): MuxAiErrorFacts => attempt.rejectionCode ?
+            { rejection: attempt.rejectionCode } :
+          attempt.overLimit ?
+              { limitUnit: attempt.overLimit.limit.unit, limit: attempt.overLimit.limit.value, actual: attempt.overLimit.actual } :
+              {}),
+      },
       transient: false,
       retryable: true,
     });
@@ -1040,7 +1059,7 @@ async function generateArtifactWithModel(args: {
     usages.push(...repaired.attempts.flatMap(item => item.call.usage ? [item.call.usage] : []));
     if (repaired.status !== "valid") {
       // The failed call is already in usages, so the error is rebuilt without its own.
-      rethrowWithTokenUsage(lengthRepairError(repaired.attempts.at(-1)?.call.errorCause, context, violation), usages);
+      rethrowWithTokenUsage(lengthRepairError(repaired, context, violation), usages);
     }
     return { content: repaired.content, usages, unexpectedKeys };
   });
