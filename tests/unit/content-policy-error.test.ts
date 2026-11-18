@@ -509,7 +509,7 @@ describe("modelStepError", () => {
   });
 
   it("keeps a provider without a classifier internal, step-retried only when the AI SDK judges it retryable", () => {
-    const facts = { call: "detect_profanity", provider: "openai" };
+    const facts = { call: "detect_profanity", provider: "anthropic" };
 
     expect(modelStepError(providerError(503), "Detection failed", facts)).toMatchObject({ message: "Detection failed", source: "internal", transient: true });
     expect(modelStepError(providerError(400), "Detection failed", facts)).toMatchObject({ source: "internal", transient: false });

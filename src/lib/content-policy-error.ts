@@ -7,6 +7,7 @@ import { googleCallError } from "./google-errors.ts";
 import { LegacyMuxAiError } from "./legacy-mux-ai-error.ts";
 import type { MuxAiErrorFacts } from "./mux-ai-error.ts";
 import { internalError, MUX_AI_ERROR_CODES, MUX_AI_ERROR_DEPENDENCIES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
+import { openAICallError } from "./openai-errors.ts";
 import { withRetry } from "./retry.ts";
 import type { RetryOptions } from "./retry.ts";
 import { aggregateTokenUsage, getErrorTokenUsage, rethrowWithTokenUsage } from "./token-usage.ts";
@@ -330,7 +331,7 @@ function findProviderCallError(error: unknown): APICallError | undefined {
  * - Output the AI SDK couldn't parse, or no output: `model_output_invalid` /
  *   `model_output_missing` (or an incomplete generation when the model stopped early).
  * - A provider API failure: only for providers with their own classifier, since each
- *   provider means different things by the same status. Today that's Google.
+ *   provider means different things by the same status. Today that's Google and OpenAI.
  */
 export function classifyModelCallError(error: unknown, context: ModelCallContext): MuxAiError | undefined {
   if (MuxAiError.is(error)) {
@@ -349,6 +350,8 @@ export function classifyModelCallError(error: unknown, context: ModelCallContext
   switch (context.provider) {
     case "google":
       return withUsage(googleCallError(apiError, message, { call: context.call, facts: modelCallFacts(context), cause: error }), getErrorTokenUsage(error));
+    case "openai":
+      return withUsage(openAICallError(apiError, message, { call: context.call, facts: modelCallFacts(context), cause: error }), getErrorTokenUsage(error));
     default:
       return undefined;
   }

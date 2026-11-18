@@ -283,6 +283,9 @@ export const MUX_AI_ERROR_PUBLIC_MAPPINGS = {
     facts: ["providerError"],
     message: (facts, { retryable }) => `Audio dubbing failed${facts.providerError ? `: ${text(facts.providerError)}` : "."}${retryable ? TRY_AGAIN : ""}`,
   },
+  [MUX_AI_ERROR_CODES.IMAGE_UNPROCESSABLE]: {
+    message: "The asset's images couldn't be processed.",
+  },
   [MUX_AI_ERROR_CODES.AUDIO_UNPROCESSABLE]: {
     facts: ["reason"],
     message: (facts) => {

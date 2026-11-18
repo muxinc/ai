@@ -159,6 +159,7 @@ describe("toPublicError", () => {
       "dubbing_failed",
       "dubbing_language_unsupported",
       "dubbing_timeout",
+      "image_unprocessable",
       "invalid_parameter",
       "invalid_scope",
       "model_output_invalid",
