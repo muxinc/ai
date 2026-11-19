@@ -483,25 +483,6 @@ describe("generateText", () => {
     expect(generateTextWithModel).toHaveBeenCalledTimes(3);
   });
 
-  it("preserves a serialized non-retryable repair error without double-counting usage", async () => {
-    queueGenerations(["x".repeat(281)]);
-    vi.mocked(generateTextWithModel).mockRejectedValueOnce({
-      __robots_error: true,
-      publicType: "validation_error",
-      publicMessage: "Unsupported request.",
-      retryable: false,
-      usage: { totalTokens: 7 },
-    });
-    // A legacy error out of the repair is internal now, but keeps its own resubmit verdict.
-    await expect(generateText("asset-123", { artifacts: [{ key: "post", channel: "x" }] })).rejects.toMatchObject({
-      type: "server_error",
-      source: "internal",
-      retryable: false,
-      usage: { totalTokens: 117 },
-    });
-    expect(generateTextWithModel).toHaveBeenCalledTimes(3);
-  });
-
   it("stops after a repair content filter before reading output and preserves all usage", async () => {
     queueGenerations(["x".repeat(281)]);
     const response = { ...modelResponse(undefined, 15), finishReason: "content-filter" };

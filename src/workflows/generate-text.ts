@@ -4,14 +4,11 @@ import { z } from "zod";
 import {
   findProviderServiceError,
   getGeneratedOutputWithContentPolicyHandling,
-  incompleteGenerationError,
-  isIncompleteGenerationError,
   modelStepError,
   withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
 import type { ModelCallContext } from "../lib/content-policy-error.ts";
 import { getLanguageName } from "../lib/language-codes.ts";
-import { isLegacyMuxAiError } from "../lib/legacy-mux-ai-error.ts";
 import { withModelCallDiagnostics } from "../lib/model-call-diagnostics.ts";
 import type { ModelCallDiagnostics, MuxAiErrorFacts, MuxAiErrorInit } from "../lib/mux-ai-error.ts";
 import {
@@ -869,17 +866,15 @@ function lengthRepairError(
       retryable: true,
     });
   }
-  const classified = isIncompleteGenerationError(cause) ?
-      incompleteGenerationError(cause.finishReason, cause.rawFinishReason, undefined, context) :
-    MuxAiError.is(cause) && !isLegacyMuxAiError(cause) ?
-      cause :
-        modelStepError(cause, "Unable to complete text generation.", { ...context });
+  const classified = MuxAiError.is(cause) ?
+    cause :
+      modelStepError(cause, "Unable to complete text generation.", { ...context });
   // A classified provider failure keeps its own resubmit verdict, an unclassified one the AI
-  // SDK's, and a legacy error its own (all as before classification); anything else stays
-  // resubmittable.
+  // SDK's (as before classification); anything else stays resubmittable. The repair always
+  // runs with a context, so its failures (early stops included) arrive classified, never legacy.
   const retryable = classified.dependency ?
     classified.retryable :
-    isLegacyMuxAiError(cause) ? cause.retryable : findProviderServiceError(cause)?.isRetryable ?? true;
+    findProviderServiceError(cause)?.isRetryable ?? true;
   const failure = classified.transient || classified.retryable !== retryable ?
       new MuxAiError(classified.message, {
         ...(classified.code && { code: classified.code }),
