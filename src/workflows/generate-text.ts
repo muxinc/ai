@@ -311,8 +311,8 @@ function assertArtifact(artifact: GenerateTextArtifact, index: number): void {
   const bounds = GENERATE_TEXT_LENGTH_BOUNDS[unit];
   if (!Number.isInteger(value) || value < bounds.min || value > bounds.max) {
     throw outOfRangeError(
-      `Artifact "${artifact.key}" maxLength.value must be an integer between ${bounds.min} and ${bounds.max} (received ${value}).`,
-      { parameter: `${parameter}.maxLength.value`, ...(typeof value === "number" ? { value: Number.isFinite(value) ? value : String(value) } : echoableValue(value)), min: bounds.min, max: bounds.max, integer: true },
+      `Artifact "${artifact.key}" maxLength.value must be an integer between ${bounds.min} and ${bounds.max} ${unit} (received ${value}).`,
+      { parameter: `${parameter}.maxLength.value`, ...(typeof value === "number" ? { value: Number.isFinite(value) ? value : String(value) } : echoableValue(value)), min: bounds.min, max: bounds.max, integer: true, unit },
       ["artifacts"],
     );
   }
@@ -322,7 +322,7 @@ function assertArtifact(artifact: GenerateTextArtifact, index: number): void {
     // The channel lowers the upper bound.
     throw outOfRangeError(
       `Artifact "${artifact.key}" targets ${artifact.channel} and supports at most ${ceiling.value} ${ceiling.unit}.`,
-      { parameter: `${parameter}.maxLength.value`, value, min: bounds.min, max: ceiling.value, integer: true, channel: artifact.channel! },
+      { parameter: `${parameter}.maxLength.value`, value, min: bounds.min, max: ceiling.value, integer: true, unit, channel: artifact.channel! },
       ["artifacts"],
     );
   }

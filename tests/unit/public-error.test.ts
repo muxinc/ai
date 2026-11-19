@@ -78,6 +78,15 @@ describe("toPublicError", () => {
       .toBe("The requested time range doesn't include any video.");
     expect(view(MUX_AI_ERROR_CODES.INVALID_PARAMETER, { parameter: "maxFreeFormAnswerLength", reason: "not_positive", value: 0 }))
       .toBe("maxFreeFormAnswerLength must be a positive number (received 0).");
+    // Out of range: the bound that was crossed, so a "maxLength" below its minimum doesn't read as too long.
+    expect(view(MUX_AI_ERROR_CODES.PARAMETER_OUT_OF_RANGE, { parameter: "maxLength.value", value: 4, min: 5, max: 3000, integer: true, unit: "words" }))
+      .toBe("maxLength.value must be at least 5 words (received 4).");
+    expect(view(MUX_AI_ERROR_CODES.PARAMETER_OUT_OF_RANGE, { parameter: "hotspotLimit", value: 11, min: 1, max: 10, integer: true }))
+      .toBe("hotspotLimit must be at most 10 (received 11).");
+    expect(view(MUX_AI_ERROR_CODES.PARAMETER_OUT_OF_RANGE, { parameter: "hotspotLimit", value: 2.5, min: 1, max: 10, integer: true }))
+      .toBe("hotspotLimit must be an integer between 1 and 10 (received 2.5).");
+    expect(view(MUX_AI_ERROR_CODES.PARAMETER_OUT_OF_RANGE, { parameter: "maxLength.value", value: "NaN", min: 5, max: 3000, integer: true, unit: "words" }))
+      .toBe("maxLength.value must be an integer between 5 and 3000 words (received NaN).");
     expect(view(MUX_AI_ERROR_CODES.CAPTION_TRACK_NOT_FOUND, { languageCode: "fr", availableLanguages: ["en", "es"] }))
       .toBe("No ready caption track was found for language fr. Available languages: en, es.");
     expect(view(MUX_AI_ERROR_CODES.CAPTION_TRACK_NOT_FOUND, { trackId: "trk_1", availableTrackIds: [] }))

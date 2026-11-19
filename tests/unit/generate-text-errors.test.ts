@@ -45,15 +45,15 @@ describe("generateText option validation", () => {
   it("codes a maxLength outside its bounds as parameter_out_of_range", () => {
     const error = rejection({ artifacts: [{ key: "post", maxLength: { unit: "words", value: 4 } }] });
 
-    expect(error).toMatchObject({ code: "parameter_out_of_range", facts: { parameter: "artifacts[0].maxLength.value", value: 4, min: 5, max: 3000, integer: true, inputs: ["artifacts"] } });
-    expect(toPublicError(error).message).toBe("artifacts[0].maxLength.value must be an integer between 5 and 3000 (received 4).");
+    expect(error).toMatchObject({ code: "parameter_out_of_range", facts: { parameter: "artifacts[0].maxLength.value", value: 4, min: 5, max: 3000, integer: true, unit: "words", inputs: ["artifacts"] } });
+    expect(toPublicError(error).message).toBe("artifacts[0].maxLength.value must be at least 5 words (received 4).");
   });
 
   it("lowers the upper bound to the channel's ceiling", () => {
     const error = rejection({ artifacts: [{ key: "post", channel: "x", maxLength: { unit: "characters", value: 300 } }] });
 
-    expect(error).toMatchObject({ code: "parameter_out_of_range", facts: { value: 300, min: 10, max: 280, channel: "x" } });
-    expect(toPublicError(error).message).toBe("artifacts[0].maxLength.value must be an integer between 10 and 280 (received 300).");
+    expect(error).toMatchObject({ code: "parameter_out_of_range", facts: { value: 300, min: 10, max: 280, unit: "characters", channel: "x" } });
+    expect(toPublicError(error).message).toBe("artifacts[0].maxLength.value must be at most 280 characters (received 300).");
   });
 
   it("echoes a rejected value that's a short token", () => {
