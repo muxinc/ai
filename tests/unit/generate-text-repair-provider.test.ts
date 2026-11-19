@@ -1,6 +1,7 @@
 import { APICallError } from "ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { toPublicError } from "../../src/lib/public-error";
 import { generateText } from "../../src/workflows/generate-text.ts";
 
 const state = vi.hoisted(() => ({ requests: [] as Record<string, any>[], failure: "" as "" | "length" | "truncated-json" | "filter" | "refusal" | "refusal-with-reasoning" | "policy" | "auth" | "transient", providerMessage: "Provider rejected gpt-private for org-internal: rate-limit quota details" }));
@@ -102,24 +103,28 @@ describe("production repair through the real AI SDK provider", () => {
     expect(state.requests).toHaveLength(3);
   });
 
-  it.each([["auth", false, 401], ["transient", true, 429]] as const)("keeps %s diagnostics internal and preserves retryability without retrying inside repair", async (failure, retryable, statusCode) => {
+  it.each([
+    ["auth", 401, { code: "provider_credentials_rejected", type: "server_error", source: "internal", retryable: false }],
+    ["transient", 429, { code: "dependency_rate_limited", type: "capacity_error", source: "upstream", retryable: true }],
+  ] as const)("keeps %s diagnostics internal and preserves retryability without retrying inside repair", async (failure, statusCode, classification) => {
     state.failure = failure;
     const error = await generateText("asset-test", { artifacts: [{ key: "post", channel: "x" }] }).catch(error => error);
-    // No OpenAI rules on this base yet: an unclassified provider failure, internal, never
-    // step-retried after the repair's own attempt, resubmittable as the AI SDK judges.
+    // Classified by OpenAI's rules (an unrecognized OpenAI code falls back to the status's code),
+    // and never step-retried after the repair's own attempt.
     expect(error).toMatchObject({
-      message: "Unable to complete text generation.",
-      type: "server_error",
-      source: "internal",
+      ...classification,
+      dependency: "ai_provider",
       transient: false,
-      retryable,
+      facts: { call: "generate_artifact", provider: "openai", status: statusCode },
       usage: { inputTokens: 200, outputTokens: 20, totalTokens: 220, cachedInputTokens: 40, cacheWriteTokens: 60, reasoningTokens: 0 },
     });
     expect(APICallError.isInstance(error.cause)).toBe(true);
     expect(error.cause).toMatchObject({ message: state.providerMessage, statusCode, responseHeaders: { "x-request-id": "req-repair-test" } });
     expect(Object.getOwnPropertyDescriptor(error, "cause")?.enumerable).toBe(false);
     expect(JSON.stringify(error)).not.toContain(state.providerMessage);
-    expect(JSON.stringify(error)).not.toContain("req-repair-test");
+    // The request id is an internal fact; customers never see it.
+    expect(error.facts.requestId).toBe("req-repair-test");
+    expect(JSON.stringify(toPublicError(error))).not.toContain("req-repair-test");
     expect(console.warn).toHaveBeenCalledExactlyOnceWith("[@mux/ai] Model call failed.", {
       phase: "length_repair",
       maxOutputTokens: 1024,

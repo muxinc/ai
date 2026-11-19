@@ -889,8 +889,8 @@ function lengthRepairError(
         facts: classified.facts,
         transient: false,
         retryable,
-        // The raw failure, so the cause chain stays the provider's own error.
-        cause: MuxAiError.is(cause) ? classified : cause,
+        // The raw failure, so the cause chain stays the provider's own error, not a second wrapper of it.
+        cause: MuxAiError.is(cause) ? classified.cause ?? classified : cause,
       } as MuxAiErrorInit) :
     classified;
   delete (failure as { usage?: TokenUsage }).usage;
