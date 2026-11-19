@@ -92,6 +92,24 @@ describe("googleCallError", () => {
     expect(googleCallError(geminiError(status, { error: { status: "PERMISSION_DENIED" } }), "x", { call: "c" })).toMatchObject({ code: "provider_credentials_rejected", source: "internal", transient: false });
   });
 
+  it("calls a 400 for a bad API key the service's own key, by its ErrorInfo reason", () => {
+    const badKey = {
+      error: {
+        code: 400,
+        message: "API key not valid. Please pass a valid API key.",
+        status: "INVALID_ARGUMENT",
+        details: [{ "@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": "API_KEY_INVALID", "domain": "googleapis.com" }],
+      },
+    };
+
+    expect(googleCallError(geminiError(400, badKey), "x", { call: "c" })).toMatchObject({
+      code: "provider_credentials_rejected",
+      source: "internal",
+      transient: false,
+      facts: { providerStatus: "INVALID_ARGUMENT", providerReason: "API_KEY_INVALID" },
+    });
+  });
+
   it("codes DEADLINE_EXCEEDED as a timeout and retries it", () => {
     expect(googleCallError(geminiError(504, { error: { status: "DEADLINE_EXCEEDED" } }), "x", { call: "c" })).toMatchObject({ code: "dependency_timeout", type: "timeout_error", transient: true });
   });
