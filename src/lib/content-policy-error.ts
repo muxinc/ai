@@ -684,6 +684,19 @@ export function modelStepError(error: unknown, message: string, facts: MuxAiErro
 }
 
 /**
+ * The SDK's provider name for an AI SDK model's own provider id, so `model.provider` can be passed
+ * as is: "google.generative-ai" is "google" and "openai.chat" / "openai.responses" are "openai".
+ * Anything else is kept as given, and is coded by status (Vertex AI included: its errors aren't
+ * the Gemini API's).
+ */
+function canonicalModelProvider(provider: string): string {
+  if (provider === "google.generative-ai") {
+    return "google";
+  }
+  return provider.startsWith("openai.") ? "openai" : provider;
+}
+
+/**
  * Classifies a failed model call made outside the SDK's workflows, such as your own AI SDK
  * `generateText` call, by the rules the workflows use:
  * - a content-policy block is `content_policy_blocked` (OpenAI's intermittent prompt flag is
@@ -699,10 +712,13 @@ export function modelStepError(error: unknown, message: string, facts: MuxAiErro
  * call; callers that handle retries themselves can ignore it.
  *
  * @param error - What the model call threw.
- * @param context - The call's name and the provider and model it used.
+ * @param callContext - The call's name and the provider and model it used. `provider` is the SDK's
+ *   provider name ("google", "openai", "anthropic"), or the AI SDK model's own `provider` id
+ *   ("google.generative-ai", "openai.chat"). Only Google and OpenAI have rules of their own.
  * @param message - The error's internal message (defaults to `<call> failed`).
  */
-export function modelCallError(error: unknown, context: ModelCallContext, message = `${context.call} failed`): MuxAiError {
+export function modelCallError(error: unknown, callContext: ModelCallContext, message = `${callContext.call} failed`): MuxAiError {
+  const context = { ...callContext, provider: canonicalModelProvider(callContext.provider) };
   let normalized = error;
   try {
     rethrowContentPolicyError(error, context);

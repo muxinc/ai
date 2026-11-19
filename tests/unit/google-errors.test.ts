@@ -44,6 +44,17 @@ describe("googleErrorFacts", () => {
     expect(googleErrorFacts("<html>bad gateway</html>")).toEqual({});
     expect(googleErrorFacts(JSON.stringify({ error: { status: "not a token!" } }))).toEqual({});
   });
+
+  it("drops a value that isn't a token, keeping the body's other facts", () => {
+    const body = { error: { code: "Quota exceeded: try later", status: "RESOURCE_EXHAUSTED", details: [{ violations: [{ quotaId: "GenerateRequestsPerDayPerProjectPerModel" }, { quotaId: null }] }] } };
+
+    expect(googleErrorFacts(JSON.stringify(body))).toEqual({
+      providerStatus: "RESOURCE_EXHAUSTED",
+      providerCode: "RESOURCE_EXHAUSTED",
+      quotaIds: ["GenerateRequestsPerDayPerProjectPerModel"],
+    });
+    expect(googleErrorFacts(JSON.stringify({ error: { code: null, status: "UNAVAILABLE" } }))).toEqual({ providerStatus: "UNAVAILABLE", providerCode: "UNAVAILABLE" });
+  });
 });
 
 describe("googleCallError", () => {

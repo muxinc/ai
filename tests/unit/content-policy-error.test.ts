@@ -625,6 +625,39 @@ describe("modelCallError", () => {
     expect(modelCallError(quota, context)).toMatchObject({ code: "provider_quota_exhausted", transient: false, retryable: false, facts: { ...context, status: 429 } });
   });
 
+  it("codes OpenAI's spent quota by its rules, not as a rate limit", () => {
+    const spent = new APICallError({
+      message: "You exceeded your current quota",
+      url: "https://api.openai.com/v1/responses",
+      requestBodyValues: {},
+      statusCode: 429,
+      responseBody: JSON.stringify({ error: { message: "You exceeded your current quota", type: "insufficient_quota", code: "insufficient_quota" } }),
+      isRetryable: true,
+    });
+
+    expect(modelCallError(spent, { call: "synthesis", provider: "openai", model: "gpt-test" })).toMatchObject({ code: "provider_quota_exhausted", transient: false, retryable: false });
+  });
+
+  it("accepts the AI SDK model's own provider id", () => {
+    const quota = new APICallError({
+      message: "quota",
+      url: "https://generativelanguage.googleapis.com/v1beta/models/gemini:generateContent",
+      requestBodyValues: {},
+      statusCode: 429,
+      responseBody: JSON.stringify({ error: { status: "RESOURCE_EXHAUSTED", details: [{ violations: [{ quotaId: "GenerateRequestsPerDayPerProjectPerModel" }] }] } }),
+    });
+    const spent = new APICallError({
+      message: "quota",
+      url: "https://api.openai.com/v1/chat/completions",
+      requestBodyValues: {},
+      statusCode: 429,
+      responseBody: JSON.stringify({ error: { message: "quota", type: "insufficient_quota", code: "insufficient_quota" } }),
+    });
+
+    expect(modelCallError(quota, { call: "x", provider: "google.generative-ai", model: "gemini-test" })).toMatchObject({ code: "provider_quota_exhausted", facts: { provider: "google" } });
+    expect(modelCallError(spent, { call: "x", provider: "openai.chat", model: "gpt-test" })).toMatchObject({ code: "provider_quota_exhausted", facts: { provider: "openai" } });
+  });
+
   it("codes a provider without rules of its own by status, not uncoded", () => {
     const outage = new APICallError({
       message: "overloaded",

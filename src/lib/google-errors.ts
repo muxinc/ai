@@ -6,8 +6,9 @@ import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_DEPENDENCIES } from "./mux-ai-error.ts
 
 import type { APICallError } from "ai";
 
-// Tokens only: free text from the body stays out of facts.
-const GoogleTokenSchema = z.string().regex(/^[\w.-]{1,128}$/);
+// Tokens only: free text from the body stays out of facts. A value that isn't one is dropped, not a
+// reason to reject the whole body, so the body's other facts still reach the rules.
+const GoogleTokenSchema = z.string().regex(/^[\w.-]{1,128}$/).optional().catch(undefined);
 
 /**
  * The parts of a Gemini API error body worth keeping: Google's canonical status
@@ -17,10 +18,10 @@ const GoogleTokenSchema = z.string().regex(/^[\w.-]{1,128}$/);
  */
 const GoogleErrorBodySchema = z.object({
   error: z.object({
-    status: GoogleTokenSchema.optional(),
-    code: z.union([GoogleTokenSchema, z.number()]).optional(),
+    status: GoogleTokenSchema,
+    code: z.union([z.string().regex(/^[\w.-]{1,128}$/), z.number()]).optional().catch(undefined),
     details: z.array(z.object({
-      violations: z.array(z.object({ quotaId: GoogleTokenSchema.optional() })).max(16).optional(),
+      violations: z.array(z.object({ quotaId: GoogleTokenSchema })).max(16).optional(),
     })).max(16).optional(),
   }),
 });
