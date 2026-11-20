@@ -53,7 +53,7 @@ import {
   resolveWorkflowScope,
 } from "../lib/workflow-scope.ts";
 import { getStoryboardUrl } from "../primitives/storyboards.ts";
-import { fetchTranscriptForAsset } from "../primitives/transcripts.ts";
+import { extractTextFromVTT, fetchTranscriptForAsset, parseVTTCues } from "../primitives/transcripts.ts";
 import type { ImageSubmissionMode, ScopedMuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "../types.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -133,6 +133,12 @@ export interface QuestionAnswer {
   reasoning: string;
   /** Whether the question was skipped due to irrelevance to the asset content */
   skipped: boolean;
+  /**
+   * Seconds from the start of the asset to the moment that best supports the
+   * answer. Omitted when the answer doesn't rest on a single moment, or when
+   * the question was skipped.
+   */
+  timestamp?: number;
 }
 
 /** Configuration options for askQuestions workflow. */
@@ -145,7 +151,11 @@ export interface AskQuestionsOptions extends ScopedMuxAIOptions {
   languageCode?: string;
   /** Fetch transcript alongside storyboard (defaults to true, required for audio-only assets). */
   includeTranscript?: boolean;
-  /** Strip timestamps/markup from transcripts (defaults to true). */
+  /**
+   * Give the model plain text with each cue's start time, and return the
+   * transcript text as plain text. When false, both are raw WebVTT
+   * (defaults to true).
+   */
   cleanTranscript?: boolean;
   /** How storyboard should be delivered to the provider (defaults to 'url'). */
   imageSubmissionMode?: ImageSubmissionMode;
@@ -229,6 +239,7 @@ export const questionAnswerSchema = z.object({
   confidence: z.number(),
   reasoning: z.string().max(1000),
   skipped: z.boolean(),
+  timestamp: z.number().nullish(),
 });
 
 export type QuestionAnswerType = z.infer<typeof questionAnswerSchema>;
@@ -251,6 +262,8 @@ function createAskQuestionsSchema(answerSchema: z.ZodType<string>) {
     answers: z.array(
       questionAnswerSchema.extend({
         answer: answerSchema,
+        // OpenAI structured outputs require every property.
+        timestamp: z.number().nullable(),
       }),
     ),
   });
@@ -307,6 +320,19 @@ const SYSTEM_PROMPT = promptDedent`
     - Reasoning should cite specific visual or audio evidence
     - Be precise: cite specific frames, objects, actions, or transcript quotes
   </answer_guidelines>
+
+  <timestamp_guidance>
+    Leave timestamp null unless the answer depends on something that happens
+    at a particular moment, such as an event, a line of speech, a piece of
+    on-screen text or a particular shot. Then set timestamp to the time, in
+    seconds from the start of the asset, of the moment that best shows it:
+    - For spoken evidence, use the start time of the transcript line or cue that contains it
+    - Use only times given in the input; never estimate a time
+    - Set timestamp to null when the answer is about the video as a whole (its
+      topic, genre, setting or style), when the subject appears in many frames
+      or throughout the speech, when the queried subject is absent, when no
+      time is given for the evidence, or when the question is skipped
+  </timestamp_guidance>
 
   <relevance_filtering>
     IMPORTANT: Evaluate each question INDEPENDENTLY for relevance to the video
@@ -412,6 +438,17 @@ const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
     - Reasoning should cite specific transcript evidence
     - Be precise: cite specific quotes or passages from transcript text
   </answer_guidelines>
+
+  <timestamp_guidance>
+    Leave timestamp null unless the answer depends on something said at a
+    particular moment. Then set timestamp to the time, in seconds from the
+    start of the asset, of the moment that best shows it:
+    - Use the start time of the transcript line or cue that contains the evidence
+    - Use only times given in the input; never estimate a time
+    - Set timestamp to null when the answer is about the recording as a whole
+      (its topic, genre or style), when the subject comes up throughout, when
+      the queried subject is absent, or when the question is skipped
+  </timestamp_guidance>
 
   <relevance_filtering>
     IMPORTANT: Evaluate each question INDEPENDENTLY for relevance to the audio
@@ -586,7 +623,7 @@ function normalizeQuestion(q: Question, idx: number): NormalizedQuestion {
 interface UserPromptContext {
   questions: NormalizedQuestion[];
   transcriptText?: string;
-  isCleanTranscript?: boolean;
+  transcriptFormat?: "plain text" | "timestamped text" | "WebVTT";
   isAudioOnly?: boolean;
   maxFreeFormAnswerLength: number;
 }
@@ -617,7 +654,7 @@ function renderFormatTag(
 function buildUserPrompt({
   questions,
   transcriptText,
-  isCleanTranscript = true,
+  transcriptFormat = "timestamped text",
   isAudioOnly = false,
   maxFreeFormAnswerLength,
 }: UserPromptContext): string {
@@ -651,8 +688,7 @@ function buildUserPrompt({
 
   const sections: string[] = [];
   if (transcriptText) {
-    const format = isCleanTranscript ? "plain text" : "WebVTT";
-    sections.push(renderSection(createTranscriptSection(transcriptText, format)));
+    sections.push(renderSection(createTranscriptSection(transcriptText, transcriptFormat)));
   }
   sections.push(taskSection);
   sections.push(questionsSection);
@@ -995,11 +1031,12 @@ async function askQuestionsInternal(
     throw signingCredentialsMissingError();
   }
 
+  // Fetched as WebVTT either way, so cue start times can anchor answer timestamps.
   const transcriptResult =
     includeTranscript ?
         await fetchTranscriptForAsset(assetData, playbackId, {
           languageCode,
-          cleanTranscript,
+          cleanTranscript: false,
           shouldSign: policy === "signed",
           credentials,
           required: isAudioOnly,
@@ -1007,13 +1044,24 @@ async function askQuestionsInternal(
           classifiedErrors: true,
         }) :
       undefined;
-  const transcriptText = transcriptResult?.transcriptText ?? "";
+  const transcriptVtt = transcriptResult?.transcriptText ?? "";
+  const transcriptText = cleanTranscript ? extractTextFromVTT(transcriptVtt) : transcriptVtt;
+  const timedTranscript = parseVTTCues(transcriptVtt).map(cue => `[${cue.startTime}s] ${cue.text}`).join("\n");
+  const promptTranscript = cleanTranscript ? timedTranscript || transcriptText : transcriptVtt;
+  if (isAudioOnly && !promptTranscript) {
+    throw new MuxAiError("No usable content found in transcript.", {
+      code: MUX_AI_ERROR_CODES.TRANSCRIPT_EMPTY,
+      type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+      source: MUX_AI_ERROR_SOURCES.ASSET,
+      facts: { assetId, ...(transcriptResult?.track?.id && { trackId: transcriptResult.track.id }) },
+    });
+  }
 
   // Build the user prompt with questions (each with their allowed answers or free-form format) and optional transcript
   const userPrompt = buildUserPrompt({
     questions: normalizedQuestions,
-    transcriptText,
-    isCleanTranscript: cleanTranscript,
+    transcriptText: promptTranscript,
+    transcriptFormat: !cleanTranscript ? "WebVTT" : timedTranscript ? "timestamped text" : "plain text",
     isAudioOnly,
     maxFreeFormAnswerLength,
   });
@@ -1153,6 +1201,15 @@ async function askQuestionsInternal(
 
     const suppressed = reasoningScrub.leaked || (answerScrub?.leaked ?? false);
 
+    const timestamp = !isSkipped &&
+      raw.timestamp !== null &&
+      Number.isFinite(raw.timestamp) &&
+      raw.timestamp >= (effectiveScope?.startTime ?? 0) &&
+      (effectiveScope?.endTime === undefined || raw.timestamp <= effectiveScope.endTime) &&
+      (assetDurationSeconds === undefined || raw.timestamp <= assetDurationSeconds) ?
+      raw.timestamp :
+      undefined;
+
     return {
       // Use the trusted input verbatim rather than the model's echo.
       question: question.question,
@@ -1160,6 +1217,7 @@ async function askQuestionsInternal(
       reasoning: suppressed ? "Response suppressed by safety filter." : reasoningScrub.text,
       skipped: isSkipped,
       answer: finalAnswer,
+      ...(timestamp !== undefined && { timestamp }),
     };
   });
 
