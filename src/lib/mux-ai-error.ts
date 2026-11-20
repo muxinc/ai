@@ -195,14 +195,15 @@ export const MUX_AI_ERROR_CODES = {
   /**
    * The provider says the account the service running the SDK uses is out of credits or
    * quota, or hit a spend or usage limit. Retrying won't help until someone changes the
-   * account. The site names the dependency. Facts: `call`, `status`, `providerCode`.
+   * account. The site names the dependency. Facts: `call`, `status`, and `providerCode`
+   * when the provider gave one.
    */
   PROVIDER_QUOTA_EXHAUSTED: "provider_quota_exhausted",
-  /** The provider rejected the key the service running the SDK uses, or the key lacks permission for this model or feature. The site names the dependency. Facts: `call`, `status`, `providerCode`. */
+  /** The provider rejected the key the service running the SDK uses, or the key lacks permission for this model or feature. The site names the dependency. Facts: `call`, `status`, and `providerCode` when the provider gave one. */
   PROVIDER_CREDENTIALS_REJECTED: "provider_credentials_rejected",
-  /** The provider says requests are over its rate or concurrency limit. The site names the dependency. Facts: `call`, `status`, `providerCode`. */
+  /** The provider says requests are over its rate or concurrency limit. The site names the dependency. Facts: `call`, `status`, and `providerCode` when the provider gave one. */
   PROVIDER_RATE_LIMITED: "provider_rate_limited",
-  /** The provider says it's overloaded or down for maintenance. The site names the dependency. Facts: `call`, `status`, `providerCode`. */
+  /** The provider says it's overloaded or down for maintenance. The site names the dependency. Facts: `call`, `status`, and `providerCode` when the provider gave one. */
   PROVIDER_UNAVAILABLE: "provider_unavailable",
   /** The provider can't process the asset's audio. The site names the dependency. Facts: `call`, `status`, `providerCode`, `reason` (`corrupt`, `unsupported_format`, `too_long`, `too_short`). */
   AUDIO_UNPROCESSABLE: "audio_unprocessable",

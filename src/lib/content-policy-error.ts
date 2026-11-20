@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import type { TokenUsage } from "../types.ts";
 
-import { dependencyError } from "./dependency-error.ts";
+import { dependencyError, requestIdOf } from "./dependency-error.ts";
 import { googleCallError } from "./google-errors.ts";
 import { LegacyMuxAiError } from "./legacy-mux-ai-error.ts";
 import type { MuxAiErrorFacts } from "./mux-ai-error.ts";
@@ -681,4 +681,64 @@ export function modelStepError(error: unknown, message: string, facts: MuxAiErro
     classified.usage = usage;
   }
   return classified;
+}
+
+/**
+ * The SDK's provider name for an AI SDK model's own provider id, so `model.provider` can be passed
+ * as is: "google.generative-ai" is "google" and "openai.chat" / "openai.responses" are "openai".
+ * Anything else is kept as given, and is coded by status (Vertex AI included: its errors aren't
+ * the Gemini API's).
+ */
+function canonicalModelProvider(provider: string): string {
+  if (provider === "google.generative-ai") {
+    return "google";
+  }
+  return provider.startsWith("openai.") ? "openai" : provider;
+}
+
+/**
+ * Classifies a failed model call made outside the SDK's workflows, such as your own AI SDK
+ * `generateText` call, by the rules the workflows use:
+ * - a content-policy block is `content_policy_blocked` (OpenAI's intermittent prompt flag is
+ *   step-retried)
+ * - output that's missing or doesn't match its schema is `model_output_missing` /
+ *   `model_output_invalid`
+ * - a provider failure is coded by that provider's rules (e.g. a spent quota vs. a rate
+ *   limit), else by its HTTP status (a provider without rules of its own included)
+ * - anything else is an `internal` failure.
+ *
+ * The result always carries the call's `call`, `provider` and `model` facts, and its token
+ * usage when the error had any. Its `transient` says whether a Workflow step should retry the
+ * call; callers that handle retries themselves can ignore it.
+ *
+ * @param error - What the model call threw.
+ * @param callContext - The call's name and the provider and model it used. `provider` is the SDK's
+ *   provider name ("google", "openai", "anthropic"), or the AI SDK model's own `provider` id
+ *   ("google.generative-ai", "openai.chat"). Only Google and OpenAI have rules of their own.
+ * @param message - The error's internal message (defaults to `<call> failed`).
+ */
+export function modelCallError(error: unknown, callContext: ModelCallContext, message = `${callContext.call} failed`): MuxAiError {
+  const context = { ...callContext, provider: canonicalModelProvider(callContext.provider) };
+  let normalized = error;
+  try {
+    rethrowContentPolicyError(error, context);
+  } catch (thrown) {
+    normalized = thrown;
+  }
+  if (!MuxAiError.is(normalized) && !classifyModelCallError(normalized, context)) {
+    // A provider without its own rules: code its API failure by status, as `dependencyError`
+    // does for any dependency, instead of leaving it uncoded.
+    const apiError = findProviderCallError(normalized);
+    if (apiError) {
+      return withUsage(dependencyError(`${message}${apiError.statusCode ? ` (HTTP ${apiError.statusCode})` : ""}`, {
+        dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
+        call: context.call,
+        status: apiError.statusCode,
+        requestId: requestIdOf(apiError.responseHeaders),
+        facts: modelCallFacts(context),
+        cause: normalized,
+      }), getErrorTokenUsage(normalized));
+    }
+  }
+  return modelStepError(normalized, message, modelCallFacts(context));
 }

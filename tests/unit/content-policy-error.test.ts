@@ -9,6 +9,7 @@ import {
   getGeneratedOutputWithContentPolicyHandling,
   IncompleteGenerationError,
   isIncompleteGenerationError,
+  modelCallError,
   modelStepError,
   rethrowContentPolicyError,
   withContentPolicyAwareRetry,
@@ -594,5 +595,94 @@ describe("classifyModelCallError timeouts", () => {
 
   it("leaves a caller's own abort unclassified", () => {
     expect(classifyModelCallError(new DOMException("aborted", "AbortError"), { call: "c", provider: "openai" })).toBeUndefined();
+  });
+});
+
+describe("modelCallError", () => {
+  const context = { call: "analyze_structure", provider: "google", model: "gemini-test" };
+
+  it("codes a content-policy block, with the call's facts", () => {
+    const error = modelCallError(createApiCallError(JSON.stringify({ promptFeedback: { blockReason: "PROHIBITED_CONTENT" } })), context);
+
+    expect(error).toMatchObject({ code: "content_policy_blocked", source: "asset", dependency: "ai_provider", transient: false, facts: { ...context, reason: "PROHIBITED_CONTENT" } });
+  });
+
+  it("codes output that doesn't match its schema, keeping its usage", () => {
+    const error = modelCallError(createNoObjectGeneratedError("stop"), context);
+
+    expect(error).toMatchObject({ code: "model_output_invalid", dependency: "ai_provider", facts: context, usage: { inputTokens: 10, totalTokens: 10 } });
+  });
+
+  it("codes a provider failure by that provider's rules", () => {
+    const quota = new APICallError({
+      message: "quota",
+      url: "https://generativelanguage.googleapis.com/v1beta/models/gemini:generateContent",
+      requestBodyValues: {},
+      statusCode: 429,
+      responseBody: JSON.stringify({ error: { status: "RESOURCE_EXHAUSTED", details: [{ violations: [{ quotaId: "GenerateRequestsPerDayPerProjectPerModel" }] }] } }),
+    });
+
+    expect(modelCallError(quota, context)).toMatchObject({ code: "provider_quota_exhausted", transient: false, retryable: false, facts: { ...context, status: 429 } });
+  });
+
+  it("codes OpenAI's spent quota by its rules, not as a rate limit", () => {
+    const spent = new APICallError({
+      message: "You exceeded your current quota",
+      url: "https://api.openai.com/v1/responses",
+      requestBodyValues: {},
+      statusCode: 429,
+      responseBody: JSON.stringify({ error: { message: "You exceeded your current quota", type: "insufficient_quota", code: "insufficient_quota" } }),
+      isRetryable: true,
+    });
+
+    expect(modelCallError(spent, { call: "synthesis", provider: "openai", model: "gpt-test" })).toMatchObject({ code: "provider_quota_exhausted", transient: false, retryable: false });
+  });
+
+  it("accepts the AI SDK model's own provider id", () => {
+    const quota = new APICallError({
+      message: "quota",
+      url: "https://generativelanguage.googleapis.com/v1beta/models/gemini:generateContent",
+      requestBodyValues: {},
+      statusCode: 429,
+      responseBody: JSON.stringify({ error: { status: "RESOURCE_EXHAUSTED", details: [{ violations: [{ quotaId: "GenerateRequestsPerDayPerProjectPerModel" }] }] } }),
+    });
+    const spent = new APICallError({
+      message: "quota",
+      url: "https://api.openai.com/v1/chat/completions",
+      requestBodyValues: {},
+      statusCode: 429,
+      responseBody: JSON.stringify({ error: { message: "quota", type: "insufficient_quota", code: "insufficient_quota" } }),
+    });
+
+    expect(modelCallError(quota, { call: "x", provider: "google.generative-ai", model: "gemini-test" })).toMatchObject({ code: "provider_quota_exhausted", facts: { provider: "google" } });
+    expect(modelCallError(spent, { call: "x", provider: "openai.chat", model: "gpt-test" })).toMatchObject({ code: "provider_quota_exhausted", facts: { provider: "openai" } });
+  });
+
+  it("codes a provider without rules of its own by status, not uncoded", () => {
+    const outage = new APICallError({
+      message: "overloaded",
+      url: "https://api.anthropic.com/v1/messages",
+      requestBodyValues: {},
+      statusCode: 529,
+      responseHeaders: { "request-id": "req_a" },
+      isRetryable: true,
+    });
+    const rejected = new APICallError({ message: "bad", url: "https://api.anthropic.com/v1/messages", requestBodyValues: {}, statusCode: 400, isRetryable: false });
+    const anthropic = { call: "synthesis", provider: "anthropic", model: "claude-test" };
+
+    expect(modelCallError(outage, anthropic)).toMatchObject({ code: "dependency_server_error", source: "upstream", dependency: "ai_provider", transient: true, facts: { ...anthropic, status: 529 } });
+    expect(modelCallError(rejected, anthropic)).toMatchObject({ code: "dependency_request_rejected", source: "internal", transient: false });
+  });
+
+  it("codes anything else as internal, with a default message", () => {
+    const error = modelCallError(new Error("socket hang up"), context);
+
+    expect(error).toMatchObject({ type: "server_error", source: "internal", facts: context, message: expect.stringContaining("analyze_structure failed") });
+  });
+
+  it("keeps an error that's already classified", () => {
+    const classified = new MuxAiError("already", { code: "model_output_missing", type: "processing_error", source: "upstream", dependency: "ai_provider", facts: { call: "x" } });
+
+    expect(modelCallError(classified, context)).toBe(classified);
   });
 });

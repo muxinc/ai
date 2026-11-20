@@ -251,11 +251,12 @@ export const MUX_AI_ERROR_PUBLIC_MAPPINGS = {
   // Only the asset: the call, provider and model stay internal.
   [MUX_AI_ERROR_CODES.MODEL_OUTPUT_MISSING]: {
     facts: ["assetId"],
-    message: facts => `The AI model returned no usable output${facts.assetId ? ` for asset ${text(facts.assetId)}` : ""}.`,
+    // Sites set `retryable` when a new generation may succeed; the wording says so then.
+    message: (facts, { retryable }) => `The AI model returned no usable output${facts.assetId ? ` for asset ${text(facts.assetId)}` : ""}.${retryable ? TRY_AGAIN : ""}`,
   },
   [MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID]: {
     facts: ["assetId"],
-    message: facts => (facts.assetId ? `The AI model's output for asset ${text(facts.assetId)} couldn't be used.` : "The AI model's output couldn't be used."),
+    message: (facts, { retryable }) => `${facts.assetId ? `The AI model's output for asset ${text(facts.assetId)} couldn't be used.` : "The AI model's output couldn't be used."}${retryable ? TRY_AGAIN : ""}`,
   },
   [MUX_AI_ERROR_CODES.AUDIO_TRACK_UNSUPPORTED]: {
     facts: ["reason"],
