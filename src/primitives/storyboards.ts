@@ -17,6 +17,7 @@ export const DEFAULT_STORYBOARD_WIDTH = 640;
  * @param shouldSign - Flag for whether or not to use signed playback IDs (default: false)
  * @param credentials - Optional workflow credentials used for signing
  * @param scope - Optional asset-relative range for storyboard tiles
+ * @param format - Image format (default: "png")
  * @returns Storyboard URL (signed if shouldSign is true)
  */
 export async function getStoryboardUrl(
@@ -25,9 +26,10 @@ export async function getStoryboardUrl(
   shouldSign: boolean = false,
   credentials?: WorkflowCredentialsInput,
   scope?: WorkflowScope,
+  format: "png" | "jpg" = "png",
 ): Promise<string> {
   "use step";
-  const baseUrl = await getMuxStoryboardBaseUrl(playbackId, credentials);
+  const baseUrl = await getMuxStoryboardBaseUrl(playbackId, credentials, format);
   return withStoryboardParams(baseUrl, playbackId, width, shouldSign, credentials, scope);
 }
 

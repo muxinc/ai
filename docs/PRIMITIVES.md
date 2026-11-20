@@ -131,7 +131,7 @@ const timestamped = extractTimestampedTranscript(vttContent);
 
 ## Image Primitives
 
-### `getStoryboardUrl(playbackId, width?, shouldSign?, credentials?, scope?)`
+### `getStoryboardUrl(playbackId, width?, shouldSign?, credentials?, scope?, format?)`
 
 Generates a Mux storyboard URL (sprite sheet of video frames).
 
@@ -149,6 +149,7 @@ const storyboardUrl = await getStoryboardUrl("playback-id", 640);
 - `shouldSign?: boolean` - For signed playback policies
 - `credentials?: WorkflowCredentialsInput` - Optional workflow credentials used for signing
 - `scope?: { startTime?: number; endTime?: number }` - Restrict tiles to an asset-relative range
+- `format?: 'png' | 'jpg'` - Image format (default: 'png')
 
 ### `getStoryboardFrames(playbackId, width?, shouldSign?, credentials?, scope?)`
 
