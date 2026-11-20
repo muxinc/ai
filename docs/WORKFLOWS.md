@@ -182,6 +182,7 @@ const result = await askQuestions("your-mux-asset-id", [
 console.log(result.answers[0].answer); // "yes" or "no" by default
 console.log(result.answers[0].confidence); // 0.0-1.0 confidence score
 console.log(result.answers[0].reasoning); // AI's explanation
+console.log(result.answers[0].timestamp); // Seconds into the asset where the evidence is, when one moment supports the answer
 ```
 
 ### Multiple Questions
@@ -232,7 +233,7 @@ const result = await askQuestions(assetId, questions, {
   provider: "openai", // "openai", "anthropic", "google", "baseten", or "openai-compatible" (default: "openai")
   model: "gpt-5-mini", // Override default model
   includeTranscript: true, // Include transcript (default: true)
-  cleanTranscript: true, // Remove timestamps/markup (default: true)
+  cleanTranscript: true, // Send timestamped plain-text lines instead of raw WebVTT (default: true)
   imageSubmissionMode: "url", // "url" or "base64" (default: "url")
   storyboardWidth: 640 // Storyboard resolution in pixels (default: 640)
 });

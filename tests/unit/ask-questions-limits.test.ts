@@ -23,7 +23,8 @@ vi.mock("../../src/lib/workflow-credentials", () => ({
   resolveMuxSigningContext: vi.fn(),
 }));
 
-vi.mock("../../src/primitives/transcripts", () => ({
+vi.mock("../../src/primitives/transcripts", async importOriginal => ({
+  ...await importOriginal<typeof import("../../src/primitives/transcripts")>(),
   fetchTranscriptForAsset: vi.fn(),
 }));
 
@@ -47,6 +48,7 @@ function mockAnswers(count: number) {
     confidence: 0.9,
     reasoning: "ok",
     skipped: false,
+    timestamp: null,
   }));
 }
 
