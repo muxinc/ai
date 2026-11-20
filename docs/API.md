@@ -263,8 +263,8 @@ Answer questions about asset content by analyzing storyboard frames and optional
 - `languageCode?: string` - Language code for transcript track selection (e.g., 'en', 'fr'). When omitted, prefers English if available.
 - `includeTranscript?: boolean` - Include transcript in analysis (default: true, required for audio-only assets)
 - `cleanTranscript?: boolean` - Give the model plain text with each cue's start time, and return `transcriptText` as plain text. When false, both are raw WebVTT (default: true)
-- `imageSubmissionMode?: 'url' | 'base64'` - How to submit storyboard to AI providers (default: 'url')
-- `imageDownloadOptions?: object` - Options for image download when using base64 mode
+- `imageSubmissionMode?: 'url' | 'base64'` - How to submit storyboard to AI providers (default: 'url'). When Mux reports the storyboard's frame times, the storyboard is downloaded, labeled with frame numbers and sent inline regardless.
+- `imageDownloadOptions?: object` - Options for image download when the storyboard is labeled or using base64 mode
   - `timeout?: number` - Request timeout in milliseconds (default: 10000)
   - `retries?: number` - Maximum retry attempts (default: 3)
   - `retryDelay?: number` - Base delay between retries in milliseconds (default: 1000)
