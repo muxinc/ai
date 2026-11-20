@@ -1,16 +1,24 @@
-import { APICallError, generateText as generateTextWithModel, Output } from "ai";
+import { generateText as generateTextWithModel, Output } from "ai";
 import { z } from "zod";
 
 import {
+  findProviderServiceError,
   getGeneratedOutputWithContentPolicyHandling,
-  IncompleteGenerationError,
-  isIncompleteGenerationError,
+  modelStepError,
   withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
+import type { ModelCallContext } from "../lib/content-policy-error.ts";
 import { getLanguageName } from "../lib/language-codes.ts";
-import { isLegacyMuxAiError, LegacyMuxAiError, legacyWrapError } from "../lib/legacy-mux-ai-error.ts";
 import { withModelCallDiagnostics } from "../lib/model-call-diagnostics.ts";
-import type { ModelCallDiagnostics, MuxAiError } from "../lib/mux-ai-error.ts";
+import type { ModelCallDiagnostics, MuxAiErrorFacts, MuxAiErrorInit } from "../lib/mux-ai-error.ts";
+import {
+  MUX_AI_ERROR_CODES,
+  MUX_AI_ERROR_DEPENDENCIES,
+  MUX_AI_ERROR_SOURCES,
+  MUX_AI_ERROR_TYPES,
+  MuxAiError,
+  wrapError,
+} from "../lib/mux-ai-error.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -35,10 +43,13 @@ import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../li
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
 import { findGenerateTextLengthViolation } from "../lib/text-length.ts";
 import { repairText } from "../lib/text-repair-model.ts";
+import type { RepairResult } from "../lib/text-repair.ts";
 import { aggregateTokenUsage, getErrorTokenUsage, rethrowWithTokenUsage } from "../lib/token-usage.ts";
+import { signingCredentialsMissingError } from "../lib/url-signing.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
 import {
   hasWorkflowScopeBoundaries,
+  invalidScopeError,
   resolveRenderableVideoScope,
   resolveWorkflowScope,
   timeRangesOverlap,
@@ -200,75 +211,130 @@ export interface GenerateTextResult {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const KEY_PATTERN = /^[a-z][a-z0-9_]{0,63}$/;
+const KEY_FORMAT = "lowercase snake_case beginning with a letter, up to 64 characters";
 const LANGUAGE_TAG_PATTERN = /^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/i;
+const LANGUAGE_TAG_FORMAT = "a BCP 47 language tag such as 'en' or 'pt-BR'";
 const LENGTH_UNITS = ["characters", "words"] as const;
 
-function validationError(message: string): MuxAiError {
-  return new LegacyMuxAiError(message, { type: "validation_error" });
+/** The caller's option can't be used: `invalid_parameter`, blamed on `inputs`. */
+function invalidOptionError(message: string, facts: MuxAiErrorFacts, inputs: string[]): MuxAiError {
+  return new MuxAiError(message, {
+    code: MUX_AI_ERROR_CODES.INVALID_PARAMETER,
+    type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+    source: MUX_AI_ERROR_SOURCES.REQUEST,
+    facts: { ...facts, inputs },
+  });
 }
 
-function assertOneOf<T extends string>(value: string, allowed: readonly T[], label: string): void {
+/** A numeric option outside its bounds: `parameter_out_of_range`, blamed on `inputs`. */
+function outOfRangeError(message: string, facts: MuxAiErrorFacts, inputs: string[]): MuxAiError {
+  return new MuxAiError(message, {
+    code: MUX_AI_ERROR_CODES.PARAMETER_OUT_OF_RANGE,
+    type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+    source: MUX_AI_ERROR_SOURCES.REQUEST,
+    facts: { ...facts, inputs },
+  });
+}
+
+/** Caller values the public wording may echo: short tokens only, never free text a JS caller could pass. */
+const ECHOABLE_VALUE = /^[\w.-]{1,40}$/;
+
+function echoableValue(value: unknown): { value: string } | Record<string, never> {
+  return typeof value === "string" && ECHOABLE_VALUE.test(value) ? { value } : {};
+}
+
+function assertOneOf<T extends string>(value: string, allowed: readonly T[], label: string, parameter: string, input: string): void {
   if (!allowed.includes(value as T)) {
-    throw validationError(`Invalid ${label} "${value}". Valid values are: ${allowed.join(", ")}.`);
+    throw invalidOptionError(
+      `Invalid ${label} "${value}". Valid values are: ${allowed.join(", ")}.`,
+      { parameter, reason: "not_allowed", allowed: [...allowed], ...echoableValue(value) },
+      [input],
+    );
   }
 }
 
-function assertBoundedText(value: string, max: number, label: string): number {
+function assertBoundedText(value: string, max: number, label: string, parameter: string, input: string): number {
   const length = value.trim().length;
   if (length === 0 || length > max) {
-    throw validationError(`${label} must be 1-${max} characters.`);
+    throw invalidOptionError(
+      `${label} must be 1-${max} characters.`,
+      length === 0 ? { parameter, reason: "empty" } : { parameter, reason: "too_long", length, maxLength: max },
+      [input],
+    );
   }
   return length;
 }
 
-function assertKeyedItems(items: readonly GenerateTextKeyedItem[], noun: string, max: number): void {
+function assertKeyedItems(items: readonly GenerateTextKeyedItem[], noun: string, parameter: "variants" | "artifacts", max: number): void {
   if (items.length === 0) {
-    throw validationError(`At least one ${noun} is required.`);
+    throw invalidOptionError(`At least one ${noun} is required.`, { parameter, reason: "empty" }, [parameter]);
   }
   if (items.length > max) {
-    throw validationError(`At most ${max} ${noun}s are supported (received ${items.length}).`);
+    throw invalidOptionError(
+      `At most ${max} ${noun}s are supported (received ${items.length}).`,
+      { parameter, reason: "too_many", count: items.length, max },
+      [parameter],
+    );
   }
   const seen = new Set<string>();
-  for (const { key, instructions } of items) {
+  items.forEach(({ key, instructions }, index) => {
     if (!KEY_PATTERN.test(key ?? "")) {
-      throw validationError(`${noun} key "${key}" must be lowercase snake_case beginning with a letter, up to 64 characters.`);
+      throw invalidOptionError(
+        `${noun} key "${key}" must be lowercase snake_case beginning with a letter, up to 64 characters.`,
+        { parameter: `${parameter}[${index}].key`, reason: "invalid_format", format: KEY_FORMAT },
+        [parameter],
+      );
     }
     if (seen.has(key)) {
-      throw validationError(`Duplicate ${noun} key "${key}".`);
+      throw invalidOptionError(`Duplicate ${noun} key "${key}".`, { parameter, reason: "duplicate", value: key, index }, [parameter]);
     }
     seen.add(key);
     if (instructions !== undefined) {
-      assertBoundedText(instructions, GENERATE_TEXT_MAX_INSTRUCTIONS_CHARS, `${noun} "${key}" instructions`);
+      assertBoundedText(instructions, GENERATE_TEXT_MAX_INSTRUCTIONS_CHARS, `${noun} "${key}" instructions`, `${parameter}[${index}].instructions`, parameter);
     }
-  }
+  });
 }
 
-function assertArtifact(artifact: GenerateTextArtifact): void {
+function assertArtifact(artifact: GenerateTextArtifact, index: number): void {
+  const parameter = `artifacts[${index}]`;
   if (artifact.channel !== undefined) {
-    assertOneOf(artifact.channel, GENERATE_TEXT_CHANNELS, `artifact "${artifact.key}" channel`);
+    assertOneOf(artifact.channel, GENERATE_TEXT_CHANNELS, `artifact "${artifact.key}" channel`, `${parameter}.channel`, "artifacts");
   }
   if (artifact.format !== undefined) {
-    assertOneOf(artifact.format, GENERATE_TEXT_FORMATS, `artifact "${artifact.key}" format`);
+    assertOneOf(artifact.format, GENERATE_TEXT_FORMATS, `artifact "${artifact.key}" format`, `${parameter}.format`, "artifacts");
   }
   if (artifact.maxLength === undefined) {
     return;
   }
   const { unit, value } = artifact.maxLength;
-  assertOneOf(unit, LENGTH_UNITS, `artifact "${artifact.key}" maxLength.unit`);
+  assertOneOf(unit, LENGTH_UNITS, `artifact "${artifact.key}" maxLength.unit`, `${parameter}.maxLength.unit`, "artifacts");
   const bounds = GENERATE_TEXT_LENGTH_BOUNDS[unit];
   if (!Number.isInteger(value) || value < bounds.min || value > bounds.max) {
-    throw validationError(`Artifact "${artifact.key}" maxLength.value must be an integer between ${bounds.min} and ${bounds.max} (received ${value}).`);
+    throw outOfRangeError(
+      `Artifact "${artifact.key}" maxLength.value must be an integer between ${bounds.min} and ${bounds.max} ${unit} (received ${value}).`,
+      { parameter: `${parameter}.maxLength.value`, ...(typeof value === "number" ? { value: Number.isFinite(value) ? value : String(value) } : echoableValue(value)), min: bounds.min, max: bounds.max, integer: true, unit },
+      ["artifacts"],
+    );
   }
 
   const ceiling = artifact.channel ? GENERATE_TEXT_CHANNEL_CEILINGS[artifact.channel] : undefined;
   if (ceiling && ceiling.unit === unit && value > ceiling.value) {
-    throw validationError(`Artifact "${artifact.key}" targets ${artifact.channel} and supports at most ${ceiling.value} ${ceiling.unit}.`);
+    // The channel lowers the upper bound.
+    throw outOfRangeError(
+      `Artifact "${artifact.key}" targets ${artifact.channel} and supports at most ${ceiling.value} ${ceiling.unit}.`,
+      { parameter: `${parameter}.maxLength.value`, value, min: bounds.min, max: ceiling.value, integer: true, unit, channel: artifact.channel! },
+      ["artifacts"],
+    );
   }
 }
 
-function assertLanguageTag(value: string, label: string): void {
+function assertLanguageTag(value: string, parameter: string): void {
   if (value.length > 35 || !LANGUAGE_TAG_PATTERN.test(value)) {
-    throw validationError(`${label} must be a BCP 47 language tag such as "en" or "pt-BR".`);
+    throw invalidOptionError(
+      `${parameter} must be a BCP 47 language tag such as "en" or "pt-BR".`,
+      { parameter, reason: "invalid_format", format: LANGUAGE_TAG_FORMAT },
+      [parameter],
+    );
   }
 }
 
@@ -280,31 +346,38 @@ export function resolveGenerateTextOptions(options: GenerateTextOptions): Genera
   variants: GenerateTextVariant[];
 } {
   const variants = options.variants ?? [{ key: "default" }];
-  assertKeyedItems(variants, "variant", GENERATE_TEXT_MAX_VARIANTS);
-  assertKeyedItems(options.artifacts, "artifact", GENERATE_TEXT_MAX_ARTIFACTS);
-  for (const artifact of options.artifacts) {
-    assertArtifact(artifact);
-  }
+  assertKeyedItems(variants, "variant", "variants", GENERATE_TEXT_MAX_VARIANTS);
+  assertKeyedItems(options.artifacts, "artifact", "artifacts", GENERATE_TEXT_MAX_ARTIFACTS);
+  options.artifacts.forEach(assertArtifact);
 
   if (options.audience !== undefined) {
-    assertBoundedText(options.audience, GENERATE_TEXT_MAX_AUDIENCE_CHARS, "audience");
+    assertBoundedText(options.audience, GENERATE_TEXT_MAX_AUDIENCE_CHARS, "audience", "audience", "audience");
   }
   if (options.voice !== undefined) {
-    assertOneOf(options.voice, GENERATE_TEXT_VOICES, "voice");
+    assertOneOf(options.voice, GENERATE_TEXT_VOICES, "voice", "voice", "voice");
   }
   if (options.callToAction !== undefined) {
-    assertOneOf(options.callToAction, GENERATE_TEXT_CALLS_TO_ACTION, "callToAction");
+    assertOneOf(options.callToAction, GENERATE_TEXT_CALLS_TO_ACTION, "callToAction", "callToAction", "callToAction");
   }
   if (options.brandTerms !== undefined) {
-    if (options.brandTerms.length === 0 || options.brandTerms.length > GENERATE_TEXT_MAX_BRAND_TERMS) {
-      throw validationError(`brandTerms must contain 1-${GENERATE_TEXT_MAX_BRAND_TERMS} terms.`);
+    const count = options.brandTerms.length;
+    if (count === 0 || count > GENERATE_TEXT_MAX_BRAND_TERMS) {
+      throw invalidOptionError(
+        `brandTerms must contain 1-${GENERATE_TEXT_MAX_BRAND_TERMS} terms.`,
+        count === 0 ? { parameter: "brandTerms", reason: "empty" } : { parameter: "brandTerms", reason: "too_many", count, max: GENERATE_TEXT_MAX_BRAND_TERMS },
+        ["brandTerms"],
+      );
     }
     const total = options.brandTerms.reduce(
-      (sum, term) => sum + assertBoundedText(term, GENERATE_TEXT_MAX_BRAND_TERM_CHARS, "Each brand term"),
+      (sum, term, index) => sum + assertBoundedText(term, GENERATE_TEXT_MAX_BRAND_TERM_CHARS, "Each brand term", `brandTerms[${index}]`, "brandTerms"),
       0,
     );
     if (total > GENERATE_TEXT_MAX_BRAND_TERMS_TOTAL_CHARS) {
-      throw validationError(`Combined brandTerms must be ${GENERATE_TEXT_MAX_BRAND_TERMS_TOTAL_CHARS} characters or fewer.`);
+      throw invalidOptionError(
+        `Combined brandTerms must be ${GENERATE_TEXT_MAX_BRAND_TERMS_TOTAL_CHARS} characters or fewer.`,
+        { parameter: "brandTerms", reason: "too_long", length: total, maxLength: GENERATE_TEXT_MAX_BRAND_TERMS_TOTAL_CHARS },
+        ["brandTerms"],
+      );
     }
   }
   if (options.languageCode !== undefined) {
@@ -462,14 +535,20 @@ function clampBriefArrays(brief: GenerateTextBrief): GenerateTextBrief {
  * input. Leaked list entries are dropped; a leaked headline field fails the
  * run because every artifact would be written from it.
  */
-function scrubBrief(brief: GenerateTextBrief, safety: SafetyReporter): GenerateTextBrief {
+function scrubBrief(brief: GenerateTextBrief, safety: SafetyReporter, facts: MuxAiErrorFacts): GenerateTextBrief {
   const centralIdea = safety.scrubDetailed(brief.centralIdea, "editorial_brief.centralIdea");
   const readerValue = safety.scrubDetailed(brief.readerValue, "editorial_brief.readerValue");
   if (centralIdea.leaked || readerValue.leaked || !centralIdea.text.trim()) {
-    throw new LegacyMuxAiError(
-      "The editorial brief was suppressed by the output safety filter.",
-      { type: "processing_error", retryable: true },
-    );
+    throw new MuxAiError("The editorial brief was suppressed by the output safety filter.", {
+      code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_SUPPRESSED,
+      type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+      source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+      dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
+      facts,
+      // Resubmittable, as before classification: a new brief may not trip the filter.
+      transient: false,
+      retryable: true,
+    });
   }
 
   const scrubbed: GenerateTextBrief = { ...brief, centralIdea: centralIdea.text, readerValue: readerValue.text };
@@ -735,6 +814,87 @@ function readUsage(response: { usage: unknown }): TokenUsage {
   return getErrorTokenUsage(response) ?? {};
 }
 
+/** Output that doesn't match its schema: `model_output_invalid`, step-retried as the raw parse error was. */
+function invalidModelOutputError(context: ModelCallContext, cause: unknown): MuxAiError {
+  return new MuxAiError(`${context.call} returned output that doesn't match its schema`, {
+    code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID,
+    type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+    source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+    dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
+    facts: { call: context.call, provider: context.provider, ...(context.model && { model: context.model }) },
+    transient: true,
+    cause,
+  });
+}
+
+/**
+ * A failed length repair, classified without being step-retried: the repair already made its
+ * own attempts, and the legacy error it replaces was fatal too. Resubmittable, as before
+ * classification, unless the provider says retrying won't help. The failed call's usage is
+ * already counted by the caller, so the error carries none of its own.
+ */
+function lengthRepairError(
+  repaired: Extract<RepairResult<TokenUsage>, { status: "failed" }>,
+  context: ModelCallContext,
+  draft: { limit: GenerateTextLengthLimit; actual: number },
+): MuxAiError {
+  const cause = repaired.attempts.at(-1)?.call.errorCause;
+  const facts: MuxAiErrorFacts = { call: context.call, provider: context.provider, ...(context.model && { model: context.model }) };
+  if (cause === undefined) {
+    // No call failed: the repairs ran out without bringing the draft under its limit.
+    return new MuxAiError("Unable to bring the generated text within its length limit.", {
+      code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID,
+      type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+      source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+      dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
+      // The draft's own length, then why the repair stopped (no feasible plan, or its calls
+      // used up) and what each call produced: rejected replacements, or text still over a limit.
+      facts: {
+        ...facts,
+        reason: "over_length",
+        limitUnit: draft.limit.unit,
+        limit: draft.limit.value,
+        actual: draft.actual,
+        ...(repaired.outcome && { repairOutcome: repaired.outcome }),
+        repairAttempts: repaired.attempts.map((attempt): MuxAiErrorFacts => attempt.rejectionCode ?
+            { rejection: attempt.rejectionCode } :
+          attempt.overLimit ?
+              { limitUnit: attempt.overLimit.limit.unit, limit: attempt.overLimit.limit.value, actual: attempt.overLimit.actual } :
+              {}),
+      },
+      transient: false,
+      retryable: true,
+    });
+  }
+  const classified = MuxAiError.is(cause) ?
+    cause :
+      modelStepError(cause, "Unable to complete text generation.", { ...context });
+  // A classified provider failure keeps its own resubmit verdict, an unclassified one the AI
+  // SDK's (as before classification); anything else stays resubmittable. The repair always
+  // runs with a context, so its failures (early stops included) arrive classified, never legacy.
+  const retryable = classified.dependency ?
+    classified.retryable :
+    findProviderServiceError(cause)?.isRetryable ?? true;
+  const failure = classified.transient || classified.retryable !== retryable ?
+      new MuxAiError(classified.message, {
+        ...(classified.code && { code: classified.code }),
+        type: classified.type,
+        source: classified.source,
+        ...(classified.dependency && { dependency: classified.dependency }),
+        facts: classified.facts,
+        transient: false,
+        retryable,
+        // The raw failure, so the cause chain stays the provider's own error, not a second wrapper of it.
+        cause: MuxAiError.is(cause) ? classified.cause ?? classified : cause,
+      } as MuxAiErrorInit) :
+    classified;
+  delete (failure as { usage?: TokenUsage }).usage;
+  if (typeof cause === "object" && cause !== null && "diagnostics" in cause) {
+    failure.diagnostics = cause.diagnostics as ModelCallDiagnostics;
+  }
+  return failure;
+}
+
 async function extractBriefWithModel(args: {
   provider: SupportedProvider;
   modelId: string;
@@ -747,6 +907,7 @@ async function extractBriefWithModel(args: {
   return withModelCallDiagnostics({ phase: "brief", provider: args.provider, modelId: args.modelId }, async () => {
     const model = await createLanguageModelFromConfig(args.provider, args.modelId, args.credentials);
 
+    const context: ModelCallContext = { call: "extract_brief", provider: args.provider, model: args.modelId };
     const response = await withContentPolicyAwareRetry(() => generateTextWithModel({
       model,
       maxRetries: 0,
@@ -765,15 +926,19 @@ async function extractBriefWithModel(args: {
           ],
         },
       ],
-    }));
+    }), undefined, context).catch((error: unknown) => {
+      throw modelStepError(error, "Editorial brief model call failed", { ...context });
+    });
 
-    const output = getGeneratedOutputWithContentPolicyHandling(response);
-    if (!output) {
-      throw new Error("Editorial brief output missing");
+    // Throws model_output_missing when there is no output.
+    const output = getGeneratedOutputWithContentPolicyHandling(response, context);
+    const parsed = briefSchema.safeParse(output);
+    if (!parsed.success) {
+      throw invalidModelOutputError(context, parsed.error);
     }
 
     return {
-      brief: clampBriefArrays(briefSchema.parse(output)),
+      brief: clampBriefArrays(parsed.data),
       usage: readUsage(response),
       unexpectedKeys: detectUnexpectedKeysFromRawText(response.text, briefSchema.keyof().options),
     };
@@ -815,6 +980,7 @@ async function generateArtifactWithModel(args: {
   const diagnostics: ModelCallDiagnostics = { phase: "draft", provider: args.provider, modelId: args.modelId };
   return withModelCallDiagnostics(diagnostics, async () => {
     const model = await createLanguageModelFromConfig(args.provider, args.modelId, args.credentials);
+    const context: ModelCallContext = { call: "generate_artifact", provider: args.provider, model: args.modelId };
 
     const attempt = async (messages: ModelMessage[]): Promise<ArtifactAttempt> => {
       const response = await withContentPolicyAwareRetry(() => generateTextWithModel({
@@ -827,13 +993,17 @@ async function generateArtifactWithModel(args: {
         }),
         system: args.systemPrompt,
         messages,
-      }));
-      const output = getGeneratedOutputWithContentPolicyHandling(response);
-      if (!output) {
-        throw new Error("Generated text output missing");
+      }), undefined, context).catch((error: unknown) => {
+        throw modelStepError(error, "Text generation model call failed", { ...context });
+      });
+      // Throws model_output_missing when there is no output.
+      const output = getGeneratedOutputWithContentPolicyHandling(response, context);
+      const parsed = artifactSchema.safeParse(output);
+      if (!parsed.success) {
+        throw invalidModelOutputError(context, parsed.error);
       }
       return {
-        content: artifactSchema.parse(output).content.trim(),
+        content: parsed.data.content.trim(),
         usage: readUsage(response),
         unexpectedKeys: detectUnexpectedKeysFromRawText(response.text, artifactSchema.keyof().options),
       };
@@ -879,29 +1049,12 @@ async function generateArtifactWithModel(args: {
       limits: args.limits,
       protectedTerms: args.protectedTerms,
       model,
+      context,
     });
     usages.push(...repaired.attempts.flatMap(item => item.call.usage ? [item.call.usage] : []));
     if (repaired.status !== "valid") {
-      const cause = repaired.attempts.at(-1)?.call.errorCause;
-      // Rebuild before adding aggregate usage: the failed call is already in usages.
-      // Retain customer-safe metadata, including errors serialized by callers.
-      let failure: Error;
-      if (isIncompleteGenerationError(cause)) {
-        failure = new IncompleteGenerationError(cause.finishReason, cause.rawFinishReason);
-      } else if (isLegacyMuxAiError(cause)) {
-        failure = new LegacyMuxAiError(cause.publicMessage, { type: cause.publicType, retryable: cause.retryable });
-      } else {
-        const apiError = APICallError.isInstance(cause) ? cause : undefined;
-        failure = new LegacyMuxAiError("Unable to complete text generation.", {
-          type: "processing_error",
-          retryable: apiError?.isRetryable ?? true,
-          cause,
-        });
-      }
-      if (typeof cause === "object" && cause !== null && "diagnostics" in cause) {
-        (failure as MuxAiError).diagnostics = cause.diagnostics as ModelCallDiagnostics;
-      }
-      rethrowWithTokenUsage(failure, usages);
+      // The failed call is already in usages, so the error is rebuilt without its own.
+      rethrowWithTokenUsage(lengthRepairError(repaired, context, violation), usages);
     }
     return { content: repaired.content, usages, unexpectedKeys };
   });
@@ -939,6 +1092,8 @@ async function generateArtifactsInBatches(
   requests: Array<Parameters<typeof generateArtifactWithModel>[0]>,
   collectedUsage: TokenUsage[],
   provider: string,
+  model: string,
+  assetId: string,
 ): Promise<ArtifactStepResult[]> {
   const results: ArtifactStepResult[] = [];
   for (let start = 0; start < requests.length; start += GENERATE_TEXT_MAX_CONCURRENT_GENERATIONS) {
@@ -960,7 +1115,7 @@ async function generateArtifactsInBatches(
           collectedUsage.push(usage);
         }
       }
-      legacyWrapError(failures[0], `Failed to generate text with ${provider}`);
+      wrapError(failures[0], `Failed to generate text with ${provider}`, { call: "generate_artifact", provider, model, assetId });
     }
   }
   return results;
@@ -994,33 +1149,39 @@ async function generateTextInternal(
     provider: provider as SupportedProvider,
   });
 
-  const { asset, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials, options.assetSnapshot);
+  const { asset, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials, options.assetSnapshot, { classifiedErrors: true });
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(asset);
   const isAudioOnly = isAudioOnlyAsset(asset);
   const effectiveScope = hasWorkflowScopeBoundaries(scope) ? scope : undefined;
-  const resolvedScope = effectiveScope ? resolveWorkflowScope(effectiveScope, assetDurationSeconds) : undefined;
+  const resolvedScope = effectiveScope ? resolveWorkflowScope(effectiveScope, assetDurationSeconds, { classifiedErrors: true, assetId }) : undefined;
   const storyboardScope = isAudioOnly ?
     undefined :
       resolveRenderableVideoScope(
         effectiveScope,
         assetDurationSeconds,
         getVideoTrackDurationSecondsFromAsset(asset),
+        { classifiedErrors: true, assetId },
       );
 
   if (useShots && isAudioOnly) {
-    throw new LegacyMuxAiError("useShots is not supported for audio-only assets.", { type: "validation_error" });
+    throw invalidOptionError(
+      "useShots is not supported for audio-only assets.",
+      { parameter: "useShots", reason: "audio_only", allowed: [false], value: true, assetId },
+      ["useShots"],
+    );
   }
   if (useShots && assetDurationSeconds === undefined) {
-    throw new LegacyMuxAiError("Asset has no valid duration.", { type: "validation_error" });
+    throw new MuxAiError("Asset has no valid duration.", {
+      code: MUX_AI_ERROR_CODES.ASSET_DURATION_UNAVAILABLE,
+      type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+      source: MUX_AI_ERROR_SOURCES.ASSET,
+      facts: { assetId },
+    });
   }
 
   const signingContext = await resolveMuxSigningContext(credentials);
   if (policy === "signed" && !signingContext) {
-    throw new LegacyMuxAiError(
-      "Signed playback ID requires signing credentials. " +
-      "Set MUX_SIGNING_KEY and MUX_PRIVATE_KEY environment variables.",
-      { type: "validation_error" },
-    );
+    throw signingCredentialsMissingError();
   }
   const shouldSign = policy === "signed";
 
@@ -1032,17 +1193,29 @@ async function generateTextInternal(
       credentials,
       required: true,
       scope: effectiveScope,
+      classifiedErrors: true,
     }),
     isAudioOnly ? undefined : getStoryboardUrl(playbackId, 640, shouldSign, credentials, storyboardScope),
     useShots ? getCompletedShots(assetId, credentials) : undefined,
   ]);
 
+  // The fetch already rejects an empty transcript; this catches one that's only whitespace once cleaned.
   const transcriptText = transcriptResult.transcriptText.trim();
   if (!transcriptText) {
-    throw new LegacyMuxAiError(
-      effectiveScope ? "Transcript has no usable content in the requested scope." : "Transcript has no usable content.",
-      { type: "validation_error" },
-    );
+    const trackId = transcriptResult.track?.id;
+    if (effectiveScope) {
+      throw invalidScopeError(
+        "Transcript has no usable content in the requested scope.",
+        { reason: "no_transcript", ...(trackId && { trackId }), ...(effectiveScope.startTime !== undefined && { startTime: effectiveScope.startTime }), ...(effectiveScope.endTime !== undefined && { endTime: effectiveScope.endTime }) },
+        ["scope"],
+      );
+    }
+    throw new MuxAiError("Transcript has no usable content.", {
+      code: MUX_AI_ERROR_CODES.TRANSCRIPT_EMPTY,
+      type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+      source: MUX_AI_ERROR_SOURCES.ASSET,
+      facts: { assetId, ...(trackId && { trackId }) },
+    });
   }
 
   const resolvedLanguageCode = outputLanguageCode && outputLanguageCode !== "auto" ?
@@ -1057,6 +1230,7 @@ async function generateTextInternal(
 
   const steering: SteeringOptions = { audience, voice, callToAction, brandTerms };
   const safety = createSafetyReporter();
+  const briefFacts: MuxAiErrorFacts = { call: "extract_brief", provider: modelConfig.provider, model: modelConfig.modelId, assetId };
 
   const briefStep = await extractBriefWithModel({
     provider: modelConfig.provider,
@@ -1065,12 +1239,12 @@ async function generateTextInternal(
     userPrompt: buildBriefUserPrompt({ transcriptText, imageCount: imageUrls.length, audience, languageName }),
     imageUrls,
     credentials,
-  }).catch((error: unknown) => legacyWrapError(error, `Failed to extract editorial brief with ${provider}`));
+  }).catch((error: unknown) => wrapError(error, `Failed to extract editorial brief with ${provider}`, { ...briefFacts }));
   collectedUsage.push(briefStep.usage);
   for (const key of briefStep.unexpectedKeys) {
     safety.record(`editorial_brief.${key}`, "unexpected_key");
   }
-  const brief = scrubBrief(briefStep.brief, safety);
+  const brief = scrubBrief(briefStep.brief, safety, briefFacts);
 
   const matrix = variants.flatMap(variant => artifacts.map(artifact => ({
     variant,
@@ -1085,7 +1259,7 @@ async function generateTextInternal(
     limits,
     protectedTerms: brandTerms,
     credentials,
-  })), collectedUsage, provider);
+  })), collectedUsage, provider, modelConfig.modelId, assetId);
 
   const groupedVariants: GeneratedTextVariant[] = variants.map((variant, variantIndex) => ({
     key: variant.key,
@@ -1095,13 +1269,31 @@ async function generateTextInternal(
       for (const key of item.unexpectedKeys) {
         safety.record(`${field}.${key}`, "unexpected_key");
       }
+      // Resubmittable, as before classification: a new draft may succeed.
+      const artifactFacts: MuxAiErrorFacts = { call: "generate_artifact", provider: modelConfig.provider, model: modelConfig.modelId, assetId, variant: variant.key, artifact: artifact.key };
       if (item.violation === "empty") {
-        throw new LegacyMuxAiError(`Generated text for ${field} was empty after a retry.`, { type: "processing_error", retryable: true });
+        throw new MuxAiError(`Generated text for ${field} was empty after a retry.`, {
+          code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_MISSING,
+          type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+          source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+          dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
+          facts: artifactFacts,
+          transient: false,
+          retryable: true,
+        });
       }
       if (item.violation) {
-        throw new LegacyMuxAiError(
+        throw new MuxAiError(
           `Generated text for ${field} exceeded the ${item.violation.limit.value} ${item.violation.limit.unit} limit after a retry (${item.violation.actual} returned).`,
-          { type: "processing_error", retryable: true },
+          {
+            code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID,
+            type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
+            source: MUX_AI_ERROR_SOURCES.UPSTREAM,
+            dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
+            facts: { ...artifactFacts, reason: "over_length", limitUnit: item.violation.limit.unit, limit: item.violation.limit.value, actual: item.violation.actual },
+            transient: false,
+            retryable: true,
+          },
         );
       }
       return {

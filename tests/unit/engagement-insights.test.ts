@@ -123,7 +123,7 @@ describe("generateEngagementInsights failures", () => {
       name: "FatalError",
     });
     expect(isLegacyMuxAiError(error)).toBe(false);
-    expect(toPublicError(error)).toMatchObject({ code: "parameter_out_of_range", message: "hotspotLimit must be an integer between 1 and 10 (received 11)." });
+    expect(toPublicError(error)).toMatchObject({ code: "parameter_out_of_range", message: "hotspotLimit must be at most 10 (received 11)." });
   });
 
   it("rejects an asset without a duration as the asset's state", async () => {

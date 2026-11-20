@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import type { TokenUsage } from "../types.ts";
 
+import { dependencyError } from "./dependency-error.ts";
 import { googleCallError } from "./google-errors.ts";
 import { LegacyMuxAiError } from "./legacy-mux-ai-error.ts";
 import type { MuxAiErrorFacts } from "./mux-ai-error.ts";
@@ -161,7 +162,7 @@ export function isIncompleteGenerationError(error: unknown): error is Incomplete
  * output limit is deterministic (the same input hits it again) and ours to fix by
  * splitting the work; any other early stop is the provider's.
  */
-function incompleteGenerationError(finishReason: string, rawFinishReason: string | undefined, usage: TokenUsage | undefined, context?: ModelCallContext): MuxAiError {
+export function incompleteGenerationError(finishReason: string, rawFinishReason: string | undefined, usage: TokenUsage | undefined, context?: ModelCallContext): MuxAiError {
   if (!context) {
     return new IncompleteGenerationError(finishReason, rawFinishReason, usage);
   }
@@ -342,6 +343,16 @@ export function classifyModelCallError(error: unknown, context: ModelCallContext
   if (unusable) {
     return unusable;
   }
+  if (isClientTimeout(last)) {
+    // Our own deadline (an `abortSignal` timeout) passed before the provider answered.
+    return withUsage(dependencyError(`${context.call} timed out`, {
+      dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
+      call: context.call,
+      timedOut: true,
+      facts: modelCallFacts(context),
+      cause: error,
+    }), getErrorTokenUsage(error));
+  }
   const apiError = findProviderCallError(error);
   if (!apiError) {
     return undefined;
@@ -355,6 +366,11 @@ export function classifyModelCallError(error: unknown, context: ModelCallContext
     default:
       return undefined;
   }
+}
+
+/** What `AbortSignal.timeout()` aborts with: a `DOMException` named `TimeoutError`. */
+function isClientTimeout(error: unknown): boolean {
+  return typeof error === "object" && error !== null && (error as { name?: unknown }).name === "TimeoutError";
 }
 
 /**

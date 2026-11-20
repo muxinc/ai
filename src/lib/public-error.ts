@@ -52,6 +52,22 @@ function text(value: MuxAiErrorFactValue | undefined): string {
   return value === undefined || value === null ? "" : String(value);
 }
 
+/**
+ * The bound a `parameter_out_of_range` value crossed: "at least 5 words" or "at most 280 characters", so the
+ * reader never has to compare. The full range when the value is inside it (not a whole number) or unknown.
+ */
+function outOfRangeBound(facts: MuxAiErrorFacts): string {
+  const unit = facts.unit === undefined ? "" : ` ${text(facts.unit)}`;
+  const { value, min, max } = facts;
+  if (typeof value === "number" && typeof min === "number" && value < min) {
+    return `at least ${min}${unit}`;
+  }
+  if (typeof value === "number" && typeof max === "number" && value > max) {
+    return `at most ${max}${unit}`;
+  }
+  return `${facts.integer ? "an integer " : ""}between ${text(min)} and ${text(max)}${unit}`;
+}
+
 /** A fact's wording from a table, by the table's own keys only (never `constructor` and the like). */
 function wording(table: Readonly<Record<string, string>>, value: MuxAiErrorFactValue | undefined): string | undefined {
   const key = text(value);
@@ -161,6 +177,10 @@ function invalidParameterMessage(facts: MuxAiErrorFacts): string {
       return `Provide at least one of ${names(facts.parameters)}.`;
     case "audio_only":
       return `${parameter} must be ${quotedList(facts.allowed)} for an audio-only asset, which is processed from its transcript and needs a ready caption or subtitle track.`;
+    case "invalid_format":
+      return `${subject} must be ${text(facts.format) || "in the expected format"}${entry}.`;
+    case "duplicate":
+      return `${parameter} has the key '${text(facts.value)}' more than once; each key must be unique.`;
     default:
       return `${parameter} has a value that can't be used.`;
   }
@@ -217,12 +237,12 @@ export const MUX_AI_ERROR_PUBLIC_MAPPINGS = {
   },
   // Names the caller's own option; a consumer that exposes different names overrides the wording.
   [MUX_AI_ERROR_CODES.INVALID_PARAMETER]: {
-    facts: ["parameter", "reason", "count", "max", "index", "length", "maxLength", "characters", "with", "withValue", "allowed", "value", "parameters"],
+    facts: ["parameter", "reason", "count", "max", "index", "length", "maxLength", "characters", "with", "withValue", "allowed", "value", "parameters", "format"],
     message: invalidParameterMessage,
   },
   [MUX_AI_ERROR_CODES.PARAMETER_OUT_OF_RANGE]: {
-    facts: ["parameter", "value", "min", "max", "integer"],
-    message: facts => `${text(facts.parameter) || "A parameter"} must be ${facts.integer ? "an integer " : ""}between ${text(facts.min)} and ${text(facts.max)}${facts.value === undefined ? "" : ` (received ${text(facts.value)})`}.`,
+    facts: ["parameter", "value", "min", "max", "integer", "unit"],
+    message: facts => `${text(facts.parameter) || "A parameter"} must be ${outOfRangeBound(facts)}${facts.value === undefined ? "" : ` (received ${text(facts.value)})`}.`,
   },
   [MUX_AI_ERROR_CODES.ASSET_DURATION_UNAVAILABLE]: {
     facts: ["assetId"],

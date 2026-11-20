@@ -1,6 +1,7 @@
 import { APICallError } from "ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { toPublicError } from "../../src/lib/public-error";
 import { generateText } from "../../src/workflows/generate-text.ts";
 
 const state = vi.hoisted(() => ({ requests: [] as Record<string, any>[], failure: "" as "" | "length" | "truncated-json" | "filter" | "refusal" | "refusal-with-reasoning" | "policy" | "auth" | "transient", providerMessage: "Provider rejected gpt-private for org-internal: rate-limit quota details" }));
@@ -85,7 +86,7 @@ describe("production repair through the real AI SDK provider", () => {
   it("retains provider usage and stops when the real adapter receives incomplete repair output", async () => {
     state.failure = "length";
     await expect(generateText("asset-test", { artifacts: [{ key: "post", channel: "x" }] })).rejects.toMatchObject({
-      publicType: "processing_error",
+      code: "model_output_truncated",
       retryable: false,
       usage: { totalTokens: 330, cacheWriteTokens: 90 },
     });
@@ -94,29 +95,36 @@ describe("production repair through the real AI SDK provider", () => {
   it.each(["filter", "refusal", "refusal-with-reasoning"] as const)("preserves %s policy classification and usage with one repair request", async (failure) => {
     state.failure = failure;
     await expect(generateText("asset-test", { artifacts: [{ key: "post", channel: "x" }] })).rejects.toMatchObject({
-      publicType: "content_policy_error",
+      code: "content_policy_blocked",
+      type: "content_policy_error",
       retryable: false,
       usage: { totalTokens: 330, cachedInputTokens: 60, cacheWriteTokens: 90 },
     });
     expect(state.requests).toHaveLength(3);
   });
 
-  it.each([["auth", false, 401], ["transient", true, 429]] as const)("keeps %s diagnostics internal and preserves retryability without retrying inside repair", async (failure, retryable, statusCode) => {
+  it.each([
+    ["auth", 401, { code: "provider_credentials_rejected", type: "server_error", source: "internal", retryable: false }],
+    ["transient", 429, { code: "dependency_rate_limited", type: "capacity_error", source: "upstream", retryable: true }],
+  ] as const)("keeps %s diagnostics internal and preserves retryability without retrying inside repair", async (failure, statusCode, classification) => {
     state.failure = failure;
     const error = await generateText("asset-test", { artifacts: [{ key: "post", channel: "x" }] }).catch(error => error);
+    // Classified by OpenAI's rules (an unrecognized OpenAI code falls back to the status's code),
+    // and never step-retried after the repair's own attempt.
     expect(error).toMatchObject({
-      __robots_error: true,
-      message: "Unable to complete text generation.",
-      publicMessage: "Unable to complete text generation.",
-      publicType: "processing_error",
-      retryable,
+      ...classification,
+      dependency: "ai_provider",
+      transient: false,
+      facts: { call: "generate_artifact", provider: "openai", status: statusCode },
       usage: { inputTokens: 200, outputTokens: 20, totalTokens: 220, cachedInputTokens: 40, cacheWriteTokens: 60, reasoningTokens: 0 },
     });
     expect(APICallError.isInstance(error.cause)).toBe(true);
     expect(error.cause).toMatchObject({ message: state.providerMessage, statusCode, responseHeaders: { "x-request-id": "req-repair-test" } });
     expect(Object.getOwnPropertyDescriptor(error, "cause")?.enumerable).toBe(false);
     expect(JSON.stringify(error)).not.toContain(state.providerMessage);
-    expect(JSON.stringify(error)).not.toContain("req-repair-test");
+    // The request id is an internal fact; customers never see it.
+    expect(error.facts.requestId).toBe("req-repair-test");
+    expect(JSON.stringify(toPublicError(error))).not.toContain("req-repair-test");
     expect(console.warn).toHaveBeenCalledExactlyOnceWith("[@mux/ai] Model call failed.", {
       phase: "length_repair",
       maxOutputTokens: 1024,
@@ -133,7 +141,7 @@ describe("production repair through the real AI SDK provider", () => {
   it("normalizes a truncated JSON exception before generateText can return, retaining usage", async () => {
     state.failure = "truncated-json";
     await expect(generateText("asset-test", { artifacts: [{ key: "post", channel: "x" }] })).rejects.toMatchObject({
-      publicType: "processing_error",
+      code: "model_output_truncated",
       retryable: false,
       finishReason: "length",
       usage: { totalTokens: 330, cacheWriteTokens: 90 },
@@ -144,7 +152,8 @@ describe("production repair through the real AI SDK provider", () => {
   it("normalizes an OpenAI API policy failure before recording the repair error", async () => {
     state.failure = "policy";
     await expect(generateText("asset-test", { artifacts: [{ key: "post", channel: "x" }] })).rejects.toMatchObject({
-      publicType: "content_policy_error",
+      code: "content_policy_blocked",
+      type: "content_policy_error",
       retryable: false,
       usage: { totalTokens: 220 },
     });

@@ -79,25 +79,43 @@ export function repairJsonSchema(plan: RepairPlan) {
   };
 }
 
+/** Why a model's paragraph replacements were not applied. */
+export type RepairRejectionCode =
+  | "invalid_object" |
+  "span_ids" |
+  "stale_plan" |
+  "empty_replacement" |
+  "split_paragraph" |
+  "literal_escapes" |
+  "protected_term";
+
+function rejected(code: RepairRejectionCode, reason: string) {
+  return { accepted: false, code, reason } as const;
+}
+
 export function applyTextRepair(content: string, plan: RepairPlan, replacements: unknown) {
   if (!replacements || typeof replacements !== "object" || Array.isArray(replacements))
-    return { accepted: false, reason: "Invalid replacement object" } as const;
+    return rejected("invalid_object", "Invalid replacement object");
   const values = replacements as Record<string, unknown>;
   if (Object.keys(values).length !== plan.spans.length || Object.keys(values).some(key => !plan.spans.some(span => span.id === key)))
-    return { accepted: false, reason: "Unexpected or missing span IDs" } as const;
+    return rejected("span_ids", "Unexpected or missing span IDs");
   const parts = split(content);
   for (const span of plan.spans) {
     const index = Number(span.id.slice(2));
     const replacement = values[span.id];
     if (parts[index] !== span.text)
-      return { accepted: false, reason: "Stale repair plan" } as const;
-    if (typeof replacement !== "string" || !replacement.trim() || INVALID_REPLACEMENT.test(replacement) || introducesLiteralEscapes(span.text, replacement))
-      return { accepted: false, reason: "Empty or incompatible paragraph replacement" } as const;
+      return rejected("stale_plan", "Stale repair plan");
+    if (typeof replacement !== "string" || !replacement.trim())
+      return rejected("empty_replacement", "Empty or incompatible paragraph replacement");
+    if (INVALID_REPLACEMENT.test(replacement))
+      return rejected("split_paragraph", "Empty or incompatible paragraph replacement");
+    if (introducesLiteralEscapes(span.text, replacement))
+      return rejected("literal_escapes", "Empty or incompatible paragraph replacement");
     parts[index] = replacement;
   }
   const editedText = plan.spans.map(span => values[span.id]).join("\n\n");
   if (plan.protectedTerms.some(term => !editedText.includes(term)))
-    return { accepted: false, reason: "Protected term removed from edited spans" } as const;
+    return rejected("protected_term", "Protected term removed from edited spans");
   return { accepted: true, content: parts.join("") } as const;
 }
 
@@ -123,6 +141,10 @@ export interface RepairAttempt<Usage> {
   plan: RepairPlan;
   call: RepairCall<Usage>;
   rejection?: string;
+  /** Set with `rejection`: why the replacements were not applied. */
+  rejectionCode?: RepairRejectionCode;
+  /** Set when the replacements were applied but the text was still over a limit. */
+  overLimit?: { limit: TextLengthLimit; actual: number };
 }
 
 /** Current repair policy: paragraph edits and at most two generation calls. */
@@ -134,9 +156,15 @@ export interface RepairOptions<Usage> {
   maxAttempts?: number;
 }
 
+/**
+ * Why a repair failed: an empty draft, no feasible span budget, a failed generation
+ * call, or both calls used without bringing the text under its limits.
+ */
+export type RepairFailureOutcome = "empty_draft" | "no_plan" | "call_failed" | "exhausted";
+
 export type RepairResult<Usage> =
   | { status: "valid"; content: string; attempts: RepairAttempt<Usage>[] } |
-  { status: "failed"; attempts: RepairAttempt<Usage>[]; reason: string };
+  { status: "failed"; attempts: RepairAttempt<Usage>[]; reason: string; outcome?: RepairFailureOutcome };
 
 /** Orchestrates paragraph repair through a caller-supplied generation callback. */
 export async function runTextRepairLoop<Usage>(options: RepairOptions<Usage>): Promise<RepairResult<Usage>> {
@@ -148,25 +176,31 @@ export async function runTextRepairLoop<Usage>(options: RepairOptions<Usage>): P
   let content = options.content;
   const attempts: RepairAttempt<Usage>[] = [];
   if (!content.trim())
-    return { status: "failed" as const, attempts, reason: "Empty draft has no substance to preserve" };
+    return { status: "failed" as const, attempts, reason: "Empty draft has no substance to preserve", outcome: "empty_draft" };
   for (let index = 0; index < maxAttempts; index++) {
     if (!findGenerateTextLengthViolation(content, options.limits))
       return { status: "valid" as const, content, attempts };
     const plan = planTextRepair(content, options.limits, options.protectedTerms);
     if (!plan)
-      return { status: "failed" as const, attempts, reason: "No feasible span budget" };
+      return { status: "failed" as const, attempts, reason: "No feasible span budget", outcome: "no_plan" };
     const call = await options.generate(plan);
     const applied = applyTextRepair(content, plan, call.replacements);
-    attempts.push({ plan, call, rejection: applied.accepted ? undefined : applied.reason });
+    const overLimit = applied.accepted ? findGenerateTextLengthViolation(applied.content, options.limits) : undefined;
+    attempts.push({
+      plan,
+      call,
+      ...(!applied.accepted && { rejection: applied.reason, rejectionCode: applied.code }),
+      ...(overLimit && { overLimit }),
+    });
     // No additional call after a refusal, truncation, timeout, or provider error.
     if (call.error)
-      return { status: "failed" as const, attempts, reason: call.error };
-    if (applied.accepted && !findGenerateTextLengthViolation(applied.content, options.limits))
+      return { status: "failed" as const, attempts, reason: call.error, outcome: "call_failed" };
+    if (applied.accepted && !overLimit)
       return { status: "valid" as const, content: applied.content, attempts };
     if (applied.accepted && options.limits.every(limit => measureGenerateTextLength(applied.content, limit.unit) <= measureGenerateTextLength(content, limit.unit)))
       content = applied.content;
   }
   return !findGenerateTextLengthViolation(content, options.limits) ?
       { status: "valid" as const, content, attempts } :
-      { status: "failed" as const, attempts, reason: "Repair budget exhausted without a valid output" };
+      { status: "failed" as const, attempts, reason: "Repair budget exhausted without a valid output", outcome: "exhausted" };
 }

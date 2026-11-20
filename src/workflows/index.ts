@@ -3,7 +3,7 @@ export { createTextRepairGenerator, repairText } from "../lib/text-repair-model.
 export type { TextRepairModelOptions } from "../lib/text-repair-model.ts";
 // Shared paragraph repair for SDK workflow consumers.
 export { applyTextRepair, planTextRepair, repairJsonSchema, runTextRepairLoop } from "../lib/text-repair.ts";
-export type { RepairAttempt, RepairCall, RepairOptions, RepairPlan, RepairResult, RepairSpan } from "../lib/text-repair.ts";
+export type { RepairAttempt, RepairCall, RepairFailureOutcome, RepairOptions, RepairPlan, RepairRejectionCode, RepairResult, RepairSpan } from "../lib/text-repair.ts";
 export * from "./ask-questions.ts";
 export * from "./burned-in-captions.ts";
 export * from "./chapters.ts";
