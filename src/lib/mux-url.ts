@@ -123,16 +123,18 @@ export async function getMuxImageBaseUrl(
   playbackId: string,
   assetType: "storyboard" | "thumbnail",
   credentials?: WorkflowCredentialsInput,
+  format: "png" | "jpg" = "png",
 ): Promise<string> {
   const origin = await getMuxImageOrigin(credentials);
-  return `${origin}/${playbackId}/${assetType}.png`;
+  return `${origin}/${playbackId}/${assetType}.${format}`;
 }
 
 export async function getMuxStoryboardBaseUrl(
   playbackId: string,
   credentials?: WorkflowCredentialsInput,
+  format: "png" | "jpg" = "png",
 ): Promise<string> {
-  return getMuxImageBaseUrl(playbackId, "storyboard", credentials);
+  return getMuxImageBaseUrl(playbackId, "storyboard", credentials, format);
 }
 
 export async function getMuxThumbnailBaseUrl(

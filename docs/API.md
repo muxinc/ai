@@ -262,9 +262,9 @@ Answer questions about asset content by analyzing storyboard frames and optional
 - `model?: string` - AI model to use. Defaults per provider: `gpt-5.6-luna` at medium reasoning (OpenAI), `claude-sonnet-4-5` (Anthropic), `gemini-3-flash-preview` (Google). Baseten and OpenAI-compatible endpoints have no default — pass `model` or set the `BASETEN_MODEL` / `OPENAI_COMPATIBLE_MODEL` environment variable.
 - `languageCode?: string` - Language code for transcript track selection (e.g., 'en', 'fr'). When omitted, prefers English if available.
 - `includeTranscript?: boolean` - Include transcript in analysis (default: true, required for audio-only assets)
-- `cleanTranscript?: boolean` - Remove VTT timestamps and formatting from transcript (default: true)
-- `imageSubmissionMode?: 'url' | 'base64'` - How to submit storyboard to AI providers (default: 'url')
-- `imageDownloadOptions?: object` - Options for image download when using base64 mode
+- `cleanTranscript?: boolean` - Give the model plain text with each cue's start time, and return `transcriptText` as plain text. When false, both are raw WebVTT (default: true)
+- `imageSubmissionMode?: 'url' | 'base64'` - How to submit storyboard to AI providers (default: 'url'). When Mux reports the storyboard's frame times, the storyboard is downloaded, labeled with frame numbers and sent inline regardless.
+- `imageDownloadOptions?: object` - Options for image download when the storyboard is labeled or using base64 mode
   - `timeout?: number` - Request timeout in milliseconds (default: 10000)
   - `retries?: number` - Maximum retry attempts (default: 3)
   - `retryDelay?: number` - Base delay between retries in milliseconds (default: 1000)
@@ -284,6 +284,7 @@ interface AskQuestionsResult {
     confidence: number; // Confidence score (0.0-1.0)
     reasoning: string; // AI's explanation based on observable evidence or why the question was skipped
     skipped: boolean; // True when the question was not answerable from the asset content
+    timestamp?: number; // Seconds from the start of the asset to the moment that best supports the answer. Omitted when no single moment does, or when skipped
   }>;
   storyboardUrl?: string; // URL to analyzed storyboard (undefined for audio-only assets)
   usage?: TokenUsage; // Token usage from the AI provider
