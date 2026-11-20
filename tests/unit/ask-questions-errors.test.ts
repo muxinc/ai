@@ -28,6 +28,7 @@ vi.mock("../../src/lib/image-download", () => ({
 }));
 
 vi.mock("../../src/primitives/storyboards", () => ({
+  getStoryboardFrames: vi.fn(),
   getStoryboardUrl: vi.fn(),
 }));
 
@@ -47,7 +48,7 @@ const {
 } = await import("../../src/lib/mux-assets");
 const { createLanguageModelFromConfig, resolveLanguageModelConfig } = await import("../../src/lib/providers");
 const { resolveMuxSigningContext } = await import("../../src/lib/workflow-credentials");
-const { getStoryboardUrl } = await import("../../src/primitives/storyboards");
+const { getStoryboardFrames, getStoryboardUrl } = await import("../../src/primitives/storyboards");
 const { fetchTranscriptForAsset } = await import("../../src/primitives/transcripts");
 const { askQuestions } = await import("../../src/workflows/ask-questions");
 
@@ -81,6 +82,7 @@ beforeEach(() => {
     transcriptText: "A presenter holds up a pair of glasses.",
   } as any);
   vi.mocked(getStoryboardUrl).mockResolvedValue("https://image.example/storyboard.jpg");
+  vi.mocked(getStoryboardFrames).mockResolvedValue([]);
   mockModelAnswers([ANSWER]);
 });
 
