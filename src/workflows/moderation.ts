@@ -26,7 +26,6 @@ import {
 import { getMuxThumbnailBaseUrl } from "../lib/mux-url.ts";
 import { openAIFetchError } from "../lib/openai-errors.ts";
 import { withRetry } from "../lib/retry.ts";
-import { planSamplingTimestamps } from "../lib/sampling-plan.ts";
 import { signingCredentialsMissingError, signUrl } from "../lib/url-signing.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
 import type { ResolvedWorkflowScope } from "../lib/workflow-scope.ts";
@@ -213,11 +212,11 @@ export interface ModerationOptions extends ScopedMuxAIOptions {
     sexual?: number;
     violence?: number;
   };
-  /** Interval between storyboard thumbnails in seconds (defaults to 10). */
+  /** Interval between thumbnails for ranges over 50 seconds (defaults to 10). Shorter ranges use up to five thumbnails. */
   thumbnailInterval?: number;
   /** Width of storyboard thumbnails in pixels (defaults to 640). */
   thumbnailWidth?: number;
-  /** Maximum number of thumbnails to sample (defaults to unlimited). Acts as a cap: if `thumbnailInterval` produces fewer samples than this limit the interval is respected; otherwise samples are evenly distributed with first and last frames pinned. Must be positive; a fraction is rounded down, to at least 1. */
+  /** Maximum number of thumbnails to sample (defaults to unlimited). When the cap takes effect, samples span the renderable range from the first to the last sampleable frame. A cap of one uses the first frame. Must be positive; a fraction is rounded down, to at least 1. */
   maxSamples?: number;
   /** Max concurrent moderation requests (defaults to 5). */
   maxConcurrent?: number;
@@ -1168,33 +1167,36 @@ async function requestGoogleVisionModeration(
   return processConcurrently(targets, moderateImageWithGoogleVision, maxConcurrent);
 }
 
-/** Convert a millisecond timestamp to the seconds precision used in thumbnail URLs. */
-function toThumbnailTimeSeconds(timestampMs: number): number {
-  return Number((timestampMs / 1000).toFixed(2));
-}
-
-/**
- * Keep only timestamps whose rounded thumbnail `time` stays inside an exclusive-end scope.
- * Filtering after `toFixed(2)` matters: a millisecond value just below `endTime` can round
- * up onto or past the exclusive boundary.
- */
-function filterTimestampsWithinExclusiveScope(
-  timestampsMs: number[],
-  scope: { startTime: number; endTime: number } | undefined,
+/** Evenly sample frame positions across the renderable range, whose end is exclusive. */
+function planCappedModerationTimestamps(
+  { startTime, endTime }: ResolvedWorkflowScope,
+  maxSamples: number,
+  fps = 30,
 ): number[] {
-  if (!scope) {
-    return timestampsMs;
+  let firstFrame = Math.floor(startTime * fps);
+  if (firstFrame / fps < startTime) {
+    firstFrame++;
+  }
+  let lastFrame = Math.floor(endTime * fps);
+  if (lastFrame / fps >= endTime) {
+    lastFrame--;
   }
 
-  return timestampsMs.filter((timestampMs) => {
-    const time = toThumbnailTimeSeconds(timestampMs);
-    return time >= scope.startTime && time < scope.endTime;
+  const frameSpan = lastFrame - firstFrame;
+  const sampleCount = Math.min(Math.max(1, Math.floor(maxSamples)), frameSpan + 1);
+  const frameSpacing = sampleCount > 1 ? frameSpan / (sampleCount - 1) : 0;
+
+  return Array.from({ length: sampleCount }, (_, index) => {
+    const time = (firstFrame + Math.round(index * frameSpacing)) / fps;
+    const rounded = Number(time.toFixed(2));
+    // Keep the original timestamp if rounding would move it outside the renderable range.
+    return rounded >= startTime && rounded < endTime ? rounded : time;
   });
 }
 
 async function getThumbnailUrlsFromTimestamps(
   playbackId: string,
-  timestampsMs: number[],
+  timestamps: number[],
   options: {
     width: number;
     shouldSign: boolean;
@@ -1205,7 +1207,7 @@ async function getThumbnailUrlsFromTimestamps(
   const { width, shouldSign, credentials } = options;
   const baseUrl = await getMuxThumbnailBaseUrl(playbackId, credentials);
 
-  const times = [...new Set(timestampsMs.map(toThumbnailTimeSeconds))];
+  const times = [...new Set(timestamps)];
   const urlPromises = times.map(async (time) => {
     const url = shouldSign ?
         await signUrl(baseUrl, playbackId, "thumbnail", { time, width }, credentials) :
@@ -1466,8 +1468,7 @@ export async function getModerationScores(
     (d): d is number => d != null,
   );
   const duration = candidateDurations.length > 0 ? Math.min(...candidateDurations) : 0;
-  // An empty scope is equivalent to omitting scope. Keeping that distinction
-  // avoids changing the default edge trims merely because callers pass `{}`.
+  // An empty scope is equivalent to omitting scope.
   const effectiveScope = hasWorkflowScopeBoundaries(scope) ?
     scope :
     undefined;
@@ -1534,19 +1535,10 @@ export async function getModerationScores(
       maxSamples !== undefined && estimatedIntervalCount > maxSamples ?
           await getThumbnailUrlsFromTimestamps(
             playbackId,
-            filterTimestampsWithinExclusiveScope(
-              planSamplingTimestamps({
-                duration_sec: duration,
-                max_candidates: Math.max(1, Math.floor(maxSamples)),
-                trim_start_sec: renderableScope?.startTime ??
-                  (duration > 2 ? Math.min(5, Math.max(1, duration / 6)) : 0),
-                trim_end_sec: renderableScope ?
-                  duration - renderableScope.endTime :
-                    (duration > 2 ? Math.min(5, Math.max(1, duration / 6)) : 0),
-                fps: videoTrackFps,
-                base_cadence_hz: thumbnailInterval > 0 ? 1 / thumbnailInterval : undefined,
-              }),
-              renderableScope,
+            planCappedModerationTimestamps(
+              renderableScope ?? { startTime: 0, endTime: duration },
+              maxSamples,
+              videoTrackFps,
             ),
             {
               width: thumbnailWidth,
