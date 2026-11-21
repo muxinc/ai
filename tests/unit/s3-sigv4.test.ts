@@ -61,6 +61,25 @@ describe("s3 sigv4 helpers", () => {
     expect(parsed.searchParams.get("X-Amz-Signature")).toMatch(/^[0-9a-f]{64}$/);
   });
 
+  it("signs response header overrides into the presigned GET URL", async () => {
+    const url = await createPresignedGetUrl(buildPresignOptions({
+      endpoint: "https://s3.us-east-1.amazonaws.com",
+      bucket: "example-bucket",
+      key: "captions/example.vtt",
+      expiresInSeconds: 604800,
+      responseContentType: "text/vtt; charset=utf-8",
+      responseContentDisposition: "attachment",
+    }));
+    const parsed = new URL(url);
+
+    expect(parsed.searchParams.get("response-content-type")).toBe("text/vtt; charset=utf-8");
+    expect(parsed.searchParams.get("response-content-disposition")).toBe("attachment");
+    // Matches @smithy/signature-v4 presigning the same request with an unsigned payload.
+    expect(parsed.searchParams.get("X-Amz-Signature")).toBe(
+      "f28cfe3e3b6e5e8ec11ee519770a9bff82a2e375565daa039d7f17e45af01fd7",
+    );
+  });
+
   it("puts an object with sigv4 auth headers", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()
