@@ -11,8 +11,13 @@ export * from "./edit-captions.ts";
 export * from "./embeddings.ts";
 export * from "./engagement-insights.ts";
 
+// generateContextualText, moderate and summarize alias SDK workflows under their Mux Robots
+// workflow names. See docs/WORKFLOWS.md#mux-robots-workflow-names.
 export * from "./generate-text.ts";
+export { generateText as generateContextualText } from "./generate-text.ts";
 export * from "./moderation.ts";
+export { getModerationScores as moderate } from "./moderation.ts";
 export * from "./summarization.ts";
+export { getSummaryAndTags as summarize } from "./summarization.ts";
 export * from "./translate-audio.ts";
 export * from "./translate-captions.ts";
