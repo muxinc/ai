@@ -17,9 +17,10 @@ vi.mock("../../src/lib/workflow-credentials", () => ({
   resolveWorkflowCredentials: async () => ({}),
 }));
 
-vi.mock("../../src/primitives/thumbnails", () => ({
-  getThumbnailUrls: vi.fn(),
-}));
+vi.mock("../../src/lib/thumbnail-urls", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/lib/thumbnail-urls")>();
+  return { ...actual, getThumbnailUrlsFromTimestamps: vi.fn(actual.getThumbnailUrlsFromTimestamps) };
+});
 
 const { getApiKeyFromEnv } = await import("../../src/lib/client-factory");
 const {
@@ -30,7 +31,7 @@ const {
   isAudioOnlyAsset,
 } = await import("../../src/lib/mux-assets");
 const { resolveMuxSigningContext } = await import("../../src/lib/workflow-credentials");
-const { getThumbnailUrls } = await import("../../src/primitives/thumbnails");
+const { getThumbnailUrlsFromTimestamps } = await import("../../src/lib/thumbnail-urls");
 const { MuxAiError } = await import("../../src/lib/mux-ai-error");
 const { getModerationScores, buildTranscriptWindows } = await import("../../src/workflows/moderation");
 
@@ -92,9 +93,60 @@ describe("getModerationScores coverage metadata", () => {
       maxSamples: 3,
     });
 
-    expect(result.thumbnailScores.map(score => score.time)).toEqual([0, 5, 9.97]);
+    expect(result.thumbnailScores.map(score => score.time)).toEqual([0, 4.97, 9.9]);
     expect(result.coverage.requestedSampleCount).toBe(3);
     expect(mockFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps the default timestamps when a cap exceeds the deduplicated count", async () => {
+    vi.mocked(getVideoTrackDurationSecondsFromAsset).mockReturnValue(1.5);
+    vi.mocked(getAssetDurationSecondsFromAsset).mockReturnValue(1.5);
+    mockFetch.mockResolvedValue(mockOpenAIModerationResponse({
+      status: 200,
+      body: { results: [{ category_scores: { sexual: 0, violence: 0 } }] },
+    }));
+    const options = { provider: "openai", includeTranscript: false } as const;
+    const uncapped = await getModerationScores("asset-123", options);
+    const capped = await getModerationScores("asset-123", { ...options, maxSamples: 4 });
+
+    expect(uncapped.thumbnailScores.map(score => score.time)).toEqual([0, 1]);
+    expect(capped.thumbnailScores).toEqual(uncapped.thumbnailScores);
+    expect(capped.coverage.requestedSampleCount).toBe(2);
+  });
+
+  it.each([undefined, 3])("deduplicates thumbnail requests at the Image API end clamp (cap %s)", async (maxSamples) => {
+    vi.mocked(getVideoTrackDurationSecondsFromAsset).mockReturnValue(10);
+    vi.mocked(getAssetDurationSecondsFromAsset).mockReturnValue(10);
+    mockFetch.mockResolvedValue(mockOpenAIModerationResponse({
+      status: 200,
+      body: { results: [{ category_scores: { sexual: 0, violence: 0 } }] },
+    }));
+
+    const result = await getModerationScores("asset-123", {
+      provider: "openai",
+      includeTranscript: false,
+      maxSamples,
+      scope: { startTime: 9.85, endTime: 10 },
+    });
+
+    expect(result.thumbnailScores.map(score => score.time)).toEqual([9.875, 9.9]);
+    expect(result.coverage.requestedSampleCount).toBe(2);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([undefined, 1])("skips scopes wholly past the Image API end clamp (cap %s)", async (maxSamples) => {
+    vi.mocked(getVideoTrackDurationSecondsFromAsset).mockReturnValue(10);
+    vi.mocked(getAssetDurationSecondsFromAsset).mockReturnValue(10);
+
+    await expect(getModerationScores("asset-123", {
+      provider: "openai",
+      includeTranscript: false,
+      maxSamples,
+      scope: { startTime: 9.95, endTime: 10 },
+    })).rejects.toMatchObject({ code: "invalid_scope", facts: { reason: "no_video", videoEndTime: 9.9 } });
+
+    expect(getThumbnailUrlsFromTimestamps).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it("treats an empty scope like an omitted scope when capped sampling is used", async () => {
@@ -192,7 +244,8 @@ describe("getModerationScores coverage metadata", () => {
       return Number(new URL(body.input[0].image_url.url).searchParams.get("time"));
     });
 
-    expect(thumbnailTimes.every(time => time < 80)).toBe(true);
+    expect(thumbnailTimes).toHaveLength(4);
+    expect(thumbnailTimes[3]).toBe(79.97);
   });
 
   it("marks thumbnail results as low confidence when too few samples succeed", async () => {
@@ -202,7 +255,7 @@ describe("getModerationScores coverage metadata", () => {
       { url: "https://thumb.test/3.png", time: 20 },
       { url: "https://thumb.test/4.png", time: 30 },
     ];
-    vi.mocked(getThumbnailUrls).mockResolvedValue(urls);
+    vi.mocked(getThumbnailUrlsFromTimestamps).mockResolvedValue(urls);
 
     mockFetch.mockImplementation(async (_url, init) => {
       const body = JSON.parse(String(init?.body));
@@ -251,7 +304,7 @@ describe("getModerationScores coverage metadata", () => {
   });
 
   it("scores a thumbnail as an error when OpenAI returns no result or an unexpected shape, and reads a missing category as 0", async () => {
-    vi.mocked(getThumbnailUrls).mockResolvedValue([
+    vi.mocked(getThumbnailUrlsFromTimestamps).mockResolvedValue([
       { url: "https://thumb.test/1.png", time: 0 },
       { url: "https://thumb.test/2.png", time: 10 },
       { url: "https://thumb.test/3.png", time: 20 },
@@ -288,7 +341,7 @@ describe("getModerationScores coverage metadata", () => {
       { url: "https://thumb.test/d.png", time: 30 },
       { url: "https://thumb.test/e.png", time: 40 },
     ];
-    vi.mocked(getThumbnailUrls).mockResolvedValue(urls);
+    vi.mocked(getThumbnailUrlsFromTimestamps).mockResolvedValue(urls);
 
     mockFetch.mockImplementation(async (_url, init) => {
       const body = JSON.parse(String(init?.body));
@@ -402,7 +455,7 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
 
   it("moderates both surfaces by default for a video with captions", async () => {
     vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack());
-    vi.mocked(getThumbnailUrls).mockResolvedValue(THUMBNAIL_URLS);
+    vi.mocked(getThumbnailUrlsFromTimestamps).mockResolvedValue(THUMBNAIL_URLS);
     mockOpenAIFetch({ vtt: VTT_BODY, textScores: { sexual: 0.95, violence: 0.1 } });
 
     const result = await getModerationScores("asset-123", {
@@ -436,7 +489,7 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
 
   it("skips the transcript with no_ready_text_track when the video has no caption track", async () => {
     vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithoutTextTrack());
-    vi.mocked(getThumbnailUrls).mockResolvedValue(THUMBNAIL_URLS);
+    vi.mocked(getThumbnailUrlsFromTimestamps).mockResolvedValue(THUMBNAIL_URLS);
     const counts = mockOpenAIFetch({});
 
     const result = await getModerationScores("asset-123", { provider: "openai" });
@@ -456,7 +509,7 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
 
   it("skips the transcript with disabled when includeTranscript is false, without fetching captions", async () => {
     vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack());
-    vi.mocked(getThumbnailUrls).mockResolvedValue(THUMBNAIL_URLS);
+    vi.mocked(getThumbnailUrlsFromTimestamps).mockResolvedValue(THUMBNAIL_URLS);
     const counts = mockOpenAIFetch({});
 
     const result = await getModerationScores("asset-123", { provider: "openai", includeTranscript: false });
@@ -510,7 +563,7 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
 
   it("names the language in the skip message when languageCode matches no track", async () => {
     vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack());
-    vi.mocked(getThumbnailUrls).mockResolvedValue(THUMBNAIL_URLS);
+    vi.mocked(getThumbnailUrlsFromTimestamps).mockResolvedValue(THUMBNAIL_URLS);
     mockOpenAIFetch({});
 
     const result = await getModerationScores("asset-123", { provider: "openai", languageCode: "fr" });
@@ -524,7 +577,7 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
 
   it("skips the transcript with no_cues when the VTT body is empty (valid but empty)", async () => {
     vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack());
-    vi.mocked(getThumbnailUrls).mockResolvedValue(THUMBNAIL_URLS);
+    vi.mocked(getThumbnailUrlsFromTimestamps).mockResolvedValue(THUMBNAIL_URLS);
     const counts = mockOpenAIFetch({ vtt: "" });
 
     const result = await getModerationScores("asset-123", { provider: "openai" });
@@ -541,7 +594,7 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
 
   it("skips the transcript with no_cues when the caption track has no parseable cues", async () => {
     vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack());
-    vi.mocked(getThumbnailUrls).mockResolvedValue(THUMBNAIL_URLS);
+    vi.mocked(getThumbnailUrlsFromTimestamps).mockResolvedValue(THUMBNAIL_URLS);
     // A VTT header with no cues at all — text is non-empty but parseVTTCues returns [].
     const counts = mockOpenAIFetch({ vtt: "WEBVTT\n\nNOTE this file has no cues\n" });
 
@@ -558,7 +611,7 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
 
   it("skips the transcript with no_cues when no cue falls inside the requested scope", async () => {
     vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack());
-    vi.mocked(getThumbnailUrls).mockResolvedValue(THUMBNAIL_URLS);
+    vi.mocked(getThumbnailUrlsFromTimestamps).mockResolvedValue(THUMBNAIL_URLS);
     // The only cue spans 1–4s; the scope starts at 10s.
     const counts = mockOpenAIFetch({ vtt: VTT_BODY });
 
@@ -599,7 +652,7 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
     expect(result.transcriptModeration).toEqual({ status: "completed" });
     expect(result.transcriptScores.length).toBe(1);
     expect(result.transcriptScores[0]).toMatchObject({ startTime: 41, endTime: 45 });
-    expect(getThumbnailUrls).not.toHaveBeenCalled();
+    expect(getThumbnailUrlsFromTimestamps).not.toHaveBeenCalled();
     expect(counts.image).toBe(0);
   });
 
@@ -643,7 +696,7 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
     });
     expect(result.transcriptModeration).toEqual({ status: "completed" });
     expect(result.thumbnailScores).toEqual([]);
-    expect(getThumbnailUrls).not.toHaveBeenCalled();
+    expect(getThumbnailUrlsFromTimestamps).not.toHaveBeenCalled();
     expect(counts.image).toBe(0);
     expect(result.transcriptScores.length).toBe(1);
     expect(result.transcriptScores[0]).toMatchObject({ startTime: 1, endTime: 4, error: false });
@@ -681,7 +734,7 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
       playbackId: "playback-123",
       policy: "public",
     } as any);
-    vi.mocked(getThumbnailUrls).mockResolvedValue(THUMBNAIL_URLS);
+    vi.mocked(getThumbnailUrlsFromTimestamps).mockResolvedValue(THUMBNAIL_URLS);
     mockOpenAIFetch({});
 
     const error = await getModerationScores("asset-123", { provider: "openai" }).catch(e => e);
@@ -693,7 +746,7 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
 
   it("fails rather than skipping when the caption track exists but the VTT fetch fails", async () => {
     vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack());
-    vi.mocked(getThumbnailUrls).mockResolvedValue(THUMBNAIL_URLS);
+    vi.mocked(getThumbnailUrlsFromTimestamps).mockResolvedValue(THUMBNAIL_URLS);
     const counts = mockOpenAIFetch({ vtt: "", vttStatus: 500 });
 
     const error = await getModerationScores("asset-123", { provider: "openai" }).catch(e => e);
@@ -710,7 +763,7 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
 
   it("skips the transcript with unsupported_provider for an image-only provider and still moderates thumbnails", async () => {
     vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack());
-    vi.mocked(getThumbnailUrls).mockResolvedValue(THUMBNAIL_URLS);
+    vi.mocked(getThumbnailUrlsFromTimestamps).mockResolvedValue(THUMBNAIL_URLS);
 
     mockFetch.mockImplementation(async (url) => {
       if (String(url).endsWith(".vtt")) {
@@ -780,7 +833,7 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
     // Short asset duration → minimum 20s windows, 5s overlap, 15s stride.
     vi.mocked(getVideoTrackDurationSecondsFromAsset).mockReturnValue(40);
     vi.mocked(getAssetDurationSecondsFromAsset).mockReturnValue(40);
-    vi.mocked(getThumbnailUrls).mockResolvedValue([{ url: "https://thumb.test/a.png", time: 0 }]);
+    vi.mocked(getThumbnailUrlsFromTimestamps).mockResolvedValue([{ url: "https://thumb.test/a.png", time: 0 }]);
 
     // 25 cues at 5s spacing → cues span 0..124s, far longer than one window.
     const { vtt } = buildEvenlySpacedVtt(25, 5);
@@ -841,7 +894,7 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
 
   it("sends a cue longer than the parser's default cap to the provider untruncated", async () => {
     vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack());
-    vi.mocked(getThumbnailUrls).mockResolvedValue([{ url: "https://thumb.test/a.png", time: 0 }]);
+    vi.mocked(getThumbnailUrlsFromTimestamps).mockResolvedValue([{ url: "https://thumb.test/a.png", time: 0 }]);
 
     const longCue = "a".repeat(3000);
     const transcriptInputs: string[] = [];
@@ -878,7 +931,7 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
 
   it("reports the transcript surface as failed when every window errors, and lowers confidence", async () => {
     vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack());
-    vi.mocked(getThumbnailUrls).mockResolvedValue(THUMBNAIL_URLS);
+    vi.mocked(getThumbnailUrlsFromTimestamps).mockResolvedValue(THUMBNAIL_URLS);
 
     mockFetch.mockImplementation(async (url, init) => {
       if (String(url).endsWith(".vtt")) {
@@ -918,7 +971,7 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
 
   it("reports the thumbnail surface as failed when every thumbnail errors, and lowers confidence", async () => {
     vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack());
-    vi.mocked(getThumbnailUrls).mockResolvedValue(THUMBNAIL_URLS);
+    vi.mocked(getThumbnailUrlsFromTimestamps).mockResolvedValue(THUMBNAIL_URLS);
 
     mockFetch.mockImplementation(async (url, init) => {
       if (String(url).endsWith(".vtt")) {
@@ -956,7 +1009,7 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
 
   it("keeps the transcript surface completed when only some windows error, but marks the result partial", async () => {
     vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack());
-    vi.mocked(getThumbnailUrls).mockResolvedValue(THUMBNAIL_URLS);
+    vi.mocked(getThumbnailUrlsFromTimestamps).mockResolvedValue(THUMBNAIL_URLS);
 
     const { vtt } = buildEvenlySpacedVtt(8, 5);
 
@@ -998,7 +1051,7 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
 
   it("fails the whole batch when the response has fewer results than windows", async () => {
     vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack());
-    vi.mocked(getThumbnailUrls).mockResolvedValue(THUMBNAIL_URLS);
+    vi.mocked(getThumbnailUrlsFromTimestamps).mockResolvedValue(THUMBNAIL_URLS);
     const { vtt } = buildEvenlySpacedVtt(8, 5);
 
     let windowCount = 0;
@@ -1039,7 +1092,7 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
 
   it("reports the transcript surface as failed when the batch response has no results", async () => {
     vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack());
-    vi.mocked(getThumbnailUrls).mockResolvedValue(THUMBNAIL_URLS);
+    vi.mocked(getThumbnailUrlsFromTimestamps).mockResolvedValue(THUMBNAIL_URLS);
 
     mockFetch.mockImplementation(async (url, init) => {
       if (String(url).endsWith(".vtt")) {
@@ -1067,7 +1120,7 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
     vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack());
     vi.mocked(getVideoTrackDurationSecondsFromAsset).mockReturnValue(40);
     vi.mocked(getAssetDurationSecondsFromAsset).mockReturnValue(40);
-    vi.mocked(getThumbnailUrls).mockResolvedValue([{ url: "https://thumb.test/a.png", time: 0 }]);
+    vi.mocked(getThumbnailUrlsFromTimestamps).mockResolvedValue([{ url: "https://thumb.test/a.png", time: 0 }]);
 
     const { vtt } = buildEvenlySpacedVtt(25, 5);
 
@@ -1112,7 +1165,7 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
     vi.mocked(getPlaybackIdForAsset).mockResolvedValue(assetWithTextTrack());
     vi.mocked(getVideoTrackDurationSecondsFromAsset).mockReturnValue(40);
     vi.mocked(getAssetDurationSecondsFromAsset).mockReturnValue(40);
-    vi.mocked(getThumbnailUrls).mockResolvedValue([{ url: "https://thumb.test/a.png", time: 0 }]);
+    vi.mocked(getThumbnailUrlsFromTimestamps).mockResolvedValue([{ url: "https://thumb.test/a.png", time: 0 }]);
 
     const { vtt } = buildEvenlySpacedVtt(25, 5);
 

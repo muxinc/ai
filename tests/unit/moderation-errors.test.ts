@@ -17,9 +17,10 @@ vi.mock("../../src/lib/workflow-credentials", () => ({
   resolveWorkflowCredentials: async () => ({}),
 }));
 
-vi.mock("../../src/primitives/thumbnails", () => ({
-  getThumbnailUrls: vi.fn(),
-}));
+vi.mock("../../src/lib/thumbnail-urls", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/lib/thumbnail-urls")>();
+  return { ...actual, getThumbnailUrlsFromTimestamps: vi.fn(actual.getThumbnailUrlsFromTimestamps) };
+});
 
 const { getApiKeyFromEnv } = await import("../../src/lib/client-factory");
 const {
@@ -30,7 +31,7 @@ const {
   isAudioOnlyAsset,
 } = await import("../../src/lib/mux-assets");
 const { resolveMuxSigningContext } = await import("../../src/lib/workflow-credentials");
-const { getThumbnailUrls } = await import("../../src/primitives/thumbnails");
+const { getThumbnailUrlsFromTimestamps } = await import("../../src/lib/thumbnail-urls");
 const { MuxAiError } = await import("../../src/lib/mux-ai-error");
 const { getModerationScores } = await import("../../src/workflows/moderation");
 
@@ -93,7 +94,7 @@ beforeEach(() => {
   vi.mocked(getVideoTrackMaxFrameRateFromAsset).mockReturnValue(30);
   vi.mocked(isAudioOnlyAsset).mockReturnValue(false);
   vi.mocked(resolveMuxSigningContext).mockResolvedValue(undefined);
-  vi.mocked(getThumbnailUrls).mockResolvedValue(THUMBNAIL_URLS);
+  vi.mocked(getThumbnailUrlsFromTimestamps).mockResolvedValue(THUMBNAIL_URLS);
 });
 
 afterEach(() => {
@@ -110,6 +111,7 @@ describe("getModerationScores classified errors: request and setup", () => {
   });
 
   it("rounds a fractional maxSamples down to at least one thumbnail", async () => {
+    vi.mocked(getThumbnailUrlsFromTimestamps).mockReset();
     mockFetch.mockImplementation(async () => jsonResponse(200, hiveScores()));
 
     const result = await getModerationScores("asset-123", { provider: "hive", maxSamples: 0.5 });
@@ -119,7 +121,7 @@ describe("getModerationScores classified errors: request and setup", () => {
   });
 
   it("skips thumbnails, rather than failing without a code, when sampling leaves none in scope", async () => {
-    vi.mocked(getThumbnailUrls).mockResolvedValue([]);
+    vi.mocked(getThumbnailUrlsFromTimestamps).mockResolvedValue([]);
 
     const error = await moderationError("asset-123", { provider: "hive", scope: { startTime: 10, endTime: 11 } });
 

@@ -23,14 +23,13 @@ import {
   getVideoTrackMaxFrameRateFromAsset,
   isAudioOnlyAsset,
 } from "../lib/mux-assets.ts";
-import { getMuxThumbnailBaseUrl } from "../lib/mux-url.ts";
 import { openAIFetchError } from "../lib/openai-errors.ts";
 import { withRetry } from "../lib/retry.ts";
-import { signingCredentialsMissingError, signUrl } from "../lib/url-signing.ts";
+import { getThumbnailUrlsFromTimestamps, intervalThumbnailTimestamps } from "../lib/thumbnail-urls.ts";
+import { signingCredentialsMissingError } from "../lib/url-signing.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
 import type { ResolvedWorkflowScope } from "../lib/workflow-scope.ts";
 import { hasWorkflowScopeBoundaries, invalidScopeError, resolveWorkflowScope } from "../lib/workflow-scope.ts";
-import { getThumbnailUrls } from "../primitives/thumbnails.ts";
 import type { VTTCue } from "../primitives/transcripts.ts";
 import { buildTranscriptUrl, fetchTranscriptDataForUrl, findCaptionTrack, getReadyTextTracks, parseVTTCues } from "../primitives/transcripts.ts";
 import type {
@@ -95,8 +94,7 @@ export interface ModerationSurfaceStatus<Reason extends string> {
 /**
  * Why thumbnail moderation was skipped:
  * - `"no_video_track"` — the asset has no video track, so there are no thumbnails.
- * - `"no_video_in_scope"` — the asset has a video track, but the requested
- *   `scope` lies entirely past its end (trailing non-video media).
+ * - `"no_video_in_scope"` — the asset has a video track, but no thumbnail can be sampled within the requested scope.
  */
 export type ThumbnailModerationSkipReason = "no_video_track" | "no_video_in_scope";
 
@@ -216,7 +214,7 @@ export interface ModerationOptions extends ScopedMuxAIOptions {
   thumbnailInterval?: number;
   /** Width of storyboard thumbnails in pixels (defaults to 640). */
   thumbnailWidth?: number;
-  /** Maximum number of thumbnails to sample (defaults to unlimited). When the cap takes effect, samples span the renderable range from the first to the last sampleable frame. A cap of one uses the first frame. Must be positive; a fraction is rounded down, to at least 1. */
+  /** Maximum number of distinct thumbnail timestamps to sample (defaults to unlimited). When the cap reduces the default count, samples span the available range near its endpoints. A binding cap of one samples near the start. Must be positive; a fraction is rounded down, to at least 1. */
   maxSamples?: number;
   /** Max concurrent moderation requests (defaults to 5). */
   maxConcurrent?: number;
@@ -1171,52 +1169,67 @@ async function requestGoogleVisionModeration(
 function planCappedModerationTimestamps(
   { startTime, endTime }: ResolvedWorkflowScope,
   maxSamples: number,
+  lastImageTime: number,
   fps = 30,
 ): number[] {
   let firstFrame = Math.floor(startTime * fps);
   if (firstFrame / fps < startTime) {
     firstFrame++;
   }
-  let lastFrame = Math.floor(endTime * fps);
-  if (lastFrame / fps >= endTime) {
+  let lastFrame = Math.floor(Math.min(endTime, lastImageTime) * fps);
+  if (lastFrame / fps >= endTime || lastFrame / fps > lastImageTime) {
     lastFrame--;
   }
 
   const frameSpan = lastFrame - firstFrame;
-  const sampleCount = Math.min(Math.max(1, Math.floor(maxSamples)), frameSpan + 1);
+  const sampleCount = Math.min(maxSamples, frameSpan + 1);
   const frameSpacing = sampleCount > 1 ? frameSpan / (sampleCount - 1) : 0;
 
-  return Array.from({ length: sampleCount }, (_, index) => {
+  const times = Array.from({ length: sampleCount }, (_, index) => {
     const time = (firstFrame + Math.round(index * frameSpacing)) / fps;
-    const rounded = Number(time.toFixed(2));
-    // Keep the original timestamp if rounding would move it outside the renderable range.
-    return rounded >= startTime && rounded < endTime ? rounded : time;
+    // Centisecond rounding can merge frames above 100 fps or move a time outside the range.
+    const rounded = fps > 100 ? time : Number(time.toFixed(2));
+    return rounded >= startTime && rounded < endTime && rounded <= lastImageTime ? rounded : time;
   });
+  return [...new Set(times)];
 }
 
-async function getThumbnailUrlsFromTimestamps(
-  playbackId: string,
-  timestamps: number[],
-  options: {
-    width: number;
-    shouldSign: boolean;
-    credentials?: WorkflowCredentialsInput;
+// The Image API clamps explicit requests to 100 ms before the asset end.
+const IMAGE_THUMBNAIL_END_PADDING_SECONDS = 0.1;
+
+function planModerationThumbnailTimestamps(
+  range: ResolvedWorkflowScope,
+  { interval, scoped, maxSamples, lastImageTime, fps }: {
+    interval: number;
+    scoped: boolean;
+    maxSamples?: number;
+    lastImageTime: number;
+    fps?: number;
   },
-): Promise<Array<{ url: string; time: number }>> {
-  "use step";
-  const { width, shouldSign, credentials } = options;
-  const baseUrl = await getMuxThumbnailBaseUrl(playbackId, credentials);
+): number[] {
+  // Below 100 ms the Image API falls back to its default thumbnail. Only use
+  // that fallback when moderation is allowed to see the whole clip.
+  if (scoped && range.startTime > lastImageTime) {
+    return [];
+  }
+  const imageEnd = Math.max(0, lastImageTime);
+  const cap = maxSamples === undefined ? Infinity : Math.max(1, Math.floor(maxSamples));
+  const times = new Set<number>();
+  for (const timestamp of intervalThumbnailTimestamps(range, interval, scoped)) {
+    const time = Math.min(timestamp, imageEnd);
+    if (time >= range.startTime && time < range.endTime) {
+      times.add(time);
+    }
+    if (times.size > cap) {
+      return planCappedModerationTimestamps(range, cap, imageEnd, fps);
+    }
+    // Later candidates resolve to the same image time.
+    if (timestamp >= imageEnd) {
+      break;
+    }
+  }
 
-  const times = [...new Set(timestamps)];
-  const urlPromises = times.map(async (time) => {
-    const url = shouldSign ?
-        await signUrl(baseUrl, playbackId, "thumbnail", { time, width }, credentials) :
-      `${baseUrl}?time=${time}&width=${width}`;
-
-    return { url, time };
-  });
-
-  return Promise.all(urlPromises);
+  return [...times];
 }
 
 /** Route thumbnail moderation to the selected provider's step. */
@@ -1468,6 +1481,7 @@ export async function getModerationScores(
     (d): d is number => d != null,
   );
   const duration = candidateDurations.length > 0 ? Math.min(...candidateDurations) : 0;
+  const lastImageTime = (assetDurationSeconds ?? duration) - IMAGE_THUMBNAIL_END_PADDING_SECONDS;
   // An empty scope is equivalent to omitting scope.
   const effectiveScope = hasWorkflowScopeBoundaries(scope) ?
     scope :
@@ -1521,46 +1535,23 @@ export async function getModerationScores(
       skipMessage: "The requested scope does not include any renderable video, so there are no thumbnails to moderate.",
     };
   } else {
-    // Cheaply estimate how many thumbnails the interval would produce so we
-    // can skip generating (and potentially JWT-signing) URLs we'd discard.
-    const scopedDuration = renderableScope ?
-      renderableScope.endTime - renderableScope.startTime :
-      duration;
-    const estimatedIntervalCount = scopedDuration <= 50 ? 5 : Math.ceil(scopedDuration / thumbnailInterval);
-
-    // maxSamples acts as a true cap: if the interval already fits within the
-    // budget we use the interval-based path. Only when the interval would
-    // produce more thumbnails than allowed do we switch to the sampling plan.
-    thumbnailUrls =
-      maxSamples !== undefined && estimatedIntervalCount > maxSamples ?
-          await getThumbnailUrlsFromTimestamps(
-            playbackId,
-            planCappedModerationTimestamps(
-              renderableScope ?? { startTime: 0, endTime: duration },
-              maxSamples,
-              videoTrackFps,
-            ),
-            {
-              width: thumbnailWidth,
-              shouldSign: policy === "signed",
-              credentials,
-            },
-          ) :
-          await getThumbnailUrls(playbackId, duration, {
-            interval: thumbnailInterval,
-            width: thumbnailWidth,
-            shouldSign: policy === "signed",
-            credentials,
-            scope: renderableScope,
-          });
-    if (thumbnailUrls.length > 0) {
-      shouldRunThumbnails = true;
-    } else {
-      // Every sampled timestamp fell outside the scope's renderable range.
+    const timestamps = planModerationThumbnailTimestamps(
+      renderableScope ?? { startTime: 0, endTime: duration },
+      { interval: thumbnailInterval, scoped: renderableScope !== undefined, maxSamples, lastImageTime, fps: videoTrackFps },
+    );
+    if (timestamps.length > 0) {
+      thumbnailUrls = await getThumbnailUrlsFromTimestamps(playbackId, timestamps, {
+        width: thumbnailWidth,
+        shouldSign: policy === "signed",
+        credentials,
+      });
+    }
+    shouldRunThumbnails = thumbnailUrls.length > 0;
+    if (!shouldRunThumbnails) {
       thumbnailModeration = {
         status: "skipped",
         skipReason: "no_video_in_scope",
-        skipMessage: "The requested scope does not include any renderable video, so there are no thumbnails to moderate.",
+        skipMessage: "No thumbnail can be sampled within the requested time range.",
       };
     }
   }
@@ -1668,7 +1659,7 @@ export async function getModerationScores(
         captionTrackId: captionTrack?.id,
         scope: effectiveScope,
         resolvedScope,
-        videoEndTime: duration,
+        videoEndTime: Math.min(duration, Math.max(0, lastImageTime)),
       },
     );
   }
