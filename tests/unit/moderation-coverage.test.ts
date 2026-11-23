@@ -201,6 +201,32 @@ describe("getModerationScores coverage metadata", () => {
     expect(thumbnailTimes.every(time => time < 14)).toBe(true);
   });
 
+  it.each([1, 3])("keeps in-range thumbnails between frame boundaries (cap %s)", async (maxSamples) => {
+    vi.mocked(getVideoTrackMaxFrameRateFromAsset).mockReturnValue(1);
+    mockFetch.mockResolvedValue(mockOpenAIModerationResponse({
+      status: 200,
+      body: { results: [{ category_scores: { sexual: 0, violence: 0 } }] },
+    }));
+    const scope = { startTime: 10.2, endTime: 10.6 };
+
+    const result = await getModerationScores("asset-123", {
+      provider: "openai",
+      includeTranscript: false,
+      maxSamples,
+      scope,
+    });
+
+    expect(result.thumbnailModeration.status).toBe("completed");
+    expect(result.coverage.requestedSampleCount).toBe(maxSamples);
+    expect(mockFetch).toHaveBeenCalledTimes(maxSamples);
+    const times = result.thumbnailScores.map(score => score.time);
+    expect(new Set(times).size).toBe(maxSamples);
+    for (const time of times) {
+      expect(time).toBeGreaterThanOrEqual(scope.startTime);
+      expect(time).toBeLessThan(scope.endTime);
+    }
+  });
+
   it("keeps the last sample inside the scope when rounding would cross its end", async () => {
     // The final frame at 30 fps is at 13.966…s, which rounds to 13.97s.
     const endTime = 13.969;

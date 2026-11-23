@@ -1221,7 +1221,9 @@ function planModerationThumbnailTimestamps(
       times.add(time);
     }
     if (times.size > cap) {
-      return planCappedModerationTimestamps(range, cap, imageEnd, fps);
+      const cappedTimes = planCappedModerationTimestamps(range, cap, imageEnd, fps);
+      // A scope between frame boundaries can still have valid thumbnail request times.
+      return cappedTimes.length > 0 ? cappedTimes : [...times].slice(0, cap);
     }
     // Later candidates resolve to the same image time.
     if (timestamp >= imageEnd) {
