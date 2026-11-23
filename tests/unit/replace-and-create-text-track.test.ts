@@ -7,7 +7,7 @@ vi.mock("../../src/lib/workflow-credentials", () => ({
 }));
 
 const { resolveMuxClient } = await import("../../src/lib/workflow-credentials");
-const { createTextTrackOnMux, replaceAndCreateTextTrack, replaceAndCreateTrack, replaceSourceTrack, trackWriteFailure } = await import("../../src/lib/mux-tracks");
+const { createTextTrackOnMux, replaceAndCreateTextTrack, replaceAndCreateTrack, replaceSourceTrack, TRACK_WRITE_REQUEST_OPTIONS, trackWriteFailure } = await import("../../src/lib/mux-tracks");
 
 const ASR_EN = { id: "asr-en", type: "text", text_type: "subtitles", status: "ready", language_code: "en", name: "English CC", text_source: "generated_vod" };
 const UPLOADED_EN = { id: "up-en", type: "text", text_type: "subtitles", status: "ready", language_code: "en", name: "English", text_source: "uploaded" };
@@ -47,7 +47,7 @@ describe("replaceAndCreateTextTrack", () => {
 
     expect(result).toEqual({ kind: "created", trackId: "new", deleted: [expect.objectContaining({ id: "asr-en" }), expect.objectContaining({ id: "up-en" })] });
     expect(deleteTrack).toHaveBeenCalledTimes(2);
-    expect(createTrack).toHaveBeenCalledWith("asset-1", expect.objectContaining({ name: "English", language_code: "en", closed_captions: true, passthrough: INPUT.passthrough }));
+    expect(createTrack).toHaveBeenCalledWith("asset-1", expect.objectContaining({ name: "English", language_code: "en", closed_captions: true, passthrough: INPUT.passthrough }), TRACK_WRITE_REQUEST_OPTIONS);
   });
 
   it("returns blocked with no deletions and never creates when the policy is fail", async () => {
@@ -187,7 +187,7 @@ describe("replaceAndCreateTextTrack", () => {
 
     expect(result).toEqual({ kind: "created", trackId: "new-dub", deleted: [expect.objectContaining({ id: "old-dub", type: "audio" })] });
     expect(deleteTrack).toHaveBeenCalledTimes(1);
-    expect(createTrack).toHaveBeenCalledWith("asset-1", { type: "audio", language_code: "es", name: "Spanish (Auto-dubbed)", url: INPUT.presignedUrl, passthrough: INPUT.passthrough });
+    expect(createTrack).toHaveBeenCalledWith("asset-1", { type: "audio", language_code: "es", name: "Spanish (Auto-dubbed)", url: INPUT.presignedUrl, passthrough: INPUT.passthrough }, TRACK_WRITE_REQUEST_OPTIONS);
   });
 
   it("returns create_failed with the deletions so far when a later delete fails", async () => {
@@ -247,8 +247,8 @@ describe("replaceSourceTrack", () => {
 
     expect(result).toEqual({ kind: "created", trackId: "new", deleted: [expect.objectContaining({ id: "up-en" })] });
     expect(deleteTrack).toHaveBeenCalledTimes(1);
-    expect(deleteTrack).toHaveBeenCalledWith("asset-1", "up-en");
-    expect(createTrack).toHaveBeenCalledWith("asset-1", expect.objectContaining({ type: "text", text_type: "subtitles", name: "English", closed_captions: true }));
+    expect(deleteTrack).toHaveBeenCalledWith("asset-1", "up-en", TRACK_WRITE_REQUEST_OPTIONS);
+    expect(createTrack).toHaveBeenCalledWith("asset-1", expect.objectContaining({ type: "text", text_type: "subtitles", name: "English", closed_captions: true }), TRACK_WRITE_REQUEST_OPTIONS);
   });
 
   it("deletes nothing under fail and adds the track alongside the source", async () => {
@@ -282,6 +282,13 @@ describe("replaceSourceTrack", () => {
 });
 
 describe("createTextTrackOnMux", () => {
+  it("raises the SDK retry budget so a rate-limited create waits out the burst", async () => {
+    createTrack.mockResolvedValue({ id: "new" });
+
+    await expect(createTextTrackOnMux("asset-1", "en", "English", "https://s3.example.test/new.vtt")).resolves.toBe("new");
+    expect(createTrack).toHaveBeenCalledWith("asset-1", expect.objectContaining({ language_code: "en" }), { maxRetries: 5 });
+  });
+
   it("classifies a failed create inside the step, keeping Mux's status and request id", async () => {
     createTrack.mockRejectedValue(Object.assign(new Error("500 internal"), { status: 500, headers: new Headers({ "x-request-id": "req-2" }) }));
 

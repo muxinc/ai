@@ -402,6 +402,12 @@ export function trackReplacementBlockedError(
   });
 }
 
+/**
+ * Track writes retry up to 5 times (SDK default 2): the SDK's jittered backoff, or Mux's
+ * `Retry-After`, then spans about 15s, enough to wait out a batch hitting the write rate limit.
+ */
+export const TRACK_WRITE_REQUEST_OPTIONS = { maxRetries: 5 } as const;
+
 /** Default audit tag written to `passthrough` on tracks created by `@mux/ai`. */
 export function buildMuxAiTrackPassthrough(workflow: string): string {
   return JSON.stringify({ mux_ai: { workflow } });
@@ -486,7 +492,7 @@ export async function createTextTrackOnMux(
       url: presignedUrl,
       closed_captions: options.closedCaptions,
       passthrough: options.passthrough,
-    });
+    }, TRACK_WRITE_REQUEST_OPTIONS);
   } catch (error) {
     // Classified here, while the raw error is in hand: past the step boundary only its message is left.
     throw muxVideoCallError("Failed to create the text track on Mux", "create_track", error, { assetId });
@@ -590,7 +596,7 @@ async function writeTrack(
     if (planned.kind === "replace") {
       for (const track of planned.toDelete) {
         try {
-          await mux.video.assets.deleteTrack(input.assetId, track.id);
+          await mux.video.assets.deleteTrack(input.assetId, track.id, TRACK_WRITE_REQUEST_OPTIONS);
           deleted.push(track);
         } catch (error) {
           if (!isNotFoundError(error)) {
@@ -610,7 +616,7 @@ async function writeTrack(
       name: input.target.name.trim(),
       url: input.presignedUrl,
       passthrough: input.passthrough,
-    });
+    }, TRACK_WRITE_REQUEST_OPTIONS);
     if (!track.id) {
       const message = `Failed to create ${type} track: no track ID returned from Mux`;
       throw input.classifiedErrors ? missingTrackIdError(message, { assetId: input.assetId }) : new Error(message);
