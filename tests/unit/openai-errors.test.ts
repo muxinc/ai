@@ -19,6 +19,21 @@ function openAIError(statusCode: number | undefined, error?: { code?: string | n
 
 const facts = { call: "detect_burned_in_captions", provider: "openai", model: "gpt-test" };
 
+// OpenAI's reply when its own fetch of an input URL times out.
+const DOWNLOAD_TIMEOUT_MESSAGE = "Unable to download content from the provided URL before the timeout. Check that the URL is publicly accessible and responds promptly, or upload the file and provide a file_id instead.";
+
+function openAIErrorWithMessage(statusCode: number, message: string, code = "invalid_value") {
+  return new APICallError({
+    message,
+    url: "https://api.openai.com/v1/responses",
+    requestBodyValues: {},
+    statusCode,
+    responseHeaders: { "x-request-id": "req_123" },
+    responseBody: JSON.stringify({ error: { message, type: "invalid_request_error", param: "url", code } }),
+    isRetryable: false,
+  });
+}
+
 describe("parseOpenAIErrorBody", () => {
   it("reads OpenAI's code and type, only as tokens", () => {
     expect(parseOpenAIErrorBody(JSON.stringify({ error: { code: "slow_down", type: "rate_limit_error" } }))).toEqual({ code: "slow_down", type: "rate_limit_error" });
@@ -81,6 +96,43 @@ describe("openAICallError", () => {
     expect(openAICallError(openAIError(status, error), "x", { call: "c" })).toMatchObject({ code, transient });
   });
 
+  it("retries OpenAI's timed-out download of an input URL, a 400 the same request usually gets past", () => {
+    const error = openAICallError(openAIErrorWithMessage(400, DOWNLOAD_TIMEOUT_MESSAGE), "x", { call: "c" });
+
+    expect(error).toMatchObject({
+      code: "dependency_timeout",
+      type: "timeout_error",
+      source: "upstream",
+      dependency: "ai_provider",
+      transient: true,
+      retryable: true,
+      facts: { call: "c", status: 400, providerCode: "invalid_value", requestId: "req_123" },
+    });
+    expect(JSON.stringify(error.facts)).not.toMatch(/download|URL/);
+  });
+
+  it("retries OpenAI's other wording of the same download timeout", () => {
+    expect(openAICallError(openAIErrorWithMessage(400, "Timeout while downloading https://image.example/frame.jpg."), "x", { call: "c" })).toMatchObject({
+      code: "dependency_timeout",
+      transient: true,
+      retryable: true,
+    });
+  });
+
+  it("still doesn't retry any other invalid_value 400", () => {
+    expect(openAICallError(openAIErrorWithMessage(400, "Invalid value for 'temperature': must be between 0 and 2."), "x", { call: "c" })).toMatchObject({
+      code: "dependency_request_rejected",
+      source: "internal",
+      transient: false,
+      retryable: false,
+      facts: { status: 400, providerCode: "invalid_value" },
+    });
+  });
+
+  it("matches the download timeout only on a 400", () => {
+    expect(openAICallError(openAIErrorWithMessage(422, DOWNLOAD_TIMEOUT_MESSAGE), "x", { call: "c" })).not.toMatchObject({ code: "dependency_timeout" });
+  });
+
   it("keeps OpenAI's free text out of facts, and its request id in", () => {
     const error = openAICallError(openAIError(429, { code: "insufficient_quota" }), "x", { call: "c" });
 
@@ -103,10 +155,26 @@ describe("openAI model calls", () => {
   });
 });
 
+describe("openAI model calls: URL download timeout", () => {
+  it("is step-retried, as the unclassified error was", () => {
+    expect(modelStepError(openAIErrorWithMessage(400, DOWNLOAD_TIMEOUT_MESSAGE), "Summary failed", facts)).toMatchObject({
+      code: "dependency_timeout",
+      dependency: "ai_provider",
+      transient: true,
+      facts: { ...facts, status: 400, providerCode: "invalid_value" },
+    });
+  });
+});
+
 describe("openAIFetchError", () => {
   it("reads OpenAI's code from a fetch response's body, like an AI SDK error", () => {
     expect(openAIFetchError("x", { call: "c", status: 429, body: JSON.stringify({ error: { code: "insufficient_quota" } }) })).toMatchObject({ code: "provider_quota_exhausted", transient: false, facts: { status: 429, providerCode: "insufficient_quota" } });
     expect(openAIFetchError("x", { call: "c", status: 429, body: "not json" })).toMatchObject({ code: "dependency_rate_limited", transient: true });
+  });
+
+  it("retries OpenAI's timed-out URL download from a fetch response's body too", () => {
+    const body = JSON.stringify({ error: { message: DOWNLOAD_TIMEOUT_MESSAGE, type: "invalid_request_error", param: "url", code: "invalid_value" } });
+    expect(openAIFetchError("x", { call: "c", status: 400, body })).toMatchObject({ code: "dependency_timeout", transient: true, retryable: true });
   });
 
   it("codes no response as transient", () => {

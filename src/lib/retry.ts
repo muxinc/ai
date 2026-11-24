@@ -1,5 +1,7 @@
 import { APICallError, DownloadError, NoOutputGeneratedError } from "ai";
 
+import { isOpenAIUrlDownloadTimeoutMessage } from "./openai-errors.ts";
+
 /**
  * Retry configuration options
  */
@@ -22,7 +24,7 @@ const DEFAULT_RETRY_OPTIONS: Required<Pick<RetryOptions, "maxRetries" | "baseDel
  * Default retry condition - retries on transient timeout and download errors
  */
 function defaultShouldRetry(error: Error, _attempt: number): boolean {
-  if (error.message.includes("Timeout while downloading")) {
+  if (isOpenAIUrlDownloadTimeoutMessage(error.message)) {
     return true;
   }
 

@@ -137,6 +137,29 @@ describe("withRetry", () => {
     expect(attempts).toBe(1);
   });
 
+  it.each([
+    "Unable to download content from the provided URL before the timeout. Check that the URL is publicly accessible and responds promptly, or upload the file and provide a file_id instead.",
+    "Timeout while downloading https://image.example/frame.jpg.",
+  ])("retries OpenAI's URL download timeout (%s)", async (message) => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    let attempts = 0;
+
+    const result = await withRetry(async () => {
+      attempts++;
+      if (attempts === 1) {
+        throw new Error(message);
+      }
+      return "answered";
+    }, {
+      maxRetries: 1,
+      baseDelay: 0,
+      maxDelay: 0,
+    });
+
+    expect(result).toBe("answered");
+    expect(attempts).toBe(2);
+  });
+
   it("retries when the model generated no output", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     let attempts = 0;
