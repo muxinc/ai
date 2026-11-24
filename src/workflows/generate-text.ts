@@ -1114,6 +1114,11 @@ async function generateArtifactsInBatches(
       }
     }
     if (failures.length > 0) {
+      // Workflow DevKit's control flow from any artifact's step wins over the other failures.
+      const controlFlow = failures.find(isWorkflowControlFlowError);
+      if (controlFlow) {
+        throw controlFlow;
+      }
       for (const failure of failures.slice(1)) {
         const usage = getErrorTokenUsage(failure);
         if (usage) {
