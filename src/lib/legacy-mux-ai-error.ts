@@ -6,6 +6,7 @@ import { isLegacyMuxAiError } from "./error-guards.ts";
 import type { ModelCallDiagnostics, MuxAiErrorSource, MuxAiErrorType, SerializedMuxAiError } from "./mux-ai-error.ts";
 import { extractErrorDetail, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
 import { detectLeakReason } from "./output-safety.ts";
+import { toSerializableValue } from "./serializable-value.ts";
 import { getErrorTokenUsage } from "./token-usage.ts";
 
 // Errors raised the way they were before classification, for modules not yet on the
@@ -86,7 +87,7 @@ export class LegacyMuxAiError extends MuxAiError {
       usage: getErrorTokenUsage(instance),
       finishReason: incomplete.finishReason,
       rawFinishReason: incomplete.rawFinishReason,
-      diagnostics: instance.diagnostics,
+      diagnostics: toSerializableValue(instance.diagnostics) as ModelCallDiagnostics | undefined,
     };
   }
 
