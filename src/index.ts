@@ -22,7 +22,9 @@ export {
 } from "./lib/elevenlabs-errors.ts";
 export type { ElevenLabsFailure } from "./lib/elevenlabs-errors.ts";
 
+// Error guards
 export { classifiedErrorOf, isWorkflowControlFlowError } from "./lib/error-guards.ts";
+
 // Language code utilities
 export {
   getLanguageCodePair,
@@ -87,8 +89,8 @@ export {
   STATIC_RENDITIONS_GUIDE_URL,
   usesLegacyMp4Support,
 } from "./lib/mux-static-renditions.ts";
-
 export type { LegacyMp4SupportRendition } from "./lib/mux-static-renditions.ts";
+
 // Mux text track replacement
 export {
   buildMuxAiTrackPassthrough,
@@ -109,7 +111,6 @@ export {
   trackTargetFacts,
   validateTrackPassthrough,
 } from "./lib/mux-tracks.ts";
-
 export type {
   ReplaceableTrackType,
   ReplaceAndCreateTextTrackInput,
@@ -126,10 +127,11 @@ export type {
   TrackSummary,
   TrackTarget,
 } from "./lib/mux-tracks.ts";
+
 // Mux playback URL utilities
 export { getMuxPlaybackOrigin } from "./lib/mux-url.ts";
-
 export type { MuxPlaybackService } from "./lib/mux-url.ts";
+
 export {
   createPublicErrorView,
   genericPublicMessage,
@@ -137,12 +139,12 @@ export {
   MUX_AI_ERROR_PUBLIC_MAPPINGS,
   toPublicError,
 } from "./lib/public-error.ts";
-
 export type {
   MuxAiPublicError,
   PublicError,
   PublicErrorMapping,
 } from "./lib/public-error.ts";
+
 // Workflow credential utilities
 export { setWorkflowCredentialsProvider } from "./lib/workflow-credentials.ts";
 export type { WorkflowCredentialsProvider } from "./lib/workflow-credentials.ts";
