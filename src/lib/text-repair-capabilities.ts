@@ -9,9 +9,13 @@ const OPENAI_REPAIR_CAPABILITIES: Record<string, { supportsReasoningNone: boolea
   "gpt-6-sol": { supportsReasoningNone: true },
 };
 
+export function supportsOpenAIReasoningNone(model: LanguageModel): boolean {
+  return typeof model === "object" && model.provider.startsWith("openai.") &&
+    OPENAI_REPAIR_CAPABILITIES[model.modelId]?.supportsReasoningNone === true;
+}
+
 export function getTextRepairProviderOptions(model: LanguageModel) {
-  if (typeof model !== "object" || !model.provider.startsWith("openai.") ||
-    !OPENAI_REPAIR_CAPABILITIES[model.modelId]?.supportsReasoningNone) {
+  if (!supportsOpenAIReasoningNone(model)) {
     return undefined;
   }
   return { openai: { reasoningEffort: "none", store: false } };

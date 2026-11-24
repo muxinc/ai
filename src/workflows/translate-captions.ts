@@ -57,6 +57,7 @@ import {
   putObjectWithStorageAdapter,
   storageNotConfiguredError,
 } from "../lib/storage-adapter.ts";
+import { supportsOpenAIReasoningNone } from "../lib/text-repair-capabilities.ts";
 import { aggregateTokenUsage, getErrorTokenUsage, rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import { signingCredentialsMissingError } from "../lib/url-signing.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
@@ -183,7 +184,15 @@ export interface TranslationOptions<P extends SupportedProvider = SupportedProvi
    * the model prompt — partly trusted input, see docs/SECURITY.md.
    */
   neverTranslate?: string[];
+  /**
+   * Provider options for the translation model calls. When omitted, OpenAI
+   * models known to support it get `reasoningEffort: "none"`. Passing this
+   * replaces that default.
+   */
+  providerOptions?: TranslationProviderOptions;
 }
+
+export type TranslationProviderOptions = Parameters<typeof generateText>[0]["providerOptions"];
 
 export interface TranslationChunkingOptions {
   /** Set to false to translate all cues in a single structured request. Defaults to true. */
@@ -224,6 +233,26 @@ export type TranslationPayload = z.infer<typeof translationSchema>;
 // Prompts
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Shared by both translation prompts. Besides guiding style, it keeps each
+// system prompt above the 1,024-token minimum for automatic prompt caching,
+// so nothing in either prompt may vary between calls.
+const SUBTITLE_GUIDELINES = promptDedent`
+  <subtitle_guidelines>
+    - Translate meaning, not word for word. Use the phrasing a native speaker would expect to read in subtitles.
+    - Keep each translated cue about as long as its source cue so it stays readable in the same on-screen time. Condense filler words before dropping meaning.
+    - When a sentence spans several cues, break it at a natural point in the target language, but do not move content from one cue into another; each cue must stay in sync with the speech it accompanies.
+    - Preserve line breaks inside a cue where the target language allows.
+    - Keep speaker labels (such as "JOHN:" or a leading "- ") in the same position. Translate role labels (such as "NARRATOR:") but not personal names.
+    - Translate bracketed sound and music descriptions (such as "[laughs]" or "(door slams)") and keep their brackets. Keep music symbols such as "♪" as they are.
+    - Keep the source register and tone, including formality, slang, humour and profanity. Do not soften, censor or embellish.
+    - Keep personal names, brand and product names, URLs, email addresses, hashtags, @handles and code as written, unless a well-established localized form exists.
+    - Keep numbers, times and units as in the source, adjusting only digit grouping and decimal separators to the target language's conventions.
+    - Use the target language's punctuation and quotation conventions (for example «» in French, or opening ¿ and ¡ in Spanish).
+    - Return a cue unchanged when it is already in the target language or has nothing to translate (a name, a number or a sound).
+    - Never add translator notes, explanations, alternatives or any text that is not in the source.
+  </subtitle_guidelines>
+`;
+
 const SYSTEM_PROMPT = promptDedent`
   You are a subtitle translation expert. Translate VTT subtitle files to the target language specified by the user.
   You may receive either a full VTT file or a chunk from a larger VTT.
@@ -236,6 +265,8 @@ const SYSTEM_PROMPT = promptDedent`
   header "WEBVTT" (exact casing). Do not wrap it in markdown code fences
   (\`\`\`vtt, \`\`\`), HTML tags (<code>, <pre>), or any other delimiter —
   emit the VTT body verbatim.
+
+  ${SUBTITLE_GUIDELINES}
 
   <security>
     ${NON_DISCLOSURE_CONSTRAINT}
@@ -253,7 +284,8 @@ const SYSTEM_PROMPT = promptDedent`
 
 const CUE_TRANSLATION_SYSTEM_PROMPT = promptDedent`
   You are a subtitle translation expert.
-  You will receive a sequence of subtitle cues extracted from a VTT file.
+  You will receive a sequence of subtitle cues extracted from a VTT file, as a JSON array
+  holding one string of cue text per cue, in playback order.
   Translate the cues to the requested target language while preserving their original order.
   Treat the cue list as continuous context so the translation reads naturally across adjacent lines.
   If the user message contains a <never_translate> section, every term listed
@@ -261,6 +293,8 @@ const CUE_TRANSLATION_SYSTEM_PROMPT = promptDedent`
   it occurs — never translated, transliterated, or re-cased.
   Return JSON with a single key "translations" containing exactly one translated string for each input cue.
   Do not merge, split, omit, reorder, or add cues.
+
+  ${SUBTITLE_GUIDELINES}
 
   <security>
     ${NON_DISCLOSURE_CONSTRAINT}
@@ -350,6 +384,36 @@ function buildNeverTranslateSection(terms: string[] | undefined): string {
   }
   return `\n\n<never_translate>\n${terms.join("\n")}\n</never_translate>`;
 }
+
+/**
+ * Default provider options for a translation call: skip reasoning where the
+ * model allows it, since caption translation is a direct mapping that does not
+ * benefit from it.
+ */
+function getTranslationProviderOptions(
+  model: Awaited<ReturnType<typeof createLanguageModelFromConfig>>,
+): TranslationProviderOptions {
+  return supportsOpenAIReasoningNone(model) ? { openai: { reasoningEffort: "none" } } : undefined;
+}
+
+// Uses zod's default .strip(). Extras from the model are stripped silently;
+// the call site re-parses response.text and records them as `unexpected_key`
+// in the safety report. The schema is the same for every chunk so it stays
+// part of the cacheable prompt prefix; translateChunkWithFallback checks the
+// cue count instead.
+//
+// Tuning notes on `.max(2000)` per translated cue:
+// - Legitimate cues are usually well under 500 chars even for long
+//   monologues. Translation may expand text slightly for verbose
+//   languages (German) or contract it (Chinese).
+// - 2000 intentionally matches `MAX_CUE_TEXT_CHARS` on the input
+//   side, giving input/output symmetry and bounding exfiltration
+//   through any single cue position.
+// - Tightening below 2000 risks rejecting legitimate translations
+//   that expand meaningfully; tuning should track the input cap.
+const cueTranslationSchema = z.object({
+  translations: z.array(z.string().min(1).max(2000)),
+});
 
 // Substring matching, no word boundaries: consistent for scripts
 // without word delimiters (CJK), and both sides count the same way.
@@ -722,6 +786,7 @@ async function translateVttWithAI({
   modelId,
   credentials,
   neverTranslate,
+  providerOptions,
 }: {
   vttContent: string;
   fromLanguageCode: string;
@@ -730,6 +795,7 @@ async function translateVttWithAI({
   modelId: string;
   credentials?: WorkflowCredentialsInput;
   neverTranslate?: string[];
+  providerOptions?: TranslationProviderOptions;
 }): Promise<TranslateStepResult> {
   "use step";
 
@@ -749,6 +815,7 @@ async function translateVttWithAI({
   const response = await withContentPolicyAwareRetry(() => generateText({
     model,
     maxRetries: 0,
+    providerOptions: providerOptions ?? getTranslationProviderOptions(model),
     output: Output.object({ schema: translationSchema }),
     system: SYSTEM_PROMPT,
     messages: [
@@ -823,6 +890,7 @@ async function translateCueChunkWithAI({
   modelId,
   credentials,
   neverTranslate,
+  providerOptions,
 }: {
   cues: Array<{ startTime: number; endTime: number; text: string }>;
   fromLanguageCode: string;
@@ -831,43 +899,26 @@ async function translateCueChunkWithAI({
   modelId: string;
   credentials?: WorkflowCredentialsInput;
   neverTranslate?: string[];
+  providerOptions?: TranslationProviderOptions;
 }): Promise<{ translations: string[]; usage: TokenUsage; unexpectedKeyCount: number }> {
   "use step";
 
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
-  // Uses zod's default .strip(). Extras from the model are stripped
-  // silently; the call site re-parses response.text and records them
-  // as `unexpected_key` in the safety report.
-  //
-  // Tuning notes on `.max(2000)` per translated cue:
-  // - Legitimate cues are usually well under 500 chars even for long
-  //   monologues. Translation may expand text slightly for verbose
-  //   languages (German) or contract it (Chinese).
-  // - 2000 intentionally matches `MAX_CUE_TEXT_CHARS` on the input
-  //   side, giving input/output symmetry and bounding exfiltration
-  //   through any single cue position.
-  // - Tightening below 2000 risks rejecting legitimate translations
-  //   that expand meaningfully; tuning should track the input cap.
-  const schema = z.object({
-    translations: z.array(z.string().min(1).max(2000)).length(cues.length),
-  });
-  const cuePayload = cues.map((cue, index) => ({
-    index,
-    startTime: cue.startTime,
-    endTime: cue.endTime,
-    text: cue.text,
-  }));
+  // Only the cue text: the VTT is rebuilt locally from the source timings, so
+  // sending them would spend input tokens on data the model never uses.
+  const cuePayload = cues.map(cue => cue.text);
 
   const context: ModelCallContext = { call: "translate_vtt_chunk", provider, model: modelId };
   const response = await withContentPolicyAwareRetry(() => generateText({
     model,
     maxRetries: 0,
-    output: Output.object({ schema }),
+    providerOptions: providerOptions ?? getTranslationProviderOptions(model),
+    output: Output.object({ schema: cueTranslationSchema }),
     system: CUE_TRANSLATION_SYSTEM_PROMPT,
     messages: [
       {
         role: "user",
-        content: `Translate from ${fromLanguageCode} to ${toLanguageCode}.\nReturn exactly ${cues.length} translated cues in the same order as the input.${buildNeverTranslateSection(neverTranslate)}\n\n${JSON.stringify(cuePayload, null, 2)}`,
+        content: `Translate from ${fromLanguageCode} to ${toLanguageCode}.\nReturn exactly ${cues.length} translated cues in the same order as the input.${buildNeverTranslateSection(neverTranslate)}\n\n${JSON.stringify(cuePayload)}`,
       },
     ],
   }), undefined, context);
@@ -875,11 +926,9 @@ async function translateCueChunkWithAI({
 
   // Schema-smuggling detection for the cue envelope. Any extras on the
   // root envelope were stripped by zod; log + bubble count to aggregate.
-  // The schema is built per-call above, so derive its keys from the
-  // same instance rather than hand-maintaining a parallel constant.
   const unexpectedKeys = detectUnexpectedKeysFromRawText(
     response.text,
-    schema.keyof().options,
+    cueTranslationSchema.keyof().options,
   );
   if (unexpectedKeys.length > 0) {
     console.warn(
@@ -934,6 +983,7 @@ async function translateChunkWithFallback({
   modelId,
   credentials,
   neverTranslate,
+  providerOptions,
 }: {
   chunk: TranslationChunkRequest;
   fromLanguageCode: string;
@@ -942,6 +992,7 @@ async function translateChunkWithFallback({
   modelId: string;
   credentials?: WorkflowCredentialsInput;
   neverTranslate?: string[];
+  providerOptions?: TranslationProviderOptions;
 }): Promise<TranslateStepResult> {
   "use step";
 
@@ -964,6 +1015,7 @@ async function translateChunkWithFallback({
       modelId,
       credentials,
       neverTranslate,
+      providerOptions,
     });
 
     if (result.translations.length !== chunk.cueCount) {
@@ -1037,6 +1089,7 @@ async function translateChunkWithFallback({
           modelId,
           credentials,
           neverTranslate,
+          providerOptions,
         }),
         translateChunkWithFallback({
           chunk: rightChunk,
@@ -1046,6 +1099,7 @@ async function translateChunkWithFallback({
           modelId,
           credentials,
           neverTranslate,
+          providerOptions,
         }),
       ]),
       failedAttemptUsage ? [failedAttemptUsage] : [],
@@ -1077,6 +1131,7 @@ async function translateCaptionTrack({
   credentials,
   chunking,
   neverTranslate,
+  providerOptions,
 }: {
   vttContent: string;
   assetDurationSeconds?: number;
@@ -1087,6 +1142,7 @@ async function translateCaptionTrack({
   credentials?: WorkflowCredentialsInput;
   chunking?: TranslationChunkingOptions;
   neverTranslate?: string[];
+  providerOptions?: TranslationProviderOptions;
 }): Promise<TranslateStepResult> {
   "use step";
 
@@ -1100,6 +1156,7 @@ async function translateCaptionTrack({
       modelId,
       credentials,
       neverTranslate,
+      providerOptions,
     });
   }
 
@@ -1122,6 +1179,7 @@ async function translateCaptionTrack({
             modelId,
             credentials,
             neverTranslate,
+            providerOptions,
           }),
         ),
       ),
@@ -1232,6 +1290,7 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
     replaceExistingTracks = "fail",
     trackName: providedTrackName,
     trackPassthrough: providedTrackPassthrough,
+    providerOptions,
   } = options;
   const credentials = providedCredentials;
   const effectiveStorageAdapter = storageAdapter;
@@ -1350,6 +1409,7 @@ async function translateCaptionsInternal<P extends SupportedProvider = Supported
       credentials,
       chunking,
       neverTranslate: neverTranslateTerms.length > 0 ? neverTranslateTerms : undefined,
+      providerOptions,
     });
     translatedVtt = result.translatedVtt;
     usage = result.usage;

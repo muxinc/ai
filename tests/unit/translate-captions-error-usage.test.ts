@@ -101,7 +101,7 @@ beforeEach(() => {
   vi.mocked(resolveMuxSigningContext).mockResolvedValue(undefined);
   vi.mocked(fetchVttFromMux).mockResolvedValue(VTT_CONTENT);
   vi.mocked(resolveLanguageModelConfig).mockReturnValue({ provider: "openai", modelId: "gpt-test" } as any);
-  vi.mocked(createLanguageModelFromConfig).mockResolvedValue({} as any);
+  vi.mocked(createLanguageModelFromConfig).mockResolvedValue({ provider: "openai.responses", modelId: "gpt-test" } as any);
 });
 
 describe("translateCaptions error-path token usage", () => {
