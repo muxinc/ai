@@ -61,6 +61,7 @@ import {
   resolveMuxClient,
   resolveMuxSigningContext,
 } from "../lib/workflow-credentials.ts";
+import { unwrapWorkflowStepError } from "../lib/workflow-step-error.ts";
 import { buildTranscriptUrl, extractTextFromVTT, getReadyTextTracks, vttTimestampToSeconds } from "../primitives/transcripts.ts";
 import type {
   MuxAIOptions,
@@ -667,7 +668,9 @@ async function deleteTrackOnMux(
  * (a Mux create, classified inside its step) keeps its facts (status, request id, Mux's
  * error type) and Mux's own text from its cause summary; anything else, its detail.
  */
-function restoreFailureFacts(error: unknown): MuxAiErrorFacts {
+function restoreFailureFacts(thrown: unknown): MuxAiErrorFacts {
+  // The restore is a step: once its retries ran out, Workflow DevKit wraps its classified error.
+  const error = unwrapWorkflowStepError(thrown);
   if (!MuxAiError.is(error)) {
     return { restoreError: errorDetailFact(extractErrorDetail(error)) };
   }

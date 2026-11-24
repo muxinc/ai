@@ -13,6 +13,7 @@ import type { TokenUsage } from "../types.ts";
 import type { LegacySerializedMuxAiError } from "./legacy-mux-ai-error.ts";
 import { detectLeakReason } from "./output-safety.ts";
 import { getErrorTokenUsage } from "./token-usage.ts";
+import { unwrapWorkflowStepError } from "./workflow-step-error.ts";
 
 /**
  * Public error categories for job outcomes. One list for the SDK and its consumers,
@@ -797,9 +798,12 @@ function scrubDetail(detail: string, context?: string): string {
  * unclassified is this code's own failure.
  *
  * Use this in catch blocks that re-throw, so a classified error from a callee
- * keeps its classification. Token usage carries over either way.
+ * keeps its classification, including one a step threw after Workflow DevKit wrapped it
+ * (see {@link unwrapWorkflowStepError}). Token usage carries over either way.
  */
-export function wrapError(error: unknown, message: string, facts?: MuxAiErrorFacts): never {
+export function wrapError(thrown: unknown, message: string, facts?: MuxAiErrorFacts): never {
+  // A step's classified error, still wrapped by Workflow DevKit once its retries ran out.
+  const error = unwrapWorkflowStepError(thrown);
   if (MuxAiError.is(error)) {
     if (facts) {
       Object.assign(error, { facts: { ...facts, ...error.facts } });

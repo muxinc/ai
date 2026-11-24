@@ -1,5 +1,7 @@
 import type { TokenUsage } from "../types.ts";
 
+import { unwrapWorkflowStepError } from "./workflow-step-error.ts";
+
 const TOKEN_USAGE_FIELDS = [
   "inputTokens",
   "outputTokens",
@@ -39,7 +41,9 @@ export function aggregateTokenUsage(usages: TokenUsage[]): TokenUsage {
  * {@link rethrowWithTokenUsage}). Falls back to AI SDK v6's nested
  * `inputTokenDetails`/`outputTokenDetails` for cache/reasoning counts.
  */
-export function getErrorTokenUsage(error: unknown): TokenUsage | undefined {
+export function getErrorTokenUsage(thrown: unknown): TokenUsage | undefined {
+  // A step's error keeps its usage inside Workflow DevKit's retries-exhausted wrapper.
+  const error = unwrapWorkflowStepError(thrown);
   if (typeof error !== "object" || error === null) {
     return undefined;
   }
@@ -83,9 +87,12 @@ export function getErrorTokenUsage(error: unknown): TokenUsage | undefined {
  * Rethrows `error` with the aggregate of `collectedUsage` plus the error's
  * own usage attached as a plain enumerable `usage` property (mirrors the AI
  * SDK's `NoObjectGeneratedError.usage` convention). Rethrows untouched when
- * there is no usage to attach.
+ * there is no usage to attach. A classified error Workflow DevKit wrapped after a step's
+ * retries ran out is rethrown unwrapped (see `unwrapWorkflowStepError`).
  */
-export function rethrowWithTokenUsage(error: unknown, collectedUsage: TokenUsage[]): never {
+export function rethrowWithTokenUsage(thrown: unknown, collectedUsage: TokenUsage[]): never {
+  // Rethrow a step's classified error itself, not Workflow DevKit's retries-exhausted wrapper.
+  const error = unwrapWorkflowStepError(thrown);
   const usages = [...collectedUsage];
   const errorUsage = getErrorTokenUsage(error);
   if (errorUsage) {

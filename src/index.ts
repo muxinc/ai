@@ -146,6 +146,7 @@ export { setWorkflowCredentialsProvider } from "./lib/workflow-credentials.ts";
 export type { WorkflowCredentialsProvider } from "./lib/workflow-credentials.ts";
 export { decryptFromWorkflow, encryptForWorkflow } from "./lib/workflow-crypto.ts";
 export type { Encrypted, EncryptedPayload } from "./lib/workflow-crypto.ts";
+export { unwrapWorkflowStepError } from "./lib/workflow-step-error.ts";
 export {
   createWorkflowStorageClient,
   WorkflowStorageClient,
