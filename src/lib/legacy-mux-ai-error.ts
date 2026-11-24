@@ -6,7 +6,6 @@ import { isLegacyMuxAiError } from "./error-guards.ts";
 import type { ModelCallDiagnostics, MuxAiErrorSource, MuxAiErrorType, SerializedMuxAiError } from "./mux-ai-error.ts";
 import { extractErrorDetail, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
 import { detectLeakReason } from "./output-safety.ts";
-import { toSerializableValue } from "./serializable-value.ts";
 import { getErrorTokenUsage } from "./token-usage.ts";
 
 // Errors raised the way they were before classification, for modules not yet on the
@@ -87,34 +86,24 @@ export class LegacyMuxAiError extends MuxAiError {
       usage: getErrorTokenUsage(instance),
       finishReason: incomplete.finishReason,
       rawFinishReason: incomplete.rawFinishReason,
-      diagnostics: toSerializableValue(instance.diagnostics) as ModelCallDiagnostics | undefined,
+      diagnostics: instance.diagnostics,
     };
   }
 
-  // Typed to match the base codec; this codec only ever reads the legacy shape it writes. Never
-  // throws: a malformed record reads with fallbacks, since a throw here would hand the workflow an
-  // unclassified error instead.
+  // Typed to match the base codec; this codec only ever reads the legacy shape it writes.
   static [WORKFLOW_DESERIALIZE](record: LegacySerializedMuxAiError | SerializedMuxAiError): LegacyMuxAiError {
-    const value = (typeof record === "object" && record !== null ? record : {}) as Partial<LegacySerializedMuxAiError>;
-    const message = typeof value.message === "string" ? value.message : "Unknown error";
-    try {
-      const error = new LegacyMuxAiError(message, {
-        type: typeof value.publicType === "string" ? value.publicType : MUX_AI_ERROR_TYPES.PROCESSING_ERROR,
-        retryable: value.retryable === true,
-      });
-      Object.assign(error, {
-        usage: typeof value.usage === "object" && value.usage !== null ? value.usage : undefined,
-        diagnostics: typeof value.diagnostics === "object" && value.diagnostics !== null ? value.diagnostics : undefined,
-        ...(typeof value.finishReason === "string" && { finishReason: value.finishReason }),
-        ...(typeof value.rawFinishReason === "string" && { rawFinishReason: value.rawFinishReason }),
-      });
-      if (typeof value.stack === "string") {
-        error.stack = value.stack;
-      }
-      return error;
-    } catch {
-      return new LegacyMuxAiError(message, { type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR });
+    const value = record as LegacySerializedMuxAiError;
+    const error = new LegacyMuxAiError(value.message, { type: value.publicType, retryable: value.retryable });
+    Object.assign(error, {
+      usage: value.usage,
+      diagnostics: value.diagnostics,
+      ...(value.finishReason !== undefined && { finishReason: value.finishReason }),
+      ...(value.rawFinishReason !== undefined && { rawFinishReason: value.rawFinishReason }),
+    });
+    if (value.stack !== undefined) {
+      error.stack = value.stack;
     }
+    return error;
   }
 }
 

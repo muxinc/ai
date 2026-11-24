@@ -1,11 +1,9 @@
 import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 import { describe, expect, it } from "vitest";
 
-import { LegacyMuxAiError } from "../../src/lib/legacy-mux-ai-error.ts";
 import { MuxAiError, readSerializedClassification } from "../../src/lib/mux-ai-error.ts";
 
 const revive = (record: unknown) => (MuxAiError as unknown as Record<symbol, (value: unknown) => MuxAiError>)[WORKFLOW_DESERIALIZE](record);
-const reviveLegacy = (record: unknown) => (LegacyMuxAiError as unknown as Record<symbol, (value: unknown) => LegacyMuxAiError>)[WORKFLOW_DESERIALIZE](record);
 
 describe("readSerializedClassification", () => {
   it("reads a well-formed record as written", () => {
@@ -76,15 +74,5 @@ describe("muxAiError deserialization", () => {
     }).not.toThrow();
     expect(MuxAiError.is(restored)).toBe(true);
     expect(restored).toMatchObject({ type: expect.any(String), source: expect.any(String) });
-  });
-});
-
-describe("legacyMuxAiError deserialization", () => {
-  it.each([undefined, null, "garbage", {}, { message: 1, publicType: 2, retryable: "yes", usage: "x" }])("never throws for %j, and stays a legacy error", (record) => {
-    let restored: LegacyMuxAiError | undefined;
-    expect(() => {
-      restored = reviveLegacy(record);
-    }).not.toThrow();
-    expect(restored).toMatchObject({ __robots_error: true, publicType: "processing_error", retryable: false });
   });
 });
