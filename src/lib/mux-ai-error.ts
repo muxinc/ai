@@ -669,9 +669,9 @@ export function readSerializedClassification(record: unknown): SerializedClassif
  * record with {@link readSerializedClassification}, so a malformed one can't make it throw.
  */
 export function classificationInit<TType extends string, TCode extends string, TDependency extends string>(
-  stored: SerializedClassification<TType, TCode, TDependency>,
+  record: SerializedClassification<TType, TCode, TDependency>,
 ): ClassifiedErrorInit<TType, TCode, TDependency> {
-  const record = readSerializedClassification(stored);
+  record = readSerializedClassification(record) as typeof record;
   // A stored classification satisfied the source/dependency rule when it was written.
   return {
     type: record.type,
@@ -687,8 +687,8 @@ export function classificationInit<TType extends string, TCode extends string, T
  * Restores what the constructor can't take back: the code, the cause summaries and the stack.
  * Reads the record with {@link readSerializedClassification}, so a malformed one can't make it throw.
  */
-export function restoreClassification<T extends ClassifiedError>(error: T, stored: SerializedClassification): T {
-  const record = readSerializedClassification(stored);
+export function restoreClassification<T extends ClassifiedError>(error: T, record: SerializedClassification): T {
+  record = readSerializedClassification(record);
   if (record.code) {
     Object.assign(error, { code: record.code });
   }
@@ -741,21 +741,21 @@ export class MuxAiError extends ClassifiedError<MuxAiErrorType, MuxAiErrorCode, 
     };
   }
 
-  static [WORKFLOW_DESERIALIZE](stored: SerializedMuxAiError): MuxAiError {
+  static [WORKFLOW_DESERIALIZE](value: SerializedMuxAiError): MuxAiError {
     // Subclasses inherit this codec. Restore their fields for structural guards
     // without depending on subclass constructor signatures or raw causes.
     // The stored classification matched the catalog when it was written. Never throws: a
     // malformed record reads with fallbacks (see readSerializedClassification), since a throw
     // here would hand the workflow an unclassified error instead.
     try {
-      const record = readSerializedClassification(stored);
-      const value = (readPlainRecord(stored) ?? {}) as Partial<SerializedMuxAiError>;
+      const record = readSerializedClassification(value);
+      const fields = (readPlainRecord(value) ?? {}) as Partial<SerializedMuxAiError>;
       const error = restoreClassification(new MuxAiError(record.message, classificationInit(record) as MuxAiErrorInit), record);
       Object.assign(error, {
-        usage: readPlainRecord(value.usage) as TokenUsage | undefined,
-        diagnostics: readPlainRecord(value.diagnostics) as ModelCallDiagnostics | undefined,
-        ...(typeof value.finishReason === "string" && { finishReason: value.finishReason }),
-        ...(typeof value.rawFinishReason === "string" && { rawFinishReason: value.rawFinishReason }),
+        usage: readPlainRecord(fields.usage) as TokenUsage | undefined,
+        diagnostics: readPlainRecord(fields.diagnostics) as ModelCallDiagnostics | undefined,
+        ...(typeof fields.finishReason === "string" && { finishReason: fields.finishReason }),
+        ...(typeof fields.rawFinishReason === "string" && { rawFinishReason: fields.rawFinishReason }),
       });
       return error;
     } catch {
@@ -858,13 +858,13 @@ function scrubDetail(detail: string, context?: string): string {
  * keeps its classification, including one a step threw after Workflow DevKit wrapped it
  * (see {@link classifiedErrorOf}). Token usage carries over either way.
  */
-export function wrapError(thrown: unknown, message: string, facts?: MuxAiErrorFacts): never {
+export function wrapError(error: unknown, message: string, facts?: MuxAiErrorFacts): never {
   // Workflow DevKit's control flow (e.g. a replay divergence) passes through untouched.
-  if (isWorkflowControlFlowError(thrown)) {
-    throw thrown;
+  if (isWorkflowControlFlowError(error)) {
+    throw error;
   }
   // A step's classified error, even inside Workflow DevKit's wrapper once its retries ran out.
-  const error = classifiedErrorOf(thrown) ?? thrown;
+  error = classifiedErrorOf(error) ?? error;
   if (MuxAiError.is(error)) {
     if (facts) {
       Object.assign(error, { facts: { ...facts, ...error.facts } });

@@ -668,9 +668,9 @@ async function deleteTrackOnMux(
  * (a Mux create, classified inside its step) keeps its facts (status, request id, Mux's
  * error type) and Mux's own text from its cause summary; anything else, its detail.
  */
-function restoreFailureFacts(thrown: unknown): MuxAiErrorFacts {
+function restoreFailureFacts(error: unknown): MuxAiErrorFacts {
   // The restore is a step: once its retries ran out, Workflow DevKit wraps its classified error.
-  const error = classifiedErrorOf(thrown) ?? thrown;
+  error = classifiedErrorOf(error) ?? error;
   if (!MuxAiError.is(error)) {
     return { restoreError: errorDetailFact(extractErrorDetail(error)) };
   }

@@ -45,22 +45,15 @@ export function aggregateTokenUsage(usages: TokenUsage[]): TokenUsage {
  * read (see `classifiedErrorOf`), e.g. a step's error, which keeps its usage inside Workflow
  * DevKit's retries-exhausted wrapper.
  */
-export function getErrorTokenUsage(thrown: unknown): TokenUsage | undefined {
-  const own = readErrorTokenUsage(thrown);
-  if (own) {
-    return own;
-  }
-  const classified = classifiedErrorOf(thrown);
-  return classified && classified !== thrown ? readErrorTokenUsage(classified) : undefined;
-}
-
-function readErrorTokenUsage(error: unknown): TokenUsage | undefined {
+export function getErrorTokenUsage(error: unknown): TokenUsage | undefined {
   if (typeof error !== "object" || error === null) {
     return undefined;
   }
   const usage = (error as { usage?: unknown }).usage;
   if (typeof usage !== "object" || usage === null) {
-    return undefined;
+    // None of its own: a classified error inside it (e.g. Workflow DevKit's wrapper) may have some.
+    const classified = classifiedErrorOf(error);
+    return classified && classified !== error ? getErrorTokenUsage(classified) : undefined;
   }
 
   const source = usage as Record<string, unknown>;
@@ -101,13 +94,13 @@ function readErrorTokenUsage(error: unknown): TokenUsage | undefined {
  * there is no usage to attach. A classified error Workflow DevKit wrapped after a step's
  * retries ran out is rethrown unwrapped (see `classifiedErrorOf`).
  */
-export function rethrowWithTokenUsage(thrown: unknown, collectedUsage: TokenUsage[]): never {
+export function rethrowWithTokenUsage(error: unknown, collectedUsage: TokenUsage[]): never {
   // Workflow DevKit's control flow (e.g. a replay divergence) passes through untouched.
-  if (isWorkflowControlFlowError(thrown)) {
-    throw thrown;
+  if (isWorkflowControlFlowError(error)) {
+    throw error;
   }
   // Rethrow a step's classified error itself, not Workflow DevKit's retries-exhausted wrapper.
-  const error = classifiedErrorOf(thrown) ?? thrown;
+  error = classifiedErrorOf(error) ?? error;
   const usages = [...collectedUsage];
   const errorUsage = getErrorTokenUsage(error);
   if (errorUsage) {
