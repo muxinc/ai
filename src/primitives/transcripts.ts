@@ -1,4 +1,5 @@
 import { requestIdOf } from "../lib/dependency-error.ts";
+import { isWorkflowControlFlowError } from "../lib/error-guards.ts";
 import { isUndeterminedLanguageCode } from "../lib/language-codes.ts";
 import { LegacyMuxAiError, legacyWrapError } from "../lib/legacy-mux-ai-error.ts";
 import type { ClassifiedErrorsOption } from "../lib/mux-ai-error.ts";
@@ -931,8 +932,9 @@ export async function fetchTranscriptForAsset(
     result = await fetchTranscriptDataForUrl(transcriptUrl, { cleanTranscript, scope, classifiedErrors });
   } catch (error) {
     // The step only throws an error for transient network errors that have
-    // exhausted WDK's retries. Swallow the error if the transcript is not required.
-    if (required) {
+    // exhausted WDK's retries. Swallow the error if the transcript is not required,
+    // but never Workflow DevKit's control flow, which must reach the runtime.
+    if (required || isWorkflowControlFlowError(error)) {
       throw error;
     }
     console.warn("Failed to fetch transcript:", error);

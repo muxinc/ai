@@ -4,10 +4,12 @@ import { runInNewContext } from "node:vm";
 
 import { applySwcTransform } from "@workflow/builders";
 import { dehydrateStepError, dehydrateStepReturnValue, hydrateStepError, hydrateStepReturnValue } from "@workflow/core/serialization";
+import { FatalError } from "@workflow/errors";
 import { build, transform } from "esbuild";
 import { describe, expect, it } from "vitest";
 
 import type { IncompleteGenerationError, isIncompleteGenerationError } from "../../src/lib/content-policy-error.ts";
+import { classifiedErrorOf } from "../../src/lib/error-guards.ts";
 import type { LegacyMuxAiError } from "../../src/lib/legacy-mux-ai-error.ts";
 import type { MuxAiError } from "../../src/lib/mux-ai-error.ts";
 
@@ -164,6 +166,37 @@ describe("sDK errors across Workflow step boundaries", () => {
     // Non-enumerable, so it stays out of JSON and logs of the error object.
     expect((restored as MuxAiError).causes).toEqual([{ name: "Error", message: "Service Unavailable", status: 503 }]);
     expect(restored).not.toHaveProperty("cause");
+  });
+
+  it("keeps a classified error recoverable from the wrapper thrown once a step's retries run out", async () => {
+    const [step, workflow] = await Promise.all([loadErrors("step"), loadErrors("workflow")]);
+    const error = new step.MuxAiError("Provider unavailable", {
+      code: "provider_unavailable",
+      type: "capacity_error",
+      source: "upstream",
+      dependency: "ai_provider",
+      facts: { call: "summarize", status: 503 },
+    });
+    error.usage = { totalTokens: 42 };
+    // As Workflow DevKit builds and stores it after the last attempt.
+    const wrapper = new FatalError(`Step "step//summarize" failed after 3 retries: ${error.message}`);
+    wrapper.cause = error;
+
+    const restored = await hydrateStepError(await dehydrateStepError(wrapper, "wrun_offline", undefined, [], globalThis), "wrun_offline", undefined, workflow.global);
+
+    expect(workflow.MuxAiError.is(restored)).toBe(false);
+    const unwrapped = classifiedErrorOf(restored);
+    expect(workflow.MuxAiError.is(unwrapped)).toBe(true);
+    expect(unwrapped).toMatchObject({
+      code: "provider_unavailable",
+      type: "capacity_error",
+      source: "upstream",
+      dependency: "ai_provider",
+      facts: { call: "summarize", status: 503 },
+      transient: true,
+      retryable: true,
+      usage: { totalTokens: 42 },
+    });
   });
 
   it("keeps a transient error retryable by the step runner", async () => {

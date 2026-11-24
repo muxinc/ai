@@ -22,6 +22,9 @@ export {
 } from "./lib/elevenlabs-errors.ts";
 export type { ElevenLabsFailure } from "./lib/elevenlabs-errors.ts";
 
+// Error guards
+export { classifiedErrorOf, isWorkflowControlFlowError } from "./lib/error-guards.ts";
+
 // Language code utilities
 export {
   getLanguageCodePair,
@@ -57,6 +60,7 @@ export {
   MUX_AI_ERROR_TYPE_VALUES,
   MUX_AI_ERROR_TYPES,
   MuxAiError,
+  readSerializedClassification,
   restoreClassification,
   serializeClassification,
   wrapError,

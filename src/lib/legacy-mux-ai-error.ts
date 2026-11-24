@@ -2,6 +2,7 @@ import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 
 import type { TokenUsage } from "../types.ts";
 
+import { isLegacyMuxAiError } from "./error-guards.ts";
 import type { ModelCallDiagnostics, MuxAiErrorSource, MuxAiErrorType, SerializedMuxAiError } from "./mux-ai-error.ts";
 import { extractErrorDetail, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
 import { detectLeakReason } from "./output-safety.ts";
@@ -106,20 +107,7 @@ export class LegacyMuxAiError extends MuxAiError {
   }
 }
 
-/**
- * Whether `value` is a legacy error, whose message is end-user text: a
- * {@link LegacyMuxAiError} from any copy of the SDK, or a consumer's own legacy error
- * with the same fields. Duck-typed, so it also matches one revived across a step boundary.
- */
-export function isLegacyMuxAiError(value: unknown): value is LegacyMuxAiError {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "__robots_error" in value &&
-    value.__robots_error === true &&
-    typeof (value as { publicMessage?: unknown }).publicMessage === "string"
-  );
-}
+export { isLegacyMuxAiError };
 
 /**
  * `wrapError()` as it was before classification, for modules not yet migrated:
