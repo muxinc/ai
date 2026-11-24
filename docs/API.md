@@ -92,9 +92,9 @@ By default it moderates everything that's available on the asset and reports wha
 - `languageCode?: string` - Language code of the caption track to moderate. When omitted, an English subtitles track is preferred and otherwise the first ready text track is used.
 - `includeTranscript?: boolean` - Moderate the caption transcript alongside thumbnails (default: true). When `false`, video assets are moderated on thumbnails only and `transcriptModeration` is skipped with `skipReason: 'disabled'`. Ignored for audio-only assets, where the transcript is the only surface that can be moderated.
 - `thresholds?: { sexual?: number; violence?: number }` - Custom thresholds (default: {sexual: 0.7, violence: 0.8})
-- `thumbnailInterval?: number` - Seconds between thumbnails for long videos (default: 10)
+- `thumbnailInterval?: number` - Seconds between thumbnails for ranges over 50 seconds (default: 10). Ranges of 50 seconds or less use up to five thumbnails.
 - `thumbnailWidth?: number` - Thumbnail width in pixels (default: 640)
-- `maxSamples?: number` - Maximum number of thumbnails to sample. Acts as a cap: if `thumbnailInterval` produces fewer samples than this limit the interval is respected; otherwise samples are evenly distributed with first and last frames pinned. (default: unlimited)
+- `maxSamples?: number` - Maximum number of distinct thumbnail timestamps to sample (default: unlimited). If the default schedule already fits after deduplication, its timestamps are used. If the cap reduces the count, samples are evenly spaced across the available range with a small inset from its endpoints. A binding cap of one samples near the start.
 - `maxConcurrent?: number` - Maximum concurrent API requests (default: 5)
 - `imageSubmissionMode?: 'url' | 'base64'` - How to submit images to AI providers (default: 'url')
 - `imageDownloadOptions?: object` - Options for image download when using base64 mode
@@ -140,7 +140,7 @@ By default it moderates everything that's available on the asset and reports wha
     status: 'completed' | 'skipped' | 'failed';
     // Present only when status === 'skipped':
     //   'no_video_track'    — the asset has no video track, so there are no thumbnails.
-    //   'no_video_in_scope' — the requested `scope` lies entirely past the end of the video track.
+    //   'no_video_in_scope' — no thumbnail can be sampled within the requested `scope`.
     skipReason?: 'no_video_track' | 'no_video_in_scope';
     skipMessage?: string; // Present only when status === 'skipped'. Human-readable explanation.
     errorMessage?: string; // Present only when status === 'failed'. Summarizes the per-item errors.
@@ -192,7 +192,7 @@ By default it moderates everything that's available on the asset and reports wha
 **Completeness and coverage.** Before you rely on a result, understand exactly what was scored and how completely:
 
 - **All scored units are returned; scoring never stops at the first flag.** Every sampled thumbnail appears in `thumbnailScores` and every transcript window in `transcriptScores`, whether or not it crosses a threshold. `maxScores` and `exceedsThreshold` are a max-based rollup across all of them (`exceedsThreshold` is `true` if any single unit's `sexual`/`violence` exceeds its threshold). To find which region triggered a flag, scan the arrays for entries above your threshold.
-- **Thumbnail (visual) coverage is sampled, not exhaustive.** Frames are sampled at `thumbnailInterval` (default every 10s), capped by `maxSamples`. Content between sampled frames is not inspected, so a result with no visual flag does not guarantee every frame is clean; lower `thumbnailInterval` or raise `maxSamples` for denser coverage. The `coverage` counts (`requestedSampleCount`, `successfulSampleCount`, `failedSampleCount`, `sampleCoverage`) describe **thumbnail sampling only** — transcript windows are excluded from the denominator. `isPartial` and `isLowConfidence` cover both surfaces: `isPartial` is true if any thumbnail or transcript window failed, and `isLowConfidence` signals thin thumbnail sampling or a surface that failed entirely, without making thumbnail coverage exhaustive.
+- **Thumbnail moderation checks sampled frames.** Content between sampled frames goes uninspected. For ranges over 50 seconds, lower `thumbnailInterval` to sample more densely. If `maxSamples` limits the sample count, raise it to allow more frames. The Mux Image API limits explicit thumbnail times to 100 milliseconds before the asset ends. A scope beyond that point has no thumbnail samples. The `coverage` counts (`requestedSampleCount`, `successfulSampleCount`, `failedSampleCount`, `sampleCoverage`) describe thumbnail sampling only. `isPartial` is true if any thumbnail or transcript window failed. `isLowConfidence` signals thin thumbnail sampling or a surface that failed entirely.
 - **Transcript (text) coverage is exhaustive.** Every caption cue falls in at least one time window and windows overlap, so all spoken content is moderated. Because windows overlap, the same flagged utterance near a boundary can appear in two adjacent `transcriptScores` entries with overlapping `[startTime, endTime]` ranges; merge/deduplicate overlapping flagged ranges if you want one finding per utterance.
 
 ## `hasBurnedInCaptions(assetId, options?)`

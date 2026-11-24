@@ -1,5 +1,4 @@
-import { getMuxThumbnailBaseUrl } from "../lib/mux-url.ts";
-import { signUrl } from "../lib/url-signing.ts";
+import { getThumbnailUrlsFromTimestamps, intervalThumbnailTimestamps } from "../lib/thumbnail-urls.ts";
 import { hasWorkflowScopeBoundaries, resolveWorkflowScope } from "../lib/workflow-scope.ts";
 import type { WorkflowCredentialsInput, WorkflowScope } from "../types.ts";
 
@@ -38,26 +37,7 @@ export async function getThumbnailUrls(
   const resolvedScope = effectiveScope ?
       resolveWorkflowScope(effectiveScope, duration) :
       { startTime: 0, endTime: duration };
-  const rangeDuration = resolvedScope.endTime - resolvedScope.startTime;
-  let timestamps: number[] = [];
-
-  if (rangeDuration <= 50) {
-    const spacing = rangeDuration / 6;
-    for (let i = 1; i <= 5; i++) {
-      const time = resolvedScope.startTime + i * spacing;
-      timestamps.push(effectiveScope ? Number(time.toFixed(3)) : Math.round(time));
-    }
-  } else {
-    for (
-      let time = resolvedScope.startTime;
-      time < resolvedScope.endTime;
-      time += interval
-    ) {
-      timestamps.push(time);
-    }
-  }
-
-  timestamps = [...new Set(timestamps)];
+  let timestamps = [...new Set(intervalThumbnailTimestamps(resolvedScope, interval, effectiveScope !== undefined))];
 
   // Apply maxSamples cap if specified and we have more timestamps than the limit
   if (maxSamples !== undefined && timestamps.length > maxSamples) {
@@ -82,15 +62,5 @@ export async function getThumbnailUrls(
     timestamps = newTimestamps;
   }
 
-  const baseUrl = await getMuxThumbnailBaseUrl(playbackId, credentials);
-
-  const urlPromises = timestamps.map(async (time) => {
-    const url = shouldSign ?
-        await signUrl(baseUrl, playbackId, "thumbnail", { time, width }, credentials) :
-      `${baseUrl}?time=${time}&width=${width}`;
-
-    return { url, time };
-  });
-
-  return Promise.all(urlPromises);
+  return getThumbnailUrlsFromTimestamps(playbackId, timestamps, { width, shouldSign, credentials });
 }
