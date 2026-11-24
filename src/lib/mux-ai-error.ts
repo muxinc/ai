@@ -13,7 +13,6 @@ import { classifiedErrorOf, isClassifiedError, isWorkflowControlFlowError } from
 // with the legacy module.
 import type { LegacySerializedMuxAiError } from "./legacy-mux-ai-error.ts";
 import { detectLeakReason } from "./output-safety.ts";
-import { toSerializableValue } from "./serializable-value.ts";
 import { getErrorTokenUsage } from "./token-usage.ts";
 
 /**
@@ -609,7 +608,7 @@ export function serializeClassification<TType extends string, TCode extends stri
     ...(error.code && { code: error.code }),
     // JSON-safe by type, but not checked at runtime: a value Workflow DevKit can't serialize
     // would stop the step's failure from being recorded at all.
-    facts: toSerializableValue(error.facts) as MuxAiErrorFacts,
+    facts: error.facts,
     retryable: error.retryable,
     transient: error.transient,
     causes: error.causes,
@@ -738,7 +737,7 @@ export class MuxAiError extends ClassifiedError<MuxAiErrorType, MuxAiErrorCode, 
       usage: getErrorTokenUsage(instance),
       finishReason: incomplete.finishReason,
       rawFinishReason: incomplete.rawFinishReason,
-      diagnostics: toSerializableValue(instance.diagnostics) as ModelCallDiagnostics | undefined,
+      diagnostics: instance.diagnostics,
     };
   }
 

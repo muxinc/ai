@@ -168,32 +168,6 @@ describe("sDK errors across Workflow step boundaries", () => {
     expect(restored).not.toHaveProperty("cause");
   });
 
-  it("records a classified error whose facts and diagnostics aren't plain JSON, instead of failing to serialize it", async () => {
-    const [step, workflow] = await Promise.all([loadErrors("step"), loadErrors("workflow")]);
-    const cyclic: Record<string, unknown> = { name: "body" };
-    cyclic.self = cyclic;
-    const error = new step.MuxAiError("Provider rejected the request", {
-      code: "provider_request_rejected",
-      type: "processing_error",
-      source: "upstream",
-      dependency: "ai_provider",
-      // Facts are typed JSON-safe, but a cast or an `any` can still put anything here.
-      facts: { call: "summarize", client: new Headers({ a: "b" }), body: cyclic, onRetry: () => 1, when: new Date(0) } as never,
-    });
-    error.diagnostics = { phase: "draft", provider: "openai", modelId: new URL("https://example.com/model") } as never;
-
-    const bytes = await dehydrateStepError(error, "wrun_offline", undefined, [], step.global);
-    const restored = await hydrateStepError(bytes, "wrun_offline", undefined, workflow.global);
-
-    expect(workflow.MuxAiError.is(restored)).toBe(true);
-    expect(restored).toMatchObject({
-      code: "provider_request_rejected",
-      facts: { call: "summarize", client: "[object Headers]", body: { name: "body", self: "[Circular]" }, when: new Date(0) },
-    });
-    expect((restored as MuxAiError).facts).not.toHaveProperty("onRetry", expect.anything());
-    expect((restored as MuxAiError).diagnostics).toMatchObject({ phase: "draft", provider: "openai" });
-  });
-
   it("keeps a classified error recoverable from the wrapper thrown once a step's retries run out", async () => {
     const [step, workflow] = await Promise.all([loadErrors("step"), loadErrors("workflow")]);
     const error = new step.MuxAiError("Provider unavailable", {
