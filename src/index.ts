@@ -58,6 +58,7 @@ export {
   MUX_AI_ERROR_TYPE_VALUES,
   MUX_AI_ERROR_TYPES,
   MuxAiError,
+  readSerializedClassification,
   restoreClassification,
   serializeClassification,
   wrapError,

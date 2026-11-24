@@ -617,14 +617,62 @@ export function serializeClassification<TType extends string, TCode extends stri
   };
 }
 
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function readPlainRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+/**
+ * A stored classification, read so that rebuilding it can't throw. A record written by this
+ * codec reads as it was written, whatever its version; a field that is missing or malformed
+ * (an unknown future shape, a corrupted or hand-edited record, or no record at all) gets a
+ * fallback instead: the type `server_error` and source `internal`, no code or dependency, empty
+ * facts and causes, not retryable or transient, and the message "Unknown error". A deserializer
+ * that throws would make Workflow DevKit hand the workflow an unclassified error in its place.
+ */
+export function readSerializedClassification(record: unknown): SerializedClassification {
+  const value = readPlainRecord(record) ?? {};
+  const dependency = readString(value.dependency);
+  const code = readString(value.code);
+  const stack = readString(value.stack);
+  const causes = Array.isArray(value.causes) ?
+      value.causes.flatMap((cause): ErrorCauseSummary[] => {
+        const entry = readPlainRecord(cause);
+        const name = readString(entry?.name);
+        const message = typeof entry?.message === "string" ? entry.message : undefined;
+        if (!name || message === undefined) {
+          return [];
+        }
+        return [{ name, message, ...(typeof entry?.status === "number" && { status: entry.status }) }];
+      }) :
+      [];
+  return {
+    message: typeof value.message === "string" ? value.message : "Unknown error",
+    type: readString(value.type) ?? MUX_AI_ERROR_TYPES.SERVER_ERROR,
+    source: (readString(value.source) ?? MUX_AI_ERROR_SOURCES.INTERNAL) as MuxAiErrorSource,
+    ...(dependency && { dependency }),
+    ...(code && { code }),
+    facts: (readPlainRecord(value.facts) ?? {}) as MuxAiErrorFacts,
+    retryable: value.retryable === true,
+    transient: value.transient === true,
+    causes,
+    ...(stack && { stack }),
+  };
+}
+
 /**
  * The constructor options that rebuild a serialized classification, for a
  * subclass's `WORKFLOW_DESERIALIZE` hook; follow with {@link restoreClassification}.
- * The stored classification wins over the catalog's current mapping for a code.
+ * The stored classification wins over the catalog's current mapping for a code. Reads the
+ * record with {@link readSerializedClassification}, so a malformed one can't make it throw.
  */
 export function classificationInit<TType extends string, TCode extends string, TDependency extends string>(
-  record: SerializedClassification<TType, TCode, TDependency>,
+  stored: SerializedClassification<TType, TCode, TDependency>,
 ): ClassifiedErrorInit<TType, TCode, TDependency> {
+  const record = readSerializedClassification(stored);
   // A stored classification satisfied the source/dependency rule when it was written.
   return {
     type: record.type,
@@ -636,8 +684,12 @@ export function classificationInit<TType extends string, TCode extends string, T
   } as ClassifiedErrorInit<TType, TCode, TDependency>;
 }
 
-/** Restores what the constructor can't take back: the code, the cause summaries and the stack. */
-export function restoreClassification<T extends ClassifiedError>(error: T, record: SerializedClassification): T {
+/**
+ * Restores what the constructor can't take back: the code, the cause summaries and the stack.
+ * Reads the record with {@link readSerializedClassification}, so a malformed one can't make it throw.
+ */
+export function restoreClassification<T extends ClassifiedError>(error: T, stored: SerializedClassification): T {
+  const record = readSerializedClassification(stored);
   if (record.code) {
     Object.assign(error, { code: record.code });
   }
@@ -690,18 +742,26 @@ export class MuxAiError extends ClassifiedError<MuxAiErrorType, MuxAiErrorCode, 
     };
   }
 
-  static [WORKFLOW_DESERIALIZE](value: SerializedMuxAiError): MuxAiError {
+  static [WORKFLOW_DESERIALIZE](stored: SerializedMuxAiError): MuxAiError {
     // Subclasses inherit this codec. Restore their fields for structural guards
     // without depending on subclass constructor signatures or raw causes.
-    // The stored classification matched the catalog when it was written.
-    const error = restoreClassification(new MuxAiError(value.message, classificationInit(value) as MuxAiErrorInit), value);
-    Object.assign(error, {
-      usage: value.usage,
-      diagnostics: value.diagnostics,
-      ...(value.finishReason !== undefined && { finishReason: value.finishReason }),
-      ...(value.rawFinishReason !== undefined && { rawFinishReason: value.rawFinishReason }),
-    });
-    return error;
+    // The stored classification matched the catalog when it was written. Never throws: a
+    // malformed record reads with fallbacks (see readSerializedClassification), since a throw
+    // here would hand the workflow an unclassified error instead.
+    try {
+      const record = readSerializedClassification(stored);
+      const value = (readPlainRecord(stored) ?? {}) as Partial<SerializedMuxAiError>;
+      const error = restoreClassification(new MuxAiError(record.message, classificationInit(record) as MuxAiErrorInit), record);
+      Object.assign(error, {
+        usage: readPlainRecord(value.usage) as TokenUsage | undefined,
+        diagnostics: readPlainRecord(value.diagnostics) as ModelCallDiagnostics | undefined,
+        ...(typeof value.finishReason === "string" && { finishReason: value.finishReason }),
+        ...(typeof value.rawFinishReason === "string" && { rawFinishReason: value.rawFinishReason }),
+      });
+      return error;
+    } catch {
+      return new MuxAiError("Unknown error", { type: MUX_AI_ERROR_TYPES.SERVER_ERROR, source: MUX_AI_ERROR_SOURCES.INTERNAL });
+    }
   }
 }
 
