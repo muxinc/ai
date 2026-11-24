@@ -17,6 +17,30 @@ const OpenAIErrorBodySchema = z.object({
   }),
 });
 
+/**
+ * OpenAI's answer when it couldn't fetch an input URL (an image passed by URL) before its own
+ * download deadline: HTTP 400 "Unable to download content from the provided URL before the
+ * timeout. …", with `error.code` `invalid_value`. The request was valid; OpenAI's fetch timed
+ * out, and the same request usually succeeds on a later attempt. Matched on the message, since
+ * `invalid_value` alone also covers requests that are really invalid.
+ */
+const OPENAI_URL_DOWNLOAD_TIMEOUT = /^unable to download content from the provided url before the timeout\b/i;
+
+const OpenAIErrorMessageSchema = z.object({ error: z.object({ message: z.string() }) });
+
+/** Whether an OpenAI error body is its URL download timeout (see {@link OPENAI_URL_DOWNLOAD_TIMEOUT}). */
+export function isOpenAIUrlDownloadTimeout(status: number | undefined, responseBody: string | undefined): boolean {
+  if (status !== 400 || !responseBody) {
+    return false;
+  }
+  try {
+    const parsed = OpenAIErrorMessageSchema.safeParse(JSON.parse(responseBody));
+    return parsed.success && OPENAI_URL_DOWNLOAD_TIMEOUT.test(parsed.data.error.message);
+  } catch {
+    return false;
+  }
+}
+
 /** OpenAI's own description of a failed call: its `error.code` and `error.type`, when they're tokens. */
 export function parseOpenAIErrorBody(responseBody: string | undefined): { code?: string; type?: string } {
   if (!responseBody) {
@@ -63,8 +87,9 @@ export function openAIErrorRule(status: number | undefined, { code, type }: { co
 }
 
 /**
- * Classifies a failed OpenAI API call (see `dependencyError`): OpenAI's own `error.code`
- * decides where a rule names it (see {@link openAIErrorRule}), and the status otherwise.
+ * Classifies a failed OpenAI API call (see `dependencyError`): OpenAI's URL download timeout
+ * is `dependency_timeout` (see {@link isOpenAIUrlDownloadTimeout}); otherwise OpenAI's own
+ * `error.code` decides where a rule names it (see {@link openAIErrorRule}), and the status.
  * Facts: `call`, `status`, `requestId`, and `providerCode` (OpenAI's `error.code`, else
  * its `error.type`).
  */
@@ -75,7 +100,9 @@ export function openAICallError(
 ): MuxAiError {
   const body = parseOpenAIErrorBody(apiError.responseBody);
   const providerCode = body.code ?? body.type;
-  const code = openAIErrorRule(apiError.statusCode, body);
+  const code = isOpenAIUrlDownloadTimeout(apiError.statusCode, apiError.responseBody) ?
+    MUX_AI_ERROR_CODES.DEPENDENCY_TIMEOUT :
+      openAIErrorRule(apiError.statusCode, body);
   return dependencyError(message, {
     dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
     call: init.call,
@@ -99,7 +126,9 @@ export function openAIFetchError(
 ): MuxAiError {
   const body = parseOpenAIErrorBody(init.body);
   const providerCode = body.code ?? body.type;
-  const code = init.status === undefined ? undefined : openAIErrorRule(init.status, body);
+  const code = init.status === undefined ?
+    undefined :
+    isOpenAIUrlDownloadTimeout(init.status, init.body) ? MUX_AI_ERROR_CODES.DEPENDENCY_TIMEOUT : openAIErrorRule(init.status, body);
   return dependencyError(message, {
     dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER,
     call: init.call,
