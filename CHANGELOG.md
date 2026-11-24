@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.69.0](https://github.com/muxinc/ai/compare/v0.68.0...v0.69.0) (2026-11-24)
+
+
+### Features
+
+* **workflows:** export summarize, moderate and generateContextualText aliases matching Mux Robots names ([#340](https://github.com/muxinc/ai/issues/340)) ([9c9590c](https://github.com/muxinc/ai/commit/9c9590c39e7b14acc43ebb0bf66a9e475ad7991e))
+
+
+### Bug Fixes
+
+* **errors:** keep a step's classification after Workflow DevKit wraps it on exhausted retries ([#343](https://github.com/muxinc/ai/issues/343)) ([6c13045](https://github.com/muxinc/ai/commit/6c1304571839ba45bafd538c5354915cba3214ec))
+
+## [0.68.0](https://github.com/muxinc/ai/compare/v0.67.0...v0.68.0) (2026-11-20)
+
+
+### Features
+
+* **errors:** classify generate-text ([#334](https://github.com/muxinc/ai/issues/334)) ([a0494aa](https://github.com/muxinc/ai/commit/a0494aa8ea0143288175d054462236cace2f2a97))
+* **errors:** Google model-call rules, and modelCallError for your own calls ([#335](https://github.com/muxinc/ai/issues/335)) ([b31dcf2](https://github.com/muxinc/ai/commit/b31dcf2747d278d714947c518ac6bfe99dbcb667))
+
 ## [0.67.0](https://github.com/muxinc/ai/compare/v0.66.0...v0.67.0) (2026-11-18)
 
 

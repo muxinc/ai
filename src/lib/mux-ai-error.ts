@@ -2,6 +2,7 @@ import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 
 import type { TokenUsage } from "../types.ts";
 
+import { classifiedErrorOf, isClassifiedError, isWorkflowControlFlowError } from "./error-guards.ts";
 // The legacy payload type, for MuxAiError's WORKFLOW_SERIALIZE return type only.
 // LegacyMuxAiError (in legacy-mux-ai-error.ts) extends MuxAiError and overrides its
 // static serializer to write this pre-classification shape, and TypeScript requires an
@@ -591,12 +592,7 @@ export class ClassifiedError<TType extends string = string, TCode extends string
 
   /** Whether `value` is any classified error, from this copy of the SDK or another. */
   static isClassified(value: unknown): value is ClassifiedError {
-    return (
-      typeof value === "object" &&
-      value !== null &&
-      "__classified_error" in value &&
-      value.__classified_error === true
-    );
+    return isClassifiedError(value);
   }
 }
 
@@ -610,6 +606,8 @@ export function serializeClassification<TType extends string, TCode extends stri
     source: error.source,
     ...(error.dependency && { dependency: error.dependency }),
     ...(error.code && { code: error.code }),
+    // JSON-safe by type, but not checked at runtime: a value Workflow DevKit can't serialize
+    // would stop the step's failure from being recorded at all.
     facts: error.facts,
     retryable: error.retryable,
     transient: error.transient,
@@ -618,14 +616,62 @@ export function serializeClassification<TType extends string, TCode extends stri
   };
 }
 
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function readPlainRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+/**
+ * A stored classification, read so that rebuilding it can't throw. A record written by this
+ * codec reads as it was written, whatever its version; a field that is missing or malformed
+ * (an unknown future shape, a corrupted or hand-edited record, or no record at all) gets a
+ * fallback instead: the type `server_error` and source `internal`, no code or dependency, empty
+ * facts and causes, not retryable or transient, and the message "Unknown error". A deserializer
+ * that throws would make Workflow DevKit hand the workflow an unclassified error in its place.
+ */
+export function readSerializedClassification(record: unknown): SerializedClassification {
+  const value = readPlainRecord(record) ?? {};
+  const dependency = readString(value.dependency);
+  const code = readString(value.code);
+  const stack = readString(value.stack);
+  const causes = Array.isArray(value.causes) ?
+      value.causes.flatMap((cause): ErrorCauseSummary[] => {
+        const entry = readPlainRecord(cause);
+        const name = readString(entry?.name);
+        const message = typeof entry?.message === "string" ? entry.message : undefined;
+        if (!name || message === undefined) {
+          return [];
+        }
+        return [{ name, message, ...(typeof entry?.status === "number" && { status: entry.status }) }];
+      }) :
+      [];
+  return {
+    message: typeof value.message === "string" ? value.message : "Unknown error",
+    type: readString(value.type) ?? MUX_AI_ERROR_TYPES.SERVER_ERROR,
+    source: (readString(value.source) ?? MUX_AI_ERROR_SOURCES.INTERNAL) as MuxAiErrorSource,
+    ...(dependency && { dependency }),
+    ...(code && { code }),
+    facts: (readPlainRecord(value.facts) ?? {}) as MuxAiErrorFacts,
+    retryable: value.retryable === true,
+    transient: value.transient === true,
+    causes,
+    ...(stack && { stack }),
+  };
+}
+
 /**
  * The constructor options that rebuild a serialized classification, for a
  * subclass's `WORKFLOW_DESERIALIZE` hook; follow with {@link restoreClassification}.
- * The stored classification wins over the catalog's current mapping for a code.
+ * The stored classification wins over the catalog's current mapping for a code. Reads the
+ * record with {@link readSerializedClassification}, so a malformed one can't make it throw.
  */
 export function classificationInit<TType extends string, TCode extends string, TDependency extends string>(
   record: SerializedClassification<TType, TCode, TDependency>,
 ): ClassifiedErrorInit<TType, TCode, TDependency> {
+  record = readSerializedClassification(record) as typeof record;
   // A stored classification satisfied the source/dependency rule when it was written.
   return {
     type: record.type,
@@ -637,8 +683,12 @@ export function classificationInit<TType extends string, TCode extends string, T
   } as ClassifiedErrorInit<TType, TCode, TDependency>;
 }
 
-/** Restores what the constructor can't take back: the code, the cause summaries and the stack. */
+/**
+ * Restores what the constructor can't take back: the code, the cause summaries and the stack.
+ * Reads the record with {@link readSerializedClassification}, so a malformed one can't make it throw.
+ */
 export function restoreClassification<T extends ClassifiedError>(error: T, record: SerializedClassification): T {
+  record = readSerializedClassification(record);
   if (record.code) {
     Object.assign(error, { code: record.code });
   }
@@ -694,15 +744,23 @@ export class MuxAiError extends ClassifiedError<MuxAiErrorType, MuxAiErrorCode, 
   static [WORKFLOW_DESERIALIZE](value: SerializedMuxAiError): MuxAiError {
     // Subclasses inherit this codec. Restore their fields for structural guards
     // without depending on subclass constructor signatures or raw causes.
-    // The stored classification matched the catalog when it was written.
-    const error = restoreClassification(new MuxAiError(value.message, classificationInit(value) as MuxAiErrorInit), value);
-    Object.assign(error, {
-      usage: value.usage,
-      diagnostics: value.diagnostics,
-      ...(value.finishReason !== undefined && { finishReason: value.finishReason }),
-      ...(value.rawFinishReason !== undefined && { rawFinishReason: value.rawFinishReason }),
-    });
-    return error;
+    // The stored classification matched the catalog when it was written. Never throws: a
+    // malformed record reads with fallbacks (see readSerializedClassification), since a throw
+    // here would hand the workflow an unclassified error instead.
+    try {
+      const record = readSerializedClassification(value);
+      const fields = (readPlainRecord(value) ?? {}) as Partial<SerializedMuxAiError>;
+      const error = restoreClassification(new MuxAiError(record.message, classificationInit(record) as MuxAiErrorInit), record);
+      Object.assign(error, {
+        usage: readPlainRecord(fields.usage) as TokenUsage | undefined,
+        diagnostics: readPlainRecord(fields.diagnostics) as ModelCallDiagnostics | undefined,
+        ...(typeof fields.finishReason === "string" && { finishReason: fields.finishReason }),
+        ...(typeof fields.rawFinishReason === "string" && { rawFinishReason: fields.rawFinishReason }),
+      });
+      return error;
+    } catch {
+      return new MuxAiError("Unknown error", { type: MUX_AI_ERROR_TYPES.SERVER_ERROR, source: MUX_AI_ERROR_SOURCES.INTERNAL });
+    }
   }
 }
 
@@ -797,12 +855,24 @@ function scrubDetail(detail: string, context?: string): string {
  * unclassified is this code's own failure.
  *
  * Use this in catch blocks that re-throw, so a classified error from a callee
- * keeps its classification. Token usage carries over either way.
+ * keeps its classification, including one a step threw after Workflow DevKit wrapped it
+ * (see {@link classifiedErrorOf}). Token usage carries over either way.
  */
 export function wrapError(error: unknown, message: string, facts?: MuxAiErrorFacts): never {
+  // Workflow DevKit's control flow (e.g. a replay divergence) passes through untouched.
+  if (isWorkflowControlFlowError(error)) {
+    throw error;
+  }
+  // Read before unwrapping: an error's own usage wins over the classified error's inside it.
+  const usage = getErrorTokenUsage(error);
+  // A step's classified error, even inside Workflow DevKit's wrapper once its retries ran out.
+  error = classifiedErrorOf(error) ?? error;
   if (MuxAiError.is(error)) {
     if (facts) {
       Object.assign(error, { facts: { ...facts, ...error.facts } });
+    }
+    if (usage) {
+      error.usage = usage;
     }
     throw error;
   }
@@ -813,7 +883,6 @@ export function wrapError(error: unknown, message: string, facts?: MuxAiErrorFac
     cause: error,
   });
   // Carry `usage` through wrapping so failed workflows still report tokens burned.
-  const usage = getErrorTokenUsage(error);
   if (usage) {
     wrapped.usage = usage;
   }

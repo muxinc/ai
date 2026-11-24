@@ -9,6 +9,7 @@ import {
 } from "../lib/content-policy-error.ts";
 import type { ModelCallContext } from "../lib/content-policy-error.ts";
 import { httpStatusOf } from "../lib/dependency-error.ts";
+import { classifiedErrorOf, isWorkflowControlFlowError } from "../lib/error-guards.ts";
 import {
   errorDetailFact,
   extractErrorDetail,
@@ -668,6 +669,8 @@ async function deleteTrackOnMux(
  * error type) and Mux's own text from its cause summary; anything else, its detail.
  */
 function restoreFailureFacts(error: unknown): MuxAiErrorFacts {
+  // The restore is a step: once its retries ran out, Workflow DevKit wraps its classified error.
+  error = classifiedErrorOf(error) ?? error;
   if (!MuxAiError.is(error)) {
     return { restoreError: errorDetailFact(extractErrorDetail(error)) };
   }
@@ -1088,6 +1091,9 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
             restoreNote = ` The source track was restored as ${restoredTrackId}.`;
             restoreFacts = { sourceRestored: true, restoredTrackId };
           } catch (restoreError) {
+            if (isWorkflowControlFlowError(restoreError)) {
+              throw restoreError;
+            }
             // The raw restore error is internal detail: keep it in facts, not the message.
             restoreNote = " Restoring the source track also failed.";
             restoreFacts = { sourceRestored: false, ...restoreFailureFacts(restoreError) };

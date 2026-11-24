@@ -286,6 +286,20 @@ describe("generateText", () => {
     warn.mockRestore();
   });
 
+  it("lets Workflow DevKit's replay divergence from the shots step through, instead of falling back", async () => {
+    const divergence = Object.assign(new Error("Replay divergence: step created but not found in invocation queue"), { name: "ReplayDivergenceError" });
+    vi.mocked(getShotsForAsset).mockRejectedValueOnce(divergence);
+    queueGenerations(["hello"]);
+
+    await expect(generateText("asset-123", {
+      artifacts: [{ key: "post" }],
+      useShots: true,
+    })).rejects.toBe(divergence);
+    // Untouched: no usage or classification added on the way out.
+    expect(divergence).not.toHaveProperty("usage");
+    expect(divergence).not.toHaveProperty("code");
+  });
+
   it("rejects useShots for audio-only assets before contacting any model", async () => {
     vi.mocked(isAudioOnlyAsset).mockReturnValue(true);
 

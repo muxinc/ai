@@ -12,6 +12,27 @@ Internally, every workflow is composed from [primitives](./PRIMITIVES.md) - the 
 
 Workflows in this project are exported with the `"use workflow"` directive, which makes them compatible with [Workflow DevKit](https://useworkflow.dev). See the [Workflow DevKit guide](./WORKFLOW-DEVKIT.md) for integration details.
 
+## Mux Robots Workflow Names
+
+[Mux Robots](https://www.mux.com/docs/guides/robots) runs hosted versions of many of these workflows as API jobs. Where an SDK workflow has a different name from its Robots workflow, it is also exported under the Robots name in camelCase, so `summarize` and `getSummaryAndTags` are the same function. The original names stay available.
+
+| Robots workflow | SDK export |
+| :-- | :-- |
+| `ask-questions` | `askQuestions` |
+| `edit-captions` | `editCaptions` |
+| `generate-chapters` | `generateChapters` |
+| `generate-contextual-text` | `generateContextualText` (alias of `generateText`) |
+| `generate-engagement-insights` | `generateEngagementInsights` |
+| `moderate` | `moderate` (alias of `getModerationScores`) |
+| `summarize` | `summarize` (alias of `getSummaryAndTags`) |
+| `translate-audio` | `translateAudio` |
+| `translate-captions` | `translateCaptions` |
+| `analyze-structure`, `find-best-thumbnails`, `find-key-moments`, `generate-premium-captions` | None. These run only in Robots. |
+
+`hasBurnedInCaptions` and `generateEmbeddings` have no public Robots workflow.
+
+The names match, but the interfaces don't. The SDK takes camelCase options, runs in your own code with your own provider keys, and returns its result directly. Robots takes snake_case `parameters` over HTTP, picks the provider and model itself, and returns results through a job you poll or receive by webhook. Robots also exposes a narrower set of controls than the SDK (for example `output_steering` rather than full prompt overrides), and the SDK offers options Robots doesn't, such as choosing a provider or a moderation service.
+
 ## Scoped Execution
 
 Content-analysis workflows can be limited to an asset-relative time range:

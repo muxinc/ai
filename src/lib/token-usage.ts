@@ -1,5 +1,7 @@
 import type { TokenUsage } from "../types.ts";
 
+import { classifiedErrorOf, isWorkflowControlFlowError } from "./error-guards.ts";
+
 const TOKEN_USAGE_FIELDS = [
   "inputTokens",
   "outputTokens",
@@ -38,6 +40,10 @@ export function aggregateTokenUsage(usages: TokenUsage[]): TokenUsage {
  * errors like `NoObjectGeneratedError`, or errors annotated by
  * {@link rethrowWithTokenUsage}). Falls back to AI SDK v6's nested
  * `inputTokenDetails`/`outputTokenDetails` for cache/reasoning counts.
+ *
+ * The error's own usage comes first. Only when it has none is the classified error inside it
+ * read (see `classifiedErrorOf`), e.g. a step's error, which keeps its usage inside Workflow
+ * DevKit's retries-exhausted wrapper.
  */
 export function getErrorTokenUsage(error: unknown): TokenUsage | undefined {
   if (typeof error !== "object" || error === null) {
@@ -45,7 +51,9 @@ export function getErrorTokenUsage(error: unknown): TokenUsage | undefined {
   }
   const usage = (error as { usage?: unknown }).usage;
   if (typeof usage !== "object" || usage === null) {
-    return undefined;
+    // None of its own: a classified error inside it (e.g. Workflow DevKit's wrapper) may have some.
+    const classified = classifiedErrorOf(error);
+    return classified && classified !== error ? getErrorTokenUsage(classified) : undefined;
   }
 
   const source = usage as Record<string, unknown>;
@@ -83,11 +91,19 @@ export function getErrorTokenUsage(error: unknown): TokenUsage | undefined {
  * Rethrows `error` with the aggregate of `collectedUsage` plus the error's
  * own usage attached as a plain enumerable `usage` property (mirrors the AI
  * SDK's `NoObjectGeneratedError.usage` convention). Rethrows untouched when
- * there is no usage to attach.
+ * there is no usage to attach. A classified error Workflow DevKit wrapped after a step's
+ * retries ran out is rethrown unwrapped (see `classifiedErrorOf`).
  */
 export function rethrowWithTokenUsage(error: unknown, collectedUsage: TokenUsage[]): never {
-  const usages = [...collectedUsage];
+  // Workflow DevKit's control flow (e.g. a replay divergence) passes through untouched.
+  if (isWorkflowControlFlowError(error)) {
+    throw error;
+  }
+  // Read before unwrapping: an error's own usage wins over the classified error's inside it.
   const errorUsage = getErrorTokenUsage(error);
+  // Rethrow a step's classified error itself, not Workflow DevKit's retries-exhausted wrapper.
+  error = classifiedErrorOf(error) ?? error;
+  const usages = [...collectedUsage];
   if (errorUsage) {
     usages.push(errorUsage);
   }
