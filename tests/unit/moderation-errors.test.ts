@@ -127,6 +127,21 @@ describe("getModerationScores classified errors: request and setup", () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
+  it("rethrows a step's classified error itself once Workflow DevKit has wrapped it after its retries ran out", async () => {
+    const failure = new MuxAiError("Mux Video is unavailable", {
+      code: "dependency_server_error",
+      type: "processing_error",
+      source: "upstream",
+      dependency: "mux_video",
+      facts: { call: "get_asset", status: 503 },
+    });
+    // What Workflow DevKit throws into the workflow once the asset step's last attempt fails.
+    const wrapper = Object.assign(new Error("Step \"step//getPlaybackIdForAsset\" failed after 3 retries: Mux Video is unavailable"), { name: "FatalError", cause: failure });
+    vi.mocked(getPlaybackIdForAsset).mockRejectedValueOnce(wrapper);
+
+    await expect(getModerationScores("asset-123", { provider: "hive" })).rejects.toBe(failure);
+  });
+
   it("rejects an unknown provider before fetching the asset", async () => {
     const error = await moderationError("asset-123", { provider: "rekognition" as any });
 

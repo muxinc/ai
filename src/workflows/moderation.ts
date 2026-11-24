@@ -27,6 +27,7 @@ import { getMuxThumbnailBaseUrl } from "../lib/mux-url.ts";
 import { openAIFetchError } from "../lib/openai-errors.ts";
 import { withRetry } from "../lib/retry.ts";
 import { planSamplingTimestamps } from "../lib/sampling-plan.ts";
+import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import { signingCredentialsMissingError, signUrl } from "../lib/url-signing.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
 import type { ResolvedWorkflowScope } from "../lib/workflow-scope.ts";
@@ -1422,6 +1423,20 @@ export async function getModerationScores(
   options: ModerationOptions = {},
 ): Promise<ModerationResult> {
   "use workflow";
+  // As in the other workflows: a step's classified error leaves the workflow as itself, not
+  // inside Workflow DevKit's retries-exhausted wrapper, and its control flow passes through.
+  // This workflow collects no model token usage, so nothing is added to the error's own.
+  try {
+    return await getModerationScoresInternal(assetId, options);
+  } catch (error) {
+    rethrowWithTokenUsage(error, []);
+  }
+}
+
+async function getModerationScoresInternal(
+  assetId: string,
+  options: ModerationOptions,
+): Promise<ModerationResult> {
   const {
     provider = DEFAULT_PROVIDER,
     model = provider === "openai" ? "omni-moderation-latest" : undefined,

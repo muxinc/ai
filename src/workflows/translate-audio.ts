@@ -42,6 +42,7 @@ import {
   putObjectWithStorageAdapter,
   storageNotConfiguredError,
 } from "../lib/storage-adapter.ts";
+import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import { signUrl } from "../lib/url-signing.ts";
 import { resolveMuxClient } from "../lib/workflow-credentials.ts";
 import type {
@@ -826,6 +827,21 @@ export async function translateAudio(
   options: AudioTranslationOptions = {},
 ): Promise<AudioTranslationResult> {
   "use workflow";
+  // As in the other workflows: a step's classified error leaves the workflow as itself, not
+  // inside Workflow DevKit's retries-exhausted wrapper, and its control flow passes through.
+  // This workflow collects no model token usage, so nothing is added to the error's own.
+  try {
+    return await translateAudioInternal(assetId, toLanguageCode, options);
+  } catch (error) {
+    rethrowWithTokenUsage(error, []);
+  }
+}
+
+async function translateAudioInternal(
+  assetId: string,
+  toLanguageCode: string,
+  options: AudioTranslationOptions,
+): Promise<AudioTranslationResult> {
   // Uses the default audio track on your asset (source language auto-detected unless provided)
   const {
     provider = "elevenlabs",
