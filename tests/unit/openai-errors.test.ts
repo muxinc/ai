@@ -111,6 +111,14 @@ describe("openAICallError", () => {
     expect(JSON.stringify(error.facts)).not.toMatch(/download|URL/);
   });
 
+  it("retries OpenAI's other wording of the same download timeout", () => {
+    expect(openAICallError(openAIErrorWithMessage(400, "Timeout while downloading https://image.example/frame.jpg."), "x", { call: "c" })).toMatchObject({
+      code: "dependency_timeout",
+      transient: true,
+      retryable: true,
+    });
+  });
+
   it("still doesn't retry any other invalid_value 400", () => {
     expect(openAICallError(openAIErrorWithMessage(400, "Invalid value for 'temperature': must be between 0 and 2."), "x", { call: "c" })).toMatchObject({
       code: "dependency_request_rejected",

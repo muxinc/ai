@@ -19,23 +19,32 @@ const OpenAIErrorBodySchema = z.object({
 
 /**
  * OpenAI's answer when it couldn't fetch an input URL (an image passed by URL) before its own
- * download deadline: HTTP 400 "Unable to download content from the provided URL before the
- * timeout. …", with `error.code` `invalid_value`. The request was valid; OpenAI's fetch timed
- * out, and the same request usually succeeds on a later attempt. Matched on the message, since
- * `invalid_value` alone also covers requests that are really invalid.
+ * download deadline, in either of its wordings: "Unable to download content from the provided URL
+ * before the timeout. …" (`error.code` `invalid_value`) or "Timeout while downloading <url>". The
+ * request was valid; OpenAI's fetch timed out, and the same request usually succeeds on a later
+ * attempt. Matched on the message, since `invalid_value` alone also covers requests that are
+ * really invalid.
  */
-const OPENAI_URL_DOWNLOAD_TIMEOUT = /^unable to download content from the provided url before the timeout\b/i;
+const OPENAI_URL_DOWNLOAD_TIMEOUT = /unable to download content from the provided url before the timeout|timeout while downloading\b/i;
+
+/**
+ * Whether an error message is OpenAI's URL download timeout (see {@link OPENAI_URL_DOWNLOAD_TIMEOUT}).
+ * Shared by the in-call retry and the classification, so the two agree on what's transient.
+ */
+export function isOpenAIUrlDownloadTimeoutMessage(message: string): boolean {
+  return OPENAI_URL_DOWNLOAD_TIMEOUT.test(message);
+}
 
 const OpenAIErrorMessageSchema = z.object({ error: z.object({ message: z.string() }) });
 
-/** Whether an OpenAI error body is its URL download timeout (see {@link OPENAI_URL_DOWNLOAD_TIMEOUT}). */
+/** Whether an OpenAI error body is its URL download timeout, answered as a 400. */
 export function isOpenAIUrlDownloadTimeout(status: number | undefined, responseBody: string | undefined): boolean {
   if (status !== 400 || !responseBody) {
     return false;
   }
   try {
     const parsed = OpenAIErrorMessageSchema.safeParse(JSON.parse(responseBody));
-    return parsed.success && OPENAI_URL_DOWNLOAD_TIMEOUT.test(parsed.data.error.message);
+    return parsed.success && isOpenAIUrlDownloadTimeoutMessage(parsed.data.error.message);
   } catch {
     return false;
   }
