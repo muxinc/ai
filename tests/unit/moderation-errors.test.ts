@@ -8,7 +8,6 @@ vi.mock("../../src/lib/mux-assets", () => ({
   getAssetDurationSecondsFromAsset: vi.fn(),
   getPlaybackIdForAsset: vi.fn(),
   getVideoTrackDurationSecondsFromAsset: vi.fn(),
-  getVideoTrackMaxFrameRateFromAsset: vi.fn(),
   isAudioOnlyAsset: vi.fn(),
 }));
 
@@ -27,7 +26,6 @@ const {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
   getVideoTrackDurationSecondsFromAsset,
-  getVideoTrackMaxFrameRateFromAsset,
   isAudioOnlyAsset,
 } = await import("../../src/lib/mux-assets");
 const { resolveMuxSigningContext } = await import("../../src/lib/workflow-credentials");
@@ -91,7 +89,6 @@ beforeEach(() => {
   vi.mocked(getPlaybackIdForAsset).mockResolvedValue(asset());
   vi.mocked(getVideoTrackDurationSecondsFromAsset).mockReturnValue(40);
   vi.mocked(getAssetDurationSecondsFromAsset).mockReturnValue(40);
-  vi.mocked(getVideoTrackMaxFrameRateFromAsset).mockReturnValue(30);
   vi.mocked(isAudioOnlyAsset).mockReturnValue(false);
   vi.mocked(resolveMuxSigningContext).mockResolvedValue(undefined);
   vi.mocked(getThumbnailUrlsFromTimestamps).mockResolvedValue(THUMBNAIL_URLS);

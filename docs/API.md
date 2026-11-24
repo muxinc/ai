@@ -94,7 +94,7 @@ By default it moderates everything that's available on the asset and reports wha
 - `thresholds?: { sexual?: number; violence?: number }` - Custom thresholds (default: {sexual: 0.7, violence: 0.8})
 - `thumbnailInterval?: number` - Seconds between thumbnails for ranges over 50 seconds (default: 10). Ranges of 50 seconds or less use up to five thumbnails.
 - `thumbnailWidth?: number` - Thumbnail width in pixels (default: 640)
-- `maxSamples?: number` - Maximum number of distinct thumbnail timestamps to sample (default: unlimited). If the default schedule already fits after deduplication, its timestamps are used. If the cap reduces the count, samples are spaced across the available range near its endpoints. A binding cap of one samples near the start.
+- `maxSamples?: number` - Maximum number of distinct thumbnail timestamps to sample (default: unlimited). If the default schedule already fits after deduplication, its timestamps are used. If the cap reduces the count, samples are evenly spaced across the available range with a small inset from its endpoints. A binding cap of one samples near the start.
 - `maxConcurrent?: number` - Maximum concurrent API requests (default: 5)
 - `imageSubmissionMode?: 'url' | 'base64'` - How to submit images to AI providers (default: 'url')
 - `imageDownloadOptions?: object` - Options for image download when using base64 mode

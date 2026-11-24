@@ -20,7 +20,6 @@ import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
   getVideoTrackDurationSecondsFromAsset,
-  getVideoTrackMaxFrameRateFromAsset,
   isAudioOnlyAsset,
 } from "../lib/mux-assets.ts";
 import { openAIFetchError } from "../lib/openai-errors.ts";
@@ -1165,31 +1164,30 @@ async function requestGoogleVisionModeration(
   return processConcurrently(targets, moderateImageWithGoogleVision, maxConcurrent);
 }
 
-/** Evenly sample frame positions across the renderable range, whose end is exclusive. */
+const MAX_MODERATION_ENDPOINT_INSET_SECONDS = 0.5;
+const IMAGE_THUMBNAIL_TIME_DECIMALS = 5;
+
+/** Evenly space thumbnail requests near the endpoints and let the Image API select the frames. */
 function planCappedModerationTimestamps(
   { startTime, endTime }: ResolvedWorkflowScope,
   maxSamples: number,
   lastImageTime: number,
-  fps = 30,
 ): number[] {
-  let firstFrame = Math.floor(startTime * fps);
-  if (firstFrame / fps < startTime) {
-    firstFrame++;
-  }
-  let lastFrame = Math.floor(Math.min(endTime, lastImageTime) * fps);
-  if (lastFrame / fps >= endTime || lastFrame / fps > lastImageTime) {
-    lastFrame--;
-  }
+  const availableEnd = Math.min(endTime, lastImageTime);
+  const duration = availableEnd - startTime;
+  // Use the short-video schedule's proportional inset, bounded to keep coverage near the ends.
+  const inset = Math.min(duration / 6, MAX_MODERATION_ENDPOINT_INSET_SECONDS);
+  const firstTime = startTime + inset;
+  const spacing = maxSamples > 1 ? (duration - 2 * inset) / (maxSamples - 1) : 0;
+  const decimals = maxSamples > 1 && spacing < 0.01 ? IMAGE_THUMBNAIL_TIME_DECIMALS : 2;
 
-  const frameSpan = lastFrame - firstFrame;
-  const sampleCount = Math.min(maxSamples, frameSpan + 1);
-  const frameSpacing = sampleCount > 1 ? frameSpan / (sampleCount - 1) : 0;
-
-  const times = Array.from({ length: sampleCount }, (_, index) => {
-    const time = (firstFrame + Math.round(index * frameSpacing)) / fps;
-    // Centisecond rounding can merge frames above 100 fps or move a time outside the range.
-    const rounded = fps > 100 ? time : Number(time.toFixed(2));
-    return rounded >= startTime && rounded < endTime && rounded <= lastImageTime ? rounded : time;
+  const times = Array.from({ length: maxSamples }, (_, index) => {
+    const time = firstTime + index * spacing;
+    const rounded = Number(time.toFixed(decimals));
+    if (rounded >= startTime && rounded < endTime && rounded <= lastImageTime) {
+      return rounded;
+    }
+    return Number(time.toFixed(IMAGE_THUMBNAIL_TIME_DECIMALS));
   });
   return [...new Set(times)];
 }
@@ -1199,12 +1197,11 @@ const IMAGE_THUMBNAIL_END_PADDING_SECONDS = 0.1;
 
 function planModerationThumbnailTimestamps(
   range: ResolvedWorkflowScope,
-  { interval, scoped, maxSamples, lastImageTime, fps }: {
+  { interval, scoped, maxSamples, lastImageTime }: {
     interval: number;
     scoped: boolean;
     maxSamples?: number;
     lastImageTime: number;
-    fps?: number;
   },
 ): number[] {
   // Below 100 ms the Image API falls back to its default thumbnail. Only use
@@ -1221,9 +1218,7 @@ function planModerationThumbnailTimestamps(
       times.add(time);
     }
     if (times.size > cap) {
-      const cappedTimes = planCappedModerationTimestamps(range, cap, imageEnd, fps);
-      // A scope between frame boundaries can still have valid thumbnail request times.
-      return cappedTimes.length > 0 ? cappedTimes : [...times].slice(0, cap);
+      return planCappedModerationTimestamps(range, cap, imageEnd);
     }
     // Later candidates resolve to the same image time.
     if (timestamp >= imageEnd) {
@@ -1475,7 +1470,6 @@ export async function getModerationScores(
   // Fetch asset data and playback ID from Mux via helper
   const { asset, playbackId, policy } = await getPlaybackIdForAsset(assetId, credentials, options.assetSnapshot, { classifiedErrors: true });
   const videoTrackDurationSeconds = getVideoTrackDurationSecondsFromAsset(asset);
-  const videoTrackFps = getVideoTrackMaxFrameRateFromAsset(asset);
   const assetDurationSeconds = getAssetDurationSecondsFromAsset(asset);
   // Use the shorter of video-track and asset duration so thumbnail timestamps never
   // exceed the renderable range reported by the Mux thumbnail service.
@@ -1483,7 +1477,8 @@ export async function getModerationScores(
     (d): d is number => d != null,
   );
   const duration = candidateDurations.length > 0 ? Math.min(...candidateDurations) : 0;
-  const lastImageTime = (assetDurationSeconds ?? duration) - IMAGE_THUMBNAIL_END_PADDING_SECONDS;
+  const imageTimeLimit = (assetDurationSeconds ?? duration) - IMAGE_THUMBNAIL_END_PADDING_SECONDS;
+  const lastImageTime = imageTimeLimit < 0 ? imageTimeLimit : Number(imageTimeLimit.toFixed(IMAGE_THUMBNAIL_TIME_DECIMALS));
   // An empty scope is equivalent to omitting scope.
   const effectiveScope = hasWorkflowScopeBoundaries(scope) ?
     scope :
@@ -1539,7 +1534,7 @@ export async function getModerationScores(
   } else {
     const timestamps = planModerationThumbnailTimestamps(
       renderableScope ?? { startTime: 0, endTime: duration },
-      { interval: thumbnailInterval, scoped: renderableScope !== undefined, maxSamples, lastImageTime, fps: videoTrackFps },
+      { interval: thumbnailInterval, scoped: renderableScope !== undefined, maxSamples, lastImageTime },
     );
     if (timestamps.length > 0) {
       thumbnailUrls = await getThumbnailUrlsFromTimestamps(playbackId, timestamps, {

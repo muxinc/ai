@@ -8,7 +8,6 @@ vi.mock("../../src/lib/mux-assets", () => ({
   getAssetDurationSecondsFromAsset: vi.fn(),
   getPlaybackIdForAsset: vi.fn(),
   getVideoTrackDurationSecondsFromAsset: vi.fn(),
-  getVideoTrackMaxFrameRateFromAsset: vi.fn(),
   isAudioOnlyAsset: vi.fn(),
 }));
 
@@ -27,7 +26,6 @@ const {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
   getVideoTrackDurationSecondsFromAsset,
-  getVideoTrackMaxFrameRateFromAsset,
   isAudioOnlyAsset,
 } = await import("../../src/lib/mux-assets");
 const { resolveMuxSigningContext } = await import("../../src/lib/workflow-credentials");
@@ -68,7 +66,6 @@ beforeEach(() => {
   } as any);
   vi.mocked(getVideoTrackDurationSecondsFromAsset).mockReturnValue(40);
   vi.mocked(getAssetDurationSecondsFromAsset).mockReturnValue(40);
-  vi.mocked(getVideoTrackMaxFrameRateFromAsset).mockReturnValue(30);
   vi.mocked(isAudioOnlyAsset).mockReturnValue(false);
   vi.mocked(resolveMuxSigningContext).mockResolvedValue(undefined);
 });
@@ -93,7 +90,7 @@ describe("getModerationScores coverage metadata", () => {
       maxSamples: 3,
     });
 
-    expect(result.thumbnailScores.map(score => score.time)).toEqual([0, 4.97, 9.9]);
+    expect(result.thumbnailScores.map(score => score.time)).toEqual([0.5, 4.95, 9.4]);
     expect(result.coverage.requestedSampleCount).toBe(3);
     expect(mockFetch).toHaveBeenCalledTimes(3);
   });
@@ -179,8 +176,7 @@ describe("getModerationScores coverage metadata", () => {
     expect(timesWithEmptyScope).toEqual(timesWithOmittedScope);
   });
 
-  it("excludes the scoped end timestamp when capped sampling rounds to a frame", async () => {
-    vi.mocked(getVideoTrackMaxFrameRateFromAsset).mockReturnValue(1);
+  it("insets the first and last capped samples within a scope", async () => {
     mockFetch.mockResolvedValue(mockOpenAIModerationResponse({
       status: 200,
       body: { results: [{ category_scores: { sexual: 0, violence: 0 } }] },
@@ -197,17 +193,15 @@ describe("getModerationScores coverage metadata", () => {
       return Number(new URL(body.input[0].image_url.url).searchParams.get("time"));
     });
 
-    expect(thumbnailTimes).toEqual([10, 11, 12, 13]);
-    expect(thumbnailTimes.every(time => time < 14)).toBe(true);
+    expect(thumbnailTimes).toEqual([10.5, 11.5, 12.5, 13.5]);
   });
 
-  it.each([1, 3])("keeps in-range thumbnails between frame boundaries (cap %s)", async (maxSamples) => {
-    vi.mocked(getVideoTrackMaxFrameRateFromAsset).mockReturnValue(1);
+  it.each([1, 3])("keeps distinct in-range thumbnails in a narrow scope (cap %s)", async (maxSamples) => {
     mockFetch.mockResolvedValue(mockOpenAIModerationResponse({
       status: 200,
       body: { results: [{ category_scores: { sexual: 0, violence: 0 } }] },
     }));
-    const scope = { startTime: 10.2, endTime: 10.6 };
+    const scope = { startTime: 10.002, endTime: 10.008 };
 
     const result = await getModerationScores("asset-123", {
       provider: "openai",
@@ -227,28 +221,26 @@ describe("getModerationScores coverage metadata", () => {
     }
   });
 
-  it("keeps the last sample inside the scope when rounding would cross its end", async () => {
-    // The final frame at 30 fps is at 13.966…s, which rounds to 13.97s.
-    const endTime = 13.969;
+  it.each([
+    { duration: 0.3, clamp: 0.2 }, // Subtracting 0.1 from 0.3 introduces a floating-point artifact.
+    { duration: 10.00051, clamp: 9.90051 }, // The Image API preserves this fractional millisecond.
+  ])("includes a scope start that equals the Image API end clamp at $clamp seconds", async ({ duration, clamp }) => {
+    vi.mocked(getVideoTrackDurationSecondsFromAsset).mockReturnValue(duration);
+    vi.mocked(getAssetDurationSecondsFromAsset).mockReturnValue(duration);
     mockFetch.mockResolvedValue(mockOpenAIModerationResponse({
       status: 200,
       body: { results: [{ category_scores: { sexual: 0, violence: 0 } }] },
     }));
 
-    await getModerationScores("asset-123", {
+    const result = await getModerationScores("asset-123", {
       provider: "openai",
-      maxSamples: 4,
-      scope: { startTime: 10, endTime },
+      includeTranscript: false,
+      maxSamples: 1,
+      scope: { startTime: clamp, endTime: duration },
     });
 
-    const thumbnailTimes = mockFetch.mock.calls.map(([, init]) => {
-      const body = JSON.parse(String(init?.body));
-      return Number(new URL(body.input[0].image_url.url).searchParams.get("time"));
-    });
-
-    expect(thumbnailTimes).toHaveLength(4);
-    expect(thumbnailTimes[3]).toBeCloseTo(419 / 30, 5);
-    expect(thumbnailTimes.every(time => time >= 10 && time < endTime)).toBe(true);
+    expect(result.thumbnailScores.map(score => score.time)).toEqual([clamp]);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   it("accepts asset-relative scopes that extend past the video track", async () => {
@@ -271,7 +263,7 @@ describe("getModerationScores coverage metadata", () => {
     });
 
     expect(thumbnailTimes).toHaveLength(4);
-    expect(thumbnailTimes[3]).toBe(79.97);
+    expect(thumbnailTimes[3]).toBe(79.5);
   });
 
   it("marks thumbnail results as low confidence when too few samples succeed", async () => {
