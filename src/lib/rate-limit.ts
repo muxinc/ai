@@ -32,12 +32,11 @@ import { MUX_AI_ERROR_CODES, MuxAiError } from "./mux-ai-error.ts";
  * token bucket's refill interval (2s for video `POST`s) however many callers are queued, so jobs
  * that each wait exactly `Retry-After` collide again. {@link rateLimitRetryDelayMs} keeps it as the
  * floor and adds full jitter over a window that doubles with each attempt, so competing callers
- * (parallel jobs, a directive's fan-out, a customer's backfill) spread out without knowing how many
- * there are.
+ * (parallel jobs, or a batch of them started at once) spread out without knowing how many there are.
  *
- * If that proves not enough, the next steps need shared state and belong to the caller (e.g.
- * Robots): widen the window by the number of in-flight jobs sharing the bucket, or reserve slots per
- * bucket so first attempts are paced too.
+ * If that proves not enough, the next steps need shared state and belong to the caller: widen the
+ * window by the number of in-flight jobs sharing the bucket, or reserve slots per bucket so first
+ * attempts are paced too.
  */
 
 /** How a dependency's rate limit is waited out at the step boundary. */
