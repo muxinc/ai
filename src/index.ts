@@ -132,6 +132,9 @@ export type {
 export { getMuxPlaybackOrigin } from "./lib/mux-url.ts";
 export type { MuxPlaybackService } from "./lib/mux-url.ts";
 
+// Mux Video API calls made outside the SDK's workflows, classified by the workflows' rules.
+export { muxVideoCallError } from "./lib/mux-video-errors.ts";
+
 export {
   createPublicErrorView,
   genericPublicMessage,
@@ -144,6 +147,18 @@ export type {
   PublicError,
   PublicErrorMapping,
 } from "./lib/public-error.ts";
+
+// Waiting out a dependency's rate limit at the Workflow DevKit step boundary.
+export {
+  currentStepAttempt,
+  isRateLimitedError,
+  MUX_VIDEO_RATE_LIMIT_POLICY,
+  rateLimitFacts,
+  rateLimitRetryDelayMs,
+  rateLimitStepRetry,
+  readRateLimit,
+} from "./lib/rate-limit.ts";
+export type { RateLimitInfo, RateLimitPolicy, RateLimitRetryError } from "./lib/rate-limit.ts";
 
 // Workflow credential utilities
 export { setWorkflowCredentialsProvider } from "./lib/workflow-credentials.ts";

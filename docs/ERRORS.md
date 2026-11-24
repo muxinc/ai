@@ -186,6 +186,15 @@ Both flags are policies decided from the classification, not by hand: the site's
 - **Transient implies retryable.** If retrying the step may succeed, so may resubmitting.
 - Only non-transient errors are named `FatalError`, which tells Workflow DevKit not to retry the step.
 
+### Rate limits
+
+A 429 is retried in one place only: the step that made the call (`src/lib/rate-limit.ts`). The Mux client runs with `maxRetries: 0`, and nothing loops inside a step.
+
+- **The classifier records what the 429 said** as facts: `retryAfterMs` (from `retry-after-ms` or `retry-after`), `rateLimitLimit` and `rateLimitRemaining` (from `x-ratelimit-*`). `muxVideoCallError()` and `dependencyErrorFrom()` do this.
+- **A policy per dependency decides the wait** (`RateLimitPolicy`; `MUX_VIDEO_RATE_LIMIT_POLICY` for Mux Video): `Retry-After` as the floor plus full jitter over a window that doubles each attempt, so competing jobs spread out. `Retry-After` alone isn't enough: Mux's is the time until one more request is allowed, however many callers are waiting.
+- **`rateLimitStepRetry(error, policy)`**, called where the step catches the failure, returns the same classified error marked as Workflow DevKit's `RetryableError` (that name, plus a `retryAfter` date) while the policy has attempts left. Throw it: Workflow DevKit waits durably and reruns only that step, and earlier steps' results (paid work) are reused. It returns `undefined` on the last attempt and outside a step, so the step handles the failure as it would without it. Set the step's `maxRetries` to the policy's.
+- **Keep each call that can be rate limited in a step of its own**, after any paid work and with nothing before it that can't be repeated. The SDK's track writes are split this way (`clearTrackConflicts`, then `createTrack`); call `replaceAndCreateTrack()` and its variants from a workflow body. Called from inside another step, their steps run inline, and a retry reruns the caller's whole step.
+
 ## What else an error carries
 
 None of this is end-user data.

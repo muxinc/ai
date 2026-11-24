@@ -30,6 +30,8 @@ describe("workflow storage client serialization", () => {
       format: "esm",
       platform: "node",
       target: "es2020",
+      // As in tsup.config.ts: the published build never inlines Workflow DevKit (an optional peer).
+      external: ["workflow"],
       plugins: [{
         name: "test-env",
         setup(build) {

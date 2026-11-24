@@ -6,6 +6,7 @@ import { LegacyMuxAiError } from "./legacy-mux-ai-error.ts";
 import type { ClassifiedErrorsOption, MuxAiErrorFacts, MuxAiErrorFactValue } from "./mux-ai-error.ts";
 import { errorDetailFact, MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
 import { missingTrackIdError, muxVideoCallError, muxVideoError } from "./mux-video-errors.ts";
+import { currentStepAttempt, MUX_VIDEO_RATE_LIMIT_POLICY, rateLimitStepRetry } from "./rate-limit.ts";
 import { resolveMuxClient } from "./workflow-credentials.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -460,11 +461,26 @@ export async function fetchVttFromMux(vttUrl: string, options: ClassifiedErrorsO
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Track writes
+//
+// Each Mux write that can be rate limited is its own Workflow DevKit step, after the
+// caller's paid work: a 429 is waited out by rerunning just that step (see
+// `./rate-limit.ts`), and what earlier steps did (the deleted tracks) is kept in the event
+// log. The composed writes (`replaceAndCreateTrack` and friends) are not steps: call them
+// from a workflow body. Called from inside a step, their steps run inline as plain
+// functions, and a rate-limit retry reruns the caller's whole step instead.
+// ─────────────────────────────────────────────────────────────────────────────
+
 export interface CreateTextTrackOptions {
   closedCaptions?: boolean;
   passthrough?: string;
 }
 
+/**
+ * Creates a text track, and nothing else. A Mux 429 is waited out at this step's boundary
+ * (`MUX_VIDEO_RATE_LIMIT_POLICY`); any other failure throws classified, as before.
+ */
 export async function createTextTrackOnMux(
   assetId: string,
   languageCode: string,
@@ -489,7 +505,8 @@ export async function createTextTrackOnMux(
     });
   } catch (error) {
     // Classified here, while the raw error is in hand: past the step boundary only its message is left.
-    throw muxVideoCallError("Failed to create the text track on Mux", "create_track", error, { assetId });
+    const classified = muxVideoCallError("Failed to create the text track on Mux", "create_track", error, { assetId });
+    throw (await rateLimitStepRetry(classified, MUX_VIDEO_RATE_LIMIT_POLICY)) ?? classified;
   }
 
   if (!trackResponse.id) {
@@ -498,6 +515,7 @@ export async function createTextTrackOnMux(
 
   return trackResponse.id;
 }
+createTextTrackOnMux.maxRetries = MUX_VIDEO_RATE_LIMIT_POLICY.maxRetries;
 
 interface CreateTrackWriteInput extends ClassifiedErrorsOption {
   assetId: string;
@@ -522,23 +540,176 @@ export interface ReplaceSourceTrackInput extends CreateTrackWriteInput {
 }
 
 /**
- * Fetches the asset fresh, deletes whatever `policy` allows, then creates the
- * new track of `target.type` (default `text`). Known outcomes come back as
- * discriminated results rather than throws so callers can react (Workflow
- * DevKit turns repeated step throws into a FatalError).
+ * Which planner a track write uses: data, not a function, because it crosses into
+ * `clearTrackConflicts` as a step argument.
+ */
+export type TrackWritePlan =
+  { kind: "target"; policy: ReplaceExistingTracksPolicy } |
+  { kind: "source"; sourceTrackId: string; policy: SourceTrackReplacementPolicy };
+
+export type ClearTrackConflictsResult =
+  { kind: "clear"; deleted: TextTrackSummary[] } |
+  (TrackReplacementBlocked & { deleted: TextTrackSummary[] }) |
+  TrackWriteFailed;
+
+export type CreateTrackResult =
+  { kind: "created"; trackId: string } |
+  { kind: "duplicate_name" } |
+  Omit<TrackWriteFailed, "deleted">;
+
+type TrackWriteCall = "get_asset" | "delete_track" | "create_track";
+
+function trackWriteFailed(input: CreateTrackWriteInput, call: TrackWriteCall, error: unknown): Omit<TrackWriteFailed, "deleted"> {
+  return {
+    kind: "create_failed",
+    reason: error instanceof Error ? error.message : String(error),
+    ...(input.classifiedErrors && {
+      error: muxVideoCallError(`Mux ${call} failed while writing the ${targetType(input.target)} track`, call, error, { assetId: input.assetId }),
+    }),
+  };
+}
+
+function planFor(asset: MuxAsset, target: TextTrackTarget, plan: TrackWritePlan): TextTrackReplacementPlan {
+  return plan.kind === "source" ?
+      planSourceTrackReplacement(asset, plan.sourceTrackId, target, plan.policy) :
+      planTextTrackReplacement(asset, target, plan.policy);
+}
+
+/**
+ * Plans against a fresh asset and deletes what the plan allows. Once anything has been
+ * deleted, in this step or an earlier one (`afterDeletes`), a failure is returned, not
+ * thrown, so the deleted tracks reach the caller. Before that, a failed fetch or delete
+ * throws: rerunning the step is safe, and a 429 is waited out at the step boundary.
+ */
+export async function clearTrackConflicts(
+  input: CreateTrackWriteInput,
+  plan: TrackWritePlan,
+  afterDeletes = false,
+): Promise<ClearTrackConflictsResult> {
+  "use step";
+  const muxClient = await resolveMuxClient(input.credentials);
+  const mux = await muxClient.createClient();
+  const deleted: TextTrackSummary[] = [];
+
+  const stop = async (call: TrackWriteCall, error: unknown): Promise<TrackWriteFailed> => {
+    if (afterDeletes || deleted.length > 0) {
+      return { ...trackWriteFailed(input, call, error), deleted };
+    }
+    const classified = call === "get_asset" ?
+        muxVideoCallError("Failed to fetch the asset from Mux", "get_asset", error, { assetId: input.assetId }) :
+        muxVideoCallError(`Mux ${call} failed while writing the ${targetType(input.target)} track`, call, error, { assetId: input.assetId });
+    const retry = await rateLimitStepRetry(classified, MUX_VIDEO_RATE_LIMIT_POLICY);
+    if (retry) {
+      throw retry;
+    }
+    if (call === "get_asset") {
+      throw input.classifiedErrors ? classified : error;
+    }
+    return { ...trackWriteFailed(input, call, error), deleted };
+  };
+
+  let asset: MuxAsset;
+  try {
+    asset = await mux.video.assets.retrieve(input.assetId);
+  } catch (error) {
+    return stop("get_asset", error);
+  }
+  const planned = planFor(asset, input.target, plan);
+  if (planned.kind === "blocked") {
+    return { ...planned, deleted };
+  }
+  if (planned.kind === "replace") {
+    for (const track of planned.toDelete) {
+      try {
+        await mux.video.assets.deleteTrack(input.assetId, track.id);
+        deleted.push(track);
+      } catch (error) {
+        if (!isNotFoundError(error)) {
+          return stop("delete_track", error);
+        }
+      }
+    }
+  }
+  return { kind: "clear", deleted };
+}
+clearTrackConflicts.maxRetries = MUX_VIDEO_RATE_LIMIT_POLICY.maxRetries;
+
+/**
+ * Creates the track of `target.type`, and nothing else. A Mux 429 is waited out at this
+ * step's boundary (`MUX_VIDEO_RATE_LIMIT_POLICY`); on the last attempt it is returned as
+ * `create_failed` like any other failure. Only a 429 is retried: it means Mux didn't process
+ * the create, whereas after a timeout or 5xx the track may exist.
  *
- * The only throw is a failed asset fetch before anything has been deleted,
- * which is safe to retry. Once a track has been deleted every failure, Mux or
- * otherwise, is returned as `create_failed` with the `deleted` list so the
- * caller can restore what was removed.
+ * A rerun first looks for the track a previous attempt created (same type, name and
+ * `passthrough`), in case the step was cut short after Mux accepted the create.
+ */
+export async function createTrack(input: CreateTrackWriteInput): Promise<CreateTrackResult> {
+  "use step";
+  const muxClient = await resolveMuxClient(input.credentials);
+  const mux = await muxClient.createClient();
+  const type = targetType(input.target);
+  const name = input.target.name.trim();
+
+  if (input.passthrough && ((await currentStepAttempt()) ?? 1) > 1) {
+    try {
+      const asset = await mux.video.assets.retrieve(input.assetId);
+      const existing = listTracks(asset, type).find(track =>
+        track.name === name && track.passthrough === input.passthrough && track.status !== "errored");
+      if (existing?.id) {
+        return { kind: "created", trackId: existing.id };
+      }
+    } catch {
+      // Best effort: a failed look falls through to the create, which a duplicate name would reject.
+    }
+  }
+
+  try {
+    const track = await mux.video.assets.createTrack(input.assetId, {
+      type,
+      ...(type === "text" ? { text_type: "subtitles", closed_captions: input.closedCaptions } : {}),
+      language_code: input.target.languageCode,
+      name,
+      url: input.presignedUrl,
+      passthrough: input.passthrough,
+    });
+    if (!track.id) {
+      const message = `Failed to create ${type} track: no track ID returned from Mux`;
+      return trackWriteFailed(input, "create_track", input.classifiedErrors ? missingTrackIdError(message, { assetId: input.assetId }) : new Error(message));
+    }
+    return { kind: "created", trackId: track.id };
+  } catch (error) {
+    if (isDuplicateTrackNameError(error)) {
+      return { kind: "duplicate_name" };
+    }
+    const failed = trackWriteFailed(input, "create_track", error);
+    const retry = await rateLimitStepRetry(
+      failed.error ?? muxVideoCallError("Failed to create the track on Mux", "create_track", error, { assetId: input.assetId }),
+      MUX_VIDEO_RATE_LIMIT_POLICY,
+    );
+    if (retry) {
+      throw retry;
+    }
+    return failed;
+  }
+}
+createTrack.maxRetries = MUX_VIDEO_RATE_LIMIT_POLICY.maxRetries;
+
+/**
+ * Deletes whatever `policy` allows against a fresh asset, then creates the new track of
+ * `target.type` (default `text`), in two steps (`clearTrackConflicts`, `createTrack`). Call
+ * it from a workflow body. Known outcomes come back as discriminated results rather than
+ * throws so callers can react.
  *
- * A duplicate-name rejection on create is retried once after re-planning
- * against a fresh asset, which covers a track appearing between the plan and
- * the create.
+ * The only throw is a failure before anything has been deleted, which is safe to retry.
+ * Once a track has been deleted every failure is returned as `create_failed` with the
+ * `deleted` list so the caller can restore what was removed. A Mux 429 on any of these
+ * calls is waited out by rerunning just the step that got it.
+ *
+ * A duplicate-name rejection on create is retried once after re-planning against a fresh
+ * asset, which covers a track appearing between the plan and the create.
  */
 export async function replaceAndCreateTrack(input: ReplaceAndCreateTextTrackInput): Promise<ReplaceAndCreateTextTrackResult> {
-  "use step";
-  return writeTrack(input, asset => planTextTrackReplacement(asset, input.target, input.policy));
+  return writeTrack(input, { kind: "target", policy: input.policy });
 }
 
 /**
@@ -547,97 +718,35 @@ export async function replaceAndCreateTrack(input: ReplaceAndCreateTextTrackInpu
  * Same outcomes and retry behaviour.
  */
 export async function replaceSourceTrack(input: ReplaceSourceTrackInput): Promise<ReplaceAndCreateTextTrackResult> {
-  "use step";
   const target: TextTrackTarget = { ...input.target, type: "text" };
-  return writeTrack({ ...input, target }, asset => planSourceTrackReplacement(asset, input.sourceTrackId, target, input.policy));
+  return writeTrack({ ...input, target }, { kind: "source", sourceTrackId: input.sourceTrackId, policy: input.policy });
 }
 
-async function writeTrack(
-  input: CreateTrackWriteInput,
-  plan: (asset: MuxAsset) => TextTrackReplacementPlan,
-): Promise<ReplaceAndCreateTextTrackResult> {
-  const muxClient = await resolveMuxClient(input.credentials);
-  const mux = await muxClient.createClient();
-  const type = targetType(input.target);
+async function writeTrack(input: CreateTrackWriteInput, plan: TrackWritePlan): Promise<ReplaceAndCreateTextTrackResult> {
+  // Step arguments are serialized: pass plain data only.
+  const writeInput: CreateTrackWriteInput = {
+    assetId: input.assetId,
+    target: input.target,
+    presignedUrl: input.presignedUrl,
+    closedCaptions: input.closedCaptions,
+    passthrough: input.passthrough,
+    credentials: input.credentials,
+    classifiedErrors: input.classifiedErrors,
+  };
   const deleted: TextTrackSummary[] = [];
 
-  // Classified here, while the raw error is in hand: past the step boundary only its message is left.
-  const failed = (call: "get_asset" | "delete_track" | "create_track", error: unknown): TrackWriteFailed => ({
-    kind: "create_failed",
-    reason: error instanceof Error ? error.message : String(error),
-    deleted,
-    ...(input.classifiedErrors && {
-      error: muxVideoCallError(`Mux ${call} failed while writing the ${type} track`, call, error, { assetId: input.assetId }),
-    }),
-  });
-
-  const clearConflicts = async (): Promise<Exclude<ReplaceAndCreateTextTrackResult, { kind: "created" }> | undefined> => {
-    let asset: MuxAsset;
-    try {
-      asset = await mux.video.assets.retrieve(input.assetId);
-    } catch (error) {
-      if (deleted.length === 0) {
-        throw input.classifiedErrors ?
-            muxVideoCallError("Failed to fetch the asset from Mux", "get_asset", error, { assetId: input.assetId }) :
-          error;
-      }
-      return failed("get_asset", error);
+  for (let pass = 0; pass < 2; pass++) {
+    const cleared = await clearTrackConflicts(writeInput, plan, deleted.length > 0);
+    deleted.push(...cleared.deleted);
+    if (cleared.kind !== "clear") {
+      return { ...cleared, deleted };
     }
-    const planned = plan(asset);
-    if (planned.kind === "blocked") {
-      return { ...planned, deleted };
+    const created = await createTrack(writeInput);
+    if (created.kind === "created") {
+      return { kind: "created", trackId: created.trackId, deleted };
     }
-    if (planned.kind === "replace") {
-      for (const track of planned.toDelete) {
-        try {
-          await mux.video.assets.deleteTrack(input.assetId, track.id);
-          deleted.push(track);
-        } catch (error) {
-          if (!isNotFoundError(error)) {
-            return failed("delete_track", error);
-          }
-        }
-      }
-    }
-    return undefined;
-  };
-
-  const create = async (): Promise<string> => {
-    const track = await mux.video.assets.createTrack(input.assetId, {
-      type,
-      ...(type === "text" ? { text_type: "subtitles", closed_captions: input.closedCaptions } : {}),
-      language_code: input.target.languageCode,
-      name: input.target.name.trim(),
-      url: input.presignedUrl,
-      passthrough: input.passthrough,
-    });
-    if (!track.id) {
-      const message = `Failed to create ${type} track: no track ID returned from Mux`;
-      throw input.classifiedErrors ? missingTrackIdError(message, { assetId: input.assetId }) : new Error(message);
-    }
-    return track.id;
-  };
-
-  const stopped = await clearConflicts();
-  if (stopped) {
-    return stopped;
-  }
-
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      return { kind: "created", trackId: await create(), deleted };
-    } catch (error) {
-      if (isDuplicateTrackNameError(error) && attempt === 0) {
-        const stoppedOnRetry = await clearConflicts();
-        if (stoppedOnRetry) {
-          return stoppedOnRetry;
-        }
-        continue;
-      }
-      if (input.classifiedErrors && isDuplicateTrackNameError(error)) {
-        break;
-      }
-      return failed("create_track", error);
+    if (created.kind === "create_failed") {
+      return { ...created, deleted };
     }
   }
 
@@ -656,8 +765,7 @@ async function writeTrack(
   };
 }
 
-/** `replaceAndCreateTrack` pinned to text tracks. */
+/** `replaceAndCreateTrack` pinned to text tracks. Call it from a workflow body. */
 export async function replaceAndCreateTextTrack(input: ReplaceAndCreateTextTrackInput): Promise<ReplaceAndCreateTextTrackResult> {
-  "use step";
   return replaceAndCreateTrack({ ...input, target: { ...input.target, type: "text" } });
 }
