@@ -57,7 +57,7 @@ import {
   putObjectWithStorageAdapter,
   storageNotConfiguredError,
 } from "../lib/storage-adapter.ts";
-import { isOpenAIModel, supportsOpenAIReasoningNone } from "../lib/text-repair-capabilities.ts";
+import { supportsOpenAIReasoningNone } from "../lib/text-repair-capabilities.ts";
 import { aggregateTokenUsage, getErrorTokenUsage, rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import { signingCredentialsMissingError } from "../lib/url-signing.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
@@ -186,8 +186,8 @@ export interface TranslationOptions<P extends SupportedProvider = SupportedProvi
   neverTranslate?: string[];
   /**
    * Provider options for the translation model calls. When omitted, OpenAI
-   * models get a stable `promptCacheKey`, plus `reasoningEffort: "none"` on
-   * models known to support it. Passing this replaces those defaults.
+   * models known to support it get `reasoningEffort: "none"`. Passing this
+   * replaces that default.
    */
   providerOptions?: TranslationProviderOptions;
 }
@@ -385,29 +385,15 @@ function buildNeverTranslateSection(terms: string[] | undefined): string {
   return `\n\n<never_translate>\n${terms.join("\n")}\n</never_translate>`;
 }
 
-// Bump the version when a prompt changes, so cached prefixes are not shared across versions.
-const VTT_PROMPT_CACHE_KEY = "mux-ai:translate-captions:vtt:v1";
-const CUE_PROMPT_CACHE_KEY = "mux-ai:translate-captions:cues:v1";
-
 /**
- * Default provider options for a translation call: OpenAI requests share a
- * cache key so they reach servers holding the cached system prompt, and skip
- * reasoning where the model allows it, since caption translation is a direct
- * mapping that does not benefit from it.
+ * Default provider options for a translation call: skip reasoning where the
+ * model allows it, since caption translation is a direct mapping that does not
+ * benefit from it.
  */
 function getTranslationProviderOptions(
   model: Awaited<ReturnType<typeof createLanguageModelFromConfig>>,
-  promptCacheKey: string,
 ): TranslationProviderOptions {
-  if (!isOpenAIModel(model)) {
-    return undefined;
-  }
-  return {
-    openai: {
-      promptCacheKey,
-      ...(supportsOpenAIReasoningNone(model) ? { reasoningEffort: "none" } : {}),
-    },
-  };
+  return supportsOpenAIReasoningNone(model) ? { openai: { reasoningEffort: "none" } } : undefined;
 }
 
 // Uses zod's default .strip(). Extras from the model are stripped silently;
@@ -829,7 +815,7 @@ async function translateVttWithAI({
   const response = await withContentPolicyAwareRetry(() => generateText({
     model,
     maxRetries: 0,
-    providerOptions: providerOptions ?? getTranslationProviderOptions(model, VTT_PROMPT_CACHE_KEY),
+    providerOptions: providerOptions ?? getTranslationProviderOptions(model),
     output: Output.object({ schema: translationSchema }),
     system: SYSTEM_PROMPT,
     messages: [
@@ -926,7 +912,7 @@ async function translateCueChunkWithAI({
   const response = await withContentPolicyAwareRetry(() => generateText({
     model,
     maxRetries: 0,
-    providerOptions: providerOptions ?? getTranslationProviderOptions(model, CUE_PROMPT_CACHE_KEY),
+    providerOptions: providerOptions ?? getTranslationProviderOptions(model),
     output: Output.object({ schema: cueTranslationSchema }),
     system: CUE_TRANSLATION_SYSTEM_PROMPT,
     messages: [

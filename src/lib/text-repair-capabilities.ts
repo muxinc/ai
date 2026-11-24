@@ -9,12 +9,9 @@ const OPENAI_REPAIR_CAPABILITIES: Record<string, { supportsReasoningNone: boolea
   "gpt-6-sol": { supportsReasoningNone: true },
 };
 
-export function isOpenAIModel(model: LanguageModel): model is Exclude<LanguageModel, string> {
-  return typeof model === "object" && model.provider.startsWith("openai.");
-}
-
 export function supportsOpenAIReasoningNone(model: LanguageModel): boolean {
-  return isOpenAIModel(model) && OPENAI_REPAIR_CAPABILITIES[model.modelId]?.supportsReasoningNone === true;
+  return typeof model === "object" && model.provider.startsWith("openai.") &&
+    OPENAI_REPAIR_CAPABILITIES[model.modelId]?.supportsReasoningNone === true;
 }
 
 export function getTextRepairProviderOptions(model: LanguageModel) {

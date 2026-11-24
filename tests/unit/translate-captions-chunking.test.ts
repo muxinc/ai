@@ -187,7 +187,7 @@ describe("translateCaptions prompt caching and provider options", () => {
     expect(userContent).not.toContain("startTime");
   });
 
-  it("skips reasoning and sets a prompt cache key on OpenAI models that support it", async () => {
+  it("skips reasoning on OpenAI models that support it", async () => {
     vi.mocked(createLanguageModelFromConfig).mockResolvedValue({ provider: "openai.responses", modelId: "gpt-6-luna" } as any);
     vi.mocked(generateText).mockImplementation((async (args: any) =>
       successfulTranslation(requestedCueCount(args))) as any);
@@ -195,7 +195,7 @@ describe("translateCaptions prompt caching and provider options", () => {
     await translateCaptions("asset-123", "track-1", "es", SHORT_ASSET_OPTIONS);
 
     expect((vi.mocked(generateText).mock.calls[0][0] as any).providerOptions).toEqual({
-      openai: { promptCacheKey: "mux-ai:translate-captions:cues:v1", reasoningEffort: "none" },
+      openai: { reasoningEffort: "none" },
     });
   });
 
@@ -205,9 +205,7 @@ describe("translateCaptions prompt caching and provider options", () => {
 
     await translateCaptions("asset-123", "track-1", "es", SHORT_ASSET_OPTIONS);
 
-    expect((vi.mocked(generateText).mock.calls[0][0] as any).providerOptions).toEqual({
-      openai: { promptCacheKey: "mux-ai:translate-captions:cues:v1" },
-    });
+    expect((vi.mocked(generateText).mock.calls[0][0] as any).providerOptions).toBeUndefined();
   });
 
   it("sends no provider options to non-OpenAI models", async () => {
