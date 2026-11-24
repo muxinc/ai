@@ -86,6 +86,7 @@ const PROMPT_TAG_NAMES = [
   "steering_call_to_action",
   "steering_brand_terms",
   "revision_request",
+  "subtitle_guidelines",
 ];
 
 // Matches `<tag>`, `</tag>`, `< tag >`, `<tag attr="x">`, etc.
