@@ -96,7 +96,7 @@ beforeEach(() => {
   vi.mocked(putObjectWithStorageAdapter).mockResolvedValue(undefined);
   vi.mocked(createPresignedGetUrlWithStorageAdapter).mockResolvedValue("https://s3.example.test/presigned.vtt");
   vi.mocked(resolveLanguageModelConfig).mockReturnValue({ provider: "openai", modelId: "gpt-test" } as any);
-  vi.mocked(createLanguageModelFromConfig).mockResolvedValue({} as any);
+  vi.mocked(createLanguageModelFromConfig).mockResolvedValue({ provider: "openai.responses", modelId: "gpt-test" } as any);
   vi.mocked(generateText).mockResolvedValue({
     finishReason: "stop",
     output: { translations: ["Hola"] },

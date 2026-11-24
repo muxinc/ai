@@ -87,7 +87,7 @@ beforeEach(() => {
   vi.mocked(resolveMuxSigningContext).mockResolvedValue(undefined);
   vi.mocked(fetchVttFromMux).mockResolvedValue(buildVtt(CUE_COUNT));
   vi.mocked(resolveLanguageModelConfig).mockReturnValue({ provider: "openai", modelId: "gpt-test" } as any);
-  vi.mocked(createLanguageModelFromConfig).mockResolvedValue({} as any);
+  vi.mocked(createLanguageModelFromConfig).mockResolvedValue({ provider: "openai.responses", modelId: "gpt-test" } as any);
 });
 
 describe("translateCaptions chunking for short assets", () => {
@@ -163,5 +163,71 @@ describe("translateCaptions chunking for short assets", () => {
       retryable: false,
       finishReason: "length",
     });
+  });
+});
+
+describe("translateCaptions prompt caching and provider options", () => {
+  it("sends the same system prompt and schema for every chunk, and only cue text", async () => {
+    vi.mocked(generateText).mockImplementation((async (args: any) =>
+      successfulTranslation(requestedCueCount(args))) as any);
+
+    await translateCaptions("asset-123", "track-1", "es", {
+      ...SHORT_ASSET_OPTIONS,
+      chunking: { maxCuesPerChunk: 2 },
+    });
+
+    const calls = vi.mocked(generateText).mock.calls.map(([args]) => args as any);
+    expect(calls).toHaveLength(3);
+    expect(new Set(calls.map(args => args.system)).size).toBe(1);
+    const responseFormats = await Promise.all(calls.map(async args => JSON.stringify(await args.output.responseFormat)));
+    expect(new Set(responseFormats).size).toBe(1);
+    expect(responseFormats[0]).not.toContain("minItems");
+    const userContent = calls[0].messages[0].content as string;
+    expect(userContent.endsWith("[\"Hello 1\",\"Hello 2\"]")).toBe(true);
+    expect(userContent).not.toContain("startTime");
+  });
+
+  it("skips reasoning and sets a prompt cache key on OpenAI models that support it", async () => {
+    vi.mocked(createLanguageModelFromConfig).mockResolvedValue({ provider: "openai.responses", modelId: "gpt-6-luna" } as any);
+    vi.mocked(generateText).mockImplementation((async (args: any) =>
+      successfulTranslation(requestedCueCount(args))) as any);
+
+    await translateCaptions("asset-123", "track-1", "es", SHORT_ASSET_OPTIONS);
+
+    expect((vi.mocked(generateText).mock.calls[0][0] as any).providerOptions).toEqual({
+      openai: { promptCacheKey: "mux-ai:translate-captions:cues:v1", reasoningEffort: "none" },
+    });
+  });
+
+  it("keeps the provider's reasoning default on models not known to support none", async () => {
+    vi.mocked(generateText).mockImplementation((async (args: any) =>
+      successfulTranslation(requestedCueCount(args))) as any);
+
+    await translateCaptions("asset-123", "track-1", "es", SHORT_ASSET_OPTIONS);
+
+    expect((vi.mocked(generateText).mock.calls[0][0] as any).providerOptions).toEqual({
+      openai: { promptCacheKey: "mux-ai:translate-captions:cues:v1" },
+    });
+  });
+
+  it("sends no provider options to non-OpenAI models", async () => {
+    vi.mocked(createLanguageModelFromConfig).mockResolvedValue({ provider: "google.generative-ai", modelId: "gemini-test" } as any);
+    vi.mocked(generateText).mockImplementation((async (args: any) =>
+      successfulTranslation(requestedCueCount(args))) as any);
+
+    await translateCaptions("asset-123", "track-1", "es", SHORT_ASSET_OPTIONS);
+
+    expect((vi.mocked(generateText).mock.calls[0][0] as any).providerOptions).toBeUndefined();
+  });
+
+  it("uses caller provider options in place of the defaults", async () => {
+    vi.mocked(createLanguageModelFromConfig).mockResolvedValue({ provider: "openai.responses", modelId: "gpt-6-luna" } as any);
+    vi.mocked(generateText).mockImplementation((async (args: any) =>
+      successfulTranslation(requestedCueCount(args))) as any);
+    const providerOptions = { openai: { reasoningEffort: "medium" } };
+
+    await translateCaptions("asset-123", "track-1", "es", { ...SHORT_ASSET_OPTIONS, providerOptions });
+
+    expect((vi.mocked(generateText).mock.calls[0][0] as any).providerOptions).toEqual(providerOptions);
   });
 });
