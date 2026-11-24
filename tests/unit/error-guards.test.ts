@@ -98,6 +98,22 @@ function replayDivergence() {
   return Object.assign(new Error("Replay divergence: step created but not found in invocation queue"), { name: "ReplayDivergenceError" });
 }
 
+describe("getErrorTokenUsage", () => {
+  it("reads the error's own usage before the classified error inside it", () => {
+    const outer = Object.assign(retriesExhausted(transientFailure()), { usage: { inputTokens: 7, outputTokens: 1, totalTokens: 8 } });
+    expect(getErrorTokenUsage(outer)).toEqual({ inputTokens: 7, outputTokens: 1, totalTokens: 8 });
+  });
+
+  it("falls back to the classified error's usage when the error has none of its own", () => {
+    expect(getErrorTokenUsage(retriesExhausted(transientFailure()))).toEqual({ inputTokens: 40, outputTokens: 2, totalTokens: 42 });
+  });
+
+  it("returns undefined when neither has usage", () => {
+    expect(getErrorTokenUsage(retriesExhausted(new Error("socket hang up")))).toBeUndefined();
+    expect(getErrorTokenUsage("text")).toBeUndefined();
+  });
+});
+
 describe("isWorkflowControlFlowError", () => {
   it("matches Workflow DevKit's control-flow errors by name, from any realm", () => {
     expect(isWorkflowControlFlowError(replayDivergence())).toBe(true);

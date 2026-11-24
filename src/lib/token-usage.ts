@@ -40,10 +40,21 @@ export function aggregateTokenUsage(usages: TokenUsage[]): TokenUsage {
  * errors like `NoObjectGeneratedError`, or errors annotated by
  * {@link rethrowWithTokenUsage}). Falls back to AI SDK v6's nested
  * `inputTokenDetails`/`outputTokenDetails` for cache/reasoning counts.
+ *
+ * The error's own usage comes first. Only when it has none is the classified error inside it
+ * read (see `classifiedErrorOf`), e.g. a step's error, which keeps its usage inside Workflow
+ * DevKit's retries-exhausted wrapper.
  */
 export function getErrorTokenUsage(thrown: unknown): TokenUsage | undefined {
-  // A step's error keeps its usage inside Workflow DevKit's retries-exhausted wrapper.
-  const error = classifiedErrorOf(thrown) ?? thrown;
+  const own = readErrorTokenUsage(thrown);
+  if (own) {
+    return own;
+  }
+  const classified = classifiedErrorOf(thrown);
+  return classified && classified !== thrown ? readErrorTokenUsage(classified) : undefined;
+}
+
+function readErrorTokenUsage(error: unknown): TokenUsage | undefined {
   if (typeof error !== "object" || error === null) {
     return undefined;
   }
