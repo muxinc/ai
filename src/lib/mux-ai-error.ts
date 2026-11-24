@@ -863,11 +863,16 @@ export function wrapError(error: unknown, message: string, facts?: MuxAiErrorFac
   if (isWorkflowControlFlowError(error)) {
     throw error;
   }
+  // Read before unwrapping: an error's own usage wins over the classified error's inside it.
+  const usage = getErrorTokenUsage(error);
   // A step's classified error, even inside Workflow DevKit's wrapper once its retries ran out.
   error = classifiedErrorOf(error) ?? error;
   if (MuxAiError.is(error)) {
     if (facts) {
       Object.assign(error, { facts: { ...facts, ...error.facts } });
+    }
+    if (usage) {
+      error.usage = usage;
     }
     throw error;
   }
@@ -878,7 +883,6 @@ export function wrapError(error: unknown, message: string, facts?: MuxAiErrorFac
     cause: error,
   });
   // Carry `usage` through wrapping so failed workflows still report tokens burned.
-  const usage = getErrorTokenUsage(error);
   if (usage) {
     wrapped.usage = usage;
   }

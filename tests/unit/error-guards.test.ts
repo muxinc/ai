@@ -87,6 +87,24 @@ describe("a step's error after Workflow DevKit wrapped it", () => {
     expect(getErrorTokenUsage(retriesExhausted(transientFailure()))).toEqual({ inputTokens: 40, outputTokens: 2, totalTokens: 42 });
   });
 
+  it("rethrowWithTokenUsage counts an outer error's own usage, not the classified error's inside it", () => {
+    // 100 tokens on the outer error, 42 on the classified error inside it, 10 already collected.
+    const outer = Object.assign(retriesExhausted(transientFailure()), { usage: { inputTokens: 90, outputTokens: 10, totalTokens: 100 } });
+    const error = thrown(() => rethrowWithTokenUsage(outer, [{ inputTokens: 8, outputTokens: 2, totalTokens: 10 }]));
+    expect(error).toMatchObject({ code: "provider_unavailable", usage: { inputTokens: 98, outputTokens: 12, totalTokens: 110 } });
+  });
+
+  it("wrapError carries an outer error's own usage onto the classified error it rethrows", () => {
+    const outer = Object.assign(retriesExhausted(transientFailure()), { usage: { inputTokens: 90, outputTokens: 10, totalTokens: 100 } });
+    const error = thrown(() => wrapError(outer, "Failed to summarize"));
+    expect(error).toMatchObject({ code: "provider_unavailable", usage: { inputTokens: 90, outputTokens: 10, totalTokens: 100 } });
+  });
+
+  it("wrapError keeps the classified error's own usage when the outer error has none", () => {
+    const error = thrown(() => wrapError(retriesExhausted(transientFailure()), "Failed to summarize"));
+    expect(error).toMatchObject({ usage: { inputTokens: 40, outputTokens: 2, totalTokens: 42 } });
+  });
+
   it("an unclassified step failure is still wrapped as this code's own failure", () => {
     const error = thrown(() => wrapError(retriesExhausted(new Error("socket hang up")), "Failed to summarize"));
     expect(error).toMatchObject({ type: "server_error", source: "internal" });

@@ -99,10 +99,11 @@ export function rethrowWithTokenUsage(error: unknown, collectedUsage: TokenUsage
   if (isWorkflowControlFlowError(error)) {
     throw error;
   }
+  // Read before unwrapping: an error's own usage wins over the classified error's inside it.
+  const errorUsage = getErrorTokenUsage(error);
   // Rethrow a step's classified error itself, not Workflow DevKit's retries-exhausted wrapper.
   error = classifiedErrorOf(error) ?? error;
   const usages = [...collectedUsage];
-  const errorUsage = getErrorTokenUsage(error);
   if (errorUsage) {
     usages.push(errorUsage);
   }
