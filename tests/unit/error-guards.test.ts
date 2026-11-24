@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
+import { classifiedErrorOf } from "../../src/lib/error-guards.ts";
 import { LegacyMuxAiError } from "../../src/lib/legacy-mux-ai-error.ts";
 import { MuxAiError, wrapError } from "../../src/lib/mux-ai-error.ts";
 import { getErrorTokenUsage, rethrowWithTokenUsage } from "../../src/lib/token-usage.ts";
-import { unwrapWorkflowStepError } from "../../src/lib/workflow-step-error.ts";
 
 /** What Workflow DevKit throws into the workflow once a step's last attempt fails. */
 function retriesExhausted(cause: unknown, message = "Step \"step//summarize\" failed after 3 retries: Provider unavailable") {
@@ -29,29 +29,41 @@ function thrown(run: () => unknown): unknown {
   throw new Error("expected a throw");
 }
 
-describe("unwrapWorkflowStepError", () => {
-  it("returns the classified error inside a retries-exhausted wrapper", () => {
-    const failure = transientFailure();
-    expect(unwrapWorkflowStepError(retriesExhausted(failure))).toBe(failure);
-  });
-
-  it("recognizes the wrapper by shape, not by Workflow DevKit's message", () => {
-    const failure = transientFailure();
-    expect(unwrapWorkflowStepError(retriesExhausted(failure, "Step \"x\" exceeded max retries (3 retries)"))).toBe(failure);
-  });
-
-  it("leaves a classified error as it is, including a non-transient one named FatalError", () => {
+describe("classifiedErrorOf", () => {
+  it("returns a classified error itself, including a non-transient one named FatalError", () => {
     const fatal = new MuxAiError("Bad request", { type: "validation_error", source: "request", cause: transientFailure() });
     expect(fatal.name).toBe("FatalError");
-    expect(unwrapWorkflowStepError(fatal)).toBe(fatal);
+    expect(classifiedErrorOf(fatal)).toBe(fatal);
   });
 
-  it("leaves a legacy error, a wrapper around an unclassified cause, and other values unchanged", () => {
-    const legacy = new LegacyMuxAiError("Unable to summarize.", { type: "processing_error", cause: transientFailure() });
-    const plainCause = retriesExhausted(new Error("socket hang up"));
-    const notFatal = Object.assign(new Error("boom"), { cause: transientFailure() });
-    for (const value of [legacy, plainCause, notFatal, "text", undefined, null]) {
-      expect(unwrapWorkflowStepError(value)).toBe(value);
+  it("returns the classified error inside Workflow DevKit's retries-exhausted wrapper, whatever its message", () => {
+    const failure = transientFailure();
+    expect(classifiedErrorOf(retriesExhausted(failure))).toBe(failure);
+    expect(classifiedErrorOf(retriesExhausted(failure, "Step \"x\" exceeded max retries (3 retries)"))).toBe(failure);
+  });
+
+  it("finds a classified error further down any cause chain", () => {
+    const failure = transientFailure();
+    const nested = Object.assign(new Error("outer"), { cause: Object.assign(new Error("middle"), { cause: failure }) });
+    expect(classifiedErrorOf(nested)).toBe(failure);
+  });
+
+  it("stops at a legacy error: returns the SDK's (classified) one itself, and nothing for one that isn't classified", () => {
+    const sdkLegacy = new LegacyMuxAiError("Unable to summarize.", { type: "processing_error", cause: transientFailure() });
+    expect(classifiedErrorOf(sdkLegacy)).toBe(sdkLegacy);
+    const consumerLegacy = Object.assign(new Error("Unable to render."), { __robots_error: true, publicMessage: "Unable to render.", cause: transientFailure() });
+    expect(classifiedErrorOf(consumerLegacy)).toBeUndefined();
+  });
+
+  it("returns undefined with no classified error in the chain, a cycle, a chain past its depth, or a non-object", () => {
+    const cyclic = new Error("a");
+    Object.assign(cyclic, { cause: Object.assign(new Error("b"), { cause: cyclic }) });
+    let deep: unknown = transientFailure();
+    for (let i = 0; i < 5; i += 1) {
+      deep = Object.assign(new Error(`level ${i}`), { cause: deep });
+    }
+    for (const value of [retriesExhausted(new Error("socket hang up")), cyclic, deep, "text", undefined, null]) {
+      expect(classifiedErrorOf(value)).toBeUndefined();
     }
   });
 });

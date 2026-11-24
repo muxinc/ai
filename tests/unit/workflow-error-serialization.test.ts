@@ -9,9 +9,9 @@ import { build, transform } from "esbuild";
 import { describe, expect, it } from "vitest";
 
 import type { IncompleteGenerationError, isIncompleteGenerationError } from "../../src/lib/content-policy-error.ts";
+import { classifiedErrorOf } from "../../src/lib/error-guards.ts";
 import type { LegacyMuxAiError } from "../../src/lib/legacy-mux-ai-error.ts";
 import type { MuxAiError } from "../../src/lib/mux-ai-error.ts";
-import { unwrapWorkflowStepError } from "../../src/lib/workflow-step-error.ts";
 
 async function loadErrors(mode: "step" | "workflow") {
   const bundled = await build({
@@ -185,7 +185,7 @@ describe("sDK errors across Workflow step boundaries", () => {
     const restored = await hydrateStepError(await dehydrateStepError(wrapper, "wrun_offline", undefined, [], globalThis), "wrun_offline", undefined, workflow.global);
 
     expect(workflow.MuxAiError.is(restored)).toBe(false);
-    const unwrapped = unwrapWorkflowStepError(restored);
+    const unwrapped = classifiedErrorOf(restored);
     expect(workflow.MuxAiError.is(unwrapped)).toBe(true);
     expect(unwrapped).toMatchObject({
       code: "provider_unavailable",

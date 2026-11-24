@@ -9,6 +9,7 @@ import {
 } from "../lib/content-policy-error.ts";
 import type { ModelCallContext } from "../lib/content-policy-error.ts";
 import { httpStatusOf } from "../lib/dependency-error.ts";
+import { classifiedErrorOf } from "../lib/error-guards.ts";
 import {
   errorDetailFact,
   extractErrorDetail,
@@ -61,7 +62,6 @@ import {
   resolveMuxClient,
   resolveMuxSigningContext,
 } from "../lib/workflow-credentials.ts";
-import { unwrapWorkflowStepError } from "../lib/workflow-step-error.ts";
 import { buildTranscriptUrl, extractTextFromVTT, getReadyTextTracks, vttTimestampToSeconds } from "../primitives/transcripts.ts";
 import type {
   MuxAIOptions,
@@ -670,7 +670,7 @@ async function deleteTrackOnMux(
  */
 function restoreFailureFacts(thrown: unknown): MuxAiErrorFacts {
   // The restore is a step: once its retries ran out, Workflow DevKit wraps its classified error.
-  const error = unwrapWorkflowStepError(thrown);
+  const error = classifiedErrorOf(thrown) ?? thrown;
   if (!MuxAiError.is(error)) {
     return { restoreError: errorDetailFact(extractErrorDetail(error)) };
   }

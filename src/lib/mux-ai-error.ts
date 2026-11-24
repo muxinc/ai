@@ -2,6 +2,7 @@ import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 
 import type { TokenUsage } from "../types.ts";
 
+import { classifiedErrorOf, isClassifiedError } from "./error-guards.ts";
 // The legacy payload type, for MuxAiError's WORKFLOW_SERIALIZE return type only.
 // LegacyMuxAiError (in legacy-mux-ai-error.ts) extends MuxAiError and overrides its
 // static serializer to write this pre-classification shape, and TypeScript requires an
@@ -13,7 +14,6 @@ import type { TokenUsage } from "../types.ts";
 import type { LegacySerializedMuxAiError } from "./legacy-mux-ai-error.ts";
 import { detectLeakReason } from "./output-safety.ts";
 import { getErrorTokenUsage } from "./token-usage.ts";
-import { unwrapWorkflowStepError } from "./workflow-step-error.ts";
 
 /**
  * Public error categories for job outcomes. One list for the SDK and its consumers,
@@ -592,12 +592,7 @@ export class ClassifiedError<TType extends string = string, TCode extends string
 
   /** Whether `value` is any classified error, from this copy of the SDK or another. */
   static isClassified(value: unknown): value is ClassifiedError {
-    return (
-      typeof value === "object" &&
-      value !== null &&
-      "__classified_error" in value &&
-      value.__classified_error === true
-    );
+    return isClassifiedError(value);
   }
 }
 
@@ -799,11 +794,11 @@ function scrubDetail(detail: string, context?: string): string {
  *
  * Use this in catch blocks that re-throw, so a classified error from a callee
  * keeps its classification, including one a step threw after Workflow DevKit wrapped it
- * (see {@link unwrapWorkflowStepError}). Token usage carries over either way.
+ * (see {@link classifiedErrorOf}). Token usage carries over either way.
  */
 export function wrapError(thrown: unknown, message: string, facts?: MuxAiErrorFacts): never {
-  // A step's classified error, still wrapped by Workflow DevKit once its retries ran out.
-  const error = unwrapWorkflowStepError(thrown);
+  // A step's classified error, even inside Workflow DevKit's wrapper once its retries ran out.
+  const error = classifiedErrorOf(thrown) ?? thrown;
   if (MuxAiError.is(error)) {
     if (facts) {
       Object.assign(error, { facts: { ...facts, ...error.facts } });
