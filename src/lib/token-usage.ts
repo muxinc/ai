@@ -1,6 +1,6 @@
 import type { TokenUsage } from "../types.ts";
 
-import { classifiedErrorOf } from "./error-guards.ts";
+import { classifiedErrorOf, isWorkflowControlFlowError } from "./error-guards.ts";
 
 const TOKEN_USAGE_FIELDS = [
   "inputTokens",
@@ -91,6 +91,10 @@ export function getErrorTokenUsage(thrown: unknown): TokenUsage | undefined {
  * retries ran out is rethrown unwrapped (see `classifiedErrorOf`).
  */
 export function rethrowWithTokenUsage(thrown: unknown, collectedUsage: TokenUsage[]): never {
+  // Workflow DevKit's control flow (e.g. a replay divergence) passes through untouched.
+  if (isWorkflowControlFlowError(thrown)) {
+    throw thrown;
+  }
   // Rethrow a step's classified error itself, not Workflow DevKit's retries-exhausted wrapper.
   const error = classifiedErrorOf(thrown) ?? thrown;
   const usages = [...collectedUsage];

@@ -4,6 +4,7 @@ import env from "../env.ts";
 import { getApiKeyFromEnv } from "../lib/client-factory.ts";
 import { elevenLabsFailureError, elevenLabsResponseFailure, elevenLabsSdkFailure } from "../lib/elevenlabs-errors.ts";
 import type { ElevenLabsFailure } from "../lib/elevenlabs-errors.ts";
+import { isWorkflowControlFlowError } from "../lib/error-guards.ts";
 import { getLanguageCodePair, getLanguageName, toISO639_1 } from "../lib/language-codes.ts";
 import type { LanguageCodePair } from "../lib/language-codes.ts";
 import {
@@ -1248,6 +1249,10 @@ export async function translateAudio(
           }
         }
       } catch (error) {
+        // Best effort, but never for Workflow DevKit's control flow, which must reach the runtime.
+        if (isWorkflowControlFlowError(error)) {
+          throw error;
+        }
         captionsOutcome = captionsPresignedUrl ?
             { status: "failed", message: CAPTIONS_ATTACHMENT_FAILED_MESSAGE, retryable: true, replacedTracks: [] } :
             { status: "unavailable", message: CAPTIONS_UNAVAILABLE_MESSAGE, retryable: true };

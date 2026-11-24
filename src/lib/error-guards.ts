@@ -65,3 +65,24 @@ export function classifiedErrorOf(error: unknown): ClassifiedError | undefined {
   }
   return undefined;
 }
+
+/**
+ * Errors Workflow DevKit uses for its own control flow, which must propagate out of a workflow
+ * function untouched: `ReplayDivergenceError` (rejected into a step's promise when a replay
+ * diverges, so the runtime can recover) and, defensively, `WorkflowSuspension`. Matched by name,
+ * since the runtime's classes differ between realms.
+ */
+const WORKFLOW_CONTROL_FLOW_ERROR_NAMES: ReadonlySet<string> = new Set(["ReplayDivergenceError", "WorkflowSuspension"]);
+
+/**
+ * Whether `value` is one of Workflow DevKit's control-flow errors. Workflow code that catches a
+ * step's error must rethrow one unchanged: wrapping it, swallowing it or recording it as a
+ * failure turns a run the runtime would recover into a failed one.
+ */
+export function isWorkflowControlFlowError(value: unknown): value is Error {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const { name } = value as { name?: unknown };
+  return typeof name === "string" && WORKFLOW_CONTROL_FLOW_ERROR_NAMES.has(name);
+}

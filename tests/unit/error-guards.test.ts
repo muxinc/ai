@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { classifiedErrorOf } from "../../src/lib/error-guards.ts";
+import { classifiedErrorOf, isWorkflowControlFlowError } from "../../src/lib/error-guards.ts";
 import { LegacyMuxAiError } from "../../src/lib/legacy-mux-ai-error.ts";
 import { MuxAiError, wrapError } from "../../src/lib/mux-ai-error.ts";
 import { getErrorTokenUsage, rethrowWithTokenUsage } from "../../src/lib/token-usage.ts";
@@ -90,5 +90,37 @@ describe("a step's error after Workflow DevKit wrapped it", () => {
   it("an unclassified step failure is still wrapped as this code's own failure", () => {
     const error = thrown(() => wrapError(retriesExhausted(new Error("socket hang up")), "Failed to summarize"));
     expect(error).toMatchObject({ type: "server_error", source: "internal" });
+  });
+});
+
+/** As Workflow DevKit rejects a step's promise when a replay diverges. */
+function replayDivergence() {
+  return Object.assign(new Error("Replay divergence: step created but not found in invocation queue"), { name: "ReplayDivergenceError" });
+}
+
+describe("isWorkflowControlFlowError", () => {
+  it("matches Workflow DevKit's control-flow errors by name, from any realm", () => {
+    expect(isWorkflowControlFlowError(replayDivergence())).toBe(true);
+    expect(isWorkflowControlFlowError({ name: "WorkflowSuspension", message: "1 step has not been run yet" })).toBe(true);
+  });
+
+  it("matches nothing else, including WDK's other errors and classified ones", () => {
+    for (const value of [new Error("boom"), retriesExhausted(transientFailure()), transientFailure(), { name: 1 }, "ReplayDivergenceError", undefined, null]) {
+      expect(isWorkflowControlFlowError(value)).toBe(false);
+    }
+  });
+});
+
+describe("workflow DevKit's control flow", () => {
+  it("passes through wrapError untouched", () => {
+    const divergence = replayDivergence();
+    expect(thrown(() => wrapError(divergence, "Failed to summarize", { call: "summarize" }))).toBe(divergence);
+    expect(divergence).not.toHaveProperty("facts");
+  });
+
+  it("passes through rethrowWithTokenUsage without usage attached", () => {
+    const divergence = replayDivergence();
+    expect(thrown(() => rethrowWithTokenUsage(divergence, [{ inputTokens: 10, outputTokens: 1, totalTokens: 11 }]))).toBe(divergence);
+    expect(divergence).not.toHaveProperty("usage");
   });
 });
