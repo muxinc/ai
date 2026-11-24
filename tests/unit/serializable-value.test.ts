@@ -47,6 +47,28 @@ describe("toSerializableValue", () => {
     expect(toSerializableValue(value)).toEqual({ a: 1 });
   });
 
+  it("copies a plain object that fakes a built-in's tag as a plain object, without the tag", () => {
+    const fakeDate = { [Symbol.toStringTag]: "Date", when: "yesterday" };
+    const nested = Object.create(Object.create(null)) as Record<string, unknown>;
+    nested.a = 1;
+
+    const result = toSerializableValue({ fakeDate, nested }) as { fakeDate: object; nested: object };
+
+    expect(result.fakeDate).toEqual({ when: "yesterday" });
+    expect(Object.prototype.toString.call(result.fakeDate)).toBe("[object Object]");
+    expect(result.nested).toEqual({ a: 1 });
+  });
+
+  it("only keeps a tagged value as a built-in when it really is one", () => {
+    const inherited = Object.create({ [Symbol.toStringTag]: "Date" }) as object;
+    expect(toSerializableValue({ inherited })).toEqual({ inherited: "[object Date]" });
+  });
+
+  it("unboxes boxed primitives", () => {
+    // eslint-disable-next-line no-new-wrappers, unicorn/new-for-builtins
+    expect(toSerializableValue({ n: new Number(1), s: new String("a"), b: new Boolean(false) })).toEqual({ n: 1, s: "a", b: false });
+  });
+
   it("cuts cycles and deep nesting short, but keeps repeated non-circular references", () => {
     const cyclic: Record<string, unknown> = { name: "a" };
     cyclic.self = cyclic;
