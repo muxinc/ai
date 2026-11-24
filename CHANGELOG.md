@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.70.0](https://github.com/muxinc/ai/compare/v0.69.0...v0.70.0) (2026-11-24)
+
+
+### Features
+
+* **translate-captions:** skip reasoning, cache the system prompt, and send only cue text ([#346](https://github.com/muxinc/ai/issues/346)) ([cc81aca](https://github.com/muxinc/ai/commit/cc81aca2280cf73258d785a598c5940ddf10ef33))
+
+
+### Bug Fixes
+
+* **errors:** retry OpenAI's timed-out download of an input URL ([#347](https://github.com/muxinc/ai/issues/347)) ([d71a634](https://github.com/muxinc/ai/commit/d71a63424fe992893d753e706b19d5b23b299b24))
+* spread capped moderation samples across the video ([#339](https://github.com/muxinc/ai/issues/339)) ([b0ae0f5](https://github.com/muxinc/ai/commit/b0ae0f516cbc3fd0ac610e86402a32c37f4c9a9f))
+
 ## [0.69.0](https://github.com/muxinc/ai/compare/v0.68.0...v0.69.0) (2026-11-24)
 
 
