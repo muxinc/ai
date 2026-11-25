@@ -130,10 +130,9 @@ describe("getSummaryAndTags classified errors", () => {
       source: "request",
       facts: { parameter: "includeTranscript", reason: "audio_only", allowed: [true], value: false, inputs: ["includeTranscript"] },
     });
-    // End users keep the old hint: the asset is audio-only and needs a ready caption track.
-    expect(toPublicError(error).message).toBe(
-      "includeTranscript must be 'true' for an audio-only asset, which is processed from its transcript and needs a ready caption or subtitle track.",
-    );
+    // End users keep the old hint (the asset is audio-only and needs a ready caption track) through the audio_only reason.
+    expect(toPublicError(error)).toMatchObject({ code: "invalid_parameter", facts: { parameter: "includeTranscript", reason: "audio_only", allowed: [true], value: false } });
+    expect(toPublicError(error).facts).not.toHaveProperty("assetId");
   });
 
   it("codes a signed asset without signing keys as signing_credentials_missing", async () => {

@@ -59,17 +59,15 @@ describe("resolveWorkflowScope", () => {
     }));
   });
 
-  it("with classified errors, words an invalid scope for end users", () => {
+  it("with classified errors, shows end users the scope's reason and times", () => {
     let error: unknown;
     try {
       resolveWorkflowScope({ endTime: 121 }, 120, { classifiedErrors: true });
     } catch (caught) {
       error = caught;
     }
-    expect(toPublicError(error as MuxAiError)).toMatchObject({
-      code: "invalid_scope",
-      message: "The requested end time (121s) is after the end of the asset (120s).",
-    });
+    expect(toPublicError(error as MuxAiError)).toMatchObject({ code: "invalid_scope", type: "validation_error", retryable: false });
+    expect(toPublicError(error as MuxAiError).facts).toEqual({ reason: "exceeds_duration", endTime: 121, assetDurationSeconds: 120 });
   });
 
   it("with classified errors, codes a missing duration as asset_duration_unavailable", () => {
@@ -122,9 +120,7 @@ describe("resolveRenderableVideoScope", () => {
       source: "request",
       facts: { reason: "no_video", startTime: 100, endTime: 120, videoEndTime: 90, inputs: ["scope"] },
     });
-    expect(toPublicError(error as MuxAiError)).toMatchObject({
-      message: "The requested time range starts at 100s, at or after the end of the asset's video (90s).",
-    });
+    expect(toPublicError(error as MuxAiError)).toMatchObject({ code: "invalid_scope", facts: { reason: "no_video", startTime: 100, endTime: 120, videoEndTime: 90 } });
   });
 
   it("with classified errors, passes the opt-in on to the scope check", () => {

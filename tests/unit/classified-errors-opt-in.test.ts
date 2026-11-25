@@ -170,11 +170,12 @@ describe("getPlaybackIdForAsset", () => {
 });
 
 describe("muxAssetFetchError", () => {
-  it("makes a 404 asset_not_found, blamed on the caller's assetId, with public wording naming the asset", () => {
+  it("makes a 404 asset_not_found, blamed on the caller's assetId, showing end users only the asset", () => {
     const error = muxAssetFetchError("asset-9", APIError.generate(404, { error: { type: "not_found", messages: ["Asset not found"] } }, undefined, new Headers()));
 
     expect(error).toMatchObject({ code: "asset_not_found", source: "request", facts: { assetId: "asset-9", inputs: ["assetId"], muxErrorType: "not_found" } });
-    expect(toPublicError(error)).toMatchObject({ code: "asset_not_found", message: "Asset asset-9 could not be found." });
+    expect(toPublicError(error)).toMatchObject({ code: "asset_not_found", facts: { assetId: "asset-9" } });
+    expect(toPublicError(error).facts).not.toHaveProperty("muxErrorType");
   });
 
   it("makes any get_asset 404 asset_not_found, e.g. an asset deleted mid-run", () => {
@@ -209,6 +210,6 @@ describe("validateTrackPassthrough", () => {
       error = caught;
     }
     expect(error).toMatchObject({ code: "invalid_parameter", message: "Track passthrough must be at most 255 characters (received 256).", facts: { parameter: "trackPassthrough", reason: "too_long" } });
-    expect(toPublicError(error as MuxAiError).message).toBe("trackPassthrough must be at most 255 characters (received 256).");
+    expect(toPublicError(error as MuxAiError)).toMatchObject({ code: "invalid_parameter", facts: { parameter: "trackPassthrough", reason: "too_long", length: 256, maxLength: 255 } });
   });
 });

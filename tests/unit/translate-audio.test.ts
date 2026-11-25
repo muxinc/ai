@@ -685,9 +685,9 @@ describe("translateAudio project API", () => {
   });
 
   it.each([
-    { options: { numSpeakers: 2 }, public: "numSpeakers must be '0' (received '2')." },
-    { options: { provider: "openai" }, public: "provider must be 'elevenlabs' (received 'openai')." },
-  ])("words a rejected option for end users ($public)", async ({ options, public: publicMessage }) => {
+    { options: { numSpeakers: 2 }, facts: { parameter: "numSpeakers", reason: "not_allowed", allowed: [0], value: 2 } },
+    { options: { provider: "openai" }, facts: { parameter: "provider", reason: "not_allowed", allowed: ["elevenlabs"], value: "openai" } },
+  ])("shows end users the rejected option ($facts.parameter)", async ({ options, facts }) => {
     stubElevenLabsFetch();
     const error = await translateAudio(ASSET_ID, "fr", { ...BASE_OPTIONS, ...options } as never).then(
       () => {
@@ -696,7 +696,7 @@ describe("translateAudio project API", () => {
       (rejection: unknown) => rejection,
     );
 
-    expect(toPublicError(error as never).message).toBe(publicMessage);
+    expect(toPublicError(error as never)).toMatchObject({ code: "invalid_parameter", facts });
   });
 
   it("does not retry an ambiguous paid create inside the SDK", async () => {

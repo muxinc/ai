@@ -114,7 +114,7 @@ describe("translateCaptions text track replacement", () => {
     const error = await captureRejection(translateCaptions("asset-1", "track-en", "es", OPTIONS));
 
     expect(error).toMatchObject({ code: "caption_track_language_missing", source: "asset", facts: { trackId: "track-en" } });
-    expect(toPublicError(error as MuxAiError).message).toBe("Track track-en has no language set, so its source language can't be determined.");
+    expect(toPublicError(error as MuxAiError)).toMatchObject({ code: "caption_track_language_missing", facts: { trackId: "track-en" } });
     expect(vi.mocked(generateText)).not.toHaveBeenCalled();
   });
 
@@ -263,9 +263,12 @@ describe("editCaptions source track replacement", () => {
     // The kept source is the conflicting track, so end users see which track and are asked for another name.
     expect(toPublicError(error as MuxAiError)).toMatchObject({
       code: "track_replacement_blocked",
-      message: expect.stringContaining("already has the name ' english '"),
+      facts: {
+        reason: "name_collision",
+        trackName: " english ",
+        conflictingTracks: [expect.objectContaining({ id: "track-en", name: "English" })],
+      },
     });
-    expect(toPublicError(error as MuxAiError).message).toContain("Choose a different track name.");
     expect(vi.mocked(generateText)).not.toHaveBeenCalled();
     expect(vi.mocked(replaceSourceTrack)).not.toHaveBeenCalled();
   });

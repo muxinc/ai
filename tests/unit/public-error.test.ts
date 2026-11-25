@@ -2,10 +2,11 @@ import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 import { describe, expect, it } from "vitest";
 
 import { LegacyMuxAiError } from "../../src/lib/legacy-mux-ai-error.ts";
-import type { MuxAiErrorInit } from "../../src/lib/mux-ai-error.ts";
+import type { MuxAiErrorCode, MuxAiErrorFacts, MuxAiErrorInit } from "../../src/lib/mux-ai-error.ts";
 import { MUX_AI_ERROR_CATALOG, MUX_AI_ERROR_CODES, MUX_AI_ERROR_DEPENDENCIES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "../../src/lib/mux-ai-error.ts";
 import { resolveLegacyMp4SupportRendition } from "../../src/lib/mux-static-renditions.ts";
 import { planTextTrackReplacement, trackReplacementBlockedError, trackTargetFacts } from "../../src/lib/mux-tracks.ts";
+import type { MuxAiPublicError } from "../../src/lib/public-error.ts";
 import { createPublicErrorView, genericPublicMessage, MUX_AI_ERROR_GENERIC_MESSAGES, MUX_AI_ERROR_PUBLIC_MAPPINGS, toPublicError } from "../../src/lib/public-error.ts";
 import type { MuxAsset } from "../../src/types.ts";
 
@@ -233,5 +234,90 @@ describe("model output wording", () => {
 
     expect(toPublicError(error(true)).message).toBe(`${base} Please try again.`);
     expect(toPublicError(error(false)).message).toBe(base);
+  });
+});
+
+/** The public view of an error with this code and these facts, classified as the catalog says. */
+function viewOf(code: MuxAiErrorCode, facts: MuxAiErrorFacts = {}): MuxAiPublicError {
+  // The code is chosen at runtime here, so its classification comes from the catalog.
+  return toPublicError(new MuxAiError("internal", { code, ...MUX_AI_ERROR_CATALOG[code], facts } as MuxAiErrorInit));
+}
+
+// Each case is a failure as a workflow or helper raises it, with the facts it carries (internal ones included).
+// The wording is tested here only; the tests of those workflows and helpers assert the codes and facts.
+describe("public wording of the SDK's failures", () => {
+  it.each<[string, MuxAiErrorCode, MuxAiErrorFacts, string]>([
+    // Scope checks.
+    ["an end time past the asset", "invalid_scope", { reason: "exceeds_duration", endTime: 121, assetDurationSeconds: 120, inputs: ["scope.endTime"] }, "The requested end time (121s) is after the end of the asset (120s)."],
+    // Asset and track state.
+    ["a missing asset", "asset_not_found", { call: "get_asset", status: 404, assetId: "asset-9", inputs: ["assetId"], muxErrorType: "not_found" }, "Asset asset-9 could not be found."],
+    ["an asset without a duration", "asset_duration_unavailable", { assetId: "asset-1" }, "Asset asset-1 has no valid duration."],
+    ["a source track without a language", "caption_track_language_missing", { assetId: "asset-1", trackId: "track-en" }, "Track track-en has no language set, so its source language can't be determined."],
+    [
+      "a trackName equal to the kept source track's name",
+      "track_replacement_blocked",
+      {
+        trackType: "text",
+        languageCode: "en",
+        trackName: " english ",
+        assetId: "asset-1",
+        policy: "fail",
+        reason: "name_collision",
+        conflictingTracks: [{ id: "track-en", type: "text", name: "English", languageCode: "en", status: "ready", textSource: "uploaded" }],
+      },
+      "A text track already has the name ' english ': English [en, uploaded, ready]. Choose a different track name.",
+    ],
+    // invalid_parameter, one case per reason as the SDK's options raise it.
+    ["a track passthrough over its limit", "invalid_parameter", { parameter: "trackPassthrough", reason: "too_long", length: 256, maxLength: 255, inputs: ["trackPassthrough"] }, "trackPassthrough must be at most 255 characters (received 256)."],
+    ["an audience over its limit", "invalid_parameter", { parameter: "audience", reason: "too_long", length: 161, maxLength: 160, inputs: ["audience"] }, "audience must be at most 160 characters (received 161)."],
+    ["a never-translate term over its limit", "invalid_parameter", { parameter: "neverTranslate", reason: "too_long", index: 0, length: 101, maxLength: 100, inputs: ["neverTranslate"] }, "neverTranslate entries must be at most 100 characters (received 101) (entry 0)."],
+    ["no edit operation", "invalid_parameter", { reason: "one_of_required", parameters: ["autoCensorProfanity", "replacements", "speakerReplacements"], inputs: ["autoCensorProfanity", "replacements", "speakerReplacements"] }, "Provide at least one of autoCensorProfanity, replacements or speakerReplacements."],
+    ["autoCensorProfanity without a provider", "invalid_parameter", { parameter: "provider", reason: "required_with", with: "autoCensorProfanity", inputs: ["provider", "autoCensorProfanity"] }, "provider is required when autoCensorProfanity is set."],
+    ["fail without a trackName", "invalid_parameter", { parameter: "trackName", reason: "required_with", with: "replaceExistingTracks", withValue: "fail", inputs: ["trackName", "replaceExistingTracks"] }, "trackName is required when replaceExistingTracks is set to 'fail'."],
+    ["deprecated naming mixed with the new options", "invalid_parameter", { parameter: "deleteOriginalTrack", reason: "conflicts_with", with: ["trackName"], inputs: ["deleteOriginalTrack", "trackName"] }, "deleteOriginalTrack can't be combined with trackName."],
+    ["an unsupported replaceExistingTracks policy", "invalid_parameter", { parameter: "replaceExistingTracks", reason: "not_allowed", allowed: ["replace", "fail"], value: "replace_all", inputs: ["replaceExistingTracks"] }, "replaceExistingTracks must be 'replace' or 'fail' (received 'replace_all')."],
+    ["a speaker-count override", "invalid_parameter", { parameter: "numSpeakers", reason: "not_allowed", allowed: [0], value: 2, inputs: ["numSpeakers"] }, "numSpeakers must be '0' (received '2')."],
+    ["a dubbing provider other than the supported one", "invalid_parameter", { parameter: "provider", reason: "not_allowed", allowed: ["elevenlabs"], value: "openai", inputs: ["provider"] }, "provider must be 'elevenlabs' (received 'openai')."],
+    ["an unknown voice, echoing a short token", "invalid_parameter", { parameter: "voice", reason: "not_allowed", allowed: ["conversational", "editorial", "playful", "professional"], value: "pirate", inputs: ["voice"] }, "voice must be 'conversational' or 'editorial' or 'playful' or 'professional' (received 'pirate')."],
+    ["no artifacts", "invalid_parameter", { parameter: "artifacts", reason: "empty", inputs: ["artifacts"] }, "artifacts must be non-empty."],
+    ["blank instructions", "invalid_parameter", { parameter: "variants[0].instructions", reason: "empty", inputs: ["variants"] }, "variants[0].instructions must be non-empty."],
+    ["an empty speaker label", "invalid_parameter", { parameter: "speakerReplacements", reason: "empty", index: 1, inputs: ["speakerReplacements"] }, "speakerReplacements entries must be non-empty (entry 1)."],
+    ["a blank never-translate term", "invalid_parameter", { parameter: "neverTranslate", reason: "empty", index: 1, inputs: ["neverTranslate"] }, "neverTranslate entries must be non-empty (entry 1)."],
+    ["too many variants", "invalid_parameter", { parameter: "variants", reason: "too_many", count: 6, max: 5, inputs: ["variants"] }, "variants accepts at most 5 entries (received 6)."],
+    ["too many never-translate terms", "invalid_parameter", { parameter: "neverTranslate", reason: "too_many", count: 101, max: 100, inputs: ["neverTranslate"] }, "neverTranslate accepts at most 100 entries (received 101)."],
+    ["a repeated artifact key", "invalid_parameter", { parameter: "artifacts", reason: "duplicate", value: "post", index: 1, inputs: ["artifacts"] }, "artifacts has the key 'post' more than once; each key must be unique."],
+    ["a malformed artifact key", "invalid_parameter", { parameter: "artifacts[0].key", reason: "invalid_format", format: "lowercase snake_case beginning with a letter, up to 64 characters", inputs: ["artifacts"] }, "artifacts[0].key must be lowercase snake_case beginning with a letter, up to 64 characters."],
+    ["a language code that isn't a tag", "invalid_parameter", { parameter: "languageCode", reason: "invalid_format", format: "a BCP 47 language tag such as 'en' or 'pt-BR'", inputs: ["languageCode"] }, "languageCode must be a BCP 47 language tag such as 'en' or 'pt-BR'."],
+    ["an output language code that isn't a tag, without echoing it", "invalid_parameter", { parameter: "outputLanguageCode", reason: "invalid_format", format: "a BCP 47 language tag such as 'en' or 'pt-BR'", inputs: ["outputLanguageCode"] }, "outputLanguageCode must be a BCP 47 language tag such as 'en' or 'pt-BR'."],
+    ["a speaker label with brackets", "invalid_parameter", { parameter: "speakerReplacements", reason: "disallowed_characters", index: 0, characters: ["[", "]"], inputs: ["speakerReplacements"] }, "speakerReplacements entries must not contain '[' or ']' (entry 0)."],
+    ["a never-translate term with markup characters", "invalid_parameter", { parameter: "neverTranslate", reason: "disallowed_characters", index: 0, characters: ["<", ">"], inputs: ["neverTranslate"] }, "neverTranslate entries must not contain '<' or '>' (entry 0)."],
+    ["a never-translate term NFKC normalization changes", "invalid_parameter", { parameter: "neverTranslate", reason: "not_normalized", index: 0, inputs: ["neverTranslate"] }, "neverTranslate entries must not contain invisible characters or characters altered by Unicode NFKC normalization (entry 0)."],
+    ["a multi-line speaker label", "invalid_parameter", { parameter: "speakerReplacements", reason: "multiline", index: 0, inputs: ["speakerReplacements"] }, "speakerReplacements entries must be a single line (entry 0)."],
+    // Keeps the old hint: the asset is audio-only and needs a ready caption track.
+    ["an audio-only asset without a transcript", "invalid_parameter", { parameter: "includeTranscript", reason: "audio_only", allowed: [true], value: false, assetId: "asset-123", inputs: ["includeTranscript"] }, "includeTranscript must be 'true' for an audio-only asset, which is processed from its transcript and needs a ready caption or subtitle track."],
+    // parameter_out_of_range.
+    ["an artifact maxLength under its minimum", "parameter_out_of_range", { parameter: "artifacts[0].maxLength.value", value: 4, min: 5, max: 3000, integer: true, unit: "words", inputs: ["artifacts"] }, "artifacts[0].maxLength.value must be at least 5 words (received 4)."],
+    ["an artifact maxLength over its channel's ceiling", "parameter_out_of_range", { parameter: "artifacts[0].maxLength.value", value: 300, min: 10, max: 280, integer: true, unit: "characters", channel: "x", inputs: ["artifacts"] }, "artifacts[0].maxLength.value must be at most 280 characters (received 300)."],
+  ])("words %s", (_, code, facts, message) => {
+    expect(viewOf(code, facts).message).toBe(message);
+  });
+});
+
+describe("audio_unprocessable wording", () => {
+  // As the transcription and dubbing dependency rules raise it.
+  const facts = (reason?: string): MuxAiErrorFacts => ({ call: "transcribe", status: 400, ...(reason === undefined ? {} : { reason }) });
+
+  it("words only the reasons it knows, never an object's own properties", () => {
+    for (const reason of ["constructor", "toString", "__proto__"]) {
+      expect(viewOf("audio_unprocessable", facts(reason)).message, reason).toBe("The asset's audio couldn't be processed.");
+    }
+  });
+
+  it.each([
+    ["corrupt", "The asset's audio couldn't be processed: it may be corrupt."],
+    ["too_long", "The asset's audio couldn't be processed: it's too long."],
+    [undefined, "The asset's audio couldn't be processed."],
+  ])("explains unprocessable audio (%s)", (reason, message) => {
+    expect(viewOf("audio_unprocessable", facts(reason))).toMatchObject({ type: "validation_error", code: "audio_unprocessable", message, retryable: false });
   });
 });

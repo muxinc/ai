@@ -736,7 +736,7 @@ That draft contains literal escape sequences such as \n and \" instead of real l
     }).catch(e => e);
     expect(error).toMatchObject({ code: "invalid_parameter", facts: { parameter: "outputLanguageCode", reason: "invalid_format", inputs: ["outputLanguageCode"] } });
     // The caller's value isn't echoed back.
-    expect(toPublicError(error).message).toBe("outputLanguageCode must be a BCP 47 language tag such as 'en' or 'pt-BR'.");
+    expect(JSON.stringify(toPublicError(error))).not.toContain("limerick");
     expect(getPlaybackIdForAsset).not.toHaveBeenCalled();
   });
 });
