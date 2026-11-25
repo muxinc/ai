@@ -1,4 +1,4 @@
-import { generateText, Output } from "ai";
+import { generateText, NoObjectGeneratedError, Output, TypeValidationError } from "ai";
 import { z } from "zod";
 
 import env from "../env.ts";
@@ -52,6 +52,7 @@ import {
 } from "../lib/prompt-fragments.ts";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
+import { defaultShouldRetry } from "../lib/retry.ts";
 import {
   createPresignedGetUrlWithStorageAdapter,
   putObjectWithStorageAdapter,
@@ -415,6 +416,18 @@ function cueTranslationSchema(cueCount: number) {
   return z.object({
     translations: z.array(z.string().min(1).max(2000)).length(cueCount),
   });
+}
+
+/**
+ * Output that parses but fails the schema is almost always a wrong cue count.
+ * Resampling the whole chunk rarely fixes it, so it skips straight to the
+ * split in translateChunkWithFallback; other failures keep the usual retries.
+ */
+function shouldRetryCueChunk(error: Error, attempt: number): boolean {
+  if (NoObjectGeneratedError.isInstance(error) && TypeValidationError.isInstance(error.cause)) {
+    return false;
+  }
+  return defaultShouldRetry(error, attempt);
 }
 
 // Substring matching, no word boundaries: consistent for scripts
@@ -924,7 +937,7 @@ async function translateCueChunkWithAI({
         content: `Translate from ${fromLanguageCode} to ${toLanguageCode}.\nReturn exactly ${cues.length} translated cues in the same order as the input.${buildNeverTranslateSection(neverTranslate)}\n\n${JSON.stringify(cuePayload)}`,
       },
     ],
-  }), undefined, context);
+  }), { shouldRetry: shouldRetryCueChunk }, context);
   const output = getGeneratedOutputWithContentPolicyHandling(response, context);
 
   // Schema-smuggling detection for the cue envelope. Any extras on the

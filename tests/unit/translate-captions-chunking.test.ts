@@ -27,7 +27,7 @@ vi.mock("../../src/lib/providers", async importOriginal => ({
   resolveLanguageModelConfig: vi.fn(),
 }));
 
-const { generateText } = await import("ai");
+const { generateText, NoObjectGeneratedError, TypeValidationError } = await import("ai");
 const { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } = await import("../../src/lib/mux-assets");
 const { fetchVttFromMux } = await import("../../src/lib/mux-tracks");
 const { resolveMuxSigningContext } = await import("../../src/lib/workflow-credentials");
@@ -143,6 +143,29 @@ describe("translateCaptions chunking for short assets", () => {
     expect(result.translatedVtt.match(/hola/g)).toHaveLength(CUE_COUNT);
     // Two truncated attempts (5 cues, then 3 cues) plus three successful calls.
     expect(result.usage?.outputTokens).toBe(2 * 65521 + 3 * 5);
+  });
+
+  it("splits a chunk whose output fails the schema without resampling it first", async () => {
+    vi.mocked(generateText).mockImplementation((async (args: any) => {
+      const cueCount = requestedCueCount(args);
+      if (cueCount > 2) {
+        throw new NoObjectGeneratedError({
+          message: "No object generated: response did not match schema.",
+          cause: new TypeValidationError({ value: { translations: [] }, cause: new Error("wrong cue count") }),
+          text: "{\"translations\": []}",
+          response: { id: "resp", timestamp: new Date(0), modelId: "gpt-test" },
+          usage: USAGE as any,
+          finishReason: "stop",
+        });
+      }
+      return successfulTranslation(cueCount);
+    }) as any);
+
+    const result = await translateCaptions("asset-123", "track-1", "es", SHORT_ASSET_OPTIONS);
+
+    const requestedCounts = vi.mocked(generateText).mock.calls.map(([args]) => requestedCueCount(args));
+    expect(requestedCounts).toEqual([5, 2, 3, 1, 2]);
+    expect(result.translatedVtt.match(/hola/g)).toHaveLength(CUE_COUNT);
   });
 
   it("surfaces the finish reason when a single cue still cannot be translated", async () => {
