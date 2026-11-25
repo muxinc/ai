@@ -2,7 +2,7 @@ import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 
 import type { TokenUsage } from "../types.ts";
 
-import { classifiedErrorOf, isClassifiedError, isWorkflowControlFlowError } from "./error-guards.ts";
+import { classifiedErrorOf, isClassifiedError, throwIfWorkflowControlFlow } from "./error-guards.ts";
 // The legacy payload type, for MuxAiError's WORKFLOW_SERIALIZE return type only.
 // LegacyMuxAiError (in legacy-mux-ai-error.ts) extends MuxAiError and overrides its
 // static serializer to write this pre-classification shape, and TypeScript requires an
@@ -868,9 +868,7 @@ function scrubDetail(detail: string, context?: string): string {
  */
 export function wrapError(error: unknown, message: string, facts?: MuxAiErrorFacts): never {
   // Workflow DevKit's control flow (e.g. a replay divergence) passes through untouched.
-  if (isWorkflowControlFlowError(error)) {
-    throw error;
-  }
+  throwIfWorkflowControlFlow(error);
   // Read before unwrapping: an error's own usage wins over the classified error's inside it.
   const usage = getErrorTokenUsage(error);
   // A step's classified error, even inside Workflow DevKit's wrapper once its retries ran out.
