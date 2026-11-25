@@ -9,7 +9,7 @@ import {
 } from "../lib/content-policy-error.ts";
 import type { ModelCallContext } from "../lib/content-policy-error.ts";
 import { httpStatusOf } from "../lib/dependency-error.ts";
-import { classifiedErrorOf, isWorkflowControlFlowError } from "../lib/error-guards.ts";
+import { classifiedErrorOf, throwIfWorkflowControlFlow } from "../lib/error-guards.ts";
 import {
   errorDetailFact,
   extractErrorDetail,
@@ -1091,9 +1091,7 @@ async function editCaptionsInternal<P extends SupportedProvider = SupportedProvi
             restoreNote = ` The source track was restored as ${restoredTrackId}.`;
             restoreFacts = { sourceRestored: true, restoredTrackId };
           } catch (restoreError) {
-            if (isWorkflowControlFlowError(restoreError)) {
-              throw restoreError;
-            }
+            throwIfWorkflowControlFlow(restoreError);
             // The raw restore error is internal detail: keep it in facts, not the message.
             restoreNote = " Restoring the source track also failed.";
             restoreFacts = { sourceRestored: false, ...restoreFailureFacts(restoreError) };

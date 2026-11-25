@@ -8,7 +8,7 @@ import {
   withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
 import type { ModelCallContext } from "../lib/content-policy-error.ts";
-import { isWorkflowControlFlowError } from "../lib/error-guards.ts";
+import { throwIfWorkflowControlFlow } from "../lib/error-guards.ts";
 import { getLanguageName } from "../lib/language-codes.ts";
 import { withModelCallDiagnostics } from "../lib/model-call-diagnostics.ts";
 import type { ModelCallDiagnostics, MuxAiErrorFacts, MuxAiErrorInit } from "../lib/mux-ai-error.ts";
@@ -482,9 +482,7 @@ async function getCompletedShots(
     console.warn(`[@mux/ai] Shots are not ready for asset ${assetId} (status: ${result.status}). Using the storyboard only.`);
   } catch (error) {
     // The lookup is a step: Workflow DevKit's control flow must reach the runtime.
-    if (isWorkflowControlFlowError(error)) {
-      throw error;
-    }
+    throwIfWorkflowControlFlow(error);
     console.warn(`[@mux/ai] Shots lookup failed for asset ${assetId}. Using the storyboard only.`);
   }
   return undefined;
@@ -1115,9 +1113,8 @@ async function generateArtifactsInBatches(
     }
     if (failures.length > 0) {
       // Workflow DevKit's control flow from any artifact's step wins over the other failures.
-      const controlFlow = failures.find(isWorkflowControlFlowError);
-      if (controlFlow) {
-        throw controlFlow;
+      for (const failure of failures) {
+        throwIfWorkflowControlFlow(failure);
       }
       for (const failure of failures.slice(1)) {
         const usage = getErrorTokenUsage(failure);

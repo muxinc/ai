@@ -72,3 +72,29 @@ describe("generateEmbeddings scope handling", () => {
     expect(vi.mocked(fetchTranscriptForAsset).mock.calls[0][2]!.scope).toBeUndefined();
   });
 });
+
+describe("generateEmbeddings and Workflow DevKit's control flow", () => {
+  function replayDivergence() {
+    return Object.assign(new Error("Replay divergence: step created but not found in invocation queue"), { name: "ReplayDivergenceError" });
+  }
+
+  it("lets a chunk step's control-flow error escape instead of replacing it", async () => {
+    const divergence = replayDivergence();
+    vi.mocked(createEmbeddingModelFromConfig).mockRejectedValueOnce(divergence);
+
+    await expect(generateEmbeddings("asset-123")).rejects.toBe(divergence);
+  });
+
+  it("lets the control-flow error escape when another chunk in the batch failed first", async () => {
+    const divergence = replayDivergence();
+    vi.mocked(chunkText).mockReturnValue([
+      { id: "chunk-0", text: "A short", tokenCount: 2 },
+      { id: "chunk-1", text: "transcript", tokenCount: 1 },
+    ] as any);
+    vi.mocked(createEmbeddingModelFromConfig)
+      .mockRejectedValueOnce(new Error("socket hang up"))
+      .mockRejectedValueOnce(divergence);
+
+    await expect(generateEmbeddings("asset-123")).rejects.toBe(divergence);
+  });
+});

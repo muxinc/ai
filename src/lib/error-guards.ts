@@ -86,3 +86,32 @@ export function isWorkflowControlFlowError(value: unknown): value is Error {
   const { name } = value as { name?: unknown };
   return typeof name === "string" && WORKFLOW_CONTROL_FLOW_ERROR_NAMES.has(name);
 }
+
+/**
+ * Rethrows `error` when it's one of Workflow DevKit's control-flow errors (see
+ * {@link isWorkflowControlFlowError}) and returns otherwise, so the rest of a catch block only
+ * ever sees the workflow's own failures.
+ *
+ * Call it first in any catch inside a workflow function that records, transforms or falls back
+ * from a failure: one that wraps the error, logs it as a failure, returns a default, or retries.
+ * A replay divergence rejects whichever step promise is pending, so a catch around any step call
+ * can receive one, and handling it like a failure turns a run the runtime would recover into a
+ * failed one. For `Promise.allSettled()` results, call it on every rejection's `reason` before
+ * handling any of them. A catch inside a step never receives one, and a catch that only rethrows
+ * its error unchanged doesn't need it.
+ *
+ * @example
+ * ```ts
+ * try {
+ *   await fetchOptionalData(assetId);
+ * } catch (error) {
+ *   throwIfWorkflowControlFlow(error);
+ *   await recordFailure(error);
+ * }
+ * ```
+ */
+export function throwIfWorkflowControlFlow(error: unknown): void {
+  if (isWorkflowControlFlowError(error)) {
+    throw error;
+  }
+}

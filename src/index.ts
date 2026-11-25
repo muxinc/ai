@@ -23,7 +23,7 @@ export {
 export type { ElevenLabsFailure } from "./lib/elevenlabs-errors.ts";
 
 // Error guards
-export { classifiedErrorOf, isWorkflowControlFlowError } from "./lib/error-guards.ts";
+export { classifiedErrorOf, isWorkflowControlFlowError, throwIfWorkflowControlFlow } from "./lib/error-guards.ts";
 
 // Language code utilities
 export {

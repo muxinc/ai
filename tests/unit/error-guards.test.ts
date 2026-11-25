@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { classifiedErrorOf, isWorkflowControlFlowError } from "../../src/lib/error-guards.ts";
+import { classifiedErrorOf, isWorkflowControlFlowError, throwIfWorkflowControlFlow } from "../../src/lib/error-guards.ts";
 import { LegacyMuxAiError } from "../../src/lib/legacy-mux-ai-error.ts";
 import { MuxAiError, wrapError } from "../../src/lib/mux-ai-error.ts";
 import { getErrorTokenUsage, rethrowWithTokenUsage } from "../../src/lib/token-usage.ts";
@@ -141,6 +141,25 @@ describe("isWorkflowControlFlowError", () => {
   it("matches nothing else, including WDK's other errors and classified ones", () => {
     for (const value of [new Error("boom"), retriesExhausted(transientFailure()), transientFailure(), { name: 1 }, "ReplayDivergenceError", undefined, null]) {
       expect(isWorkflowControlFlowError(value)).toBe(false);
+    }
+  });
+});
+
+describe("throwIfWorkflowControlFlow", () => {
+  it("rethrows each of Workflow DevKit's control-flow errors unchanged", () => {
+    const suspension = { name: "WorkflowSuspension", message: "1 step has not been run yet" };
+    // Another realm's class: an Error subclass this realm doesn't know, matched by name.
+    const otherRealm = new (class ReplayDivergenceError extends Error {})("Replay divergence");
+    Object.defineProperty(otherRealm, "name", { value: "ReplayDivergenceError" });
+    for (const controlFlow of [replayDivergence(), suspension, otherRealm]) {
+      expect(thrown(() => throwIfWorkflowControlFlow(controlFlow))).toBe(controlFlow);
+    }
+  });
+
+  it("returns for ordinary, classified, legacy and wrapped errors and for non-errors", () => {
+    const legacy = new LegacyMuxAiError("Something went wrong.", { type: "processing_error" });
+    for (const value of [new Error("boom"), transientFailure(), retriesExhausted(transientFailure()), legacy, "ReplayDivergenceError", undefined, null]) {
+      expect(throwIfWorkflowControlFlow(value)).toBeUndefined();
     }
   });
 });

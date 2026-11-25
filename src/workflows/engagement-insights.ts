@@ -7,7 +7,7 @@ import {
   withContentPolicyAwareRetry,
 } from "../lib/content-policy-error.ts";
 import { dependencyErrorFrom } from "../lib/dependency-error.ts";
-import { isWorkflowControlFlowError } from "../lib/error-guards.ts";
+import { throwIfWorkflowControlFlow } from "../lib/error-guards.ts";
 import {
   MUX_AI_ERROR_CODES,
   MUX_AI_ERROR_DEPENDENCIES,
@@ -781,8 +781,8 @@ async function generateEngagementInsightsInternal(
   // The shots, transcript and storyboard fall back when they fail, but Workflow DevKit's
   // control flow (a replay divergence rejecting one of these steps) must reach the runtime.
   for (const result of [engagementResult, shotsResult, transcriptResult, storyboardResult]) {
-    if (result.status === "rejected" && isWorkflowControlFlowError(result.reason)) {
-      throw result.reason;
+    if (result.status === "rejected") {
+      throwIfWorkflowControlFlow(result.reason);
     }
   }
 

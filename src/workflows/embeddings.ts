@@ -1,6 +1,7 @@
 import { embed } from "ai";
 
 import { withContentPolicyAwareRetry } from "../lib/content-policy-error.ts";
+import { throwIfWorkflowControlFlow } from "../lib/error-guards.ts";
 import {
   getAssetDurationSecondsFromAsset,
   getPlaybackIdForAsset,
@@ -246,10 +247,16 @@ async function generateEmbeddingsInternal(
         }
       }
       if (failures.length > 0) {
+        // Workflow DevKit's control flow from any chunk's step wins over the other failures.
+        for (const failure of failures) {
+          throwIfWorkflowControlFlow(failure);
+        }
         throw failures[0];
       }
     }
   } catch (error) {
+    // Never replace Workflow DevKit's control flow, which must reach the runtime.
+    throwIfWorkflowControlFlow(error);
     throw new Error(
       `Failed to generate embeddings with ${provider}: ${error instanceof Error ? error.message : "Unknown error"}`,
     );
