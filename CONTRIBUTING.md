@@ -213,6 +213,12 @@ npm run typecheck:tests
 
 Vitest strips types without checking them, so a test that no longer compiles against the SDK's types still passes `npm test`. `typecheck:tests` catches that; CI and the pre-commit hook run both checks.
 
+`typecheck:tests` uses `tsconfig.test.json`, which extends `tsconfig.json` with three differences:
+
+- `include` adds `tests/`, and `rootDir` is the repository root, because the base `./src` would reject test files.
+- `lib` is `ES2022`: tests run on Node (engines >= 21) and may use its APIs. `src/` is still checked against the base `lib` by `npm run typecheck`.
+- `paths` mirrors the `@mux/ai/*` aliases in the Vitest config. Keep the two in step, or tests will typecheck against different modules than they run with.
+
 ### Pre-commit Hooks
 
 Git hooks are automatically set up via [Husky](https://typicode.github.io/husky/) when you run `npm install`. These hooks will:
