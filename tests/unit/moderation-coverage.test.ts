@@ -571,11 +571,7 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
 
     expect(MuxAiError.is(error)).toBe(true);
     expect(error.code).toBe("invalid_scope");
-    expect(error.facts).toMatchObject({ reason: "no_video", startTime: 40, endTime: 50, videoEndTime: 30, transcriptSkipReason: "disabled", inputs: ["scope"] });
-    expect(error.message).toBe(
-      "Nothing to moderate. Thumbnails skipped: The requested scope does not include any renderable video, so there are no thumbnails to moderate. " +
-      "Transcript skipped: Transcript moderation was disabled with includeTranscript: false.",
-    );
+    expect(error.facts).toMatchObject({ reason: "no_video", startTime: 40, endTime: 50, videoEndTime: 30, thumbnailSkipReason: "no_video_in_scope", transcriptSkipReason: "disabled", inputs: ["scope"] });
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
@@ -687,11 +683,7 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
 
     expect(MuxAiError.is(error)).toBe(true);
     expect(error.code).toBe("invalid_scope");
-    expect(error.facts).toMatchObject({ reason: "no_video", videoEndTime: 30, transcriptSkipReason: "no_ready_text_track" });
-    expect(error.message).toBe(
-      "Nothing to moderate. Thumbnails skipped: The requested scope does not include any renderable video, so there are no thumbnails to moderate. " +
-      "Transcript skipped: No ready caption/subtitle track found for this asset.",
-    );
+    expect(error.facts).toMatchObject({ reason: "no_video", videoEndTime: 30, thumbnailSkipReason: "no_video_in_scope", transcriptSkipReason: "no_ready_text_track" });
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
@@ -736,10 +728,6 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
     expect(error.code).toBe("caption_track_not_found");
     expect(error.source).toBe("asset");
     expect(error.facts).toMatchObject({ assetId: "asset-audio", thumbnailSkipReason: "no_video_track", transcriptSkipReason: "no_ready_text_track" });
-    expect(error.message).toBe(
-      "Nothing to moderate. Thumbnails skipped: Asset has no video track, so there are no thumbnails to moderate. " +
-      "Transcript skipped: No ready caption/subtitle track found for this asset.",
-    );
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
@@ -770,7 +758,6 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
     const error = await getModerationScores("asset-123", { provider: "openai" }).catch(e => e);
 
     expect(MuxAiError.is(error)).toBe(true);
-    expect(error.message).toContain("Failed to fetch transcript");
     // A transient Mux failure, not a customer-safe validation error.
     expect(error).toMatchObject({ type: "processing_error", source: "upstream", dependency: "mux_video", transient: true });
     expect(error.facts).toMatchObject({ call: "fetch_transcript", status: 500 });
@@ -818,11 +805,15 @@ describe("getModerationScores surfaces (thumbnails + transcript)", () => {
 
     expect(MuxAiError.is(error)).toBe(true);
     expect(error.code).toBe("invalid_parameter");
-    expect(error.facts).toMatchObject({ parameter: "provider", reason: "not_allowed", allowed: ["openai"], value: "google-vision-api", inputs: ["provider"] });
-    expect(error.message).toBe(
-      "Nothing to moderate. Thumbnails skipped: Asset has no video track, so there are no thumbnails to moderate. " +
-      "Transcript skipped: Provider 'google-vision-api' is image-only and cannot moderate transcript text; use provider 'openai'.",
-    );
+    expect(error.facts).toMatchObject({
+      parameter: "provider",
+      reason: "not_allowed",
+      allowed: ["openai"],
+      value: "google-vision-api",
+      thumbnailSkipReason: "no_video_track",
+      transcriptSkipReason: "unsupported_provider",
+      inputs: ["provider"],
+    });
     expect(mockFetch).not.toHaveBeenCalled();
   });
 

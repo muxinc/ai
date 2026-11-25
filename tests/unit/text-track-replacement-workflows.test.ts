@@ -114,7 +114,7 @@ describe("translateCaptions text track replacement", () => {
     const error = await captureRejection(translateCaptions("asset-1", "track-en", "es", OPTIONS));
 
     expect(error).toMatchObject({ code: "caption_track_language_missing", source: "asset", facts: { trackId: "track-en" } });
-    expect(toPublicError(error as MuxAiError).message).toBe("Track track-en has no language set, so its source language can't be determined.");
+    expect(toPublicError(error as MuxAiError)).toMatchObject({ code: "caption_track_language_missing", facts: { trackId: "track-en" } });
     expect(vi.mocked(generateText)).not.toHaveBeenCalled();
   });
 
@@ -123,7 +123,10 @@ describe("translateCaptions text track replacement", () => {
 
     const error = await captureRejection(translateCaptions("asset-1", "track-en", "es", OPTIONS));
 
-    expect(error.message).toContain("Spanish CC");
+    expect(error).toMatchObject({
+      code: "track_replacement_blocked",
+      facts: { reason: "policy_fail", conflictingTracks: [expect.objectContaining({ id: "track-es-asr", name: "Spanish CC" })] },
+    });
     expect(vi.mocked(generateText)).not.toHaveBeenCalled();
     expect(vi.mocked(replaceAndCreateTextTrack)).not.toHaveBeenCalled();
   });
@@ -170,7 +173,6 @@ describe("translateCaptions text track replacement", () => {
       deleted: [],
     });
     const blocked = await captureRejection(translateCaptions("asset-1", "track-en", "es", OPTIONS));
-    expect(blocked.message).toContain("late conflict");
     expect(blocked).toMatchObject({ code: "track_replacement_blocked", facts: { reason: "policy_fail", conflictingTracks: [] } });
 
     vi.mocked(replaceAndCreateTextTrack).mockResolvedValueOnce({
@@ -180,8 +182,7 @@ describe("translateCaptions text track replacement", () => {
       error: muxVideoCallError("Mux create_track failed while writing the text track", "create_track", Object.assign(new Error("boom"), { status: 503 })),
     });
     const failed = await captureRejection(translateCaptions("asset-1", "track-en", "es", OPTIONS));
-    expect(failed.message).toContain("Failed to add translated track");
-    expect(failed.message).not.toContain("already deleted");
+    expect((failed as MuxAiError).facts).not.toHaveProperty("deletedTracks");
     expect(failed).toMatchObject({ source: "upstream", dependency: "mux_video", facts: { call: "create_track", status: 503, assetId: "asset-1", languageCode: "es" } });
     expect((failed as any).causes).toEqual([expect.objectContaining({ message: "boom", status: 503 })]);
     expect(vi.mocked(replaceAndCreateTextTrack)).toHaveBeenLastCalledWith(expect.objectContaining({ classifiedErrors: true }));
@@ -197,13 +198,12 @@ describe("translateCaptions text track replacement", () => {
 
     const failed = await captureRejection(translateCaptions("asset-1", "track-en", "es", { ...OPTIONS, replaceExistingTracks: "replace_generated" }));
 
-    expect(failed.message).toContain("Spanish CC (track-es-asr)");
-    expect(failed).toMatchObject({ facts: { deletedTracks: [expect.objectContaining({ id: "track-es-asr" })] } });
+    expect(failed).toMatchObject({ facts: { deletedTracks: [expect.objectContaining({ id: "track-es-asr", name: "Spanish CC" })] } });
   });
 
   it("rejects an over-long trackPassthrough before doing any work", async () => {
     const error = await captureRejection(translateCaptions("asset-1", "track-en", "es", { ...OPTIONS, trackPassthrough: "x".repeat(256) }));
-    expect(error.message).toContain("255");
+    expect(error).toMatchObject({ code: "invalid_parameter", facts: { parameter: "trackPassthrough", reason: "too_long", length: 256, maxLength: 255 } });
     expect(vi.mocked(getPlaybackIdForAsset)).not.toHaveBeenCalled();
   });
 });
@@ -239,13 +239,16 @@ describe("editCaptions source track replacement", () => {
 
     const error = await captureRejection(editCaptions("asset-1", "track-en", { ...OPTIONS, trackName: "English (clean)" }));
 
-    expect(error.message).toContain("already has the name 'English (clean)'");
+    expect(error).toMatchObject({
+      code: "track_replacement_blocked",
+      facts: { reason: "name_collision", trackName: "English (clean)", conflictingTracks: [expect.objectContaining({ id: "track-clean", name: "English (clean)" })] },
+    });
     expect(vi.mocked(replaceSourceTrack)).not.toHaveBeenCalled();
   });
 
   it("requires a distinct trackName under fail and adds the edit alongside the source", async () => {
     const missing = await captureRejection(editCaptions("asset-1", "track-en", { ...OPTIONS, replaceExistingTracks: "fail" }));
-    expect(missing.message).toContain("trackName is required");
+    expect(missing).toMatchObject({ code: "invalid_parameter", facts: { parameter: "trackName", reason: "required_with", with: "replaceExistingTracks", withValue: "fail" } });
 
     vi.mocked(replaceSourceTrack).mockResolvedValue({ kind: "created", trackId: "t", deleted: [] });
     mockAsset([SOURCE_TRACK, { ...ASR_ES_TRACK, id: "track-en-cc", language_code: "en", name: "English CC" }]);
@@ -259,13 +262,16 @@ describe("editCaptions source track replacement", () => {
 
   it("rejects fail with a trackName equal to the source name, ignoring case and whitespace", async () => {
     const error = await captureRejection(editCaptions("asset-1", "track-en", { ...OPTIONS, replaceExistingTracks: "fail", trackName: " english " }));
-    expect(error.message).toContain("matches the source track's name");
+    expect(error).toMatchObject({ code: "track_replacement_blocked", facts: { reason: "name_collision", trackName: " english " } });
     // The kept source is the conflicting track, so end users see which track and are asked for another name.
     expect(toPublicError(error as MuxAiError)).toMatchObject({
       code: "track_replacement_blocked",
-      message: expect.stringContaining("already has the name ' english '"),
+      facts: {
+        reason: "name_collision",
+        trackName: " english ",
+        conflictingTracks: [expect.objectContaining({ id: "track-en", name: "English" })],
+      },
     });
-    expect(toPublicError(error as MuxAiError).message).toContain("Choose a different track name.");
     expect(vi.mocked(generateText)).not.toHaveBeenCalled();
     expect(vi.mocked(replaceSourceTrack)).not.toHaveBeenCalled();
   });
@@ -275,19 +281,25 @@ describe("editCaptions source track replacement", () => {
 
     const error = await captureRejection(editCaptions("asset-1", "track-en", { ...OPTIONS, replaceExistingTracks: "fail", trackName: "English (clean)" }));
 
-    expect(error.message).toContain("English (clean)");
+    expect(error).toMatchObject({
+      code: "track_replacement_blocked",
+      facts: { reason: "name_collision", trackName: "English (clean)", conflictingTracks: [expect.objectContaining({ id: "track-clean", name: "English (clean)" })] },
+    });
     expect(vi.mocked(replaceSourceTrack)).not.toHaveBeenCalled();
   });
 
   it("rejects the policies that only apply to workflows without a source track", async () => {
     const error = await captureRejection(editCaptions("asset-1", "track-en", { ...OPTIONS, replaceExistingTracks: "replace_all" as never }));
-    expect(error.message).toContain("must be \"replace\" or \"fail\"");
+    expect(error).toMatchObject({
+      code: "invalid_parameter",
+      facts: { parameter: "replaceExistingTracks", reason: "not_allowed", allowed: ["replace", "fail"], value: "replace_all" },
+    });
     expect(vi.mocked(getPlaybackIdForAsset)).not.toHaveBeenCalled();
   });
 
   it("rejects mixing deprecated options with the new ones", async () => {
     const error = await captureRejection(editCaptions("asset-1", "track-en", { ...OPTIONS, deleteOriginalTrack: true, trackName: "X" }));
-    expect(error.message).toContain("deprecated");
+    expect(error).toMatchObject({ code: "invalid_parameter", facts: { parameter: "deleteOriginalTrack", reason: "conflicts_with", with: ["trackName"] } });
   });
 
   it("keeps the previous create-then-delete behaviour when deprecated options are used", async () => {
@@ -321,7 +333,6 @@ describe("editCaptions source track replacement", () => {
 
     const error = await captureRejection(editCaptions("asset-1", "track-en", OPTIONS));
 
-    expect(error.message).toContain("restored as track-en-restored");
     expect(error).toMatchObject({
       source: "upstream",
       dependency: "mux_video",
@@ -355,11 +366,14 @@ describe("editCaptions source track replacement", () => {
 
     const error = await captureRejection(editCaptions("asset-1", "track-en", OPTIONS));
 
-    expect(error.message).toContain("a track named English appeared");
-    expect(error.message).toContain("restored as track-en-restored");
     expect(error).toMatchObject({
       code: "track_replacement_blocked",
-      facts: { reason: "name_collision", conflictingTracks: [expect.objectContaining({ id: "late" })] },
+      facts: {
+        reason: "name_collision",
+        conflictingTracks: [expect.objectContaining({ id: "late", name: "English" })],
+        sourceRestored: true,
+        restoredTrackId: "track-en-restored",
+      },
     });
   });
 
@@ -374,7 +388,6 @@ describe("editCaptions source track replacement", () => {
 
     const error = await captureRejection(editCaptions("asset-1", "track-en", OPTIONS));
 
-    expect(error.message).toContain("Restoring the source track also failed.");
     expect(error.message).not.toContain("secret restore detail");
     expect(error).toMatchObject({ facts: { sourceRestored: false, restoreError: "secret restore detail" } });
   });
@@ -395,7 +408,6 @@ describe("editCaptions source track replacement", () => {
 
     const error = await captureRejection(editCaptions("asset-1", "track-en", OPTIONS));
 
-    expect(error.message).toContain("Restoring the source track also failed.");
     expect(error).toMatchObject({
       facts: {
         sourceRestored: false,
@@ -415,8 +427,8 @@ describe("editCaptions source track replacement", () => {
 
     const error = await captureRejection(editCaptions("asset-1", "track-en", OPTIONS));
 
-    expect(error.message).toBe("Failed to add edited track to Mux asset: Mux create_track failed while writing the text track.");
-    expect(error).toMatchObject({ dependency: "mux_video", facts: { call: "create_track", status: 400, assetId: "asset-1", trackId: "track-en" } });
+    expect(error).toMatchObject({ code: "dependency_request_rejected", dependency: "mux_video", facts: { call: "create_track", status: 400, assetId: "asset-1", trackId: "track-en" } });
+    expect((error as MuxAiError).facts).not.toHaveProperty("sourceRestored");
     expect(vi.mocked(replaceSourceTrack)).toHaveBeenLastCalledWith(expect.objectContaining({ classifiedErrors: true }));
     expect(vi.mocked(createTextTrackOnMux)).not.toHaveBeenCalled();
   });

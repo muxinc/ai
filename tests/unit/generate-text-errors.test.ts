@@ -21,43 +21,43 @@ function rejection(options: Partial<GenerateTextOptions>): MuxAiError {
 
 describe("generateText option validation", () => {
   it.each([
-    ["no artifacts", { artifacts: [] }, { parameter: "artifacts", reason: "empty" }, ["artifacts"], "artifacts must be non-empty."],
-    ["too many variants", { variants: Array.from({ length: 6 }, (_, i) => ({ key: `v_${i}` })) }, { parameter: "variants", reason: "too_many", count: 6, max: 5 }, ["variants"], "variants accepts at most 5 entries (received 6)."],
-    ["a malformed key", { artifacts: [{ key: "Post-1" }] }, { parameter: "artifacts[0].key", reason: "invalid_format" }, ["artifacts"], "artifacts[0].key must be lowercase snake_case beginning with a letter, up to 64 characters."],
-    ["a repeated key", { artifacts: [{ key: "post" }, { key: "post" }] }, { parameter: "artifacts", reason: "duplicate", value: "post", index: 1 }, ["artifacts"], "artifacts has the key 'post' more than once; each key must be unique."],
-    ["blank instructions", { variants: [{ key: "a", instructions: "  " }] }, { parameter: "variants[0].instructions", reason: "empty" }, ["variants"], "variants[0].instructions must be non-empty."],
-    ["an unknown channel", { artifacts: [{ key: "post", channel: "myspace" as never }] }, { parameter: "artifacts[0].channel", reason: "not_allowed", value: "myspace" }, ["artifacts"], undefined],
-    ["an unknown voice", { voice: "pirate" as never }, { parameter: "voice", reason: "not_allowed", value: "pirate" }, ["voice"], undefined],
-    ["an audience over its limit", { audience: "a".repeat(161) }, { parameter: "audience", reason: "too_long", length: 161, maxLength: 160 }, ["audience"], "audience must be at most 160 characters (received 161)."],
-    ["no brand terms", { brandTerms: [] }, { parameter: "brandTerms", reason: "empty" }, ["brandTerms"], undefined],
-    ["a brand term over its limit", { brandTerms: ["Mux", "b".repeat(41)] }, { parameter: "brandTerms[1]", reason: "too_long", maxLength: 40 }, ["brandTerms"], undefined],
-    ["brand terms over their combined limit", { brandTerms: Array.from({ length: 7 }, () => "b".repeat(40)) }, { parameter: "brandTerms", reason: "too_long", length: 280, maxLength: 240 }, ["brandTerms"], undefined],
-    ["a language code that isn't a tag", { languageCode: "english please" }, { parameter: "languageCode", reason: "invalid_format" }, ["languageCode"], "languageCode must be a BCP 47 language tag such as 'en' or 'pt-BR'."],
-  ] as const)("codes %s as invalid_parameter", (_, options, facts, inputs, wording) => {
+    ["no artifacts", { artifacts: [] }, { parameter: "artifacts", reason: "empty" }, ["artifacts"]],
+    ["too many variants", { variants: Array.from({ length: 6 }, (_, i) => ({ key: `v_${i}` })) }, { parameter: "variants", reason: "too_many", count: 6, max: 5 }, ["variants"]],
+    ["a malformed key", { artifacts: [{ key: "Post-1" }] }, { parameter: "artifacts[0].key", reason: "invalid_format", format: "lowercase snake_case beginning with a letter, up to 64 characters" }, ["artifacts"]],
+    ["a repeated key", { artifacts: [{ key: "post" }, { key: "post" }] }, { parameter: "artifacts", reason: "duplicate", value: "post", index: 1 }, ["artifacts"]],
+    ["blank instructions", { variants: [{ key: "a", instructions: "  " }] }, { parameter: "variants[0].instructions", reason: "empty" }, ["variants"]],
+    ["an unknown channel", { artifacts: [{ key: "post", channel: "myspace" as never }] }, { parameter: "artifacts[0].channel", reason: "not_allowed", value: "myspace" }, ["artifacts"]],
+    ["an unknown voice", { voice: "pirate" as never }, { parameter: "voice", reason: "not_allowed", value: "pirate" }, ["voice"]],
+    ["an audience over its limit", { audience: "a".repeat(161) }, { parameter: "audience", reason: "too_long", length: 161, maxLength: 160 }, ["audience"]],
+    ["no brand terms", { brandTerms: [] }, { parameter: "brandTerms", reason: "empty" }, ["brandTerms"]],
+    ["a brand term over its limit", { brandTerms: ["Mux", "b".repeat(41)] }, { parameter: "brandTerms[1]", reason: "too_long", maxLength: 40 }, ["brandTerms"]],
+    ["brand terms over their combined limit", { brandTerms: Array.from({ length: 7 }, () => "b".repeat(40)) }, { parameter: "brandTerms", reason: "too_long", length: 280, maxLength: 240 }, ["brandTerms"]],
+    ["a language code that isn't a tag", { languageCode: "english please" }, { parameter: "languageCode", reason: "invalid_format", format: "a BCP 47 language tag such as 'en' or 'pt-BR'" }, ["languageCode"]],
+  ] as const)("codes %s as invalid_parameter", (_, options, facts, inputs) => {
     const error = rejection(options as Partial<GenerateTextOptions>);
 
     expect(error).toMatchObject({ code: "invalid_parameter", type: "validation_error", source: "request", transient: false, retryable: false, facts: { ...facts, inputs } });
-    if (wording) {
-      expect(toPublicError(error)).toMatchObject({ code: "invalid_parameter", message: wording });
-    }
+    expect(toPublicError(error)).toMatchObject({ code: "invalid_parameter", facts });
   });
 
   it("codes a maxLength outside its bounds as parameter_out_of_range", () => {
     const error = rejection({ artifacts: [{ key: "post", maxLength: { unit: "words", value: 4 } }] });
 
     expect(error).toMatchObject({ code: "parameter_out_of_range", facts: { parameter: "artifacts[0].maxLength.value", value: 4, min: 5, max: 3000, integer: true, unit: "words", inputs: ["artifacts"] } });
-    expect(toPublicError(error).message).toBe("artifacts[0].maxLength.value must be at least 5 words (received 4).");
+    expect(toPublicError(error)).toMatchObject({ code: "parameter_out_of_range", facts: { parameter: "artifacts[0].maxLength.value", value: 4, min: 5, max: 3000, integer: true, unit: "words" } });
   });
 
   it("lowers the upper bound to the channel's ceiling", () => {
     const error = rejection({ artifacts: [{ key: "post", channel: "x", maxLength: { unit: "characters", value: 300 } }] });
 
     expect(error).toMatchObject({ code: "parameter_out_of_range", facts: { value: 300, min: 10, max: 280, unit: "characters", channel: "x" } });
-    expect(toPublicError(error).message).toBe("artifacts[0].maxLength.value must be at most 280 characters (received 300).");
+    expect(toPublicError(error)).toMatchObject({ code: "parameter_out_of_range", facts: { parameter: "artifacts[0].maxLength.value", value: 300, max: 280, unit: "characters" } });
+    // The channel stays internal.
+    expect(toPublicError(error).facts).not.toHaveProperty("channel");
   });
 
   it("echoes a rejected value that's a short token", () => {
-    expect(toPublicError(rejection({ voice: "pirate" as never })).message).toContain("(received 'pirate')");
+    expect(toPublicError(rejection({ voice: "pirate" as never })).facts).toMatchObject({ parameter: "voice", value: "pirate" });
   });
 
   it.each([

@@ -86,9 +86,6 @@ describe("askQuestions question-count cap", () => {
       type: "validation_error",
       source: "request",
       facts: { parameter: "questions", reason: "too_many", count: ASK_QUESTIONS_MAX_QUESTIONS_PER_CALL + 1, max: ASK_QUESTIONS_MAX_QUESTIONS_PER_CALL },
-      message: expect.stringContaining(
-        `at most ${ASK_QUESTIONS_MAX_QUESTIONS_PER_CALL} are allowed per call`,
-      ),
     });
 
     // Validation must short-circuit before any asset/model work is done.

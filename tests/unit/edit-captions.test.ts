@@ -781,7 +781,7 @@ describe("editCaptions validation", () => {
     const { editCaptions } = await import("../../src/workflows/edit-captions");
     await expect(
       editCaptions("asset-id", "track-id", {} as any),
-    ).rejects.toThrow("At least one of autoCensorProfanity, replacements, or speakerReplacements must be provided.");
+    ).rejects.toMatchObject({ code: "invalid_parameter", facts: { reason: "one_of_required", parameters: ["autoCensorProfanity", "replacements", "speakerReplacements"] } });
   });
 
   it("requires provider when autoCensorProfanity is set", async () => {
@@ -790,68 +790,60 @@ describe("editCaptions validation", () => {
       editCaptions("asset-id", "track-id", {
         autoCensorProfanity: { mode: "blank" },
       } as any),
-    ).rejects.toThrow("provider is required when using autoCensorProfanity.");
+    ).rejects.toMatchObject({ code: "invalid_parameter", facts: { parameter: "provider", reason: "required_with", with: "autoCensorProfanity" } });
   });
 
-  // The internal messages are unchanged; the public wording comes from `invalid_parameter`'s facts.
+  // The public wording comes from `invalid_parameter`'s facts (see public-error.test.ts).
   it.each([
     {
       name: "no operation",
       options: {},
-      message: "At least one of autoCensorProfanity, replacements, or speakerReplacements must be provided.",
-      public: "Provide at least one of autoCensorProfanity, replacements or speakerReplacements.",
+      facts: { reason: "one_of_required", parameters: ["autoCensorProfanity", "replacements", "speakerReplacements"] },
       inputs: ["autoCensorProfanity", "replacements", "speakerReplacements"],
     },
     {
       name: "autoCensorProfanity without a provider",
       options: { autoCensorProfanity: { mode: "blank" } },
-      message: "provider is required when using autoCensorProfanity.",
-      public: "provider is required when autoCensorProfanity is set.",
+      facts: { parameter: "provider", reason: "required_with", with: "autoCensorProfanity" },
       inputs: ["provider", "autoCensorProfanity"],
     },
     {
       name: "deprecated naming mixed with the new options",
       options: { replacements: [{ find: "a", replace: "b" }], deleteOriginalTrack: true, trackName: "English (clean)" },
-      message: "deleteOriginalTrack and trackNameSuffix are deprecated and cannot be combined with replaceExistingTracks or trackName.",
-      public: "deleteOriginalTrack can't be combined with trackName.",
+      facts: { parameter: "deleteOriginalTrack", reason: "conflicts_with", with: ["trackName"] },
       inputs: ["deleteOriginalTrack", "trackName"],
     },
     {
       name: "an unsupported replaceExistingTracks policy",
       options: { replacements: [{ find: "a", replace: "b" }], replaceExistingTracks: "replace_all" },
-      message: "replaceExistingTracks must be \"replace\" or \"fail\" for editCaptions (received \"replace_all\").",
-      public: "replaceExistingTracks must be 'replace' or 'fail' (received 'replace_all').",
+      facts: { parameter: "replaceExistingTracks", reason: "not_allowed", allowed: ["replace", "fail"], value: "replace_all" },
       inputs: ["replaceExistingTracks"],
     },
     {
       name: "fail without a trackName",
       options: { replacements: [{ find: "a", replace: "b" }], replaceExistingTracks: "fail" },
-      message: "trackName is required when replaceExistingTracks is \"fail\": the edited track cannot reuse the source track's name while the source is kept.",
-      public: "trackName is required when replaceExistingTracks is set to 'fail'.",
+      facts: { parameter: "trackName", reason: "required_with", with: "replaceExistingTracks", withValue: "fail" },
       inputs: ["trackName", "replaceExistingTracks"],
     },
     {
       name: "an empty speaker label",
       options: { speakerReplacements: [{ find: "A", replace: "B" }, { find: "", replace: "C" }] },
-      message: "Speaker replacement labels must be non-empty and must not contain square brackets or newlines.",
-      public: "speakerReplacements entries must be non-empty (entry 1).",
+      facts: { parameter: "speakerReplacements", reason: "empty", index: 1 },
       inputs: ["speakerReplacements"],
     },
     {
       name: "a speaker label with brackets",
       options: { speakerReplacements: [{ find: "A", replace: "[B]" }] },
-      message: "Speaker replacement labels must be non-empty and must not contain square brackets or newlines.",
-      public: "speakerReplacements entries must not contain '[' or ']' (entry 0).",
+      facts: { parameter: "speakerReplacements", reason: "disallowed_characters", index: 0, characters: ["[", "]"] },
       inputs: ["speakerReplacements"],
     },
     {
       name: "a multi-line speaker label",
       options: { speakerReplacements: [{ find: "A\nB", replace: "C" }] },
-      message: "Speaker replacement labels must be non-empty and must not contain square brackets or newlines.",
-      public: "speakerReplacements entries must be a single line (entry 0).",
+      facts: { parameter: "speakerReplacements", reason: "multiline", index: 0 },
       inputs: ["speakerReplacements"],
     },
-  ])("rejects $name as invalid_parameter, naming the option", async ({ options, message, public: publicMessage, inputs }) => {
+  ])("rejects $name as invalid_parameter, naming the option", async ({ options, facts, inputs }) => {
     const { editCaptions } = await import("../../src/workflows/edit-captions");
     const error = await editCaptions("asset-id", "track-id", options as any).then(
       () => {
@@ -861,12 +853,13 @@ describe("editCaptions validation", () => {
     );
 
     expect(error).toMatchObject({
-      message,
       code: "invalid_parameter",
       type: "validation_error",
       source: "request",
-      facts: { inputs },
+      facts: { ...facts, inputs },
     });
-    expect(toPublicError(error as MuxAiError).message).toBe(publicMessage);
+    // End users see the option and the reason, never which inputs were involved.
+    expect(toPublicError(error as MuxAiError)).toMatchObject({ code: "invalid_parameter", facts });
+    expect(toPublicError(error as MuxAiError).facts).not.toHaveProperty("inputs");
   });
 });

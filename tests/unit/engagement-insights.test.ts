@@ -123,7 +123,7 @@ describe("generateEngagementInsights failures", () => {
       name: "FatalError",
     });
     expect(isLegacyMuxAiError(error)).toBe(false);
-    expect(toPublicError(error)).toMatchObject({ code: "parameter_out_of_range", message: "hotspotLimit must be at most 10 (received 11)." });
+    expect(toPublicError(error)).toMatchObject({ code: "parameter_out_of_range", facts: { parameter: "hotspotLimit", value: 11, min: 1, max: 10, integer: true } });
   });
 
   it("rejects an asset without a duration as the asset's state", async () => {
@@ -132,6 +132,6 @@ describe("generateEngagementInsights failures", () => {
     const error = await failure(() => generateEngagementInsights("asset-1", { assetSnapshot }));
 
     expect(error).toMatchObject({ code: "asset_duration_unavailable", type: "validation_error", source: "asset", facts: { assetId: "asset-1" } });
-    expect(toPublicError(error)).toMatchObject({ code: "asset_duration_unavailable", message: "Asset asset-1 has no valid duration." });
+    expect(toPublicError(error)).toMatchObject({ code: "asset_duration_unavailable", facts: { assetId: "asset-1" } });
   });
 });

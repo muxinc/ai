@@ -132,10 +132,6 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const CLIP_MESSAGE = "Asset asset-123 is a clip, and Mux does not support adding audio tracks to clipped assets. Dub the source asset instead, or skip uploading to Mux and use the dubbed audio file directly.";
-const LIVE_MESSAGE = "Asset asset-123 comes from a live stream, and Mux does not support adding audio tracks to live stream assets. Instead, skip uploading to Mux and use the dubbed audio file directly.";
-const AUDIO_ONLY_MESSAGE = "Asset asset-123 is audio-only, and Mux does not support adding audio tracks to audio-only assets. Instead, skip uploading to Mux and use the dubbed audio file directly.";
-
 describe("translateAudio on assets Mux can't add an audio track to", () => {
   function mockAssetFields(fields: object) {
     const asset = { ...assetWith([PRIMARY_AUDIO]), ...fields };
@@ -143,19 +139,18 @@ describe("translateAudio on assets Mux can't add an audio track to", () => {
   }
 
   it.each([
-    { name: "clip (ingest_type)", fields: { ingest_type: "on_demand_clip" }, message: CLIP_MESSAGE },
-    { name: "clip (source_asset_id)", fields: { source_asset_id: "source-asset-1" }, message: CLIP_MESSAGE },
-    { name: "live stream (is_live)", fields: { is_live: true }, message: LIVE_MESSAGE },
-    { name: "live stream recording (live_stream_id)", fields: { live_stream_id: "live-1" }, message: LIVE_MESSAGE },
-  ])("rejects before dubbing: $name", async ({ fields, message }) => {
+    { name: "clip (ingest_type)", fields: { ingest_type: "on_demand_clip" }, reason: "clip" },
+    { name: "clip (source_asset_id)", fields: { source_asset_id: "source-asset-1" }, reason: "clip" },
+    { name: "live stream (is_live)", fields: { is_live: true }, reason: "live_stream" },
+    { name: "live stream recording (live_stream_id)", fields: { live_stream_id: "live-1" }, reason: "live_stream" },
+  ])("rejects before dubbing: $name", async ({ fields, reason }) => {
     mockAssetFields(fields);
     const fetchMock = stubElevenLabsFetch();
 
     const error = await captureRejection(translateAudio(ASSET_ID, "es"));
 
     expect(MuxAiError.is(error)).toBe(true);
-    expect((error as InstanceType<typeof MuxAiError>).type).toBe("validation_error");
-    expect(error.message).toBe(message);
+    expect(error).toMatchObject({ code: "audio_track_unsupported", type: "validation_error", source: "asset", facts: { assetId: ASSET_ID, reason } });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -166,8 +161,7 @@ describe("translateAudio on assets Mux can't add an audio track to", () => {
     const error = await captureRejection(translateAudio(ASSET_ID, "es"));
 
     expect(MuxAiError.is(error)).toBe(true);
-    expect((error as InstanceType<typeof MuxAiError>).type).toBe("validation_error");
-    expect(error.message).toBe(AUDIO_ONLY_MESSAGE);
+    expect(error).toMatchObject({ code: "audio_track_unsupported", type: "validation_error", source: "asset", facts: { assetId: ASSET_ID, reason: "audio_only" } });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -191,9 +185,7 @@ describe("translateAudio on a video-only asset", () => {
     const error = await captureRejection(translateAudio(ASSET_ID, "es", { uploadToMux }));
 
     expect(MuxAiError.is(error)).toBe(true);
-    expect((error as InstanceType<typeof MuxAiError>).type).toBe("validation_error");
-    expect(error.message).toBe("Asset asset-123 has no audio track, so there is no audio to dub.");
-    expect(error).toMatchObject({ code: "audio_track_missing", source: "asset", facts: { assetId: "asset-123" } });
+    expect(error).toMatchObject({ code: "audio_track_missing", type: "validation_error", source: "asset", facts: { assetId: "asset-123" } });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
@@ -217,10 +209,9 @@ describe("translateAudio track replacement", () => {
 
     const error = await captureRejection(translateAudio(ASSET_ID, "es"));
 
-    expect(error.message).toContain("Spanish (Auto-dubbed)");
     expect(error).toMatchObject({
       code: "track_replacement_blocked",
-      facts: { reason: "policy_fail", trackType: "audio", conflictingTracks: [expect.objectContaining({ id: OLD_DUB.id })] },
+      facts: { reason: "policy_fail", trackType: "audio", conflictingTracks: [expect.objectContaining({ id: OLD_DUB.id, name: "Spanish (Auto-dubbed)" })] },
     });
     expect(fetchMock).not.toHaveBeenCalled();
     expect(vi.mocked(replaceAndCreateTrack)).not.toHaveBeenCalled();
@@ -252,7 +243,6 @@ describe("translateAudio track replacement", () => {
 
     const error = await captureRejection(translateAudio(ASSET_ID, "en", { replaceExistingTracks }));
 
-    expect(error.message).toContain("primary audio");
     // No option avoids the asset's own audio in the target language.
     expect(error).toMatchObject({ code: "primary_audio_track_conflict", source: "asset", facts: { reason: "primary_audio" } });
   });
@@ -304,10 +294,9 @@ describe("translateAudio track replacement", () => {
 
     const error = await captureRejection(translateAudio(ASSET_ID, "es"));
 
-    expect(error.message).toContain("Failed to add dubbed audio track");
     expect(error.message).not.toContain("https://s3.example.test/presigned");
     expect(JSON.stringify((error as any).facts)).not.toContain("https://s3.example.test/presigned");
-    expect(error).toMatchObject({ dependency: "mux_video", facts: { call: "create_track", status: 400, dubbingId: "proj_1" } });
+    expect(error).toMatchObject({ dependency: "mux_video", facts: { call: "create_track", status: 400, dubbingId: "proj_1", trackType: "audio", assetId: ASSET_ID } });
     expect(vi.mocked(replaceAndCreateTrack)).toHaveBeenCalledWith(expect.objectContaining({ classifiedErrors: true }));
   });
 
@@ -317,8 +306,9 @@ describe("translateAudio track replacement", () => {
 
     const error = await captureRejection(translateAudio(ASSET_ID, "es"));
 
-    expect(error.message).toContain("forbidden");
+    expect(error).toMatchObject({ facts: { assetId: ASSET_ID }, causes: [expect.objectContaining({ message: "forbidden", status: 403 })] });
     expect(error.message).not.toContain("https://s3.example.test/presigned");
+    expect(JSON.stringify((error as any).facts)).not.toContain("https://s3.example.test/presigned");
   });
 
   it("soft-fails the captions track so a paid dub still completes", async () => {
@@ -503,9 +493,10 @@ describe("project output storage", () => {
 
     expect(MuxAiError.is(error)).toBe(true);
     expect(error).toMatchObject({
+      code: "dependency_server_error",
       type: "processing_error",
-      message: "Could not download the dubbed audio. The dubbing service is temporarily unavailable. Please try again.",
       retryable: true,
+      facts: { call: "elevenlabs_get_dubbed_audio", status: 502, dubbingId: "proj_1", attempts: 3 },
     });
     expect(audioDownloads(fetchMock)).toHaveLength(3);
     // Downloading never creates another paid project.
@@ -530,7 +521,13 @@ describe("project output storage", () => {
     const error = await captureRejection(translateAudio(ASSET_ID, "es", { uploadToMux: false, uploadToS3: true }));
 
     // A 404 on a request we built is ours to investigate, not the provider's.
-    expect(error).toMatchObject({ type: "server_error", source: "internal", message: "Could not download the dubbed audio.", retryable: false });
+    expect(error).toMatchObject({
+      code: "dependency_not_found",
+      type: "server_error",
+      source: "internal",
+      retryable: false,
+      facts: { call: "elevenlabs_get_dubbed_audio", status: 404, dubbingId: "proj_1", attempts: 1 },
+    });
     expect(audioDownloads(fetchMock)).toHaveLength(1);
     expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("404 Not Found: missing"));
   });

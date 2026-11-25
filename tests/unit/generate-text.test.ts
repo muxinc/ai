@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { MuxAiError } from "../../src/lib/mux-ai-error";
 import { SYSTEM_PROMPT_CANARY } from "../../src/lib/prompt-fragments";
 import { toPublicError } from "../../src/lib/public-error";
 
@@ -467,7 +468,6 @@ describe("generateText", () => {
     const error = await generateText("asset-123", { artifacts: [{ key: "x_post", channel: "x" }] }).catch(e => e);
     // An unexpected exception: internal, not step-retried, and resubmittable as before.
     expect(error).toMatchObject({
-      message: "Unable to complete text generation.",
       type: "server_error",
       source: "internal",
       transient: false,
@@ -606,7 +606,6 @@ That draft contains literal escape sequences such as \n and \" instead of real l
       artifacts: [{ key: "post" }],
     })).rejects.toMatchObject({
       code: "model_output_missing",
-      message: "Generated text for variants[default].artifacts[post] was empty after a retry.",
       facts: { call: "generate_artifact", variant: "default", artifact: "post" },
       transient: false,
       retryable: true,
@@ -647,7 +646,6 @@ That draft contains literal escape sequences such as \n and \" instead of real l
       variants: [{ key: "one" }, { key: "two" }],
       artifacts: Array.from({ length: 3 }, (_, index) => ({ key: `post_${index}` })),
     })).rejects.toMatchObject({
-      message: "Text generation model call failed",
       facts: { call: "generate_artifact", provider: "openai" },
       usage: { totalTokens: 100 + (4 * 10) + 7 },
     });
@@ -736,7 +734,7 @@ That draft contains literal escape sequences such as \n and \" instead of real l
     }).catch(e => e);
     expect(error).toMatchObject({ code: "invalid_parameter", facts: { parameter: "outputLanguageCode", reason: "invalid_format", inputs: ["outputLanguageCode"] } });
     // The caller's value isn't echoed back.
-    expect(toPublicError(error).message).toBe("outputLanguageCode must be a BCP 47 language tag such as 'en' or 'pt-BR'.");
+    expect(JSON.stringify(toPublicError(error))).not.toContain("limerick");
     expect(getPlaybackIdForAsset).not.toHaveBeenCalled();
   });
 });
@@ -744,54 +742,73 @@ That draft contains literal escape sequences such as \n and \" instead of real l
 describe("resolveGenerateTextOptions", () => {
   const artifacts = [{ key: "post" }];
 
+  /** The error `run` throws, so its code and facts can be checked. */
+  function thrownBy(run: () => unknown): unknown {
+    try {
+      run();
+    } catch (error) {
+      expect(MuxAiError.is(error)).toBe(true);
+      return error;
+    }
+    throw new Error("expected a throw");
+  }
+
   it("rejects duplicate keys, bad key shapes, and too many items", () => {
-    expect(() => resolveGenerateTextOptions({ artifacts: [...artifacts, ...artifacts] })).toThrow("Duplicate artifact key \"post\".");
-    expect(() => resolveGenerateTextOptions({ artifacts: [{ key: "Bad-Key" }] })).toThrow("lowercase snake_case");
-    expect(() => resolveGenerateTextOptions({ artifacts: [] })).toThrow("At least one artifact is required.");
-    expect(() => resolveGenerateTextOptions({
+    expect(thrownBy(() => resolveGenerateTextOptions({ artifacts: [...artifacts, ...artifacts] })))
+      .toMatchObject({ code: "invalid_parameter", facts: { parameter: "artifacts", reason: "duplicate", value: "post", index: 1 } });
+    expect(thrownBy(() => resolveGenerateTextOptions({ artifacts: [{ key: "Bad-Key" }] })))
+      .toMatchObject({ code: "invalid_parameter", facts: { parameter: "artifacts[0].key", reason: "invalid_format", format: expect.stringContaining("lowercase snake_case") } });
+    expect(thrownBy(() => resolveGenerateTextOptions({ artifacts: [] })))
+      .toMatchObject({ code: "invalid_parameter", facts: { parameter: "artifacts", reason: "empty" } });
+    expect(thrownBy(() => resolveGenerateTextOptions({
       artifacts,
       variants: Array.from({ length: 6 }, (_, index) => ({ key: `v${index}` })),
-    })).toThrow("At most 5 variants are supported (received 6).");
+    }))).toMatchObject({ code: "invalid_parameter", facts: { parameter: "variants", reason: "too_many", count: 6, max: 5 } });
   });
 
   it("applies one length range per unit and the X character ceiling", () => {
-    expect(() => resolveGenerateTextOptions({
+    expect(thrownBy(() => resolveGenerateTextOptions({
       artifacts: [{ key: "x", channel: "x", maxLength: { unit: "characters", value: 281 } }],
-    })).toThrow("targets x and supports at most 280 characters");
-    expect(() => resolveGenerateTextOptions({
+    }))).toMatchObject({ code: "parameter_out_of_range", facts: { parameter: "artifacts[0].maxLength.value", value: 281, max: 280, unit: "characters", channel: "x" } });
+    expect(thrownBy(() => resolveGenerateTextOptions({
       artifacts: [{ key: "post", maxLength: { unit: "words", value: 3001 } }],
-    })).toThrow("between 5 and 3000");
-    expect(() => resolveGenerateTextOptions({
+    }))).toMatchObject({ code: "parameter_out_of_range", facts: { parameter: "artifacts[0].maxLength.value", value: 3001, min: 5, max: 3000, unit: "words" } });
+    expect(thrownBy(() => resolveGenerateTextOptions({
       artifacts: [{ key: "post", maxLength: { unit: "characters", value: 20001 } }],
-    })).toThrow("between 10 and 20000");
-    expect(() => resolveGenerateTextOptions({
+    }))).toMatchObject({ code: "parameter_out_of_range", facts: { parameter: "artifacts[0].maxLength.value", value: 20001, min: 10, max: 20000, unit: "characters" } });
+    expect(thrownBy(() => resolveGenerateTextOptions({
       artifacts: [{ key: "post", maxLength: { unit: "paragraphs", value: 3 } as any }],
-    })).toThrow("Invalid artifact \"post\" maxLength.unit \"paragraphs\"");
+    }))).toMatchObject({ code: "invalid_parameter", facts: { parameter: "artifacts[0].maxLength.unit", reason: "not_allowed", allowed: ["characters", "words"], value: "paragraphs" } });
     expect(resolveGenerateTextOptions({
       artifacts: [{ key: "post", maxLength: { unit: "characters", value: 12000 } }, { key: "tweet", maxLength: { unit: "words", value: 5 } }],
     }).artifacts).toHaveLength(2);
   });
 
   it("validates format", () => {
-    expect(() => resolveGenerateTextOptions({ artifacts: [{ key: "post", format: "html" as any }] }))
-      .toThrow("Invalid artifact \"post\" format \"html\". Valid values are: plain, markdown.");
+    expect(thrownBy(() => resolveGenerateTextOptions({ artifacts: [{ key: "post", format: "html" as any }] })))
+      .toMatchObject({ code: "invalid_parameter", facts: { parameter: "artifacts[0].format", reason: "not_allowed", allowed: ["plain", "markdown"], value: "html" } });
   });
 
   it("fails on the key check, not the duplicate check, when several items omit their keys", () => {
-    expect(() => resolveGenerateTextOptions({ artifacts: [{} as any, {} as any] }))
-      .toThrow("artifact key \"undefined\" must be lowercase snake_case");
-    expect(() => resolveGenerateTextOptions({ artifacts, variants: [{} as any, {} as any] }))
-      .toThrow("variant key \"undefined\" must be lowercase snake_case");
+    expect(thrownBy(() => resolveGenerateTextOptions({ artifacts: [{} as any, {} as any] })))
+      .toMatchObject({ code: "invalid_parameter", facts: { parameter: "artifacts[0].key", reason: "invalid_format" } });
+    expect(thrownBy(() => resolveGenerateTextOptions({ artifacts, variants: [{} as any, {} as any] })))
+      .toMatchObject({ code: "invalid_parameter", facts: { parameter: "variants[0].key", reason: "invalid_format" } });
   });
 
   it("enforces steering bounds and language tags", () => {
-    expect(() => resolveGenerateTextOptions({ artifacts, voice: "sassy" as any })).toThrow("Invalid voice \"sassy\". Valid values are: conversational, editorial, playful, professional.");
-    expect(() => resolveGenerateTextOptions({ artifacts, callToAction: "loud" as any })).toThrow("Invalid callToAction \"loud\"");
-    expect(() => resolveGenerateTextOptions({ artifacts, audience: "a".repeat(161) })).toThrow("audience must be 1-160 characters.");
-    expect(() => resolveGenerateTextOptions({ artifacts, brandTerms: [] })).toThrow("brandTerms must contain 1-10 terms.");
-    expect(() => resolveGenerateTextOptions({ artifacts, brandTerms: Array.from({ length: 10 }, () => "a".repeat(30)) }))
-      .toThrow("Combined brandTerms must be 240 characters or fewer.");
-    expect(() => resolveGenerateTextOptions({ artifacts, languageCode: "en us" })).toThrow("languageCode must be a BCP 47 language tag");
+    expect(thrownBy(() => resolveGenerateTextOptions({ artifacts, voice: "sassy" as any })))
+      .toMatchObject({ code: "invalid_parameter", facts: { parameter: "voice", reason: "not_allowed", allowed: ["conversational", "editorial", "playful", "professional"], value: "sassy" } });
+    expect(thrownBy(() => resolveGenerateTextOptions({ artifacts, callToAction: "loud" as any })))
+      .toMatchObject({ code: "invalid_parameter", facts: { parameter: "callToAction", reason: "not_allowed", allowed: ["none", "soft", "direct"], value: "loud" } });
+    expect(thrownBy(() => resolveGenerateTextOptions({ artifacts, audience: "a".repeat(161) })))
+      .toMatchObject({ code: "invalid_parameter", facts: { parameter: "audience", reason: "too_long", length: 161, maxLength: 160 } });
+    expect(thrownBy(() => resolveGenerateTextOptions({ artifacts, brandTerms: [] })))
+      .toMatchObject({ code: "invalid_parameter", facts: { parameter: "brandTerms", reason: "empty" } });
+    expect(thrownBy(() => resolveGenerateTextOptions({ artifacts, brandTerms: Array.from({ length: 10 }, () => "a".repeat(30)) })))
+      .toMatchObject({ code: "invalid_parameter", facts: { parameter: "brandTerms", reason: "too_long", length: 300, maxLength: 240 } });
+    expect(thrownBy(() => resolveGenerateTextOptions({ artifacts, languageCode: "en us" })))
+      .toMatchObject({ code: "invalid_parameter", facts: { parameter: "languageCode", reason: "invalid_format", format: expect.stringContaining("BCP 47") } });
     expect(resolveGenerateTextOptions({ artifacts, languageCode: "pt-BR", outputLanguageCode: "auto" }).variants).toEqual([{ key: "default" }]);
   });
 });

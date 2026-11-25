@@ -142,20 +142,10 @@ describe("provider codes' public views", () => {
     expect(JSON.stringify(view)).not.toMatch(/elevenlabs/i);
   });
 
-  it("words only the reasons it knows, never an object's own properties", () => {
-    for (const reason of ["constructor", "toString", "__proto__"]) {
-      const view = toPublicError(dependencyError("Bad audio", { dependency: "ai_provider", call: "transcribe", status: 400, code: MUX_AI_ERROR_CODES.AUDIO_UNPROCESSABLE, facts: { reason } }));
-      expect(view.message, reason).toBe("The asset's audio couldn't be processed.");
-    }
-  });
-
-  it.each([
-    ["corrupt", "The asset's audio couldn't be processed: it may be corrupt."],
-    ["too_long", "The asset's audio couldn't be processed: it's too long."],
-    [undefined, "The asset's audio couldn't be processed."],
-  ])("explains unprocessable audio (%s)", (reason, message) => {
+  it.each(["corrupt", "too_long", undefined])("shows unprocessable audio's reason (%s) and nothing about the call", (reason) => {
     const view = toPublicError(dependencyError("Bad audio", { dependency: "ai_provider", call: "transcribe", status: 400, code: MUX_AI_ERROR_CODES.AUDIO_UNPROCESSABLE, facts: reason ? { reason } : {} }));
 
-    expect(view).toMatchObject({ type: "validation_error", code: "audio_unprocessable", message, retryable: false });
+    expect(view).toMatchObject({ type: "validation_error", code: "audio_unprocessable", retryable: false });
+    expect(view.facts).toEqual(reason ? { reason } : undefined);
   });
 });

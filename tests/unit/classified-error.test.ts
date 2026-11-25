@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { LegacyMuxAiError } from "../../src/lib/legacy-mux-ai-error.ts";
 import type { ClassifiedErrorInit, ErrorCatalogEntry, SerializedClassification } from "../../src/lib/mux-ai-error.ts";
 import { classificationInit, ClassifiedError, MUX_AI_ERROR_CODES, MUX_AI_ERROR_DEPENDENCIES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError, restoreClassification, serializeClassification } from "../../src/lib/mux-ai-error.ts";
-import { createPublicErrorView, MUX_AI_ERROR_PUBLIC_MAPPINGS } from "../../src/lib/public-error.ts";
+import { createPublicErrorView, MUX_AI_ERROR_PUBLIC_MAPPINGS, toPublicError } from "../../src/lib/public-error.ts";
 
 // A consumer's own error on the shared model: its own extra type, codes and dependency.
 const APP_TYPES = { ...MUX_AI_ERROR_TYPES, CONFLICT: "conflict" } as const;
@@ -62,9 +62,10 @@ describe("classifiedError as a shared base", () => {
       retryable: false,
     });
     expect(view(new AppError("index down", { code: APP_CODES.INDEX_UNAVAILABLE, type: APP_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: "search_index", facts: { status: 400 } })).message).toBe("The job failed.");
-    // An SDK code keeps its public wording, and an internal one gets the consumer's generic wording.
-    expect(view(new MuxAiError("x", { code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID, type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER, facts: { assetId: "abc", provider: "openai" } })))
-      .toEqual({ type: "processing_error", code: "model_output_invalid", message: "The AI model's output for asset abc couldn't be used.", retryable: false, facts: { assetId: "abc" } });
+    // An SDK code keeps its public view (its wording is tested in public-error.test.ts), and an internal one gets the consumer's generic wording.
+    const sdkError = new MuxAiError("x", { code: MUX_AI_ERROR_CODES.MODEL_OUTPUT_INVALID, type: MUX_AI_ERROR_TYPES.PROCESSING_ERROR, source: MUX_AI_ERROR_SOURCES.UPSTREAM, dependency: MUX_AI_ERROR_DEPENDENCIES.AI_PROVIDER, facts: { assetId: "abc", provider: "openai" } });
+    expect(view(sdkError)).toEqual(toPublicError(sdkError));
+    expect(view(sdkError)).toMatchObject({ type: "processing_error", code: "model_output_invalid", retryable: false, facts: { assetId: "abc" } });
     expect(view(new MuxAiError("x", { code: MUX_AI_ERROR_CODES.SIGNING_CREDENTIALS_MISSING, type: MUX_AI_ERROR_TYPES.SERVER_ERROR, source: MUX_AI_ERROR_SOURCES.INTERNAL })))
       .toEqual({ type: "server_error", message: "The job failed.", retryable: false });
     // A module not yet on the model: its message is end-user text, shown as before.

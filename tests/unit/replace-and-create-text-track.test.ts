@@ -225,7 +225,7 @@ describe("replaceAndCreateTextTrack", () => {
     retrieve.mockRejectedValue(Object.assign(new Error("mux down"), { status: 503 }));
 
     await expect(replaceAndCreateTextTrack({ ...INPUT, policy: "replace_all", classifiedErrors: true })).rejects.toMatchObject({
-      message: "Failed to fetch the asset from Mux",
+      code: "dependency_server_error",
       source: "upstream",
       dependency: "mux_video",
       transient: true,
@@ -296,10 +296,9 @@ describe("createTextTrackOnMux", () => {
     createTrack.mockResolvedValue({});
 
     await expect(createTextTrackOnMux("asset-1", "en", "English", "https://s3.example.test/new.vtt")).rejects.toMatchObject({
-      message: "Failed to create text track: no track ID returned from Mux",
       code: "track_id_missing",
       dependency: "mux_video",
-      facts: { assetId: "asset-1" },
+      facts: { call: "create_track", assetId: "asset-1" },
     });
   });
 });

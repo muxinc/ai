@@ -98,8 +98,8 @@ describe("elevenLabsFailureError", () => {
       detail: "401 Unauthorized: invalid_api_key: Invalid API key",
     }, { assetId: "asset-1" });
 
+    expect(error.message).not.toContain("Invalid API key");
     expect(error).toMatchObject({
-      message: "Audio dubbing could not be started.",
       // The service's own ElevenLabs key.
       code: "provider_credentials_rejected",
       type: "server_error",
