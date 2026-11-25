@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.70.1](https://github.com/muxinc/ai/compare/v0.70.0...v0.70.1) (2026-11-25)
+
+
+### Bug Fixes
+
+* **translate-captions:** send cues as single lines in 40-cue chunks ([#348](https://github.com/muxinc/ai/issues/348)) ([82e24ea](https://github.com/muxinc/ai/commit/82e24ea395c2a6120786107476b4cf847d6478e9))
+
 ## [0.70.0](https://github.com/muxinc/ai/compare/v0.69.0...v0.70.0) (2026-11-24)
 
 
