@@ -193,6 +193,10 @@ function createWorkflowMuxClient(options: DirectMuxCredentials): WorkflowMuxClie
         tokenId: options.tokenId,
         tokenSecret: options.tokenSecret,
         authorizationToken: options.authorizationToken,
+        // One retry owner: the client's own retries (2 by default, within seconds) are off, so
+        // every failure reaches classification at the call site. Transient failures are retried
+        // by the Workflow DevKit step; rate limits by `rateLimitStepRetry` where a step opts in.
+        maxRetries: 0,
       });
     },
     getSigningKey() {

@@ -26,7 +26,8 @@ async function loadErrors(mode: "step" | "workflow") {
     write: false,
     format: "esm",
     platform: "node",
-    external: ["ai", "zod"],
+    // As in tsup.config.ts: the published build never inlines Workflow DevKit (an optional peer).
+    external: ["ai", "workflow", "zod"],
     plugins: [{
       name: "test-env",
       setup(build) {
@@ -211,5 +212,19 @@ describe("sDK errors across Workflow step boundaries", () => {
     expect(error.name).toBe("Error");
     const restored = await hydrateStepError(await dehydrateStepError(error, "wrun_offline", undefined, [], step.global), "wrun_offline", undefined, workflow.global);
     expect(restored).toMatchObject({ name: "Error", transient: true });
+  });
+
+  it("keeps a rate-limited error's classification when it is marked for a delayed step retry", async () => {
+    const [step, workflow] = await Promise.all([loadErrors("step"), loadErrors("workflow")]);
+    const error = new step.MuxAiError("Failed to create the text track on Mux", {
+      code: "dependency_rate_limited",
+      dependency: "mux_video",
+      facts: { call: "create_track", status: 429, retryAfterMs: 2000 },
+    });
+    // What rateLimitStepRetry does: Workflow DevKit's RetryableError shape, on the classified error.
+    Object.assign(error, { name: "RetryableError", retryAfter: new Date(Date.now() + 5000) });
+    const restored = await hydrateStepError(await dehydrateStepError(error, "wrun_offline", undefined, [], step.global), "wrun_offline", undefined, workflow.global);
+    expect(restored).toBeInstanceOf(workflow.MuxAiError);
+    expect(restored).toMatchObject({ code: "dependency_rate_limited", transient: true, facts: { retryAfterMs: 2000 } });
   });
 });

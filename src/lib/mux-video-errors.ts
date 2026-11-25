@@ -4,6 +4,7 @@ import { dependencyError, httpStatusOf, requestIdOf } from "./dependency-error.t
 import type { DependencyErrorInit } from "./dependency-error.ts";
 import type { MuxAiErrorFacts } from "./mux-ai-error.ts";
 import { MUX_AI_ERROR_CODES, MUX_AI_ERROR_DEPENDENCIES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
+import { rateLimitFacts } from "./rate-limit.ts";
 
 // Tokens only: Mux's free-text messages stay in the scrubbed cause summary, not in facts.
 const MuxTokenSchema = z.string().regex(/^[\w.-]{1,64}$/);
@@ -82,11 +83,12 @@ export function muxVideoCallError(message: string, call: string, error: unknown,
   if (call === "get_asset" && httpStatusOf(error) === 404) {
     return assetNotFoundError(error, facts);
   }
+  const status = httpStatusOf(error);
   return muxVideoApiError(message, {
     call,
-    status: httpStatusOf(error),
+    status,
     requestId: requestIdOf((error as { headers?: unknown } | null)?.headers),
-    facts: { ...facts, ...muxVideoErrorFacts(error) },
+    facts: { ...facts, ...muxVideoErrorFacts(error), ...rateLimitFacts(error, status) },
     cause: error,
   });
 }

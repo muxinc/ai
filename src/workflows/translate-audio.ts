@@ -805,9 +805,12 @@ async function downloadAndUploadDubTranscript({
   }
 }
 
-/** Return attachment failures from inside the step so they cannot freeze a completed dub. */
+/**
+ * Returns attachment failures rather than throwing, so they cannot freeze a completed dub.
+ * Runs in the workflow body, not as a step: `replaceAndCreateTrack`'s own steps are the
+ * boundaries a Mux rate limit is waited out at, and a step around them would run them inline.
+ */
 async function attachDubbedCaptions(input: Parameters<typeof replaceAndCreateTrack>[0]): Promise<Extract<DubbedCaptionsOutcome, { status: "created" | "failed" }>> {
-  "use step";
   try {
     const outcome = await replaceAndCreateTrack(input);
     if (outcome.kind === "created") {

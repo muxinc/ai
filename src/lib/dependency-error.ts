@@ -1,5 +1,6 @@
 import type { ErrorCatalogEntry, MuxAiDependencyStatusCode, MuxAiErrorDependency, MuxAiErrorFacts, MuxAiErrorInit, MuxAiErrorSource, MuxAiErrorType, MuxAiSiteDependencyCode } from "./mux-ai-error.ts";
 import { isTransientStatus, MUX_AI_DEPENDENCY_STATUS_CODES, MUX_AI_ERROR_CATALOG, MUX_AI_ERROR_CODES, MUX_AI_ERROR_SOURCES, MUX_AI_ERROR_TYPES, MuxAiError } from "./mux-ai-error.ts";
+import { rateLimitFacts } from "./rate-limit.ts";
 
 export interface DependencyErrorInit {
   dependency: MuxAiErrorDependency;
@@ -238,10 +239,13 @@ export function dependencyErrorFrom(error: unknown, message: string, init: Omit<
   if (MuxAiError.is(error)) {
     return error;
   }
+  const status = httpStatusOf(error);
+  const rateLimit = rateLimitFacts(error, status);
   return dependencyError(message, {
     ...init,
-    status: httpStatusOf(error),
+    status,
     requestId: requestIdOf((error as { headers?: unknown } | null)?.headers),
+    ...(Object.keys(rateLimit).length > 0 && { facts: { ...init.facts, ...rateLimit } }),
     cause: error,
   });
 }
