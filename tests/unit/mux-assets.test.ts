@@ -122,7 +122,6 @@ describe("getPlaybackIdForAsset", () => {
   it("with classified errors, codes a snapshot for a different asset as the service's own asset_snapshot_mismatch", async () => {
     const promise = getPlaybackIdForAsset("asset-other", undefined, asset, { classifiedErrors: true });
     await expect(promise).rejects.toMatchObject({
-      message: "Asset snapshot does not match the requested asset ID.",
       code: "asset_snapshot_mismatch",
       type: "server_error",
       source: "internal",

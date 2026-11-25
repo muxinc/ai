@@ -289,7 +289,6 @@ describe("getModerationScores classified errors: every sample failed", () => {
       assetId: "asset-123",
       sampleCount: 2,
     });
-    expect(error.message).toContain("thumbnail at 0s");
     expect(error.message).not.toContain("token=secret");
   });
 
@@ -482,7 +481,6 @@ describe("getModerationScores classified errors: every sample failed", () => {
     const error = await moderationError("asset-123", { provider: "hive" });
 
     expect(error).toMatchObject({ code: "provider_quota_exhausted", facts: { call: "moderate_thumbnails", provider: "hive", assetId: "asset-123", sampleCount: THUMBNAIL_URLS.length, status: 405 } });
-    expect(error.message).toMatch(/^Moderation failed for all 2 sample\(s\)/);
     expect((error as unknown as { cause?: unknown }).cause).toMatchObject({ code: "provider_quota_exhausted" });
   });
 

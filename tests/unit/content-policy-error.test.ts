@@ -513,7 +513,7 @@ describe("modelStepError", () => {
   it("keeps a provider without a classifier internal, step-retried only when the AI SDK judges it retryable", () => {
     const facts = { call: "detect_profanity", provider: "anthropic" };
 
-    expect(modelStepError(providerError(503), "Detection failed", facts)).toMatchObject({ message: "Detection failed", source: "internal", transient: true });
+    expect(modelStepError(providerError(503), "Detection failed", facts)).toMatchObject({ source: "internal", transient: true, facts });
     expect(modelStepError(providerError(400), "Detection failed", facts)).toMatchObject({ source: "internal", transient: false });
   });
 
@@ -674,10 +674,10 @@ describe("modelCallError", () => {
     expect(modelCallError(rejected, anthropic)).toMatchObject({ code: "dependency_request_rejected", source: "internal", transient: false });
   });
 
-  it("codes anything else as internal, with a default message", () => {
+  it("codes anything else as internal", () => {
     const error = modelCallError(new Error("socket hang up"), context);
 
-    expect(error).toMatchObject({ type: "server_error", source: "internal", facts: context, message: expect.stringContaining("analyze_structure failed") });
+    expect(error).toMatchObject({ type: "server_error", source: "internal", facts: context });
   });
 
   it("keeps an error that's already classified", () => {

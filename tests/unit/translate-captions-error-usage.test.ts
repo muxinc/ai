@@ -173,7 +173,7 @@ describe("translateCaptions error-path token usage", () => {
       translateCaptions("asset-123", "missing-track", "es", TRANSLATION_OPTIONS),
     );
 
-    expect((error as Error).message).toContain("missing-track");
+    expect(error).toMatchObject({ code: "caption_track_not_found", facts: { trackId: "missing-track" } });
     expect(Object.hasOwn(error as object, "usage")).toBe(false);
     expect(vi.mocked(generateText)).not.toHaveBeenCalled();
   });

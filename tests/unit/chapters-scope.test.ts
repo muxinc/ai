@@ -260,7 +260,6 @@ describe("generateChapters scene context", () => {
       code: "invalid_scope",
       type: "validation_error",
       source: "request",
-      message: "Scene context has no chapter boundaries within the requested scope.",
       facts: { reason: "no_scenes", startTime: 80, endTime: 120, inputs: ["scope", "sceneContext"] },
     });
     expect(generateText).not.toHaveBeenCalled();

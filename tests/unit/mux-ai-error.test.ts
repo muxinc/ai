@@ -178,7 +178,7 @@ describe("wrapError", () => {
     const error = thrown(() => wrapError(raw, "Failed to parse output")) as MuxAiError;
 
     expect(MuxAiError.is(error)).toBe(true);
-    expect(error).toMatchObject({ type: "server_error", source: "internal", message: "Failed to parse output: Unexpected token" });
+    expect(error).toMatchObject({ type: "server_error", source: "internal", causes: [{ name: "Error", message: "Unexpected token" }] });
     expect(error.usage).toMatchObject({ totalTokens: 12 });
     expect(error.cause).toBe(raw);
   });
@@ -188,7 +188,7 @@ describe("wrapError", () => {
 
     const error = thrown(() => wrapError(raw, "Failed to analyze")) as MuxAiError;
 
-    expect(error.message).toBe("Failed to analyze: Failed to download https://image.mux.com/abc/storyboard.png?… 403 Forbidden");
+    expect(error.message).not.toContain("SECRET_JWT");
     expect(JSON.stringify(error.causes)).not.toContain("SECRET_JWT");
   });
 
@@ -198,7 +198,7 @@ describe("wrapError", () => {
 
     const error = thrown(() => wrapError(raw, "Failed to parse output")) as MuxAiError;
 
-    expect(error.message).toBe("Failed to parse output: Upstream error details suppressed by safety filter");
+    expect(error.message).not.toContain("You are a helpful assistant");
     warn.mockRestore();
   });
 });
@@ -209,7 +209,10 @@ describe("internalError and assertNever", () => {
   });
 
   it("throws an internal error for an unexpected value", () => {
-    expect(() => assertNever("x" as never, "phase")).toThrow("Unexpected phase: x");
+    const error = thrown(() => assertNever("x" as never, "phase"));
+
+    expect(MuxAiError.is(error)).toBe(true);
+    expect(error).toMatchObject({ type: "server_error", source: "internal" });
   });
 });
 

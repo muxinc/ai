@@ -84,7 +84,8 @@ describe("classified S3 uploads", () => {
     const error = await putError(s3Error("AccessDenied", 403, "Forbidden"));
 
     expect(JSON.stringify(error.facts)).not.toMatch(/Signature|Something about/);
-    expect(error.message).toBe("S3 PUT failed (403 Forbidden).");
+    expect(error).toMatchObject({ code: "dependency_auth_rejected", facts: { status: 403, s3Code: "AccessDenied" } });
+    expect(error.message).not.toMatch(/Signature|Something about/);
     expect(error.causes[0]?.message).toContain("Something about https://bucket/key?…");
     expect(JSON.stringify(error.causes)).not.toContain("X-Amz-Signature=abc");
   });

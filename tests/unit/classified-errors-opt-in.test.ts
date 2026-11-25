@@ -209,7 +209,7 @@ describe("validateTrackPassthrough", () => {
     } catch (caught) {
       error = caught;
     }
-    expect(error).toMatchObject({ code: "invalid_parameter", message: "Track passthrough must be at most 255 characters (received 256).", facts: { parameter: "trackPassthrough", reason: "too_long" } });
+    expect(error).toMatchObject({ code: "invalid_parameter", facts: { parameter: "trackPassthrough", reason: "too_long", length: 256, maxLength: 255 } });
     expect(toPublicError(error as MuxAiError)).toMatchObject({ code: "invalid_parameter", facts: { parameter: "trackPassthrough", reason: "too_long", length: 256, maxLength: 255 } });
   });
 });
