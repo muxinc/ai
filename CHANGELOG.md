@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.71.0](https://github.com/muxinc/ai/compare/v0.70.1...v0.71.0) (2026-11-25)
+
+
+### Features
+
+* **errors:** classify provider configuration failures ([#352](https://github.com/muxinc/ai/issues/352)) ([1902bd7](https://github.com/muxinc/ai/commit/1902bd76518bc65ee95e11310f6fce84b22ddb62))
+* **errors:** export throwIfWorkflowControlFlow() for workflow catch blocks ([#351](https://github.com/muxinc/ai/issues/351)) ([d008a3c](https://github.com/muxinc/ai/commit/d008a3c2f140d5e565f417eb864bdb264ba4369a))
+
 ## [0.70.1](https://github.com/muxinc/ai/compare/v0.70.0...v0.70.1) (2026-11-25)
 
 
