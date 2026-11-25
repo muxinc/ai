@@ -298,6 +298,20 @@ describe("public wording of the SDK's failures", () => {
     // parameter_out_of_range.
     ["an artifact maxLength under its minimum", "parameter_out_of_range", { parameter: "artifacts[0].maxLength.value", value: 4, min: 5, max: 3000, integer: true, unit: "words", inputs: ["artifacts"] }, "artifacts[0].maxLength.value must be at least 5 words (received 4)."],
     ["an artifact maxLength over its channel's ceiling", "parameter_out_of_range", { parameter: "artifacts[0].maxLength.value", value: 300, min: 10, max: 280, integer: true, unit: "characters", channel: "x", inputs: ["artifacts"] }, "artifacts[0].maxLength.value must be at most 280 characters (received 300)."],
+    // Variants not covered above.
+    ["a scope without a reason", "invalid_scope", { startTime: 1.0001, endTime: 1.0004 }, "The requested time range can't be used for this asset."],
+    ["a scope with no shots in it", "invalid_scope", { reason: "no_shots", startTime: 10, endTime: 12 }, "The requested time range can't be used for this asset."],
+    ["a static rendition that wasn't ready in time", "static_rendition_timeout", { assetId: "asset-1", waitedMs: 600_000, maxWaitMs: 600_000, lastStatus: "preparing" }, "The asset's static rendition wasn't ready in time. Please try again in a moment."],
+    ["an asset with no usable playback ID", "playback_id_not_found", { assetId: "asset-1" }, "The asset has no public or signed playback ID. DRM playback IDs aren't supported."],
+    [
+      "an mp4_support rendition that's too large",
+      "static_rendition_unsupported",
+      { reason: "too_large", renditionName: "capped-1080p.mp4", sizeBytes: 1_500_000_000, maxBytes: 1_000_000_000 },
+      "This asset uses the deprecated mp4_support setting, and its capped-1080p.mp4 static rendition (1.5 GB) is larger than the 1 GB this workflow can process. Move the asset to the Static Renditions API (https://www.mux.com/docs/guides/enable-static-mp4-renditions) and add an audio-only static rendition, then retry.",
+    ],
+    ["a content-policy block with a known reason", "content_policy_blocked", { call: "score_frame", provider: "google", model: "gemini-test", reason: "PROHIBITED_CONTENT", reasons: ["PROHIBITED_CONTENT"] }, "The content was blocked by a content policy (reason: PROHIBITED_CONTENT)."],
+    ["a content-policy block without a reason", "content_policy_blocked", { call: "score_frame", provider: "openai", model: "gpt-test" }, "The content was blocked by a content policy."],
+    ["an empty transcript", "transcript_empty", { assetId: "asset-1", trackId: "track-1", reason: "empty_body" }, "The transcript has no usable content."],
   ])("words %s", (_, code, facts, message) => {
     expect(viewOf(code, facts).message).toBe(message);
   });
