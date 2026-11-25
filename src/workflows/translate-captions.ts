@@ -1,4 +1,4 @@
-import { generateText, NoObjectGeneratedError, Output, TypeValidationError } from "ai";
+import { generateText, Output } from "ai";
 import { z } from "zod";
 
 import env from "../env.ts";
@@ -52,7 +52,6 @@ import {
 } from "../lib/prompt-fragments.ts";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
-import { defaultShouldRetry } from "../lib/retry.ts";
 import {
   createPresignedGetUrlWithStorageAdapter,
   putObjectWithStorageAdapter,
@@ -207,7 +206,7 @@ export interface TranslationChunkingOptions {
   targetChunkDurationSeconds?: number;
   /** Max number of concurrent translation requests when chunking. Defaults to 4. */
   maxConcurrentTranslations?: number;
-  /** Hard cap for cues included in a single AI translation chunk. Defaults to 80. */
+  /** Hard cap for cues included in a single AI translation chunk. Defaults to 40. */
   maxCuesPerChunk?: number;
   /** Approximate cap for cue text tokens included in a single AI translation chunk. Defaults to 2000. */
   maxCueTextTokensPerChunk?: number;
@@ -242,7 +241,7 @@ const SUBTITLE_GUIDELINES = promptDedent`
     - Translate meaning, not word for word. Use the phrasing a native speaker would expect to read in subtitles.
     - Keep each translated cue about as long as its source cue so it stays readable in the same on-screen time. Condense filler words before dropping meaning.
     - When a sentence spans several cues, break it at a natural point in the target language, but do not move content from one cue into another; each cue must stay in sync with the speech it accompanies.
-    - Preserve line breaks inside a cue where the target language allows.
+    - Write each cue's translation as a single line of text; players wrap it to fit the screen.
     - Keep speaker labels (such as "JOHN:" or a leading "- ") in the same position. Translate role labels (such as "NARRATOR:") but not personal names.
     - Translate bracketed sound and music descriptions (such as "[laughs]" or "(door slams)") and keep their brackets. Keep music symbols such as "♪" as they are.
     - Keep the source register and tone, including formality, slang, humour and profanity. Do not soften, censor or embellish.
@@ -399,9 +398,9 @@ function getTranslationProviderOptions(
 
 // Uses zod's default .strip(). Extras from the model are stripped silently;
 // the call site re-parses response.text and records them as `unexpected_key`
-// in the safety report. Pinning the array to the chunk's cue count keeps the
-// model from splitting or merging cues, and does not stop the system prompt
-// from being cached.
+// in the safety report. The schema is the same for every chunk so it stays
+// part of the cacheable prompt prefix; translateChunkWithFallback checks the
+// cue count instead.
 //
 // Tuning notes on `.max(2000)` per translated cue:
 // - Legitimate cues are usually well under 500 chars even for long
@@ -412,23 +411,9 @@ function getTranslationProviderOptions(
 //   through any single cue position.
 // - Tightening below 2000 risks rejecting legitimate translations
 //   that expand meaningfully; tuning should track the input cap.
-function cueTranslationSchema(cueCount: number) {
-  return z.object({
-    translations: z.array(z.string().min(1).max(2000)).length(cueCount),
-  });
-}
-
-/**
- * Output that parses but fails the schema is almost always a wrong cue count.
- * Resampling the whole chunk rarely fixes it, so it skips straight to the
- * split in translateChunkWithFallback; other failures keep the usual retries.
- */
-function shouldRetryCueChunk(error: Error, attempt: number): boolean {
-  if (NoObjectGeneratedError.isInstance(error) && TypeValidationError.isInstance(error.cause)) {
-    return false;
-  }
-  return defaultShouldRetry(error, attempt);
-}
+const cueTranslationSchema = z.object({
+  translations: z.array(z.string().min(1).max(2000)),
+});
 
 // Substring matching, no word boundaries: consistent for scripts
 // without word delimiters (CJK), and both sides count the same way.
@@ -463,7 +448,7 @@ const DEFAULT_TRANSLATION_CHUNKING: Required<TranslationChunkingOptions> = {
   minimumAssetDurationSeconds: 30 * 60,
   targetChunkDurationSeconds: 30 * 60,
   maxConcurrentTranslations: 4,
-  maxCuesPerChunk: 80,
+  maxCuesPerChunk: 40,
   maxCueTextTokensPerChunk: 2000,
 };
 
@@ -921,15 +906,16 @@ async function translateCueChunkWithAI({
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
   // Only the cue text: the VTT is rebuilt locally from the source timings, so
   // sending them would spend input tokens on data the model never uses.
-  const cuePayload = cues.map(cue => cue.text);
-  const schema = cueTranslationSchema(cues.length);
+  // Line breaks are flattened because the model otherwise often returns each
+  // line of a multi-line cue as a separate translation, breaking the cue count.
+  const cuePayload = cues.map(cue => cue.text.replace(/\s*\n\s*/g, " "));
 
   const context: ModelCallContext = { call: "translate_vtt_chunk", provider, model: modelId };
   const response = await withContentPolicyAwareRetry(() => generateText({
     model,
     maxRetries: 0,
     providerOptions: providerOptions ?? getTranslationProviderOptions(model),
-    output: Output.object({ schema }),
+    output: Output.object({ schema: cueTranslationSchema }),
     system: CUE_TRANSLATION_SYSTEM_PROMPT,
     messages: [
       {
@@ -937,14 +923,14 @@ async function translateCueChunkWithAI({
         content: `Translate from ${fromLanguageCode} to ${toLanguageCode}.\nReturn exactly ${cues.length} translated cues in the same order as the input.${buildNeverTranslateSection(neverTranslate)}\n\n${JSON.stringify(cuePayload)}`,
       },
     ],
-  }), { shouldRetry: shouldRetryCueChunk }, context);
+  }), undefined, context);
   const output = getGeneratedOutputWithContentPolicyHandling(response, context);
 
   // Schema-smuggling detection for the cue envelope. Any extras on the
   // root envelope were stripped by zod; log + bubble count to aggregate.
   const unexpectedKeys = detectUnexpectedKeysFromRawText(
     response.text,
-    schema.keyof().options,
+    cueTranslationSchema.keyof().options,
   );
   if (unexpectedKeys.length > 0) {
     console.warn(

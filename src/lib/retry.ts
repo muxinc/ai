@@ -23,7 +23,7 @@ const DEFAULT_RETRY_OPTIONS: Required<Pick<RetryOptions, "maxRetries" | "baseDel
 /**
  * Default retry condition - retries on transient timeout and download errors
  */
-export function defaultShouldRetry(error: Error, _attempt: number): boolean {
+function defaultShouldRetry(error: Error, _attempt: number): boolean {
   if (isOpenAIUrlDownloadTimeoutMessage(error.message)) {
     return true;
   }

@@ -27,7 +27,7 @@ vi.mock("../../src/lib/providers", async importOriginal => ({
   resolveLanguageModelConfig: vi.fn(),
 }));
 
-const { generateText, NoObjectGeneratedError, TypeValidationError } = await import("ai");
+const { generateText } = await import("ai");
 const { getAssetDurationSecondsFromAsset, getPlaybackIdForAsset } = await import("../../src/lib/mux-assets");
 const { fetchVttFromMux } = await import("../../src/lib/mux-tracks");
 const { resolveMuxSigningContext } = await import("../../src/lib/workflow-credentials");
@@ -145,29 +145,6 @@ describe("translateCaptions chunking for short assets", () => {
     expect(result.usage?.outputTokens).toBe(2 * 65521 + 3 * 5);
   });
 
-  it("splits a chunk whose output fails the schema without resampling it first", async () => {
-    vi.mocked(generateText).mockImplementation((async (args: any) => {
-      const cueCount = requestedCueCount(args);
-      if (cueCount > 2) {
-        throw new NoObjectGeneratedError({
-          message: "No object generated: response did not match schema.",
-          cause: new TypeValidationError({ value: { translations: [] }, cause: new Error("wrong cue count") }),
-          text: "{\"translations\": []}",
-          response: { id: "resp", timestamp: new Date(0), modelId: "gpt-test" },
-          usage: USAGE as any,
-          finishReason: "stop",
-        });
-      }
-      return successfulTranslation(cueCount);
-    }) as any);
-
-    const result = await translateCaptions("asset-123", "track-1", "es", SHORT_ASSET_OPTIONS);
-
-    const requestedCounts = vi.mocked(generateText).mock.calls.map(([args]) => requestedCueCount(args));
-    expect(requestedCounts).toEqual([5, 2, 3, 1, 2]);
-    expect(result.translatedVtt.match(/hola/g)).toHaveLength(CUE_COUNT);
-  });
-
   it("surfaces the finish reason when a single cue still cannot be translated", async () => {
     vi.mocked(generateText).mockResolvedValue({
       finishReason: "length",
@@ -190,7 +167,7 @@ describe("translateCaptions chunking for short assets", () => {
 });
 
 describe("translateCaptions prompt caching and provider options", () => {
-  it("sends the same system prompt for every chunk, only cue text, and a schema pinned to the cue count", async () => {
+  it("sends the same system prompt and schema for every chunk, and only cue text", async () => {
     vi.mocked(generateText).mockImplementation((async (args: any) =>
       successfulTranslation(requestedCueCount(args))) as any);
 
@@ -203,12 +180,24 @@ describe("translateCaptions prompt caching and provider options", () => {
     expect(calls).toHaveLength(3);
     expect(new Set(calls.map(args => args.system)).size).toBe(1);
     const responseFormats = await Promise.all(calls.map(async args => JSON.stringify(await args.output.responseFormat)));
-    expect(responseFormats[0]).toContain("\"minItems\":2");
-    expect(responseFormats[0]).toContain("\"maxItems\":2");
-    expect(responseFormats[2]).toContain("\"maxItems\":1");
+    expect(new Set(responseFormats).size).toBe(1);
+    expect(responseFormats[0]).not.toContain("minItems");
     const userContent = calls[0].messages[0].content as string;
     expect(userContent.endsWith("[\"Hello 1\",\"Hello 2\"]")).toBe(true);
     expect(userContent).not.toContain("startTime");
+  });
+
+  it("sends a multi-line cue as a single line", async () => {
+    vi.mocked(fetchVttFromMux).mockResolvedValue(
+      "WEBVTT\n\n1\n00:00:00.000 --> 00:00:02.000\nHello there,\n  general Kenobi\n\n2\n00:00:02.000 --> 00:00:04.000\nBye\n",
+    );
+    vi.mocked(generateText).mockImplementation((async (args: any) =>
+      successfulTranslation(requestedCueCount(args))) as any);
+
+    await translateCaptions("asset-123", "track-1", "es", SHORT_ASSET_OPTIONS);
+
+    const userContent = (vi.mocked(generateText).mock.calls[0][0] as any).messages[0].content as string;
+    expect(userContent.endsWith("[\"Hello there, general Kenobi\",\"Bye\"]")).toBe(true);
   });
 
   it("skips reasoning on OpenAI models that support it", async () => {

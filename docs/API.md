@@ -464,7 +464,7 @@ Translates existing captions from one language to another and optionally adds th
   - `minimumAssetDurationSeconds?: number` - Prefer a single request until the asset is at least this long (default: `1800`)
   - `targetChunkDurationSeconds?: number` - Soft target for chunk duration once chunking starts (default: `1800`)
   - `maxConcurrentTranslations?: number` - Max number of concurrent translation requests when chunking (default: `4`)
-  - `maxCuesPerChunk?: number` - Hard cap for cues included in a single AI translation chunk (default: `80`)
+  - `maxCuesPerChunk?: number` - Hard cap for cues included in a single AI translation chunk (default: `40`)
   - `maxCueTextTokensPerChunk?: number` - Approximate cap for cue text tokens included in a single AI translation chunk (default: `2000`)
 - `neverTranslate?: string[]` - Terms (brand names, proper nouns) to preserve verbatim in the translated output; max 100 terms of 100 characters each, `<` and `>` not allowed. Compliance is verified and reported on `result.neverTranslateTermsPreserved`, not guaranteed.
 - `providerOptions?: ProviderOptions` - AI SDK provider options for the translation calls. When omitted, OpenAI models known to support it get `reasoningEffort: "none"`. Passing this replaces that default.
