@@ -187,6 +187,19 @@ describe("translateCaptions prompt caching and provider options", () => {
     expect(userContent).not.toContain("startTime");
   });
 
+  it("sends a multi-line cue as a single line", async () => {
+    vi.mocked(fetchVttFromMux).mockResolvedValue(
+      "WEBVTT\n\n1\n00:00:00.000 --> 00:00:02.000\nHello there,\n  general Kenobi\n\n2\n00:00:02.000 --> 00:00:04.000\nBye\n",
+    );
+    vi.mocked(generateText).mockImplementation((async (args: any) =>
+      successfulTranslation(requestedCueCount(args))) as any);
+
+    await translateCaptions("asset-123", "track-1", "es", SHORT_ASSET_OPTIONS);
+
+    const userContent = (vi.mocked(generateText).mock.calls[0][0] as any).messages[0].content as string;
+    expect(userContent.endsWith("[\"Hello there, general Kenobi\",\"Bye\"]")).toBe(true);
+  });
+
   it("skips reasoning on OpenAI models that support it", async () => {
     vi.mocked(createLanguageModelFromConfig).mockResolvedValue({ provider: "openai.responses", modelId: "gpt-6-luna" } as any);
     vi.mocked(generateText).mockImplementation((async (args: any) =>

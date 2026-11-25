@@ -206,7 +206,7 @@ export interface TranslationChunkingOptions {
   targetChunkDurationSeconds?: number;
   /** Max number of concurrent translation requests when chunking. Defaults to 4. */
   maxConcurrentTranslations?: number;
-  /** Hard cap for cues included in a single AI translation chunk. Defaults to 80. */
+  /** Hard cap for cues included in a single AI translation chunk. Defaults to 40. */
   maxCuesPerChunk?: number;
   /** Approximate cap for cue text tokens included in a single AI translation chunk. Defaults to 2000. */
   maxCueTextTokensPerChunk?: number;
@@ -241,7 +241,7 @@ const SUBTITLE_GUIDELINES = promptDedent`
     - Translate meaning, not word for word. Use the phrasing a native speaker would expect to read in subtitles.
     - Keep each translated cue about as long as its source cue so it stays readable in the same on-screen time. Condense filler words before dropping meaning.
     - When a sentence spans several cues, break it at a natural point in the target language, but do not move content from one cue into another; each cue must stay in sync with the speech it accompanies.
-    - Preserve line breaks inside a cue where the target language allows.
+    - Write each cue's translation as a single line of text; players wrap it to fit the screen.
     - Keep speaker labels (such as "JOHN:" or a leading "- ") in the same position. Translate role labels (such as "NARRATOR:") but not personal names.
     - Translate bracketed sound and music descriptions (such as "[laughs]" or "(door slams)") and keep their brackets. Keep music symbols such as "♪" as they are.
     - Keep the source register and tone, including formality, slang, humour and profanity. Do not soften, censor or embellish.
@@ -448,7 +448,7 @@ const DEFAULT_TRANSLATION_CHUNKING: Required<TranslationChunkingOptions> = {
   minimumAssetDurationSeconds: 30 * 60,
   targetChunkDurationSeconds: 30 * 60,
   maxConcurrentTranslations: 4,
-  maxCuesPerChunk: 80,
+  maxCuesPerChunk: 40,
   maxCueTextTokensPerChunk: 2000,
 };
 
@@ -906,7 +906,9 @@ async function translateCueChunkWithAI({
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
   // Only the cue text: the VTT is rebuilt locally from the source timings, so
   // sending them would spend input tokens on data the model never uses.
-  const cuePayload = cues.map(cue => cue.text);
+  // Line breaks are flattened because the model otherwise often returns each
+  // line of a multi-line cue as a separate translation, breaking the cue count.
+  const cuePayload = cues.map(cue => cue.text.replace(/\s*\n\s*/g, " "));
 
   const context: ModelCallContext = { call: "translate_vtt_chunk", provider, model: modelId };
   const response = await withContentPolicyAwareRetry(() => generateText({
