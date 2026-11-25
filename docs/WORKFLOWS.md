@@ -251,7 +251,7 @@ const result = await askQuestions(assetId, [
 ```typescript
 const result = await askQuestions(assetId, questions, {
   provider: "openai", // "openai", "anthropic", "google", "baseten", or "openai-compatible" (default: "openai")
-  model: "gpt-5-mini", // Override default model
+  model: "gpt-5.6-terra", // Override default model
   includeTranscript: true, // Include transcript (default: true)
   cleanTranscript: true, // Remove timestamps/markup (default: true)
   imageSubmissionMode: "url", // "url" or "base64" (default: "url")
@@ -883,7 +883,7 @@ Caption editing requires the same S3-compatible storage as [caption translation]
 ```typescript
 const result = await editCaptions(assetId, trackId, {
   provider: "anthropic", // Required when using autoCensorProfanity
-  model: "claude-sonnet-4-5", // Override default model
+  model: "claude-opus-5-5", // Override default model
   autoCensorProfanity: {
     mode: "blank", // "blank", "remove", or "mask" (default: "blank")
     alwaysCensor: [], // Words to always censor
@@ -996,7 +996,7 @@ const openaiResult = await getSummaryAndTags(assetId, {
   tone: "professional"
 });
 
-// Anthropic analysis (default: claude-sonnet-4-5)
+// Anthropic analysis (default: claude-sonnet-5-5)
 const anthropicResult = await getSummaryAndTags(assetId, {
   provider: "anthropic",
   tone: "professional"
@@ -1039,7 +1039,7 @@ const openaiChapters = await generateChapters(assetId, {
   provider: "openai"
 });
 
-// Anthropic (default: claude-sonnet-4-5)
+// Anthropic (default: claude-sonnet-5-5)
 const anthropicChapters = await generateChapters(assetId, {
   provider: "anthropic"
 });
@@ -1080,4 +1080,4 @@ const fastResult = await getSummaryAndTags(assetId, {
 });
 ```
 
-**Cost Optimization Tip:** The defaults (`gpt-5.6-luna` at medium reasoning, `claude-sonnet-4-5`, `gemini-3-flash-preview`) are optimized for cost/quality balance. Only upgrade to more powerful models when quality needs justify the higher cost.
+**Cost Optimization Tip:** The defaults (`gpt-5.6-luna` at medium reasoning, `claude-sonnet-5-5`, `gemini-3-flash-preview`) are optimized for cost/quality balance. Only upgrade to more powerful models when quality needs justify the higher cost.
