@@ -125,8 +125,7 @@ describe("bounded text repair", () => {
   ])("accepts a repair meeting every cap even when the other unit grows ($replacement)", async ({ content, replacement, limits }) => {
     const generate = vi.fn(async () => ({ replacements: { p_0: replacement }, usage: { tokens: 12 }, elapsedMs: 1 }));
     const result = await runTextRepairLoop({ content, limits, generate, maxAttempts: 1 });
-    expect(result.status).toBe("valid");
-    expect(result.content).toBe(replacement);
+    expect(result).toMatchObject({ status: "valid", content: replacement });
     expect(generate).toHaveBeenCalledTimes(1);
     expect(result.attempts[0].call.usage).toEqual({ tokens: 12 });
   });
@@ -136,8 +135,7 @@ describe("bounded text repair", () => {
       .mockResolvedValueOnce({ replacements: { p_0: "x".repeat(110) }, usage: { tokens: 20 }, elapsedMs: 1 })
       .mockResolvedValueOnce({ replacements: { p_0: "Short." }, usage: { tokens: 10 }, elapsedMs: 1 });
     const result = await runTextRepairLoop({ content: "x".repeat(200), limits: [{ unit: "characters", value: 100 }], generate });
-    expect(result.status).toBe("valid");
-    expect(result.content).toBe("Short.");
+    expect(result).toMatchObject({ status: "valid", content: "Short." });
     expect(result.attempts.map(attempt => attempt.call.usage)).toEqual([{ tokens: 20 }, { tokens: 10 }]);
     expect(generate.mock.calls[1][0].spans[0].text).toHaveLength(110);
   });

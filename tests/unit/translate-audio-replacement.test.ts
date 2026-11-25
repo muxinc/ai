@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { TextTrackSummary } from "../../src/lib/mux-tracks.ts";
 import { muxVideoCallError } from "../../src/lib/mux-video-errors.ts";
 import { dubbingLanguage, dubbingProject } from "../helpers/elevenlabs-dubbing.ts";
 
@@ -61,6 +62,8 @@ const ASSET_ID = "asset-123";
 const PRIMARY_AUDIO = { id: "primary", type: "audio", language_code: "en", name: "English", primary: true };
 const OLD_DUB = { id: "old-dub", type: "audio", language_code: "es", name: "Spanish (Auto-dubbed)" };
 const OLD_DUB_CAPTIONS = { id: "old-dub-text", type: "text", text_type: "subtitles", status: "ready", language_code: "es", name: "Spanish (Auto-dubbed)", text_source: "uploaded" };
+/** OLD_DUB_CAPTIONS as the replacement step reports it. */
+const OLD_DUB_CAPTIONS_SUMMARY: TextTrackSummary = { id: "old-dub-text", type: "text", status: "ready", languageCode: "es", name: "Spanish (Auto-dubbed)", textSource: "uploaded" };
 
 function assetWith(tracks: unknown[]) {
   return {
@@ -232,7 +235,7 @@ describe("translateAudio track replacement", () => {
     stubElevenLabsFetch();
     vi.mocked(replaceAndCreateTrack)
       .mockResolvedValueOnce({ kind: "created", trackId: "audio", deleted: [] })
-      .mockResolvedValueOnce({ kind: "blocked", reason: "A text track already exists", tracks: [OLD_DUB_CAPTIONS], deleted: [] });
+      .mockResolvedValueOnce({ kind: "blocked", reason: "A text track already exists", code: "policy_fail", tracks: [OLD_DUB_CAPTIONS_SUMMARY], conflictsOnLanguage: true, deleted: [] });
 
     const result = await translateAudio(ASSET_ID, "es", { uploadCaptionsToMux: true, ...captions });
 
@@ -361,7 +364,7 @@ describe("independent dubbed subtitles", () => {
     stubElevenLabsFetch();
     vi.mocked(replaceAndCreateTrack)
       .mockResolvedValueOnce({ kind: "created", trackId: "audio", deleted: [] })
-      .mockResolvedValueOnce({ kind: "blocked", reason: "A text track already exists", tracks: [OLD_DUB_CAPTIONS], deleted: [] });
+      .mockResolvedValueOnce({ kind: "blocked", reason: "A text track already exists", code: "policy_fail", tracks: [OLD_DUB_CAPTIONS_SUMMARY], conflictsOnLanguage: true, deleted: [] });
     const result = await translateAudio(ASSET_ID, "es", {
       replaceExistingTracks: "replace_all",
       uploadCaptionsToMux: true,

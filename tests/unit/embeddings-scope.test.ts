@@ -69,6 +69,6 @@ describe("generateEmbeddings scope handling", () => {
   it("treats an empty scope like an omitted scope without requiring asset duration", async () => {
     await expect(generateEmbeddings("asset-123", { scope: {} })).resolves.toBeDefined();
 
-    expect(vi.mocked(fetchTranscriptForAsset).mock.calls[0][2].scope).toBeUndefined();
+    expect(vi.mocked(fetchTranscriptForAsset).mock.calls[0][2]!.scope).toBeUndefined();
   });
 });

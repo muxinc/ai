@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import type { MuxAiError } from "../../src/lib/mux-ai-error";
 import { toPublicError } from "../../src/lib/public-error";
 import {
   resolveRenderableVideoScope,
@@ -65,7 +66,7 @@ describe("resolveWorkflowScope", () => {
     } catch (caught) {
       error = caught;
     }
-    expect(toPublicError(error)).toMatchObject({
+    expect(toPublicError(error as MuxAiError)).toMatchObject({
       code: "invalid_scope",
       message: "The requested end time (121s) is after the end of the asset (120s).",
     });
@@ -121,7 +122,7 @@ describe("resolveRenderableVideoScope", () => {
       source: "request",
       facts: { reason: "no_video", startTime: 100, endTime: 120, videoEndTime: 90, inputs: ["scope"] },
     });
-    expect(toPublicError(error)).toMatchObject({
+    expect(toPublicError(error as MuxAiError)).toMatchObject({
       message: "The requested time range starts at 100s, at or after the end of the asset's video (90s).",
     });
   });

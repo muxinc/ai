@@ -204,16 +204,21 @@ npm run lint:fix
 ### Type Checking
 
 ```bash
-# Run TypeScript type checker
+# Run TypeScript type checker on src/
 npm run typecheck
+
+# Type check the tests (and the src/ they import) as a consumer would compile them
+npm run typecheck:tests
 ```
+
+Vitest strips types without checking them, so a test that no longer compiles against the SDK's types still passes `npm test`. `typecheck:tests` catches that; CI and the pre-commit hook run both checks.
 
 ### Pre-commit Hooks
 
 Git hooks are automatically set up via [Husky](https://typicode.github.io/husky/) when you run `npm install`. These hooks will:
 
 - Run linting on staged TS(X)/JS(X) files
-- Run TypeScript type checking
+- Run TypeScript type checking (`typecheck` and `typecheck:tests`)
 
 ### Code Style Guidelines
 

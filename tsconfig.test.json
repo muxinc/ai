@@ -1,0 +1,26 @@
+{
+  "extends": "./tsconfig.json",
+  // Type checks the tests together with the src/ they import (`npm run typecheck:tests`).
+  // Vitest strips types without checking them, so without this a test that stopped
+  // compiling against the SDK's types would still pass.
+  "compilerOptions": {
+    // Tests run on Node (engines >= 21), so they may use ES2022 APIs. src/ keeps the
+    // base lib through `npm run typecheck`.
+    "lib": ["ES2022"],
+    "rootDir": ".",
+    "paths": {
+      "@mux/ai": ["src/index.ts"],
+      "@mux/ai/workflows": ["src/workflows/index.ts"],
+      "@mux/ai/primitives": ["src/primitives/index.ts"],
+      "@mux/ai/types": ["src/types.ts"],
+      "@mux/ai/*": ["src/*"]
+    },
+    "types": ["node", "vitest/globals"],
+    "declaration": false,
+    "declarationMap": false,
+    "noEmit": true,
+    "sourceMap": false
+  },
+  "include": ["src/**/*", "tests/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

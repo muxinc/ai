@@ -27,7 +27,12 @@ async function putError(response: Response | Error) {
     }
     return response;
   }));
-  return putObjectToS3({ ...target, classifiedErrors: true }).catch(error => error as MuxAiError);
+  return putObjectToS3({ ...target, classifiedErrors: true }).then(
+    () => {
+      throw new Error("expected a rejection");
+    },
+    error => error as MuxAiError,
+  );
 }
 
 afterEach(() => {

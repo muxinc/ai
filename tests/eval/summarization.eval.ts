@@ -7,7 +7,7 @@ import { reportTrace } from "evalite/traces";
 import { calculateModelCost, EVAL_MODEL_CONFIGS } from "../../src/lib/providers";
 import type { ModelIdByProvider, SupportedProvider } from "../../src/lib/providers";
 import type { TokenUsage } from "../../src/types";
-import { getSummaryAndTags, SUMMARY_KEYWORD_LIMIT } from "../../src/workflows";
+import { DEFAULT_SUMMARY_KEYWORD_LIMIT, getSummaryAndTags } from "../../src/workflows";
 import type { SummaryAndTagsResult } from "../../src/workflows";
 import { getLatencyPerformanceDescription, scoreLatencyPerformance } from "../helpers/latency-performance";
 import { muxTestAssets } from "../helpers/mux-test-assets";
@@ -36,7 +36,7 @@ import { muxTestAssets } from "../helpers/mux-test-assets";
  *
  * 3. TAGS QUALITY
  *    - Non-empty array of keywords
- *    - Up to 10 tags (respects SUMMARY_KEYWORD_LIMIT)
+ *    - Up to 10 tags (respects DEFAULT_SUMMARY_KEYWORD_LIMIT)
  *    - No duplicates (case-insensitive)
  *    - Lowercase format (per prompt requirements)
  *    - Concrete nouns and action verbs over abstract concepts
@@ -372,7 +372,7 @@ evalite("Summarization", {
     // TAGS QUALITY: Array with valid items, no duplicates, respects limit
     {
       name: "tags-quality",
-      description: `Validates tags are an array of unique strings, up to ${SUMMARY_KEYWORD_LIMIT} items.`,
+      description: `Validates tags are an array of unique strings, up to ${DEFAULT_SUMMARY_KEYWORD_LIMIT} items.`,
       scorer: ({ output }: { output: EvalOutput }) => {
         const { tags } = output;
 
@@ -387,7 +387,7 @@ evalite("Summarization", {
         }
 
         // Must not exceed limit
-        if (tags.length > SUMMARY_KEYWORD_LIMIT) {
+        if (tags.length > DEFAULT_SUMMARY_KEYWORD_LIMIT) {
           return 0.5;
         }
 

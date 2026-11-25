@@ -46,6 +46,26 @@ const { getStoryboardUrl } = await import("../../src/primitives/storyboards");
 const { fetchTranscriptForAsset } = await import("../../src/primitives/transcripts");
 const { getSummaryAndTags } = await import("../../src/workflows/summarization");
 
+type GenerateTextRequest = Parameters<typeof generateText>[0];
+
+/** The parts of the request's first (user) message. */
+function userContent(request: GenerateTextRequest) {
+  const content = request.messages?.[0]?.content;
+  if (!Array.isArray(content)) {
+    throw new TypeError("Expected the first message to have content parts.");
+  }
+  return content;
+}
+
+/** The text of the request's first message part. */
+function promptText(request: GenerateTextRequest): string {
+  const part = userContent(request)[0];
+  if (part?.type !== "text") {
+    throw new TypeError("Expected the first message part to be text.");
+  }
+  return part.text;
+}
+
 const sceneContext = [
   {
     scene_index: 0,
@@ -128,7 +148,7 @@ describe("summarization scene context", () => {
     const request = vi.mocked(generateText).mock.calls[0][0];
     expect(request.system).toContain("Ordered scene context");
     expect(request.system).toContain("Use all provided evidence together");
-    expect(request.messages[0].content).toEqual([
+    expect(userContent(request)).toEqual([
       expect.objectContaining({
         type: "text",
         text: expect.stringContaining("<scene_context format=\"json\" order=\"scene_index_ascending\">"),
@@ -138,11 +158,11 @@ describe("summarization scene context", () => {
         image: "https://image.example/storyboard.jpg",
       },
     ]);
-    expect(request.messages[0].content[0].text).toContain(JSON.stringify(sceneContext));
-    expect(request.messages[0].content[0].text).toContain(
+    expect(promptText(request)).toContain(JSON.stringify(sceneContext));
+    expect(promptText(request)).toContain(
       "The important part is that every output starts from the same evidence.",
     );
-    expect(request.messages[0].content[0].text).toContain("Follow scene_index order");
+    expect(promptText(request)).toContain("Follow scene_index order");
   });
 
   it("combines scene context with a scoped storyboard when requested", async () => {
@@ -160,7 +180,7 @@ describe("summarization scene context", () => {
     );
 
     const request = vi.mocked(generateText).mock.calls[0][0];
-    expect(request.messages[0].content).toEqual([
+    expect(userContent(request)).toEqual([
       expect.objectContaining({ type: "text", text: expect.stringContaining("<scene_context") }),
       {
         type: "image",
@@ -176,8 +196,8 @@ describe("summarization scene context", () => {
     const request = vi.mocked(generateText).mock.calls[0][0];
     expect(request.system).toContain("storyboard interpretation");
     expect(request.system).not.toContain("ordered scene context");
-    expect(request.messages[0].content[0].text).not.toContain("<scene_context");
-    expect(request.messages[0].content[0].text).toContain(
+    expect(promptText(request)).not.toContain("<scene_context");
+    expect(promptText(request)).toContain(
       "Analyze the storyboard frames and generate metadata that captures the essence of the video content.",
     );
   });
@@ -191,13 +211,13 @@ describe("summarization scene context", () => {
     expect(fetchTranscriptForAsset).not.toHaveBeenCalled();
     expect(getStoryboardUrl).toHaveBeenCalledOnce();
     const request = vi.mocked(generateText).mock.calls[0][0];
-    expect(request.messages[0].content).toEqual([
+    expect(userContent(request)).toEqual([
       expect.objectContaining({ type: "text", text: expect.stringContaining("<scene_context") }),
       {
         type: "image",
         image: "https://image.example/storyboard.jpg",
       },
     ]);
-    expect(request.messages[0].content[0].text).not.toContain("<transcript");
+    expect(promptText(request)).not.toContain("<transcript");
   });
 });

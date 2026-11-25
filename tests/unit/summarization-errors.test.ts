@@ -164,7 +164,7 @@ describe("getSummaryAndTags classified errors", () => {
 
     expect(downloadImageAsBase64).toHaveBeenCalledWith("https://image.example/storyboard.jpg", undefined, { classifiedErrors: true, call: "fetch_storyboard" });
     const request = vi.mocked(generateText).mock.calls[0][0];
-    expect(request.messages[0].content[1]).toEqual({ type: "image", image: "data:image/jpeg;base64,AAAA" });
+    expect(request.messages![0].content[1]).toEqual({ type: "image", image: "data:image/jpeg;base64,AAAA" });
   });
 
   it("passes a classified storyboard download failure through without model facts", async () => {
