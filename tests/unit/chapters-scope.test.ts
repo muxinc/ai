@@ -90,11 +90,11 @@ describe("generateChapters scope handling", () => {
     const omittedResult = await generateChapters("asset-123");
     const emptyResult = await generateChapters("asset-123", { scope: {} });
 
-    expect(vi.mocked(fetchTranscriptForAsset).mock.calls[0][2].scope).toBeUndefined();
-    expect(vi.mocked(fetchTranscriptForAsset).mock.calls[1][2].scope).toBeUndefined();
+    expect(vi.mocked(fetchTranscriptForAsset).mock.calls[0][2]!.scope).toBeUndefined();
+    expect(vi.mocked(fetchTranscriptForAsset).mock.calls[1][2]!.scope).toBeUndefined();
 
-    const omittedPrompt = vi.mocked(generateText).mock.calls[0][0].messages[0].content;
-    const emptyPrompt = vi.mocked(generateText).mock.calls[1][0].messages[0].content;
+    const omittedPrompt = vi.mocked(generateText).mock.calls[0][0].messages![0].content;
+    const emptyPrompt = vi.mocked(generateText).mock.calls[1][0].messages![0].content;
     expect(emptyPrompt).toBe(omittedPrompt);
     expect(emptyResult.chapters).toEqual(omittedResult.chapters);
   });
@@ -143,7 +143,7 @@ describe("generateChapters scene context", () => {
       { startTime: 70, title: "Conclusion" },
     ]);
 
-    const prompt = vi.mocked(generateText).mock.calls[0][0].messages[0].content;
+    const prompt = vi.mocked(generateText).mock.calls[0][0].messages![0].content;
     expect(prompt).toContain("<scene_context timestamps=\"milliseconds\" trust=\"untrusted_evidence\">");
     expect(prompt).toContain("&lt;topic&gt;");
     expect(prompt).toContain("start_ms divided by 1000");
@@ -179,7 +179,7 @@ describe("generateChapters scene context", () => {
       { startTime: 0, title: "Introduction" },
       { startTime: 47.5, title: "Standalone boundary" },
     ]);
-    const prompt = vi.mocked(generateText).mock.calls[0][0].messages[0].content;
+    const prompt = vi.mocked(generateText).mock.calls[0][0].messages![0].content;
     expect(prompt).not.toContain("<scene_context");
     expect(prompt).not.toContain("never split a scene");
     expect(vi.mocked(generateText).mock.calls[0][0].system).not.toContain("scene progression");
@@ -245,7 +245,7 @@ describe("generateChapters scene context", () => {
     });
 
     expect(result.chapters).toEqual([{ startTime: 70, title: "Scene-aligned title" }]);
-    const prompt = vi.mocked(generateText).mock.calls[0][0].messages[0].content;
+    const prompt = vi.mocked(generateText).mock.calls[0][0].messages![0].content;
     expect(prompt).toContain("The first chapter must start at 70s, the first scene boundary inside the analyzed range");
     expect(prompt).not.toContain("The first chapter must start at 35s");
   });

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import type { MuxAiError } from "../../src/lib/mux-ai-error.ts";
 import { toPublicError } from "../../src/lib/public-error.ts";
 import {
   applyOverrideLists,
@@ -866,6 +867,6 @@ describe("editCaptions validation", () => {
       source: "request",
       facts: { inputs },
     });
-    expect(toPublicError(error).message).toBe(publicMessage);
+    expect(toPublicError(error as MuxAiError).message).toBe(publicMessage);
   });
 });

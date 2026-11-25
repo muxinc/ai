@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "rootDir": ".",
+    "paths": {
+      "@mux/ai": ["src/index.ts"],
+      "@mux/ai/workflows": ["src/workflows/index.ts"],
+      "@mux/ai/primitives": ["src/primitives/index.ts"],
+      "@mux/ai/types": ["src/types.ts"],
+      "@mux/ai/*": ["src/*"]
+    },
+    "types": ["node", "vitest/globals"],
+    "declaration": false,
+    "declarationMap": false,
+    "noEmit": true,
+    "sourceMap": false
+  },
+  "include": ["src/**/*", "tests/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

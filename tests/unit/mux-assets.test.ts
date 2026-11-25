@@ -158,6 +158,6 @@ describe("isVideoOnlyAsset", () => {
 
   it("returns false when tracks are not known yet", () => {
     expect(isVideoOnlyAsset({ id: "none" } as MuxAsset)).toBe(false);
-    expect(isVideoOnlyAsset({ id: "empty", tracks: [] } as MuxAsset)).toBe(false);
+    expect(isVideoOnlyAsset({ id: "empty", tracks: [] as NonNullable<MuxAsset["tracks"]> } as MuxAsset)).toBe(false);
   });
 });

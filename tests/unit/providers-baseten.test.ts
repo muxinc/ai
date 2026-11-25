@@ -2,22 +2,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { createOpenAICompatibleMock } = vi.hoisted(() => {
   const createOpenAICompatibleMock = vi.fn((config: { name: string; apiKey?: string; baseURL: string }) => {
-    const provider = vi.fn((modelId: string) => ({
+    return Object.assign(vi.fn((modelId: string) => ({
       config,
       kind: "language",
       modelId,
-    }));
-    provider.chatModel = vi.fn((modelId: string) => ({
-      config,
-      kind: "language",
-      modelId,
-    }));
-    provider.textEmbeddingModel = vi.fn((modelId: string) => ({
-      config,
-      kind: "embedding",
-      modelId,
-    }));
-    return provider;
+    })), {
+      chatModel: vi.fn((modelId: string) => ({
+        config,
+        kind: "language",
+        modelId,
+      })),
+      textEmbeddingModel: vi.fn((modelId: string) => ({
+        config,
+        kind: "embedding",
+        modelId,
+      })),
+    });
   });
 
   return { createOpenAICompatibleMock };

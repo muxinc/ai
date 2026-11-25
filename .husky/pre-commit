@@ -46,6 +46,14 @@ else
   echo "${RED}✗ Type check failed${NC}"
   exit 1
 fi
+
+echo "🔎 Running TypeScript type check on tests..."
+if npm run typecheck:tests --silent; then
+  echo "${GREEN}✓ Test type check passed${NC}"
+else
+  echo "${RED}✗ Test type check failed${NC}"
+  exit 1
+fi
 echo ""
 
 echo "${GREEN}✅ All pre-commit checks passed!${NC}"

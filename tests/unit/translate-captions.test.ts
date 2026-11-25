@@ -170,7 +170,7 @@ describe("shouldSplitChunkTranslationError", () => {
   });
 
   it("allows splitting for unusable output, including a cue-count mismatch", () => {
-    const mismatch = new MuxAiError("The model returned 1 translated cues, expected 2", { code: "model_output_missing" });
+    const mismatch = new MuxAiError("The model returned 1 translated cues, expected 2", { code: "model_output_missing", type: "processing_error", source: "upstream", dependency: "ai_provider" });
     expect(shouldSplitChunkTranslationError(mismatch)).toBe(true);
     expect(shouldSplitChunkTranslationError(JSON.parse(JSON.stringify(mismatch)))).toBe(true);
   });

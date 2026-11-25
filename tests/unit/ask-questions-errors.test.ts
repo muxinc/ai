@@ -145,7 +145,7 @@ describe("askQuestions classified errors", () => {
     await askQuestions("asset-123", QUESTION, { imageSubmissionMode: "base64" });
 
     expect(downloadImageAsBase64).toHaveBeenCalledWith("https://image.example/storyboard.jpg", undefined, { classifiedErrors: true, call: "fetch_storyboard" });
-    expect(vi.mocked(generateText).mock.calls[0][0].messages[0].content[1]).toEqual({ type: "image", image: "data:image/jpeg;base64,AAAA" });
+    expect(vi.mocked(generateText).mock.calls[0][0].messages![0].content[1]).toEqual({ type: "image", image: "data:image/jpeg;base64,AAAA" });
   });
 
   it("passes a classified storyboard download failure through without model facts", async () => {

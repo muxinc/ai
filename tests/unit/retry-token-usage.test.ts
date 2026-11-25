@@ -26,7 +26,7 @@ describe("model retry usage accounting", () => {
       }
     }
     const original = Object.freeze(new Result());
-    const operation = vi.fn()
+    const operation = vi.fn<() => Promise<Result>>()
       .mockRejectedValueOnce(Object.assign(failure(7), { usage: { inputTokens: 4, outputTokens: 3, totalTokens: 7, inputTokenDetails: { cacheReadTokens: 1 }, outputTokenDetails: { reasoningTokens: 2 } } }))
       .mockRejectedValueOnce(failure(9))
       .mockResolvedValueOnce(original);
