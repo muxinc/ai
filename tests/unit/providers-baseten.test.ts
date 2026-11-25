@@ -68,9 +68,10 @@ describe("baseten provider integration", () => {
   it("requires an explicit Baseten language model when no default is configured", async () => {
     const { resolveLanguageModelConfig } = await import("../../src/lib/providers");
 
-    expect(() => resolveLanguageModelConfig({ provider: "baseten" })).toThrow(
-      "Baseten model is required.",
-    );
+    expect(() => resolveLanguageModelConfig({ provider: "baseten" })).toThrow(expect.objectContaining({
+      code: "provider_not_configured",
+      facts: expect.objectContaining({ provider: "baseten", reason: "model_missing" }),
+    }));
   });
 
   it("excludes Baseten from eval model selection", async () => {
@@ -170,9 +171,10 @@ describe("baseten provider integration", () => {
 
     const { createLanguageModelFromConfig } = await import("../../src/lib/providers");
 
-    await expect(createLanguageModelFromConfig("baseten", "mux-summarizer")).rejects.toThrow(
-      "Baseten dedicated deployment URLs must be /sync/v1 endpoints for language models",
-    );
+    await expect(createLanguageModelFromConfig("baseten", "mux-summarizer")).rejects.toMatchObject({
+      code: "provider_not_configured",
+      facts: { provider: "baseten", reason: "base_url_unsupported" },
+    });
   });
 
   it("treats non-deployment URLs as shared OpenAI-compatible base URLs", async () => {
