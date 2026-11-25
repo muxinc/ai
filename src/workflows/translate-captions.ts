@@ -284,8 +284,8 @@ const SYSTEM_PROMPT = promptDedent`
 
 const CUE_TRANSLATION_SYSTEM_PROMPT = promptDedent`
   You are a subtitle translation expert.
-  You will receive a sequence of subtitle cues extracted from a VTT file, as a JSON array
-  holding one string of cue text per cue, in playback order.
+  You will receive a sequence of subtitle cues extracted from a VTT file, as a JSON array of
+  [index, text] pairs in playback order. Return one translation per index, in index order.
   Translate the cues to the requested target language while preserving their original order.
   Treat the cue list as continuous context so the translation reads naturally across adjacent lines.
   If the user message contains a <never_translate> section, every term listed
@@ -398,9 +398,9 @@ function getTranslationProviderOptions(
 
 // Uses zod's default .strip(). Extras from the model are stripped silently;
 // the call site re-parses response.text and records them as `unexpected_key`
-// in the safety report. The schema is the same for every chunk so it stays
-// part of the cacheable prompt prefix; translateChunkWithFallback checks the
-// cue count instead.
+// in the safety report. Pinning the array to the chunk's cue count keeps the
+// model from splitting or merging cues, and does not stop the system prompt
+// from being cached.
 //
 // Tuning notes on `.max(2000)` per translated cue:
 // - Legitimate cues are usually well under 500 chars even for long
@@ -411,9 +411,11 @@ function getTranslationProviderOptions(
 //   through any single cue position.
 // - Tightening below 2000 risks rejecting legitimate translations
 //   that expand meaningfully; tuning should track the input cap.
-const cueTranslationSchema = z.object({
-  translations: z.array(z.string().min(1).max(2000)),
-});
+function cueTranslationSchema(cueCount: number) {
+  return z.object({
+    translations: z.array(z.string().min(1).max(2000)).length(cueCount),
+  });
+}
 
 // Substring matching, no word boundaries: consistent for scripts
 // without word delimiters (CJK), and both sides count the same way.
@@ -904,16 +906,17 @@ async function translateCueChunkWithAI({
   "use step";
 
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
-  // Only the cue text: the VTT is rebuilt locally from the source timings, so
-  // sending them would spend input tokens on data the model never uses.
-  const cuePayload = cues.map(cue => cue.text);
+  // Index and text only: the VTT is rebuilt locally from the source timings,
+  // and the index keeps the model's output aligned with its input.
+  const cuePayload = cues.map((cue, index) => [index, cue.text]);
+  const schema = cueTranslationSchema(cues.length);
 
   const context: ModelCallContext = { call: "translate_vtt_chunk", provider, model: modelId };
   const response = await withContentPolicyAwareRetry(() => generateText({
     model,
     maxRetries: 0,
     providerOptions: providerOptions ?? getTranslationProviderOptions(model),
-    output: Output.object({ schema: cueTranslationSchema }),
+    output: Output.object({ schema }),
     system: CUE_TRANSLATION_SYSTEM_PROMPT,
     messages: [
       {
@@ -928,7 +931,7 @@ async function translateCueChunkWithAI({
   // root envelope were stripped by zod; log + bubble count to aggregate.
   const unexpectedKeys = detectUnexpectedKeysFromRawText(
     response.text,
-    cueTranslationSchema.keyof().options,
+    schema.keyof().options,
   );
   if (unexpectedKeys.length > 0) {
     console.warn(

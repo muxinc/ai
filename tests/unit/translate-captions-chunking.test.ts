@@ -167,7 +167,7 @@ describe("translateCaptions chunking for short assets", () => {
 });
 
 describe("translateCaptions prompt caching and provider options", () => {
-  it("sends the same system prompt and schema for every chunk, and only cue text", async () => {
+  it("sends the same system prompt for every chunk, indexed cue text, and a schema pinned to the cue count", async () => {
     vi.mocked(generateText).mockImplementation((async (args: any) =>
       successfulTranslation(requestedCueCount(args))) as any);
 
@@ -180,10 +180,11 @@ describe("translateCaptions prompt caching and provider options", () => {
     expect(calls).toHaveLength(3);
     expect(new Set(calls.map(args => args.system)).size).toBe(1);
     const responseFormats = await Promise.all(calls.map(async args => JSON.stringify(await args.output.responseFormat)));
-    expect(new Set(responseFormats).size).toBe(1);
-    expect(responseFormats[0]).not.toContain("minItems");
+    expect(responseFormats[0]).toContain("\"minItems\":2");
+    expect(responseFormats[0]).toContain("\"maxItems\":2");
+    expect(responseFormats[2]).toContain("\"maxItems\":1");
     const userContent = calls[0].messages[0].content as string;
-    expect(userContent.endsWith("[\"Hello 1\",\"Hello 2\"]")).toBe(true);
+    expect(userContent.endsWith("[[0,\"Hello 1\"],[1,\"Hello 2\"]]")).toBe(true);
     expect(userContent).not.toContain("startTime");
   });
 
