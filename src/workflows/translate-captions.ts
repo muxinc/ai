@@ -285,8 +285,8 @@ const SYSTEM_PROMPT = promptDedent`
 
 const CUE_TRANSLATION_SYSTEM_PROMPT = promptDedent`
   You are a subtitle translation expert.
-  You will receive a sequence of subtitle cues extracted from a VTT file, as a JSON array of
-  [index, text] pairs in playback order. Return one translation per index, in index order.
+  You will receive a sequence of subtitle cues extracted from a VTT file, as a JSON array
+  holding one string of cue text per cue, in playback order.
   Translate the cues to the requested target language while preserving their original order.
   Treat the cue list as continuous context so the translation reads naturally across adjacent lines.
   If the user message contains a <never_translate> section, every term listed
@@ -919,9 +919,9 @@ async function translateCueChunkWithAI({
   "use step";
 
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
-  // Index and text only: the VTT is rebuilt locally from the source timings,
-  // and the index keeps the model's output aligned with its input.
-  const cuePayload = cues.map((cue, index) => [index, cue.text]);
+  // Only the cue text: the VTT is rebuilt locally from the source timings, so
+  // sending them would spend input tokens on data the model never uses.
+  const cuePayload = cues.map(cue => cue.text);
   const schema = cueTranslationSchema(cues.length);
 
   const context: ModelCallContext = { call: "translate_vtt_chunk", provider, model: modelId };
