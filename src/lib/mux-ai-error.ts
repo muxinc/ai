@@ -151,6 +151,10 @@ export const MUX_AI_ERROR_CODES = {
   SIGNING_CREDENTIALS_MISSING: "signing_credentials_missing",
   /** Storage is needed but the service running the SDK didn't configure it. */
   STORAGE_NOT_CONFIGURED: "storage_not_configured",
+  /** The model provider the request uses isn't configured by the service running the SDK: no API key, no default model, or no usable endpoint URL. Facts: `provider`, `reason` (`api_key_missing`, `model_missing`, `base_url_missing`, `base_url_unsupported`), `settings` (the environment variables and workflow credential fields that configure it; names only, never values). */
+  PROVIDER_NOT_CONFIGURED: "provider_not_configured",
+  /** The requested model provider or model can't be used: the provider isn't one the SDK supports, or the model has been retired. Facts: `reason` (`provider_unsupported`, `model_retired`), `provider`, `model` for `model_retired`, `replacementModel` when there is one, and `inputs` (`provider` or `model`). */
+  MODEL_UNSUPPORTED: "model_unsupported",
   /** A track write failed, but the opted-in result carried no classified error: a bug in the SDK's track-write path. Facts: `reason`, the raw failure's message. */
   TRACK_WRITE_UNCLASSIFIED: "track_write_unclassified",
   /** Mux answered a track create without a track id. The track may exist, so it isn't step-retried. Facts: `call`, `assetId`. */
@@ -250,6 +254,9 @@ export const MUX_AI_ERROR_CATALOG = {
   [MUX_AI_ERROR_CODES.INVALID_PARAMETER]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
   [MUX_AI_ERROR_CODES.PARAMETER_OUT_OF_RANGE]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
   [MUX_AI_ERROR_CODES.ASSET_NOT_FOUND]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST, dependency: MUX_AI_ERROR_DEPENDENCIES.MUX_VIDEO },
+  // `provider` and `model` are options passed with each request; a caller that sets them
+  // itself re-attributes the failure through the `inputs` fact.
+  [MUX_AI_ERROR_CODES.MODEL_UNSUPPORTED]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.REQUEST },
   // The asset's state.
   [MUX_AI_ERROR_CODES.CAPTION_TRACK_NOT_FOUND]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },
   [MUX_AI_ERROR_CODES.PLAYBACK_ID_NOT_FOUND]: { type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR, source: MUX_AI_ERROR_SOURCES.ASSET },
@@ -260,6 +267,7 @@ export const MUX_AI_ERROR_CATALOG = {
   // The configuration of the service running the SDK.
   [MUX_AI_ERROR_CODES.SIGNING_CREDENTIALS_MISSING]: { type: MUX_AI_ERROR_TYPES.SERVER_ERROR, source: MUX_AI_ERROR_SOURCES.INTERNAL },
   [MUX_AI_ERROR_CODES.STORAGE_NOT_CONFIGURED]: { type: MUX_AI_ERROR_TYPES.SERVER_ERROR, source: MUX_AI_ERROR_SOURCES.INTERNAL },
+  [MUX_AI_ERROR_CODES.PROVIDER_NOT_CONFIGURED]: { type: MUX_AI_ERROR_TYPES.SERVER_ERROR, source: MUX_AI_ERROR_SOURCES.INTERNAL },
   [MUX_AI_ERROR_CODES.ASSET_SNAPSHOT_MISMATCH]: { type: MUX_AI_ERROR_TYPES.SERVER_ERROR, source: MUX_AI_ERROR_SOURCES.INTERNAL },
   // The SDK's own bug: never expected.
   [MUX_AI_ERROR_CODES.TRACK_WRITE_UNCLASSIFIED]: { type: MUX_AI_ERROR_TYPES.SERVER_ERROR, source: MUX_AI_ERROR_SOURCES.INTERNAL },

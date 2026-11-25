@@ -16,6 +16,8 @@ import type {
   WorkflowMuxClient,
 } from "../types.ts";
 
+import type { ClassifiedErrorsOption } from "./mux-ai-error.ts";
+import { providerConfigError, providerNotConfiguredError } from "./provider-config-errors.ts";
 import type { SigningContext } from "./url-signing.ts";
 import { decryptFromWorkflow, isEncryptedPayload } from "./workflow-crypto.ts";
 
@@ -244,47 +246,35 @@ export async function resolveMuxClient(
 /** Supported AI/ML provider identifiers for API key resolution. */
 export type ApiKeyProvider = "openai" | "baseten" | "anthropic" | "google" | "google-vision-api" | "hive" | "elevenlabs";
 
+/** The workflow credential field and environment variable that hold each provider's API key. */
+const PROVIDER_API_KEY_SETTINGS = {
+  "openai": { credential: "openaiApiKey", envVar: "OPENAI_API_KEY" },
+  "baseten": { credential: "basetenApiKey", envVar: "BASETEN_API_KEY" },
+  "anthropic": { credential: "anthropicApiKey", envVar: "ANTHROPIC_API_KEY" },
+  "google": { credential: "googleApiKey", envVar: "GOOGLE_GENERATIVE_AI_API_KEY" },
+  "google-vision-api": { credential: "googleVisionApiKey", envVar: "GOOGLE_VISION_API_KEY" },
+  "hive": { credential: "hiveApiKey", envVar: "HIVE_API_KEY" },
+  "elevenlabs": { credential: "elevenLabsApiKey", envVar: "ELEVENLABS_API_KEY" },
+  // `satisfies` keeps the env var names in sync with the Env schema.
+} as const satisfies Record<ApiKeyProvider, { credential: keyof WorkflowCredentials; envVar: keyof Env }>;
+
+/**
+ * With `classifiedErrors`, a missing key is `provider_not_configured`; without it, a plain
+ * `Error` as before (embeddings haven't moved onto classified errors yet).
+ */
 export function resolveProviderApiKeyFromCredentials(
   provider: ApiKeyProvider,
   resolved: WorkflowCredentials,
+  options: ClassifiedErrorsOption = {},
 ): string {
   const record = resolved as Record<string, unknown>;
-  const openaiApiKey = readString(record, "openaiApiKey");
-  const basetenApiKey = readString(record, "basetenApiKey");
-  const anthropicApiKey = readString(record, "anthropicApiKey");
-  const googleApiKey = readString(record, "googleApiKey");
-  const googleVisionApiKey = readString(record, "googleVisionApiKey");
-  const hiveApiKey = readString(record, "hiveApiKey");
-  const elevenLabsApiKey = readString(record, "elevenLabsApiKey");
-
-  // Map each provider to its credential source and env var fallback
-  const apiKeyMap: Record<ApiKeyProvider, string | undefined> = {
-    "openai": openaiApiKey ?? env.OPENAI_API_KEY,
-    "baseten": basetenApiKey ?? env.BASETEN_API_KEY,
-    "anthropic": anthropicApiKey ?? env.ANTHROPIC_API_KEY,
-    "google": googleApiKey ?? env.GOOGLE_GENERATIVE_AI_API_KEY,
-    "google-vision-api": googleVisionApiKey ?? env.GOOGLE_VISION_API_KEY,
-    "hive": hiveApiKey ?? env.HIVE_API_KEY,
-    "elevenlabs": elevenLabsApiKey ?? env.ELEVENLABS_API_KEY,
-  };
-
-  const apiKey = apiKeyMap[provider];
+  const { credential, envVar } = PROVIDER_API_KEY_SETTINGS[provider];
+  const apiKey = readString(record, credential) ?? env[envVar];
   if (!apiKey) {
-    // Provide helpful error message with the correct env var name.
-    // Using `satisfies` ensures these stay in sync with the Env schema.
-    const envVarNames = {
-      "openai": "OPENAI_API_KEY",
-      "baseten": "BASETEN_API_KEY",
-      "anthropic": "ANTHROPIC_API_KEY",
-      "google": "GOOGLE_GENERATIVE_AI_API_KEY",
-      "google-vision-api": "GOOGLE_VISION_API_KEY",
-      "hive": "HIVE_API_KEY",
-      "elevenlabs": "ELEVENLABS_API_KEY",
-    } as const satisfies Record<ApiKeyProvider, keyof Env>;
-
-    throw new Error(
-      `${provider} API key is required. Provide ${provider} credentials via workflow credentials or set ${envVarNames[provider]} environment variable.`,
-    );
+    throw providerConfigError(providerNotConfiguredError(
+      `${provider} API key is required. Provide ${provider} credentials via workflow credentials or set ${envVar} environment variable.`,
+      { provider, reason: "api_key_missing", settings: [envVar, credential] },
+    ), options);
   }
 
   return apiKey;
@@ -298,14 +288,15 @@ export function resolveProviderApiKeyFromCredentials(
  * @param provider - The provider identifier (e.g., "openai", "anthropic")
  * @param credentials - Optional workflow credentials input
  * @returns The resolved API key string
- * @throws Error if no API key is available for the specified provider
+ * @throws MuxAiError (`provider_not_configured`) if no API key is available for the specified provider
  */
 export async function resolveProviderApiKey(
   provider: ApiKeyProvider,
   credentials?: WorkflowCredentialsInput,
 ): Promise<string> {
   const resolved = await resolveWorkflowCredentials(credentials);
-  return resolveProviderApiKeyFromCredentials(provider, resolved);
+  // Only workflows on the classified error model call this (through getApiKeyFromEnv).
+  return resolveProviderApiKeyFromCredentials(provider, resolved, { classifiedErrors: true });
 }
 
 /**

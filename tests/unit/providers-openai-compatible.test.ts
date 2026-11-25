@@ -63,17 +63,19 @@ describe("openai-compatible provider integration", () => {
   it("requires an explicit model when no default is configured", async () => {
     const { resolveLanguageModelConfig } = await import("../../src/lib/providers");
 
-    expect(() => resolveLanguageModelConfig({ provider: "openai-compatible" })).toThrow(
-      "OpenAI-compatible model is required.",
-    );
+    expect(() => resolveLanguageModelConfig({ provider: "openai-compatible" })).toThrow(expect.objectContaining({
+      code: "provider_not_configured",
+      facts: expect.objectContaining({ provider: "openai-compatible", reason: "model_missing" }),
+    }));
   });
 
   it("requires a base URL", async () => {
     const { createLanguageModelFromConfig } = await import("../../src/lib/providers");
 
-    await expect(createLanguageModelFromConfig("openai-compatible", "llama-3.3-70b-instruct")).rejects.toThrow(
-      "OpenAI-compatible base URL is required.",
-    );
+    await expect(createLanguageModelFromConfig("openai-compatible", "llama-3.3-70b-instruct")).rejects.toMatchObject({
+      code: "provider_not_configured",
+      facts: { provider: "openai-compatible", reason: "base_url_missing" },
+    });
   });
 
   it("creates language models without an API key for keyless endpoints", async () => {

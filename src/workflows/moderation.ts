@@ -1387,24 +1387,26 @@ function allSamplesFailedError(
   failures: Array<{ call: ModerationCall; failure?: MuxAiError }>,
   facts: MuxAiErrorFacts,
 ): MuxAiError {
-  // A sample without one failed outside the moderation call (e.g. a missing provider key): the SDK's own failure.
-  const errors = failures.map(({ call, failure }) => failure ?? internalError(message, { ...facts, call }));
+  // A sample without one failed outside the moderation call: the SDK's own failure.
+  const entries = failures.map(({ call, failure }) => ({ call, error: failure ?? internalError(message, { ...facts, call }) }));
   // Unreachable without errors: the caller only gets here with at least one failed sample.
-  const callWide = errors.filter(error => !isSampleSpecific(error));
-  const representative =
-    callWide.find(error => !error.transient) ??
+  const callWide = entries.filter(({ error }) => !isSampleSpecific(error));
+  const chosen =
+    callWide.find(({ error }) => !error.transient) ??
     callWide[0] ??
-    errors.find(error => !error.transient) ??
-    errors[0];
-  if (!representative) {
+    entries.find(({ error }) => !error.transient) ??
+    entries[0];
+  if (!chosen) {
     return internalError(message, facts);
   }
+  const representative = chosen.error;
   return new MuxAiError(message, {
     ...(representative.code && { code: representative.code }),
     type: representative.type,
     source: representative.source,
     ...(representative.dependency && { dependency: representative.dependency }),
-    facts: { ...facts, ...representative.facts },
+    // The sample's call, for a failure raised before the call was made (e.g. a missing provider key).
+    facts: { ...facts, call: chosen.call, ...representative.facts },
     transient: representative.transient,
     retryable: representative.retryable,
     cause: representative,

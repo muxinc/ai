@@ -31,6 +31,7 @@ const {
 const { resolveMuxSigningContext } = await import("../../src/lib/workflow-credentials");
 const { getThumbnailUrlsFromTimestamps } = await import("../../src/lib/thumbnail-urls");
 const { MuxAiError } = await import("../../src/lib/mux-ai-error");
+const { providerNotConfiguredError } = await import("../../src/lib/provider-config-errors");
 const { getModerationScores } = await import("../../src/workflows/moderation");
 
 const mockFetch = vi.fn();
@@ -417,6 +418,22 @@ describe("getModerationScores classified errors: every sample failed", () => {
     const error = await moderationError("asset-123", { provider: "hive" });
 
     expect(error).toMatchObject({ type: "server_error", source: "internal", facts: { call: "moderate_thumbnails", provider: "hive" } });
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("reports a missing provider key's own code for the run", async () => {
+    vi.mocked(getApiKeyFromEnv).mockRejectedValue(providerNotConfiguredError("hive API key is required.", { provider: "hive", reason: "api_key_missing", settings: ["HIVE_API_KEY", "hiveApiKey"] }));
+
+    const error = await moderationError("asset-123", { provider: "hive" });
+
+    expect(error).toMatchObject({
+      code: "provider_not_configured",
+      type: "server_error",
+      source: "internal",
+      transient: false,
+      retryable: false,
+      facts: { call: "moderate_thumbnails", provider: "hive", reason: "api_key_missing" },
+    });
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
