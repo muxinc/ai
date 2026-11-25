@@ -90,5 +90,7 @@ export async function createPresignedGetUrlWithStorageAdapter(
     bucket: input.bucket,
     key: input.key,
     expiresInSeconds: input.expiresInSeconds,
+    responseContentType: input.responseContentType,
+    responseContentDisposition: input.responseContentDisposition,
   });
 }
