@@ -28,10 +28,12 @@ vi.mock("../../src/lib/image-download", () => ({
 }));
 
 vi.mock("../../src/primitives/storyboards", () => ({
+  getStoryboardFrames: vi.fn(),
   getStoryboardUrl: vi.fn(),
 }));
 
-vi.mock("../../src/primitives/transcripts", () => ({
+vi.mock("../../src/primitives/transcripts", async importOriginal => ({
+  ...await importOriginal<typeof import("../../src/primitives/transcripts")>(),
   fetchTranscriptForAsset: vi.fn(),
 }));
 
@@ -46,11 +48,11 @@ const {
 } = await import("../../src/lib/mux-assets");
 const { createLanguageModelFromConfig, resolveLanguageModelConfig } = await import("../../src/lib/providers");
 const { resolveMuxSigningContext } = await import("../../src/lib/workflow-credentials");
-const { getStoryboardUrl } = await import("../../src/primitives/storyboards");
+const { getStoryboardFrames, getStoryboardUrl } = await import("../../src/primitives/storyboards");
 const { fetchTranscriptForAsset } = await import("../../src/primitives/transcripts");
 const { askQuestions } = await import("../../src/workflows/ask-questions");
 
-const ANSWER = { question: "echo", answer: "yes", confidence: 0.9, reasoning: "Shown on screen.", skipped: false };
+const ANSWER = { question: "echo", answer: "yes", confidence: 0.9, reasoning: "Shown on screen.", skipped: false, timestamp: null };
 
 function mockModelAnswers(answers: unknown[]) {
   vi.mocked(generateText).mockResolvedValue({
@@ -80,6 +82,7 @@ beforeEach(() => {
     transcriptText: "A presenter holds up a pair of glasses.",
   } as any);
   vi.mocked(getStoryboardUrl).mockResolvedValue("https://image.example/storyboard.jpg");
+  vi.mocked(getStoryboardFrames).mockResolvedValue([]);
   mockModelAnswers([ANSWER]);
 });
 
@@ -117,6 +120,20 @@ describe("askQuestions classified errors", () => {
       code: "invalid_parameter",
       facts: { parameter: "includeTranscript", reason: "audio_only", inputs: ["includeTranscript"] },
     });
+  });
+
+  it("codes an audio-only transcript without cues as transcript_empty", async () => {
+    vi.mocked(isAudioOnlyAsset).mockReturnValue(true);
+    vi.mocked(fetchTranscriptForAsset).mockResolvedValue({
+      track: { id: "text-track", language_code: "en", status: "ready", type: "text" },
+      transcriptText: "WEBVTT\n",
+    } as any);
+
+    await expect(askQuestions("asset-123", QUESTION)).rejects.toMatchObject({
+      code: "transcript_empty",
+      facts: { assetId: "asset-123", trackId: "text-track" },
+    });
+    expect(generateText).not.toHaveBeenCalled();
   });
 
   it("codes a signed asset without signing keys as signing_credentials_missing", async () => {

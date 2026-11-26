@@ -44,6 +44,7 @@ import {
 } from "../lib/prompt-fragments.ts";
 import { createLanguageModelFromConfig, resolveLanguageModelConfig } from "../lib/providers.ts";
 import type { ModelIdByProvider, SupportedProvider } from "../lib/providers.ts";
+import { labelStoryboardFrames, storyboardFrameLabel } from "../lib/storyboard-labels.ts";
 import { rethrowWithTokenUsage } from "../lib/token-usage.ts";
 import { signingCredentialsMissingError } from "../lib/url-signing.ts";
 import { resolveMuxSigningContext } from "../lib/workflow-credentials.ts";
@@ -52,8 +53,9 @@ import {
   resolveRenderableVideoScope,
   resolveWorkflowScope,
 } from "../lib/workflow-scope.ts";
-import { getStoryboardUrl } from "../primitives/storyboards.ts";
-import { fetchTranscriptForAsset } from "../primitives/transcripts.ts";
+import { getStoryboardFrames, getStoryboardUrl } from "../primitives/storyboards.ts";
+import type { StoryboardFrame } from "../primitives/storyboards.ts";
+import { extractTextFromVTT, fetchTranscriptForAsset, parseVTTCues } from "../primitives/transcripts.ts";
 import type { ImageSubmissionMode, ScopedMuxAIOptions, TokenUsage, WorkflowCredentialsInput } from "../types.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -133,6 +135,12 @@ export interface QuestionAnswer {
   reasoning: string;
   /** Whether the question was skipped due to irrelevance to the asset content */
   skipped: boolean;
+  /**
+   * Seconds from the start of the asset to the moment that best supports the
+   * answer. Omitted when the answer doesn't rest on a single moment, or when
+   * the question was skipped.
+   */
+  timestamp?: number;
 }
 
 /** Configuration options for askQuestions workflow. */
@@ -145,11 +153,19 @@ export interface AskQuestionsOptions extends ScopedMuxAIOptions {
   languageCode?: string;
   /** Fetch transcript alongside storyboard (defaults to true, required for audio-only assets). */
   includeTranscript?: boolean;
-  /** Strip timestamps/markup from transcripts (defaults to true). */
+  /**
+   * Give the model plain text with each cue's start time, and return the
+   * transcript text as plain text. When false, both are raw WebVTT
+   * (defaults to true).
+   */
   cleanTranscript?: boolean;
-  /** How storyboard should be delivered to the provider (defaults to 'url'). */
+  /**
+   * How storyboard should be delivered to the provider (defaults to 'url').
+   * When Mux reports the storyboard's frame times, the storyboard is
+   * downloaded, labeled with frame numbers and sent inline regardless.
+   */
   imageSubmissionMode?: ImageSubmissionMode;
-  /** Fine-tune storyboard downloads when imageSubmissionMode === 'base64'. */
+  /** Fine-tune storyboard downloads (when the storyboard is labeled or imageSubmissionMode === 'base64'). */
   imageDownloadOptions?: ImageDownloadOptions;
   /** Storyboard width in pixels (defaults to 640). */
   storyboardWidth?: number;
@@ -229,6 +245,7 @@ export const questionAnswerSchema = z.object({
   confidence: z.number(),
   reasoning: z.string().max(1000),
   skipped: z.boolean(),
+  timestamp: z.number().nullish(),
 });
 
 export type QuestionAnswerType = z.infer<typeof questionAnswerSchema>;
@@ -251,6 +268,8 @@ function createAskQuestionsSchema(answerSchema: z.ZodType<string>) {
     answers: z.array(
       questionAnswerSchema.extend({
         answer: answerSchema,
+        // OpenAI structured outputs require every property.
+        timestamp: z.number().nullable(),
       }),
     ),
   });
@@ -307,6 +326,21 @@ const SYSTEM_PROMPT = promptDedent`
     - Reasoning should cite specific visual or audio evidence
     - Be precise: cite specific frames, objects, actions, or transcript quotes
   </answer_guidelines>
+
+  <timestamp_guidance>
+    Leave timestamp null unless the answer depends on something that happens
+    at a particular moment, such as an event, a line of speech, a piece of
+    on-screen text or a particular shot. Then set timestamp to the time, in
+    seconds from the start of the asset, of the moment that best shows it:
+    - For visual evidence, find the number printed just below that frame and
+      use the time listed for it in <storyboard_frames>
+    - For spoken evidence, use the start time of the transcript line or cue that contains it
+    - Use only times given in the input; never estimate a time
+    - Set timestamp to null when the answer is about the video as a whole (its
+      topic, genre, setting or style), when the subject appears in many frames
+      or throughout the speech, when the queried subject is absent, when no
+      time is given for the evidence, or when the question is skipped
+  </timestamp_guidance>
 
   <relevance_filtering>
     IMPORTANT: Evaluate each question INDEPENDENTLY for relevance to the video
@@ -412,6 +446,17 @@ const AUDIO_ONLY_SYSTEM_PROMPT = promptDedent`
     - Reasoning should cite specific transcript evidence
     - Be precise: cite specific quotes or passages from transcript text
   </answer_guidelines>
+
+  <timestamp_guidance>
+    Leave timestamp null unless the answer depends on something said at a
+    particular moment. Then set timestamp to the time, in seconds from the
+    start of the asset, of the moment that best shows it:
+    - Use the start time of the transcript line or cue that contains the evidence
+    - Use only times given in the input; never estimate a time
+    - Set timestamp to null when the answer is about the recording as a whole
+      (its topic, genre or style), when the subject comes up throughout, when
+      the queried subject is absent, or when the question is skipped
+  </timestamp_guidance>
 
   <relevance_filtering>
     IMPORTANT: Evaluate each question INDEPENDENTLY for relevance to the audio
@@ -586,7 +631,8 @@ function normalizeQuestion(q: Question, idx: number): NormalizedQuestion {
 interface UserPromptContext {
   questions: NormalizedQuestion[];
   transcriptText?: string;
-  isCleanTranscript?: boolean;
+  storyboardFrames?: StoryboardFrame[];
+  transcriptFormat?: "plain text" | "timestamped text" | "WebVTT";
   isAudioOnly?: boolean;
   maxFreeFormAnswerLength: number;
 }
@@ -617,7 +663,8 @@ function renderFormatTag(
 function buildUserPrompt({
   questions,
   transcriptText,
-  isCleanTranscript = true,
+  storyboardFrames = [],
+  transcriptFormat = "timestamped text",
   isAudioOnly = false,
   maxFreeFormAnswerLength,
 }: UserPromptContext): string {
@@ -650,9 +697,16 @@ function buildUserPrompt({
   const questionsSection = `<questions>\n${questionBlocks}\n</questions>`;
 
   const sections: string[] = [];
+  if (storyboardFrames.length) {
+    sections.push(renderSection({
+      tag: "storyboard_frames",
+      content: storyboardFrames
+        .map((frame, idx) => `${storyboardFrameLabel(idx)}: ${Math.round(frame.startTime)}s`)
+        .join("\n"),
+    }));
+  }
   if (transcriptText) {
-    const format = isCleanTranscript ? "plain text" : "WebVTT";
-    sections.push(renderSection(createTranscriptSection(transcriptText, format)));
+    sections.push(renderSection(createTranscriptSection(transcriptText, transcriptFormat)));
   }
   sections.push(taskSection);
   sections.push(questionsSection);
@@ -697,6 +751,14 @@ interface AnalyzeQuestionsInput {
   normalizedQuestions: NormalizedQuestion[];
   maxFreeFormAnswerLength: number;
   imageDataUrl?: string;
+  labeledStoryboard?: {
+    url: string;
+    frames: StoryboardFrame[];
+    downloadOptions?: ImageDownloadOptions;
+    /** The caller asked for the image inline, so the provider may not be able to fetch the URL. */
+    inline: boolean;
+    unlabeledUserPrompt: string;
+  };
   credentials?: WorkflowCredentialsInput;
 }
 
@@ -738,10 +800,37 @@ async function analyzeQuestions({
   normalizedQuestions,
   maxFreeFormAnswerLength,
   imageDataUrl,
+  labeledStoryboard,
   credentials,
 }: AnalyzeQuestionsInput): Promise<AnalysisResponse> {
   "use step";
   const model = await createLanguageModelFromConfig(provider, modelId, credentials);
+  let image: string | Uint8Array | undefined = imageDataUrl;
+  let prompt = userPrompt;
+  if (labeledStoryboard) {
+    const { url, frames, downloadOptions, inline, unlabeledUserPrompt } = labeledStoryboard;
+    // Labels only anchor answer timestamps, so the questions are still answered from the unlabeled storyboard.
+    const answerUnlabeled = (error: unknown) => {
+      console.warn("[@mux/ai] Failed to label storyboard frames; answering without frame times:", error);
+      prompt = unlabeledUserPrompt;
+    };
+    const download = await downloadImageAsBase64(url, downloadOptions, { classifiedErrors: true, call: "fetch_storyboard" })
+      .catch((error: unknown) => {
+        if (inline)
+          throw error;
+        answerUnlabeled(error);
+        return undefined;
+      });
+    image = url;
+    if (download) {
+      try {
+        image = await labelStoryboardFrames(download.buffer, frames);
+      } catch (error) {
+        answerUnlabeled(error);
+        image = download.buffer;
+      }
+    }
+  }
 
   const responseSchema = buildResponseSchemaForQuestions(
     normalizedQuestions,
@@ -758,12 +847,12 @@ async function analyzeQuestions({
     messages: [
       {
         role: "user",
-        content: imageDataUrl ?
+        content: image ?
             [
-              { type: "text", text: userPrompt },
-              { type: "image", image: imageDataUrl },
+              { type: "text", text: prompt },
+              { type: "image", image, ...(image instanceof Uint8Array && { mediaType: "image/jpeg" }) },
             ] :
-          userPrompt,
+          prompt,
       },
     ],
   }), undefined, context).catch((error: unknown) => {
@@ -995,11 +1084,12 @@ async function askQuestionsInternal(
     throw signingCredentialsMissingError();
   }
 
+  // Fetched as WebVTT either way, so cue start times can anchor answer timestamps.
   const transcriptResult =
     includeTranscript ?
         await fetchTranscriptForAsset(assetData, playbackId, {
           languageCode,
-          cleanTranscript,
+          cleanTranscript: false,
           shouldSign: policy === "signed",
           credentials,
           required: isAudioOnly,
@@ -1007,34 +1097,55 @@ async function askQuestionsInternal(
           classifiedErrors: true,
         }) :
       undefined;
-  const transcriptText = transcriptResult?.transcriptText ?? "";
-
-  // Build the user prompt with questions (each with their allowed answers or free-form format) and optional transcript
-  const userPrompt = buildUserPrompt({
-    questions: normalizedQuestions,
-    transcriptText,
-    isCleanTranscript: cleanTranscript,
-    isAudioOnly,
-    maxFreeFormAnswerLength,
-  });
-  const systemPrompt = buildSystemPrompt(isAudioOnly, hasFreeForm, maxFreeFormAnswerLength);
+  const transcriptVtt = transcriptResult?.transcriptText ?? "";
+  const transcriptText = cleanTranscript ? extractTextFromVTT(transcriptVtt) : transcriptVtt;
+  const timedTranscript = parseVTTCues(transcriptVtt).map(cue => `[${cue.startTime}s] ${cue.text}`).join("\n");
+  const promptTranscript = cleanTranscript ? timedTranscript || transcriptText : transcriptVtt;
+  if (isAudioOnly && !promptTranscript) {
+    throw new MuxAiError("No usable content found in transcript.", {
+      code: MUX_AI_ERROR_CODES.TRANSCRIPT_EMPTY,
+      type: MUX_AI_ERROR_TYPES.VALIDATION_ERROR,
+      source: MUX_AI_ERROR_SOURCES.ASSET,
+      facts: { assetId, ...(transcriptResult?.track?.id && { trackId: transcriptResult.track.id }) },
+    });
+  }
 
   // Video analysis sends the storyboard; audio-only analysis uses the transcript only.
   let imageUrl: string | undefined;
   let imageDataUrl: string | undefined;
+  let storyboardFrames: StoryboardFrame[] = [];
   if (!isAudioOnly) {
-    // Generate storyboard URL (signed if needed)
+    // Frame times only anchor answer timestamps, so the questions are still answered without them.
+    storyboardFrames = await getStoryboardFrames(playbackId, storyboardWidth, policy === "signed", credentials, storyboardScope).catch((error: unknown) => {
+      console.warn("[@mux/ai] Failed to fetch storyboard frame times:", error);
+      return [];
+    });
+    // Labeling decodes the storyboard, which is only done for JPEGs.
     imageUrl = await getStoryboardUrl(
       playbackId,
       storyboardWidth,
       policy === "signed",
       credentials,
       storyboardScope,
+      storyboardFrames.length ? "jpg" : "png",
     );
-    imageDataUrl = imageSubmissionMode === "base64" ?
-        await fetchImageAsBase64(imageUrl, imageDownloadOptions) :
-      imageUrl;
+    if (!storyboardFrames.length) {
+      imageDataUrl = imageSubmissionMode === "base64" ?
+          await fetchImageAsBase64(imageUrl, imageDownloadOptions) :
+        imageUrl;
+    }
   }
+
+  // Build the user prompt with questions (each with their allowed answers or free-form format) and optional transcript
+  const promptContext = {
+    questions: normalizedQuestions,
+    transcriptText: promptTranscript,
+    transcriptFormat: !cleanTranscript ? "WebVTT" as const : timedTranscript ? "timestamped text" as const : "plain text" as const,
+    isAudioOnly,
+    maxFreeFormAnswerLength,
+  };
+  const userPrompt = buildUserPrompt({ ...promptContext, storyboardFrames });
+  const systemPrompt = buildSystemPrompt(isAudioOnly, hasFreeForm, maxFreeFormAnswerLength);
 
   const modelFacts: MuxAiErrorFacts = { call: "answer_questions", provider: modelConfig.provider, model: modelConfig.modelId, assetId };
   const analysisResponse = await analyzeQuestions({
@@ -1045,6 +1156,15 @@ async function askQuestionsInternal(
     normalizedQuestions,
     maxFreeFormAnswerLength,
     imageDataUrl,
+    ...(imageUrl && storyboardFrames.length && {
+      labeledStoryboard: {
+        url: imageUrl,
+        frames: storyboardFrames,
+        downloadOptions: imageDownloadOptions,
+        inline: imageSubmissionMode === "base64",
+        unlabeledUserPrompt: buildUserPrompt(promptContext),
+      },
+    }),
     credentials,
   }).catch((error: unknown) => wrapError(error, `Failed to analyze ${isAudioOnly ? "audio" : "video"} questions with ${modelConfig.provider}`, modelFacts));
 
@@ -1153,6 +1273,16 @@ async function askQuestionsInternal(
 
     const suppressed = reasoningScrub.leaked || (answerScrub?.leaked ?? false);
 
+    // Frame times are rounded in the prompt, so the last one can be listed up to half a second past the end.
+    const timestamp = !isSkipped &&
+      raw.timestamp !== null &&
+      Number.isFinite(raw.timestamp) &&
+      raw.timestamp >= (effectiveScope?.startTime ?? 0) &&
+      (effectiveScope?.endTime === undefined || raw.timestamp <= effectiveScope.endTime) &&
+      (assetDurationSeconds === undefined || raw.timestamp <= assetDurationSeconds + 0.5) ?
+        Math.min(raw.timestamp, assetDurationSeconds ?? Infinity) :
+      undefined;
+
     return {
       // Use the trusted input verbatim rather than the model's echo.
       question: question.question,
@@ -1160,6 +1290,7 @@ async function askQuestionsInternal(
       reasoning: suppressed ? "Response suppressed by safety filter." : reasoningScrub.text,
       skipped: isSkipped,
       answer: finalAnswer,
+      ...(timestamp !== undefined && { timestamp }),
     };
   });
 

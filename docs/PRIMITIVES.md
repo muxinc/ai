@@ -131,7 +131,7 @@ const timestamped = extractTimestampedTranscript(vttContent);
 
 ## Image Primitives
 
-### `getStoryboardUrl(playbackId, width?, shouldSign?, credentials?, scope?)`
+### `getStoryboardUrl(playbackId, width?, shouldSign?, credentials?, scope?, format?)`
 
 Generates a Mux storyboard URL (sprite sheet of video frames).
 
@@ -149,6 +149,33 @@ const storyboardUrl = await getStoryboardUrl("playback-id", 640);
 - `shouldSign?: boolean` - For signed playback policies
 - `credentials?: WorkflowCredentialsInput` - Optional workflow credentials used for signing
 - `scope?: { startTime?: number; endTime?: number }` - Restrict tiles to an asset-relative range
+- `format?: 'png' | 'jpg'` - Image format (default: 'png')
+
+### `getStoryboardFrames(playbackId, width?, shouldSign?, credentials?, scope?)`
+
+Lists the frames of the storyboard that `getStoryboardUrl` returns for the same scope and width, in reading order, with each frame's time in the asset.
+
+```typescript
+import { getStoryboardFrames } from "@mux/ai/primitives";
+
+const frames = await getStoryboardFrames("playback-id");
+// [
+//   { startTime: 0, row: 0, column: 0, width: 284, height: 160 },
+//   { startTime: 4.995, row: 0, column: 1, width: 284, height: 160 }
+// ]
+```
+
+**Returns:** `StoryboardFrame[]`, or an empty list when Mux's response can't be read
+
+```typescript
+interface StoryboardFrame {
+  startTime: number; // Seconds from start of asset
+  row: number; // Grid row of the tile, from 0
+  column: number; // Grid column of the tile, from 0
+  width: number; // Tile width in pixels
+  height: number; // Tile height in pixels
+}
+```
 
 ### `getThumbnailUrls(playbackId, duration, options?)`
 

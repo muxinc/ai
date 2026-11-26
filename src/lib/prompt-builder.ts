@@ -204,7 +204,7 @@ export function createPromptBuilder<TSections extends string>(
  */
 export function createTranscriptSection(
   transcriptText: string,
-  format: "plain text" | "WebVTT" = "plain text",
+  format: "plain text" | "timestamped text" | "WebVTT" = "plain text",
 ): PromptSection {
   return {
     tag: "transcript",
